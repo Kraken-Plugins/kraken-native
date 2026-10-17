@@ -1,0 +1,17 @@
+{
+  "builds": {
+    "166231c8f6bd05c7542b8f0d35eb64b0aad701a87ba6ba41f60c4706de946944": {
+      "file": "166231c8f6bd05c7.json",
+      "timestamp": "2026-09-30T16:41:00Z",
+      "tag": "OSRS-ORSM295-BWXF",
+      "summary": {
+        "FAILED": 0,
+        "NEEDS_REVIEW": 0,
+        "INFERRED": 9,
+        "ANCHORED": 209,
+        "PROVEN": 1
+      }
+    }
+  },
+  "latest": "166231c8f6bd05c7542b8f0d35eb64b0aad701a87ba6ba41f60c4706de946944"
+}

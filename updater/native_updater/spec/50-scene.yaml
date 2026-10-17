@@ -1,0 +1,136 @@
+keys:
+  - key: Scene.sizeX
+    type: i32
+    priority: P0
+    live: scene
+    strategies:
+      - extractor: { name: scene_grid, field: Scene.sizeX, cls: A }
+  - key: Scene.sizeZ
+    type: i32
+    priority: P0
+    live: scene
+    strategies:
+      - extractor: { name: scene_grid, field: Scene.sizeZ, cls: A }
+    invariants:
+      - equals: "Scene.sizeX + 4"
+  - key: Scene.tiles
+    type: ptr<TileEntry[]>
+    priority: P0
+    live: scene
+    doc: "index = (plane*sizeX + x)*sizeZ + z; entries are tileEntryStride bytes with Tile* at tileEntryPtrOffset."
+    strategies:
+      - extractor: { name: scene_grid, field: Scene.tiles, cls: A }
+  - key: Scene.bridgeTiles
+    type: ptr<TileEntry[]>
+    priority: P1
+    strategies:
+      - extractor: { name: scene_grid, field: Scene.bridgeTiles, cls: A }
+  - key: Scene.tileEntryStride
+    type: const
+    priority: P0
+    live: scene
+    strategies:
+      - extractor: { name: scene_grid, field: Scene.tileEntryStride, cls: A }
+  - key: Scene.tileEntryPtrOffset
+    type: const
+    priority: P0
+    live: scene
+    strategies:
+      - extractor: { name: scene_grid, field: Scene.tileEntryPtrOffset, cls: A }
+
+  - key: Tile.wall
+    type: ptr<Loc>
+    priority: P0
+    live: scene
+    strategies:
+      - extractor: { name: scene_grid, field: Tile.wall, cls: A }
+  - key: Tile.wallDecor
+    type: ptr<Loc>
+    priority: P0
+    live: scene
+    strategies:
+      - extractor: { name: scene_grid, field: Tile.wallDecor, cls: A }
+  - key: Tile.groundDecor
+    type: ptr<Loc>
+    priority: P0
+    live: scene
+    strategies:
+      - extractor: { name: scene_grid, field: Tile.groundDecor, cls: A }
+  - key: Tile.gameObjectCount
+    type: i32
+    priority: P0
+    live: scene
+    strategies:
+      - extractor: { name: tile_game_objects, field: Tile.gameObjectCount, cls: A }
+  - key: Tile.gameObjects
+    type: ptr<{ctrl, GameObject*}[]>
+    priority: P0
+    live: scene
+    strategies:
+      - extractor: { name: tile_game_objects, field: Tile.gameObjects, cls: A }
+  - key: Tile.gameObjectEntryStride
+    type: const
+    priority: P0
+    live: scene
+    strategies:
+      - extractor: { name: tile_game_objects, field: Tile.gameObjectEntryStride, cls: A }
+
+  - key: Loc.tag
+    type: i64
+    priority: P0
+    live: scene
+    doc: type id = tag >> Loc.tagIdShift
+    strategies:
+      - extractor: { name: scene_grid, field: Loc.tag, cls: A }
+  - key: Loc.tagIdShift
+    type: const
+    priority: P0
+    live: scene
+    strategies:
+      - extractor: { name: scene_grid, field: Loc.tagIdShift, cls: A }
+  - key: GameObject.tag
+    type: i64
+    priority: P0
+    live: scene
+    strategies:
+      - extractor: { name: scene_grid, field: GameObject.tag, cls: A }
+  - key: GameObject.originX
+    type: i32
+    priority: P0
+    live: scene
+    strategies:
+      - extractor: { name: tile_game_objects, field: GameObject.originX, cls: A }
+  - key: GameObject.originZ
+    type: i32
+    priority: P0
+    live: scene
+    strategies:
+      - extractor: { name: tile_game_objects, field: GameObject.originZ, cls: A }
+
+  - key: GroundItem.id
+    type: i32
+    priority: P0
+    live: groundItems
+    strategies:
+      - getter: { in: "@ObjPileLookup", base: { field: { of: any, offset: 0x18 } }, load: i32, select: { used_in_cmp: true } }
+  - key: GroundItem.count
+    type: i32
+    priority: P0
+    live: groundItems
+    strategies:
+      - getter: { in: ClientOp.objCount, base: sp_result, load: i32, select: { nth: 0 } }
+    invariants:
+      - equals: "GroundItem.id + 4"
+
+  - key: LocType.id
+    type: i32
+    priority: P1
+    doc: Read from the LocType pointer stored at +0x10 of the active-loc record.
+    strategies:
+      - getter: { in: ClientOp.locTypeId, base: { field: { of: any, offset: 0x10 } }, load: i32, select: { nth: 0 } }
+  - key: LocType.size
+    type: const
+    priority: P1
+    doc: Allocation size of a LocType record.
+    strategies:
+      - extractor: { name: alloc_sizes, in: "@ConfigLoader.6", field: LocType.size }

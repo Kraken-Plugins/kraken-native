@@ -1,0 +1,54 @@
+# Binding tables, member tables and fingerprints. Anchors are Lua API names that identify each sol2
+# registration function; the parser then maps every name in that function to its handler.
+tables:
+  ClientOp:        { anchors: [npcCoord, locFind] }
+  ClientState:     { anchors: [getStatXP, getTickCount] }
+  Camera:          { anchors: [getLookAtAngles, getPos] }
+  Graphics:        { anchors: [worldToScreenCoord, clientDimensions] }
+  Utils:           { anchors: [getCollisionMap] }
+  osrs.Entity:     { anchors: [osrs.Entity] }
+  osrs.Npc:        { anchors: [osrs.Npc] }
+  osrs.Player:     { anchors: [osrs.Player] }
+  osrs.NpcType:    { anchors: [osrs.NpcType] }
+  osrs.LocType:    { anchors: [osrs.LocType] }
+  osrs.ObjType:    { anchors: [osrs.ObjType] }
+  osrs.IfType:     { anchors: [osrs.IfType] }
+  osrs.InterfaceCoordinates: { anchors: [osrs.InterfaceCoordinates] }
+  InterfaceQuery:  { anchors: [retrieveIfGroup, retrieveIfType] }
+  CollisionMap:    { anchors: [getBitFlags] }
+
+# Every data-member property registered in these usertypes becomes a key "<struct>.<name>" with the offset
+# the client itself registered (class A anchor).
+member_tables:
+  - { table: osrs.IfType, struct: IfType, priority: P0, live: widgets }
+  - { table: osrs.InterfaceCoordinates, struct: InterfaceCoordinates, priority: P1 }
+
+fingerprints:
+  NpcLookup:            { callee_of: ClientOp.npcCoord, imm: 0x10000 }
+  PlayerLookup:         { callee_of: ClientOp.playerCoord, imm: 0x800 }
+  EntityResolver:       { common_callee_of: [osrs.Entity.isInteracting, osrs.Entity.isHealthbarRendered, osrs.Entity.isHeadbarEmpty] }
+  ActorWorld:           { callee_of: ClientOp.npcCoord, arg0: sp_result }
+  WorldFromCoord:       { callee_of: ClientOp.locFind, arg0: { addr: client } }
+  WorldBounds:          { callee_of: "@WorldFromCoord", min_args: 3 }
+  TileLookup:           { callee_of: ClientOp.locFind, min_args: 6 }
+  ObjPileLookup:        { callee_of: ClientOp.objFind, min_args: 5 }
+  VarbitRead:           { callee_of: ClientState.getVarbit, calls: "@ConfigLoader.14", include_self: true }
+  ConfigLoaderCore:     { extractor: config_loader_core, cls: C }
+  ConfigLoader.6:       { extractor: config_loader_core, field: ConfigLoader.6, cls: C }
+  ConfigLoader.9:       { extractor: config_loader_core, field: ConfigLoader.9, cls: C }
+  ConfigLoader.10:      { extractor: config_loader_core, field: ConfigLoader.10, cls: C }
+  ConfigLoader.12:      { extractor: config_loader_core, field: ConfigLoader.12, cls: C }
+  ConfigLoader.13:      { extractor: config_loader_core, field: ConfigLoader.13, cls: C }
+  ConfigLoader.14:      { extractor: config_loader_core, field: ConfigLoader.14, cls: C }
+  SetSequence:          { extractor: set_sequence, field: SetSequence, cls: C }
+  ActorCtor:            { extractor: actor_ctor, field: ActorCtor, cls: D }
+  NpcUpdateDecoder:     { caller_of: "@SetSequence", calls: "@ConfigLoader.9", unique: false }
+  OperatorNew:          { extractor: operator_new }
+  LocTagToId:           { extractor: scene_grid, field: LocTagToId, cls: A }
+  TileGameObjectLookup: { extractor: scene_grid, field: TileGameObjectLookup, cls: A }
+  ObjPileTile:          { extractor: obj_pile_grid, field: ObjPileTile, cls: A }
+  WorldToScreen:        { binding: Graphics.worldToScreenCoord }
+  ProjectionCore:       { callee_of: "@WorldToScreen", min_args: 7 }
+  ActorNameGetter:      { callee_of: ClientOp.npcName, arg0: sp_result }
+  InvLookupIds:         { callee_of: ClientOp.invGetObjId }
+  InvLookupCounts:      { callee_of: ClientOp.invGetNum }

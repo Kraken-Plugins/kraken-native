@@ -1,0 +1,129 @@
+keys:
+  - key: World.scene
+    type: ptr<Scene>
+    priority: P0
+    live: scene
+    strategies:
+      - getter: { in: ClientOp.locFind, base: { ret: "@WorldFromCoord" }, load: ptr, select: { passed_to: { fn: "@TileLookup", arg: 0 } } }
+
+  - key: World.plane
+    type: i32
+    priority: P0
+    live: fineVsPath
+    strategies:
+      - getter: { in: ClientOp.npcCoord, base: { ret: "@ActorWorld" }, load: i32, select: { stored_to: { arg: 0, offset: 0 } } }
+      - getter: { in: ClientOp.playerCoord, base: { ret: "@ActorWorld" }, load: i32, select: { stored_to: { arg: 0, offset: 0 } } }
+
+  - key: World.baseX
+    type: i32
+    priority: P0
+    live: worldBase
+    strategies:
+      - getter: { in: ClientOp.locFind, base: { ret: "@WorldFromCoord" }, load: i32, select: { passed_to: { arg: 2 } } }
+  - key: World.baseZ
+    type: i32
+    priority: P0
+    live: worldBase
+    strategies:
+      - getter: { in: ClientOp.locFind, base: { ret: "@WorldFromCoord" }, load: i32, select: { passed_to: { arg: 3 } } }
+    invariants:
+      - equals: "World.baseX + 4"
+  - key: World.width
+    type: i32
+    priority: P0
+    live: worldBase
+    strategies:
+      - getter: { in: "@WorldBounds", base: node_value, load: i32, select: { combined_with: { key: World.baseX } } }
+  - key: World.height
+    type: i32
+    priority: P0
+    live: worldBase
+    strategies:
+      - getter: { in: "@WorldBounds", base: node_value, load: i32, select: { combined_with: { key: World.baseZ } } }
+
+  - key: World.players
+    type: eastl.hash_map<i32, jag.shared_ptr<Player>>
+    priority: P0
+    live: players
+    strategies:
+      - hash-map: { in: "@PlayerLookup", base: node_value, part: map }
+      - hash-map: { in: "@EntityResolver", base: { field: { of: client, key: Client.topLevelWorld } }, nth: 0, part: map }
+  - key: World.players.buckets
+    type: ptr
+    priority: P0
+    live: players
+    strategies:
+      - hash-map: { in: "@PlayerLookup", base: node_value, part: buckets }
+      - hash-map: { in: "@EntityResolver", base: { field: { of: client, key: Client.topLevelWorld } }, nth: 0, part: buckets }
+    invariants:
+      - equals: "World.players + 8"
+  - key: World.players.count
+    type: i64
+    priority: P0
+    live: players
+    strategies:
+      - hash-map: { in: "@PlayerLookup", base: node_value, part: count }
+      - hash-map: { in: "@EntityResolver", base: { field: { of: client, key: Client.topLevelWorld } }, nth: 0, part: count }
+    invariants:
+      - equals: "World.players + 0x10"
+
+  - key: World.npcs
+    type: eastl.hash_map<i32, jag.shared_ptr<Npc>>
+    priority: P0
+    live: npcs
+    strategies:
+      - hash-map: { in: "@NpcLookup", base: node_value, part: map }
+      - hash-map: { in: "@EntityResolver", base: { field: { of: client, key: Client.topLevelWorld } }, nth: 1, part: map }
+  - key: World.npcs.buckets
+    type: ptr
+    priority: P0
+    live: npcs
+    strategies:
+      - hash-map: { in: "@NpcLookup", base: node_value, part: buckets }
+      - hash-map: { in: "@EntityResolver", base: { field: { of: client, key: Client.topLevelWorld } }, nth: 1, part: buckets }
+    invariants:
+      - equals: "World.npcs + 8"
+  - key: World.npcs.count
+    type: i64
+    priority: P0
+    live: npcs
+    strategies:
+      - hash-map: { in: "@NpcLookup", base: node_value, part: count }
+      - hash-map: { in: "@EntityResolver", base: { field: { of: client, key: Client.topLevelWorld } }, nth: 1, part: count }
+    invariants:
+      - equals: "World.npcs + 0x10"
+
+  - key: World.npcIndices
+    type: ptr<i32[]>
+    priority: P0
+    live: npcs
+    strategies:
+      - getter: { in: ClientOp.getNpcIdAll, base: node_value, load: ptr, select: { used_as_base: true, min: 0x20 } }
+  - key: World.npcIndexCount
+    type: i32
+    priority: P0
+    live: npcs
+    strategies:
+      - getter: { in: ClientOp.getNpcIdAll, base: node_value, load: i32, select: { used_in_cmp: true, min: 0x20 } }
+    invariants:
+      - equals: "World.npcIndices + 8"
+
+  - key: World.objPiles
+    type: ObjPileGrid
+    priority: P0
+    live: groundItems
+    doc: "Grid root: *(W+objPiles+dataOffset+plane*stride) -> +dataOffset+x*stride -> z*stride = eastl::list head."
+    strategies:
+      - extractor: { name: obj_pile_grid, field: World.objPiles, cls: A }
+  - key: World.objPiles.stride
+    type: const
+    priority: P0
+    live: groundItems
+    strategies:
+      - extractor: { name: obj_pile_grid, field: World.objPiles.stride, cls: A }
+  - key: World.objPiles.dataOffset
+    type: const
+    priority: P0
+    live: groundItems
+    strategies:
+      - extractor: { name: obj_pile_grid, field: World.objPiles.dataOffset, cls: A }

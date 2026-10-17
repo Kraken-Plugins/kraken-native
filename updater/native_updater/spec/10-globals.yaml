@@ -1,0 +1,48 @@
+keys:
+  - key: global.client
+    type: ptr<Client>
+    priority: P0
+    live: clientRoot
+    doc: The Client singleton slot. Every ClientOp handler starts by loading it.
+    strategies:
+      - global-load: { in: "ClientOp.*", size: ptr }
+      - getter: { in: { string: "Invalid NPC ID passed to npc_coord." }, kind: global, size: ptr, select: { nth: 0 } }
+
+  - key: global.cycle
+    type: i32
+    priority: P0
+    live: cycle
+    doc: Client cycle counter (20 ms units); passed to the headbar lookup in isHeadbarEmpty.
+    strategies:
+      - getter: { in: osrs.Entity.isHeadbarEmpty, kind: global, size: i32, select: { passed_to: { arg: 2 } } }
+
+  - key: global.varps
+    type: ptr<i32[]>
+    priority: P0
+    live: varps
+    strategies:
+      - getter: { in: ClientState.getVarp, kind: global, size: ptr, select: { used_as_index_base: true } }
+
+  - key: global.varpsBits
+    type: ptr<i32[]>
+    priority: P0
+    live: varbits
+    doc: The varp array the varbit reader indexes (differs from global.varps; verify live which is server-side).
+    strategies:
+      - getter: { in: "@VarbitRead", kind: global, size: ptr, select: { used_as_index_base: true } }
+
+  - key: global.varbitMaskTable
+    type: i32[32]
+    priority: P0
+    live: varbits
+    doc: mask[n] = 2^(n+1) - 1, indexed by msb - lsb.
+    strategies:
+      - getter: { in: "@VarbitRead", kind: global_addr, size: i32, select: { indexed: true, index_scale: 4 } }
+
+  - key: global.configCache
+    type: ptr
+    priority: P1
+    doc: First argument of every config loader call (a pointer held in a global, or the object itself).
+    strategies:
+      - getter: { in: "@ConfigLoader.9", kind: global, select: { passed_to: { fn: "@ConfigLoaderCore", arg: 0 } } }
+      - getter: { in: "@ConfigLoader.9", kind: global_addr, select: { passed_to: { fn: "@ConfigLoaderCore", arg: 0 } } }

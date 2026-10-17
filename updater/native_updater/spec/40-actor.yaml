@@ -1,0 +1,228 @@
+keys:
+  - key: Actor.fineX
+    type: i32
+    priority: P0
+    live: fineVsPath
+    strategies:
+      - getter: { in: ClientOp.npcCoordFine, base: sp_result, load: i32, select: { stored_to: { arg: 0, offset: 0 } } }
+      - getter: { in: ClientOp.playerCoordFine, base: sp_result, load: i32, select: { stored_to: { arg: 0, offset: 0 } } }
+  - key: Actor.fineZ
+    type: i32
+    priority: P0
+    live: fineVsPath
+    strategies:
+      - getter: { in: ClientOp.npcCoordFine, base: sp_result, load: i32, select: { stored_to: { arg: 0, offset: 8 } } }
+      - getter: { in: ClientOp.playerCoordFine, base: sp_result, load: i32, select: { stored_to: { arg: 0, offset: 8 } } }
+    invariants:
+      - equals: "Actor.fineX + 4"
+
+  - key: Actor.pathX
+    type: i32[10]
+    priority: P0
+    live: fineVsPath
+    strategies:
+      - getter: { in: ClientOp.npcCoord, base: sp_result, load: i32, select: { stored_to: { arg: 0, offset: 4 } } }
+      - getter: { in: ClientOp.playerCoord, base: sp_result, load: i32, select: { stored_to: { arg: 0, offset: 4 } } }
+  - key: Actor.pathZ
+    type: i32[10]
+    priority: P0
+    live: fineVsPath
+    strategies:
+      - getter: { in: ClientOp.npcCoord, base: sp_result, load: i32, select: { stored_to: { arg: 0, offset: 8 } } }
+      - getter: { in: ClientOp.playerCoord, base: sp_result, load: i32, select: { stored_to: { arg: 0, offset: 8 } } }
+    invariants:
+      - equals: "Actor.pathX + 0x28"
+
+  - key: Actor.worldId
+    type: i32
+    priority: P0
+    live: actorWorld
+    doc: World (WorldEntity) id of the actor; 0 selects Client.topLevelWorld, otherwise Client.worlds is searched.
+    strategies:
+      - getter: { in: "@ActorWorld", base: arg0, load: i32, select: { nth: 0 } }
+
+  - key: Actor.interactingValid
+    type: u8
+    priority: P0
+    live: interacting
+    strategies:
+      - getter: { in: osrs.Entity.isInteracting, base: sp_result, load: u8, select: { nth: 0 } }
+  - key: Actor.interacting
+    type: i32
+    priority: P0
+    live: interacting
+    strategies:
+      - getter: { in: osrs.Entity.isInteracting, base: sp_result, load: i32, select: { returned: true } }
+    invariants:
+      - adjacent: { key: Actor.interactingValid, delta: -1 }
+
+  - key: Actor.headbars
+    type: eastl.list<jag.shared_ptr<Headbar>>
+    priority: P0
+    live: headbars
+    strategies:
+      - getter: { in: osrs.Entity.isHealthbarRendered, base: sp_result, load: ptr, select: { sentinel: true } }
+    invariants:
+      - member_of: Actor.listHeads
+  - key: Actor.listHeads
+    type: list
+    priority: P2
+    doc: Offsets of the intrusive list sentinels the Actor constructor initialises (headbars is one of them).
+    strategies:
+      - extractor: { name: actor_ctor, field: Actor.listHeads, cls: D }
+  - key: Actor.headbarCount
+    type: i64
+    priority: P0
+    live: headbars
+    strategies:
+      - getter: { in: osrs.Entity.isHealthbarRendered, base: sp_result, load: i64, select: { compared_with: 0, min: 0x100 } }
+    invariants:
+      - equals: "Actor.headbars + 0x10"
+  - key: HeadbarEntry.a
+    type: i32
+    priority: P1
+    doc: First of the two ints isHeadbarEmpty tests for zero (ratio or scale).
+    strategies:
+      - getter: { in: osrs.Entity.isHeadbarEmpty, base: sp_result, load: i32, select: { compared_with: 0, nth: 0 } }
+  - key: HeadbarEntry.b
+    type: i32
+    priority: P1
+    strategies:
+      - getter: { in: osrs.Entity.isHeadbarEmpty, base: sp_result, load: i32, select: { compared_with: 0, nth: 1 } }
+
+  - key: Actor.anim
+    type: i32
+    priority: P0
+    live: anim
+    strategies:
+      - extractor: { name: set_sequence, field: Actor.anim, cls: C }
+  - key: Actor.animSeqType
+    type: ptr<SeqType>
+    priority: P0
+    live: anim
+    strategies:
+      - extractor: { name: set_sequence, field: Actor.animSeqType, cls: C }
+    invariants:
+      - equals: "Actor.anim - 8"
+  - key: Actor.animDelay
+    type: i32
+    priority: P1
+    strategies:
+      - extractor: { name: set_sequence, field: Actor.animDelay, cls: C }
+  - key: Actor.animLoop
+    type: i16
+    priority: P1
+    strategies:
+      - extractor: { name: set_sequence, field: Actor.animLoop, cls: C }
+  - key: Actor.animState
+    type: AnimState
+    priority: P1
+    strategies:
+      - extractor: { name: set_sequence, field: Actor.animState, cls: C }
+  - key: SeqType.priority
+    type: i32
+    priority: P1
+    strategies:
+      - extractor: { name: set_sequence, field: SeqType.priority, cls: C }
+  - key: SeqType.restartMode
+    type: i32
+    priority: P1
+    strategies:
+      - extractor: { name: set_sequence, field: SeqType.restartMode, cls: C }
+  - key: Actor.orientationCandidate
+    type: i32
+    priority: P2
+    doc: Written from Actor.orientationSourceCandidate when an animation starts; semantics unconfirmed.
+    strategies:
+      - extractor: { name: set_sequence, field: Actor.orientationCandidate, cls: C }
+  - key: Actor.orientationSourceCandidate
+    type: i32
+    priority: P2
+    strategies:
+      - extractor: { name: set_sequence, field: Actor.orientationSourceCandidate, cls: C }
+
+  - key: Actor.poseAnims
+    type: i32[]
+    priority: P1
+    doc: Slot order (idle, walk, turn, run, ...) is not known yet, so the API cannot use it; P0 once the live probe settles it.
+    strategies:
+      - extractor: { name: actor_ctor, field: Actor.poseAnims, cls: D }
+  - key: Actor.poseAnimCount
+    type: const
+    priority: P1
+    strategies:
+      - extractor: { name: actor_ctor, field: Actor.poseAnimCount, cls: D }
+  - key: Actor.defaultHeight
+    type: i32
+    priority: P1
+    strategies:
+      - extractor: { name: actor_ctor, field: Actor.defaultHeight, cls: D }
+  - key: Actor.overheadTimer
+    type: i32
+    priority: P1
+    strategies:
+      - extractor: { name: actor_ctor, field: Actor.overheadTimer, cls: D }
+  - key: Actor.turnSpeed
+    type: i32
+    priority: P2
+    strategies:
+      - extractor: { name: actor_ctor, field: Actor.turnSpeed, cls: D }
+
+  - key: Actor.nameSsoFlag
+    type: u8
+    priority: P1
+    doc: The eastl::string flag byte (byte 23) of the actor's name, read by the name getter.
+    strategies:
+      - getter: { in: "@ActorNameGetter", base: arg0, load: u8, select: { nth: 0 } }
+  - key: Actor.name
+    type: eastl.string
+    priority: P0
+    live: localPlayerName
+    strategies:
+      - derive: { expr: "Actor.nameSsoFlag - container.string.heapFlagByte" }
+
+  - key: Npc.type
+    type: ptr<NpcType>
+    priority: P0
+    live: npcType
+    strategies:
+      - getter: { in: ClientOp.npcTypeId, base: sp_result, load: ptr, select: { used_as_base: true } }
+  - key: NpcType.id
+    type: i32
+    priority: P0
+    live: npcType
+    strategies:
+      - getter: { in: ClientOp.npcTypeId, base: { field: { of: sp_result, key: Npc.type } }, load: i32, select: { nth: 0 } }
+  - key: Npc.uidLow
+    type: i32
+    priority: P1
+    doc: "npcUid = typeId * 0x10000 + this"
+    strategies:
+      - getter: { in: ClientOp.npcUid, base: sp_result, load: i32, select: { nth: 0 } }
+  - key: Npc.spawnCycle
+    type: i32
+    priority: P1
+    strategies:
+      - getter: { in: ClientOp.npcCreationCycle, base: sp_result, load: i32, select: { nth: 0 } }
+  - key: NpcType.size
+    type: i32
+    priority: P0
+    live: npcType
+    strategies:
+      - getter: { in: osrs.NpcType.getSize, base: sp_result, load: i32, select: { returned: true } }
+  - key: NpcType.name
+    type: eastl.string
+    priority: P0
+    live: npcType
+    strategies:
+      - getter: { in: ClientOp.ncName, base: { sp_result: "@ConfigLoader.9" }, kind: addr, select: { passed_to: { arg: 1 } } }
+  - key: NpcType.type
+    type: i32
+    priority: P1
+    strategies:
+      - getter: { in: osrs.NpcType.getType, base: sp_result, load: i32, select: { returned: true } }
+  - key: NpcType.ops
+    type: ptr
+    priority: P1
+    strategies:
+      - getter: { in: osrs.NpcType.getOps, base: sp_result, kind: addr, select: { nth: 0 } }

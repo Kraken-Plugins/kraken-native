@@ -1,0 +1,5372 @@
+{
+  "schema": "kraken-native-mappings/2",
+  "build": {
+    "sha256": "166231c8f6bd05c7542b8f0d35eb64b0aad701a87ba6ba41f60c4706de946944",
+    "path": "C:\\Users\\<user>\\.kraken-native\\store\\166231c8f6bd05c7542b8f0d35eb64b0aad701a87ba6ba41f60c4706de946944\\osclient.exe",
+    "timestamp": "2026-09-30T16:41:00Z",
+    "sections": [
+      {
+        "name": ".text",
+        "rva": "0x1000",
+        "vsize": "0xb188af",
+        "perms": "r-x"
+      },
+      {
+        "name": ".rdata",
+        "rva": "0xb1a000",
+        "vsize": "0x1e0630",
+        "perms": "r--"
+      },
+      {
+        "name": ".data",
+        "rva": "0xcfb000",
+        "vsize": "0x15600b0",
+        "perms": "rw-"
+      },
+      {
+        "name": ".pdata",
+        "rva": "0x225c000",
+        "vsize": "0x9513c",
+        "perms": "r--"
+      },
+      {
+        "name": "_RDATA",
+        "rva": "0x22f2000",
+        "vsize": "0x200",
+        "perms": "r--"
+      },
+      {
+        "name": ".rsrc",
+        "rva": "0x22f3000",
+        "vsize": "0x6530",
+        "perms": "r--"
+      },
+      {
+        "name": ".reloc",
+        "rva": "0x22fa000",
+        "vsize": "0x8104",
+        "perms": "r--"
+      }
+    ],
+    "tag": "OSRS-ORSM295-BWXF",
+    "sizeOfImage": "0x2303000",
+    "clientVersion": "241.3"
+  },
+  "updater": {
+    "version": "0.1.0",
+    "ghidra": "12.1.4",
+    "specSha256": "479d31c1f71aeb0e80348373711c65f1f63a686031a25e789754d34d404c29e0",
+    "generatedAt": "2026-10-12T20:40:26.084436Z",
+    "carryForward": null
+  },
+  "summary": {
+    "FAILED": 0,
+    "NEEDS_REVIEW": 0,
+    "INFERRED": 9,
+    "ANCHORED": 209,
+    "PROVEN": 1
+  },
+  "containers": {
+    "hash_map": {
+      "buckets": {
+        "value": "0x8",
+        "verdict": "ANCHORED"
+      },
+      "bucketCount": {
+        "value": "0x10",
+        "verdict": "ANCHORED"
+      },
+      "node.key": {
+        "value": "0x0",
+        "verdict": "ANCHORED"
+      },
+      "node.value": {
+        "value": "0x10",
+        "verdict": "ANCHORED"
+      },
+      "node.next": {
+        "value": "0x18",
+        "verdict": "ANCHORED"
+      }
+    },
+    "shared_ptr": {
+      "ptr": {
+        "value": "0x8",
+        "verdict": "ANCHORED"
+      },
+      "ctrl.useCount": {
+        "value": "0x8",
+        "verdict": "ANCHORED"
+      }
+    },
+    "list": {
+      "node.value": {
+        "value": "0x18",
+        "verdict": "ANCHORED"
+      }
+    },
+    "string": {
+      "size": {
+        "value": "0x18",
+        "verdict": "ANCHORED"
+      },
+      "ssoCapacity": {
+        "value": "0x17",
+        "verdict": "ANCHORED"
+      },
+      "heapFlagByte": {
+        "value": "0x17",
+        "verdict": "ANCHORED"
+      },
+      "heapFlagMask": {
+        "value": "0x80",
+        "verdict": "ANCHORED"
+      }
+    }
+  },
+  "globals": {
+    "client": {
+      "rva": "0xe98c18",
+      "type": "ptr<Client>",
+      "verdict": "PROVEN",
+      "check": "clientRoot",
+      "evidence": [
+        {
+          "strategy": "global-load",
+          "cls": "A",
+          "insn": "0x1a9559",
+          "fn": "0x1a9550",
+          "text": "MOV RCX,qword ptr [0x140e98c18]",
+          "slot": "rip"
+        },
+        {
+          "strategy": "string-anchored",
+          "cls": "B",
+          "insn": "0x3ae4c4",
+          "fn": "0x3ae4b0",
+          "text": "MOV RBP,qword ptr [0x140e98c18]",
+          "slot": "rip"
+        }
+      ],
+      "note": "56/59 handlers agree",
+      "guard": {
+        "rva": "0x1a9559",
+        "bytes": "48 8B 0D ?? ?? ?? ??"
+      }
+    },
+    "cycle": {
+      "rva": "0xe98c14",
+      "type": "i32",
+      "verdict": "ANCHORED",
+      "check": "cycle",
+      "evidence": [
+        {
+          "strategy": "getter",
+          "cls": "A",
+          "insn": "0x21a140",
+          "fn": "0x21a0e0",
+          "text": "MOV R8D,dword ptr [0x140e98c14]",
+          "slot": "rip"
+        }
+      ],
+      "guard": {
+        "rva": "0x21a140",
+        "bytes": "44 8B 05 ?? ?? ?? ??"
+      }
+    },
+    "varps": {
+      "rva": "0x155e528",
+      "type": "ptr<i32[]>",
+      "verdict": "ANCHORED",
+      "check": "varps",
+      "evidence": [
+        {
+          "strategy": "getter",
+          "cls": "A",
+          "insn": "0xf5900",
+          "fn": "0xf5900",
+          "text": "MOV RAX,qword ptr [0x14155e528]",
+          "slot": "rip"
+        }
+      ],
+      "guard": {
+        "rva": "0xf5900",
+        "bytes": "48 8B 05 ?? ?? ?? ??"
+      }
+    },
+    "varpsBits": {
+      "rva": "0x155e540",
+      "type": "ptr<i32[]>",
+      "verdict": "ANCHORED",
+      "check": "varbits",
+      "evidence": [
+        {
+          "strategy": "getter",
+          "cls": "A",
+          "insn": "0x5ae35c",
+          "fn": "0x5ae330",
+          "text": "MOV RAX,qword ptr [0x14155e540]",
+          "slot": "rip"
+        }
+      ],
+      "guard": {
+        "rva": "0x5ae35c",
+        "bytes": "48 8B 05 ?? ?? ?? ??"
+      }
+    },
+    "varbitMaskTable": {
+      "rva": "0xb3d6c0",
+      "type": "i32[32]",
+      "verdict": "ANCHORED",
+      "check": "varbits",
+      "evidence": [
+        {
+          "strategy": "getter",
+          "cls": "A",
+          "insn": "0x5ae363",
+          "fn": "0x5ae330",
+          "text": "MOV EDI,dword ptr [R10 + R9*0x4]",
+          "slot": "rip"
+        }
+      ],
+      "guard": {
+        "rva": "0x5ae363",
+        "bytes": "43 8B 3C 8A 44 8B 04 90"
+      }
+    },
+    "configCache": {
+      "rva": "0xec30f8",
+      "type": "ptr",
+      "verdict": "ANCHORED",
+      "evidence": [
+        {
+          "strategy": "getter",
+          "cls": "A",
+          "insn": "0x5f1973",
+          "fn": "0x5f18f0",
+          "text": "MOV RCX,qword ptr [0x140ec30f8]",
+          "slot": "rip"
+        },
+        {
+          "strategy": "getter",
+          "cls": "A",
+          "insn": "0x5f1973",
+          "fn": "0x5f18f0",
+          "text": "MOV RCX,qword ptr [0x140ec30f8]",
+          "slot": "rip"
+        }
+      ],
+      "guard": {
+        "rva": "0x5f1973",
+        "bytes": "48 8B 0D ?? ?? ?? ??"
+      }
+    },
+    "inventories.buckets": {
+      "rva": "0x154fab8",
+      "type": "ptr<ptr<Inventory>[]>",
+      "verdict": "ANCHORED",
+      "check": "inventories",
+      "evidence": [
+        {
+          "strategy": "getter",
+          "cls": "A",
+          "insn": "0x30d87",
+          "fn": "0x30d70",
+          "text": "MOV RDX,qword ptr [0x14154fab8]",
+          "slot": "rip"
+        },
+        {
+          "strategy": "getter",
+          "cls": "A",
+          "insn": "0x30de7",
+          "fn": "0x30dd0",
+          "text": "MOV RDX,qword ptr [0x14154fab8]",
+          "slot": "rip"
+        }
+      ],
+      "guard": {
+        "rva": "0x30d87",
+        "bytes": "48 8B 15 ?? ?? ?? ??"
+      }
+    },
+    "inventories.bucketCount": {
+      "rva": "0x154fac0",
+      "type": "i64",
+      "verdict": "ANCHORED",
+      "check": "inventories",
+      "evidence": [
+        {
+          "strategy": "getter",
+          "cls": "A",
+          "insn": "0x30d70",
+          "fn": "0x30d70",
+          "text": "MOV R10,qword ptr [0x14154fac0]",
+          "slot": "rip"
+        },
+        {
+          "strategy": "getter",
+          "cls": "A",
+          "insn": "0x30dd0",
+          "fn": "0x30dd0",
+          "text": "MOV R10,qword ptr [0x14154fac0]",
+          "slot": "rip"
+        }
+      ],
+      "guard": {
+        "rva": "0x30d70",
+        "bytes": "4C 8B 15 ?? ?? ?? ??"
+      }
+    }
+  },
+  "functions": {
+    "worldToScreen": {
+      "rva": "0x21eb80",
+      "signature": "void(const int world[3], float out[2], ...)",
+      "verdict": "ANCHORED",
+      "check": "projection",
+      "evidence": [
+        {
+          "strategy": "fingerprint",
+          "cls": "A",
+          "insn": "0x21eb80",
+          "fn": "0x21eb80",
+          "text": "MOV qword ptr [RSP + 0x8],RBX",
+          "slot": "rip"
+        }
+      ],
+      "note": "Graphics.worldToScreenCoord",
+      "guard": {
+        "rva": "0x21eb80",
+        "bytes": "48 89 5C 24 08 55 56 57 41 54 41 55 41 56 41 57"
+      }
+    },
+    "projectionCore": {
+      "rva": "0x6aa7c0",
+      "signature": "fn",
+      "verdict": "ANCHORED",
+      "evidence": [
+        {
+          "strategy": "fingerprint",
+          "cls": "A",
+          "insn": "0x6aa7c0",
+          "fn": "0x6aa7c0",
+          "text": "SUB RSP,0x58",
+          "slot": "rip"
+        }
+      ],
+      "note": "1 match; rule {'callee_of': '@WorldToScreen', 'min_args': 7}",
+      "guard": {
+        "rva": "0x6aa7c0",
+        "bytes": "48 83 EC 58 F3 0F 10 91 20 04 00 00 0F 57 C9 F3 0F 2A 8C 24 80 00 00 00"
+      }
+    },
+    "npcLookup": {
+      "rva": "0x1878b0",
+      "signature": "shared_ptr<Npc>*(out, int id, WorldManager*)",
+      "verdict": "ANCHORED",
+      "check": "npcs",
+      "evidence": [
+        {
+          "strategy": "fingerprint",
+          "cls": "A",
+          "insn": "0x1878b0",
+          "fn": "0x1878b0",
+          "text": "PUSH RBP",
+          "slot": "rip"
+        }
+      ],
+      "note": "1 match; rule {'callee_of': 'ClientOp.npcCoord', 'imm': 65536}",
+      "guard": {
+        "rva": "0x1878b0",
+        "bytes": "40 55 41 54 41 55 48 83 EC 60 45 33 D2 4C 63 E2"
+      }
+    },
+    "playerLookup": {
+      "rva": "0x187280",
+      "signature": "fn",
+      "verdict": "ANCHORED",
+      "check": "players",
+      "evidence": [
+        {
+          "strategy": "fingerprint",
+          "cls": "A",
+          "insn": "0x187280",
+          "fn": "0x187280",
+          "text": "MOV RAX,RSP",
+          "slot": "rip"
+        }
+      ],
+      "note": "1 match; rule {'callee_of': 'ClientOp.playerCoord', 'imm': 2048}",
+      "guard": {
+        "rva": "0x187280",
+        "bytes": "48 8B C4 48 89 48 08 55 41 56 41 57 48 81 EC 90 00 00 00"
+      }
+    },
+    "entityResolver": {
+      "rva": "0x219b90",
+      "signature": "fn",
+      "verdict": "ANCHORED",
+      "evidence": [
+        {
+          "strategy": "fingerprint",
+          "cls": "A",
+          "insn": "0x219b90",
+          "fn": "0x219b90",
+          "text": "PUSH R12",
+          "slot": "rip"
+        }
+      ],
+      "note": "1 match; rule {'common_callee_of': ['osrs.Entity.isInteracting', 'osrs.Entity.isHealthbarRendered', 'osrs.Entity.isHeadbarEmpty']}",
+      "guard": {
+        "rva": "0x219b90",
+        "bytes": "41 54 41 56 41 57 48 83 EC 70 48 8B 05 ?? ?? ?? ??"
+      }
+    },
+    "actorWorld": {
+      "rva": "0x9f640",
+      "signature": "World*(Actor*)",
+      "verdict": "ANCHORED",
+      "evidence": [
+        {
+          "strategy": "fingerprint",
+          "cls": "A",
+          "insn": "0x9f640",
+          "fn": "0x9f640",
+          "text": "MOV EDX,dword ptr [RCX + 0x4a0]",
+          "slot": "rip"
+        }
+      ],
+      "note": "1 match; rule {'callee_of': 'ClientOp.npcCoord', 'arg0': 'sp_result'}",
+      "guard": {
+        "rva": "0x9f640",
+        "bytes": "8B 91 A0 04 00 00 85 D2 ?? ?? 48 8B 05 ?? ?? ?? ??"
+      }
+    },
+    "worldFromCoord": {
+      "rva": "0xec670",
+      "signature": "World*(WorldManager*, coord*)",
+      "verdict": "ANCHORED",
+      "evidence": [
+        {
+          "strategy": "fingerprint",
+          "cls": "A",
+          "insn": "0xec670",
+          "fn": "0xec670",
+          "text": "MOV R8D,dword ptr [RDX + 0x8]",
+          "slot": "rip"
+        }
+      ],
+      "note": "1 match; rule {'callee_of': 'ClientOp.locFind', 'arg0': {'addr': 'client'}}",
+      "guard": {
+        "rva": "0xec670",
+        "bytes": "44 8B 42 08 8B 52 04 E9 ?? ?? ?? ??"
+      }
+    },
+    "tileLookup": {
+      "rva": "0x6a2cb0",
+      "signature": "fn",
+      "verdict": "ANCHORED",
+      "evidence": [
+        {
+          "strategy": "fingerprint",
+          "cls": "A",
+          "insn": "0x6a2cb0",
+          "fn": "0x6a2cb0",
+          "text": "MOV qword ptr [RSP + 0x10],RBX",
+          "slot": "rip"
+        }
+      ],
+      "note": "1 match; rule {'callee_of': 'ClientOp.locFind', 'min_args': 6}",
+      "guard": {
+        "rva": "0x6a2cb0",
+        "bytes": "48 89 5C 24 10 56 48 83 EC 20 41 8B F1 44 8B 4C 24 50"
+      }
+    },
+    "setSequence": {
+      "rva": "0x9fe50",
+      "signature": "void(Actor*, int seq, int delay)",
+      "verdict": "ANCHORED",
+      "check": "anim",
+      "evidence": [
+        {
+          "strategy": "fingerprint",
+          "cls": "C",
+          "insn": "0x9fe50",
+          "fn": "0x9fe50",
+          "text": "MOV qword ptr [RSP + 0x20],RSI",
+          "slot": "rip"
+        }
+      ],
+      "note": "caller of SeqType loader comparing arg1 with [actor+anim]",
+      "guard": {
+        "rva": "0x9fe50",
+        "bytes": "48 89 74 24 20 57 41 56 41 57 48 83 EC 30 45 33 C9"
+      }
+    },
+    "actorCtor": {
+      "rva": "0x9dcd0",
+      "signature": "fn",
+      "verdict": "INFERRED",
+      "evidence": [
+        {
+          "strategy": "fingerprint",
+          "cls": "D",
+          "insn": "0x9dcd0",
+          "fn": "0x9dcd0",
+          "text": "MOV qword ptr [RSP + 0x8],RBX",
+          "slot": "rip"
+        }
+      ],
+      "note": "7 qword -1 stores from +0x280, height 200, timer 100",
+      "guard": {
+        "rva": "0x9dcd0",
+        "bytes": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B D9"
+      }
+    },
+    "npcUpdateDecoder": {
+      "rva": "0x98dc0",
+      "signature": "fn",
+      "verdict": "ANCHORED",
+      "evidence": [
+        {
+          "strategy": "fingerprint",
+          "cls": "C",
+          "insn": "0x98dc0",
+          "fn": "0x98dc0",
+          "text": "MOV R11,RSP",
+          "slot": "rip"
+        }
+      ],
+      "note": "1 match; rule {'caller_of': '@SetSequence', 'calls': '@ConfigLoader.9', 'unique': False}",
+      "guard": {
+        "rva": "0x98dc0",
+        "bytes": "4C 8B DC 49 89 53 10 49 89 4B 08 55 53 41 54 49 8D AB F8 FD FF FF"
+      }
+    },
+    "configLoaderCore": {
+      "rva": "0x625a50",
+      "signature": "void(cache, key*, int group, int id)",
+      "verdict": "ANCHORED",
+      "evidence": [
+        {
+          "strategy": "fingerprint",
+          "cls": "C",
+          "insn": "0x625a50",
+          "fn": "0x625a50",
+          "text": "PUSH RBX",
+          "slot": "rip"
+        }
+      ],
+      "note": "27 group ids; cache global in arg0 at 28/74 sites",
+      "guard": {
+        "rva": "0x625a50",
+        "bytes": "40 53 55 41 56 41 57 48 83 EC 38 80 79 69 00 4C 8B F2"
+      }
+    },
+    "locTypeLoader": {
+      "rva": "0x5ed080",
+      "signature": "fn",
+      "verdict": "ANCHORED",
+      "evidence": [
+        {
+          "strategy": "fingerprint",
+          "cls": "C",
+          "insn": "0x5ed162",
+          "fn": "0x5ed080",
+          "text": "CALL 0x140625a50",
+          "slot": "imm"
+        }
+      ],
+      "note": "calls the loader core with group 6",
+      "guard": {
+        "rva": "0x5ed080",
+        "bytes": "40 56 57 48 81 EC A8 00 00 00 44 8B 05 ?? ?? ?? ??"
+      }
+    },
+    "npcTypeLoader": {
+      "rva": "0x5f18f0",
+      "signature": "fn",
+      "verdict": "ANCHORED",
+      "evidence": [
+        {
+          "strategy": "fingerprint",
+          "cls": "C",
+          "insn": "0x5f19a4",
+          "fn": "0x5f18f0",
+          "text": "CALL 0x140625a50",
+          "slot": "imm"
+        }
+      ],
+      "note": "calls the loader core with group 9",
+      "guard": {
+        "rva": "0x5f18f0",
+        "bytes": "40 55 56 57 41 57 48 8D 6C 24 C1 48 81 EC B8 00 00 00"
+      }
+    },
+    "objTypeLoader": {
+      "rva": "0x5f5cd0",
+      "signature": "fn",
+      "verdict": "ANCHORED",
+      "evidence": [
+        {
+          "strategy": "fingerprint",
+          "cls": "C",
+          "insn": "0x5f5d99",
+          "fn": "0x5f5cd0",
+          "text": "CALL 0x140625a50",
+          "slot": "imm"
+        }
+      ],
+      "note": "calls the loader core with group 10",
+      "guard": {
+        "rva": "0x5f5cd0",
+        "bytes": "40 55 56 57 41 54 41 56 41 57 48 8D 6C 24 98 48 81 EC 68 01 00 00"
+      }
+    },
+    "seqTypeLoader": {
+      "rva": "0x5fbb00",
+      "signature": "fn",
+      "verdict": "ANCHORED",
+      "evidence": [
+        {
+          "strategy": "fingerprint",
+          "cls": "C",
+          "insn": "0x5fbbad",
+          "fn": "0x5fbb00",
+          "text": "CALL 0x140625a50",
+          "slot": "imm"
+        }
+      ],
+      "note": "calls the loader core with group 12",
+      "guard": {
+        "rva": "0x5fbb00",
+        "bytes": "89 54 24 10 55 56 57 48 8D 6C 24 B9 48 81 EC C0 00 00 00"
+      }
+    },
+    "spotAnimTypeLoader": {
+      "rva": "0x5fedf0",
+      "signature": "fn",
+      "verdict": "ANCHORED",
+      "evidence": [
+        {
+          "strategy": "fingerprint",
+          "cls": "C",
+          "insn": "0x5fee9c",
+          "fn": "0x5fedf0",
+          "text": "CALL 0x140625a50",
+          "slot": "imm"
+        }
+      ],
+      "note": "calls the loader core with group 13",
+      "guard": {
+        "rva": "0x5fedf0",
+        "bytes": "40 53 57 41 56 48 81 EC A0 00 00 00 44 8B 05 ?? ?? ?? ??"
+      }
+    },
+    "varbitTypeLoader": {
+      "rva": "0x600690",
+      "signature": "fn",
+      "verdict": "ANCHORED",
+      "evidence": [
+        {
+          "strategy": "fingerprint",
+          "cls": "C",
+          "insn": "0x6007d3",
+          "fn": "0x600690",
+          "text": "CALL 0x140625a50",
+          "slot": "imm"
+        }
+      ],
+      "note": "calls the loader core with group 14",
+      "guard": {
+        "rva": "0x600690",
+        "bytes": "40 53 57 41 56 48 81 EC A0 00 00 00 44 8B 05 ?? ?? ?? ??"
+      }
+    },
+    "varbitRead": {
+      "rva": "0x5ae330",
+      "signature": "int(int varbitId)",
+      "verdict": "ANCHORED",
+      "evidence": [
+        {
+          "strategy": "fingerprint",
+          "cls": "A",
+          "insn": "0x5ae330",
+          "fn": "0x5ae330",
+          "text": "PUSH RDI",
+          "slot": "rip"
+        }
+      ],
+      "note": "1 match; rule {'callee_of': 'ClientState.getVarbit', 'calls': '@ConfigLoader.14', 'include_self': True}",
+      "guard": {
+        "rva": "0x5ae330",
+        "bytes": "40 57 48 83 EC 30 8B D1 48 8D 4C 24 20 E8 ?? ?? ?? ??"
+      }
+    },
+    "locTagToId": {
+      "rva": "0x652270",
+      "signature": "int(int64 tag)",
+      "verdict": "ANCHORED",
+      "evidence": [
+        {
+          "strategy": "fingerprint",
+          "cls": "A",
+          "insn": "0x652270",
+          "fn": "0x652270",
+          "text": "SUB RSP,0x28",
+          "slot": "rip"
+        }
+      ],
+      "note": "called 4x with a loc tag",
+      "guard": {
+        "rva": "0x652270",
+        "bytes": "48 83 EC 28 B2 14 E8 ?? ?? ?? ?? 0F B7 C0 48 83 C4 28"
+      }
+    },
+    "operatorNew": {
+      "rva": "0xab3fe0",
+      "signature": "fn",
+      "verdict": "INFERRED",
+      "evidence": [
+        {
+          "strategy": "fingerprint",
+          "cls": "E",
+          "insn": "0xab3fe0",
+          "fn": "0xab3fe0",
+          "text": "MOV qword ptr [RSP + 0x18],RBP",
+          "slot": "rip"
+        }
+      ],
+      "note": "621 sized allocations",
+      "guard": {
+        "rva": "0xab3fe0",
+        "bytes": "48 89 6C 24 18 56 48 81 EC 60 04 00 00 48 8B F2"
+      }
+    }
+  },
+  "structs": {
+    "Client": {
+      "fields": {
+        "gameState": {
+          "offset": "0x2160",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "gameState",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0xf5941",
+              "fn": "0xf5930",
+              "text": "CMP dword ptr [RAX + 0x2160],0x1e",
+              "slot": "disp"
+            }
+          ]
+        },
+        "loginToken": {
+          "offset": "0x3318",
+          "type": "i64",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0xf5937",
+              "fn": "0xf5930",
+              "text": "CMP qword ptr [RAX + 0x3318],-0x1",
+              "slot": "disp"
+            }
+          ]
+        },
+        "tickCount": {
+          "offset": "0x3198",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "tick",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0xf5927",
+              "fn": "0xf5920",
+              "text": "MOV EAX,dword ptr [RAX + 0x3198]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "skillLevel": {
+          "offset": "0x3350",
+          "type": "i32[26]",
+          "verdict": "ANCHORED",
+          "check": "skills",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0xf5828",
+              "fn": "0xf5810",
+              "text": "MOV EAX,dword ptr [RCX + RAX*0x4 + 0x3350]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "skillBase": {
+          "offset": "0x33b4",
+          "type": "i32[26]",
+          "verdict": "ANCHORED",
+          "check": "skills",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0xf5888",
+              "fn": "0xf5870",
+              "text": "MOV EAX,dword ptr [RCX + RAX*0x4 + 0x33b4]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "skillXp": {
+          "offset": "0x3418",
+          "type": "i32[26]",
+          "verdict": "ANCHORED",
+          "check": "skills",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0xf5858",
+              "fn": "0xf5840",
+              "text": "MOV EAX,dword ptr [RCX + RAX*0x4 + 0x3418]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "skillIndexMax": {
+          "offset": "0x19",
+          "type": "const",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "const",
+              "cls": "A",
+              "insn": "0xf5840",
+              "fn": "0xf5840",
+              "text": "CMP EDX,0x19",
+              "slot": "imm"
+            }
+          ]
+        },
+        "statsValidGate": {
+          "offset": "0x413f24",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0xf584c",
+              "fn": "0xf5840",
+              "text": "CMP dword ptr [RCX + 0x413f24],0x0",
+              "slot": "disp"
+            }
+          ]
+        },
+        "worlds": {
+          "offset": "0xc9b8",
+          "type": "WorldManager",
+          "verdict": "ANCHORED",
+          "check": "worlds",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x3ae4d3",
+              "fn": "0x3ae4b0",
+              "text": "LEA R8,[RBP + 0xc9b8]",
+              "slot": "disp"
+            },
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x3af089",
+              "fn": "0x3af050",
+              "text": "LEA RCX,[RBX + 0xc9b8]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "worlds.map": {
+          "offset": "0xc9d0",
+          "type": "eastl.hash_map<i32, jag.shared_ptr<World>>",
+          "verdict": "ANCHORED",
+          "check": "worlds",
+          "evidence": [
+            {
+              "strategy": "hash-map",
+              "cls": "A",
+              "insn": "0x3ad514",
+              "fn": "0x3ad4b0",
+              "text": "MOV R15,qword ptr [RDX + RAX*0x8]",
+              "slot": "disp"
+            }
+          ],
+          "note": "buckets +0xc9d8, count +0xc9e0"
+        },
+        "worlds.map.buckets": {
+          "offset": "0xc9d8",
+          "type": "ptr",
+          "verdict": "ANCHORED",
+          "check": "worlds",
+          "evidence": [
+            {
+              "strategy": "hash-map",
+              "cls": "A",
+              "insn": "0x3ad514",
+              "fn": "0x3ad4b0",
+              "text": "MOV R15,qword ptr [RDX + RAX*0x8]",
+              "slot": "disp"
+            }
+          ],
+          "note": "buckets +0xc9d8, count +0xc9e0"
+        },
+        "worlds.map.count": {
+          "offset": "0xc9e0",
+          "type": "i64",
+          "verdict": "ANCHORED",
+          "check": "worlds",
+          "evidence": [
+            {
+              "strategy": "hash-map",
+              "cls": "A",
+              "insn": "0x3ad514",
+              "fn": "0x3ad4b0",
+              "text": "MOV R15,qword ptr [RDX + RAX*0x8]",
+              "slot": "disp"
+            }
+          ],
+          "note": "buckets +0xc9d8, count +0xc9e0"
+        },
+        "topLevelWorld": {
+          "offset": "0xca80",
+          "type": "ptr<World>",
+          "verdict": "ANCHORED",
+          "check": "worlds",
+          "evidence": [
+            {
+              "strategy": "hash-map",
+              "cls": "A",
+              "insn": "0x219c0c",
+              "fn": "0x219b90",
+              "text": "MOV RCX,qword ptr [R10 + RAX*0x8]",
+              "slot": "disp"
+            },
+            {
+              "strategy": "hash-map",
+              "cls": "A",
+              "insn": "0x219c7e",
+              "fn": "0x219b90",
+              "text": "MOV RCX,qword ptr [R10 + RAX*0x8]",
+              "slot": "disp"
+            },
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x9f651",
+              "fn": "0x9f640",
+              "text": "MOV RAX,qword ptr [RAX + 0xca80]",
+              "slot": "disp"
+            },
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x21ec06",
+              "fn": "0x21eb80",
+              "text": "MOV RCX,qword ptr [R15 + 0xca80]",
+              "slot": "disp"
+            }
+          ],
+          "note": "buckets +0x68, count +0x70"
+        },
+        "topLevelWorldCtrl": {
+          "offset": "0xca78",
+          "type": "ptr",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x219baa",
+              "fn": "0x219b90",
+              "text": "MOV R14,qword ptr [RAX + 0xca78]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "localPlayerIndex": {
+          "offset": "0xcc4c",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "localPlayer",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x3a8294",
+              "fn": "0x3a8280",
+              "text": "CMP dword ptr [RDI + 0xcc4c],0x0",
+              "slot": "disp"
+            }
+          ]
+        },
+        "playerIndexCount": {
+          "offset": "0xccd0",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "players",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x3ad83a",
+              "fn": "0x3ad810",
+              "text": "MOVSXD RDI,dword ptr [RBX + 0xccd0]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "playerIndices": {
+          "offset": "0xccd4",
+          "type": "i32[]",
+          "verdict": "ANCHORED",
+          "check": "players",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x3ad84b",
+              "fn": "0x3ad810",
+              "text": "ADD RBX,0xccd4",
+              "slot": "disp"
+            }
+          ]
+        },
+        "camera.pos": {
+          "offset": "0x895c8",
+          "type": "i32[3]",
+          "verdict": "ANCHORED",
+          "check": "camera",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x693e0",
+              "fn": "0x693e0",
+              "text": "MOV EAX,dword ptr [RCX + 0x895c8]",
+              "slot": "disp"
+            },
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x21eba4",
+              "fn": "0x21eb80",
+              "text": "MOV ESI,dword ptr [R15 + 0x895c8]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "camera.lookAt": {
+          "offset": "0x89640",
+          "type": "i32[3]",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x69400",
+              "fn": "0x69400",
+              "text": "MOV EAX,dword ptr [RCX + 0x89640]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "camera.angles": {
+          "offset": "0x895dc",
+          "type": "i32[2]",
+          "verdict": "ANCHORED",
+          "check": "camera",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x69530",
+              "fn": "0x69530",
+              "text": "MOVD XMM0,dword ptr [RCX + 0x895dc]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "renderer": {
+          "offset": "0x90",
+          "type": "ptr<Renderer>",
+          "verdict": "ANCHORED",
+          "check": "viewport",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x6ccf70",
+              "fn": "0x6ccf70",
+              "text": "MOV RAX,qword ptr [RCX + 0x90]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "zoomA": {
+          "offset": "0x4830",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x21ebdf",
+              "fn": "0x21eb80",
+              "text": "MOV EDX,dword ptr [R15 + 0x4830]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "zoomB": {
+          "offset": "0x4814",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x21ebd8",
+              "fn": "0x21eb80",
+              "text": "MOV R8D,dword ptr [R15 + 0x4814]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "luaLogSink": {
+          "offset": "0x4186a0",
+          "type": "ptr",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x3ae53f",
+              "fn": "0x3ae4b0",
+              "text": "MOV RDI,qword ptr [RBP + 0x4186a0]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "interfaces.buckets": {
+          "offset": "0x413cc0",
+          "type": "ptr",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "hash-map",
+              "cls": "A",
+              "insn": "0x22834c",
+              "fn": "0x2282b0",
+              "text": "MOV RCX,qword ptr [R9 + RAX*0x8]",
+              "slot": "disp"
+            }
+          ],
+          "note": "buckets +0x413cc0, count +0x413cc8"
+        },
+        "interfaces.bucketCount": {
+          "offset": "0x413cc8",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "hash-map",
+              "cls": "A",
+              "insn": "0x22834c",
+              "fn": "0x2282b0",
+              "text": "MOV RCX,qword ptr [R9 + RAX*0x8]",
+              "slot": "disp"
+            }
+          ],
+          "note": "buckets +0x413cc0, count +0x413cc8"
+        }
+      }
+    },
+    "Renderer": {
+      "fields": {
+        "canvasWidth": {
+          "offset": "0x6c",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "viewport",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x21eb50",
+              "fn": "0x21eb40",
+              "text": "MOVD XMM0,dword ptr [RAX + 0x6c]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "canvasHeight": {
+          "offset": "0x70",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "viewport",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x21eb55",
+              "fn": "0x21eb40",
+              "text": "MOVD XMM1,dword ptr [RAX + 0x70]",
+              "slot": "disp"
+            }
+          ]
+        }
+      }
+    },
+    "World": {
+      "fields": {
+        "scene": {
+          "offset": "0x10",
+          "type": "ptr<Scene>",
+          "verdict": "ANCHORED",
+          "check": "scene",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x3af1b1",
+              "fn": "0x3af050",
+              "text": "MOV RCX,qword ptr [R10 + 0x10]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "plane": {
+          "offset": "0x18",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "fineVsPath",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x3ae568",
+              "fn": "0x3ae4b0",
+              "text": "MOV EAX,dword ptr [RAX + 0x18]",
+              "slot": "disp"
+            },
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x3ae978",
+              "fn": "0x3ae8c0",
+              "text": "MOV EAX,dword ptr [RAX + 0x18]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "baseX": {
+          "offset": "0x24",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "worldBase",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x3af179",
+              "fn": "0x3af050",
+              "text": "SUB R8D,dword ptr [RAX + 0x24]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "baseZ": {
+          "offset": "0x28",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "worldBase",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x3af16b",
+              "fn": "0x3af050",
+              "text": "SUB R9D,dword ptr [RAX + 0x28]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "width": {
+          "offset": "0x1c",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "worldBase",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0xec54b",
+              "fn": "0xec4a0",
+              "text": "ADD ECX,dword ptr [RBP + 0x1c]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "height": {
+          "offset": "0x20",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "worldBase",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0xec553",
+              "fn": "0xec4a0",
+              "text": "MOV ECX,dword ptr [RBP + 0x20]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "players": {
+          "offset": "0x60",
+          "type": "eastl.hash_map<i32, jag.shared_ptr<Player>>",
+          "verdict": "ANCHORED",
+          "check": "players",
+          "evidence": [
+            {
+              "strategy": "hash-map",
+              "cls": "A",
+              "insn": "0x187336",
+              "fn": "0x187280",
+              "text": "MOV RCX,qword ptr [R9 + RAX*0x8]",
+              "slot": "disp"
+            },
+            {
+              "strategy": "hash-map",
+              "cls": "A",
+              "insn": "0x219c0c",
+              "fn": "0x219b90",
+              "text": "MOV RCX,qword ptr [R10 + RAX*0x8]",
+              "slot": "disp"
+            }
+          ],
+          "note": "buckets +0x68, count +0x70"
+        },
+        "players.buckets": {
+          "offset": "0x68",
+          "type": "ptr",
+          "verdict": "ANCHORED",
+          "check": "players",
+          "evidence": [
+            {
+              "strategy": "hash-map",
+              "cls": "A",
+              "insn": "0x187336",
+              "fn": "0x187280",
+              "text": "MOV RCX,qword ptr [R9 + RAX*0x8]",
+              "slot": "disp"
+            },
+            {
+              "strategy": "hash-map",
+              "cls": "A",
+              "insn": "0x219c0c",
+              "fn": "0x219b90",
+              "text": "MOV RCX,qword ptr [R10 + RAX*0x8]",
+              "slot": "disp"
+            }
+          ],
+          "note": "buckets +0x68, count +0x70"
+        },
+        "players.count": {
+          "offset": "0x70",
+          "type": "i64",
+          "verdict": "ANCHORED",
+          "check": "players",
+          "evidence": [
+            {
+              "strategy": "hash-map",
+              "cls": "A",
+              "insn": "0x187336",
+              "fn": "0x187280",
+              "text": "MOV RCX,qword ptr [R9 + RAX*0x8]",
+              "slot": "disp"
+            },
+            {
+              "strategy": "hash-map",
+              "cls": "A",
+              "insn": "0x219c0c",
+              "fn": "0x219b90",
+              "text": "MOV RCX,qword ptr [R10 + RAX*0x8]",
+              "slot": "disp"
+            }
+          ],
+          "note": "buckets +0x68, count +0x70"
+        },
+        "npcs": {
+          "offset": "0x90",
+          "type": "eastl.hash_map<i32, jag.shared_ptr<Npc>>",
+          "verdict": "ANCHORED",
+          "check": "npcs",
+          "evidence": [
+            {
+              "strategy": "hash-map",
+              "cls": "A",
+              "insn": "0x187959",
+              "fn": "0x1878b0",
+              "text": "MOV RAX,qword ptr [R9 + RAX*0x8]",
+              "slot": "disp"
+            },
+            {
+              "strategy": "hash-map",
+              "cls": "A",
+              "insn": "0x219c7e",
+              "fn": "0x219b90",
+              "text": "MOV RCX,qword ptr [R10 + RAX*0x8]",
+              "slot": "disp"
+            }
+          ],
+          "note": "buckets +0x98, count +0xa0"
+        },
+        "npcs.buckets": {
+          "offset": "0x98",
+          "type": "ptr",
+          "verdict": "ANCHORED",
+          "check": "npcs",
+          "evidence": [
+            {
+              "strategy": "hash-map",
+              "cls": "A",
+              "insn": "0x187959",
+              "fn": "0x1878b0",
+              "text": "MOV RAX,qword ptr [R9 + RAX*0x8]",
+              "slot": "disp"
+            },
+            {
+              "strategy": "hash-map",
+              "cls": "A",
+              "insn": "0x219c7e",
+              "fn": "0x219b90",
+              "text": "MOV RCX,qword ptr [R10 + RAX*0x8]",
+              "slot": "disp"
+            }
+          ],
+          "note": "buckets +0x98, count +0xa0"
+        },
+        "npcs.count": {
+          "offset": "0xa0",
+          "type": "i64",
+          "verdict": "ANCHORED",
+          "check": "npcs",
+          "evidence": [
+            {
+              "strategy": "hash-map",
+              "cls": "A",
+              "insn": "0x187959",
+              "fn": "0x1878b0",
+              "text": "MOV RAX,qword ptr [R9 + RAX*0x8]",
+              "slot": "disp"
+            },
+            {
+              "strategy": "hash-map",
+              "cls": "A",
+              "insn": "0x219c7e",
+              "fn": "0x219b90",
+              "text": "MOV RCX,qword ptr [R10 + RAX*0x8]",
+              "slot": "disp"
+            }
+          ],
+          "note": "buckets +0x98, count +0xa0"
+        },
+        "npcIndices": {
+          "offset": "0xd0",
+          "type": "ptr<i32[]>",
+          "verdict": "ANCHORED",
+          "check": "npcs",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x3ad560",
+              "fn": "0x3ad4b0",
+              "text": "MOV RAX,qword ptr [RBP + 0xd0]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "npcIndexCount": {
+          "offset": "0xd8",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "npcs",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x3ad54b",
+              "fn": "0x3ad4b0",
+              "text": "CMP dword ptr [RBP + 0xd8],ESI",
+              "slot": "disp"
+            }
+          ]
+        },
+        "objPiles": {
+          "offset": "0x140",
+          "type": "ObjPileGrid",
+          "verdict": "ANCHORED",
+          "check": "groundItems",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "A",
+              "insn": "0x9d8b0",
+              "fn": "0x9d8b0",
+              "text": "MOV RCX,qword ptr [RDX + 0x140]",
+              "slot": "disp"
+            }
+          ],
+          "note": "grid root in World"
+        },
+        "objPiles.stride": {
+          "offset": "0x18",
+          "type": "const",
+          "verdict": "ANCHORED",
+          "check": "groundItems",
+          "note": "per-plane / per-column stride"
+        },
+        "objPiles.dataOffset": {
+          "offset": "0x10",
+          "type": "const",
+          "verdict": "ANCHORED",
+          "check": "groundItems",
+          "note": "offset of the array inside each level"
+        }
+      }
+    },
+    "Actor": {
+      "fields": {
+        "fineX": {
+          "offset": "0x268",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "fineVsPath",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x2a300",
+              "fn": "0x2a300",
+              "text": "MOV EAX,dword ptr [RCX + 0x8]",
+              "slot": "disp"
+            },
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x2a300",
+              "fn": "0x2a300",
+              "text": "MOV EAX,dword ptr [RCX + 0x8]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "fineZ": {
+          "offset": "0x26c",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "fineVsPath",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x51f10",
+              "fn": "0x51f10",
+              "text": "MOV EAX,dword ptr [RCX + 0xc]",
+              "slot": "disp"
+            },
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x51f10",
+              "fn": "0x51f10",
+              "text": "MOV EAX,dword ptr [RCX + 0xc]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "pathX": {
+          "offset": "0x3f0",
+          "type": "i32[10]",
+          "verdict": "ANCHORED",
+          "check": "fineVsPath",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x3ae56d",
+              "fn": "0x3ae4b0",
+              "text": "MOV EAX,dword ptr [RSI + 0x3f0]",
+              "slot": "disp"
+            },
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x3ae97d",
+              "fn": "0x3ae8c0",
+              "text": "MOV EAX,dword ptr [RSI + 0x3f0]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "pathZ": {
+          "offset": "0x418",
+          "type": "i32[10]",
+          "verdict": "ANCHORED",
+          "check": "fineVsPath",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x3ae576",
+              "fn": "0x3ae4b0",
+              "text": "MOV EAX,dword ptr [RSI + 0x418]",
+              "slot": "disp"
+            },
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x3ae986",
+              "fn": "0x3ae8c0",
+              "text": "MOV EAX,dword ptr [RSI + 0x418]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "worldId": {
+          "offset": "0x4a0",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "actorWorld",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x9f640",
+              "fn": "0x9f640",
+              "text": "MOV EDX,dword ptr [RCX + 0x4a0]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "interactingValid": {
+          "offset": "0x3a7",
+          "type": "u8",
+          "verdict": "ANCHORED",
+          "check": "interacting",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x9f6c0",
+              "fn": "0x9f6c0",
+              "text": "MOVZX EAX,byte ptr [RCX + 0x3a7]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "interacting": {
+          "offset": "0x3a8",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "interacting",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x9f6d0",
+              "fn": "0x9f6d0",
+              "text": "MOV EAX,dword ptr [RCX + 0x3a8]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "headbars": {
+          "offset": "0x388",
+          "type": "eastl.list<jag.shared_ptr<Headbar>>",
+          "verdict": "ANCHORED",
+          "check": "headbars",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x21a02b",
+              "fn": "0x21a000",
+              "text": "MOV RAX,qword ptr [RCX]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "listHeads": {
+          "offset": [
+            904,
+            1400
+          ],
+          "type": "list",
+          "verdict": "INFERRED",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "D",
+              "insn": "0x9dcd0",
+              "fn": "0x9dcd0",
+              "text": "MOV qword ptr [RSP + 0x8],RBX",
+              "slot": "rip"
+            }
+          ],
+          "note": "self-pointing list sentinels initialised by the ctor"
+        },
+        "headbarCount": {
+          "offset": "0x398",
+          "type": "i64",
+          "verdict": "ANCHORED",
+          "check": "headbars",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x21a01a",
+              "fn": "0x21a000",
+              "text": "CMP qword ptr [RCX + 0x398],0x0",
+              "slot": "disp"
+            }
+          ]
+        },
+        "anim": {
+          "offset": "0x4d8",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "anim",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "C",
+              "insn": "0x9fe6e",
+              "fn": "0x9fe50",
+              "text": "CMP EDX,dword ptr [RCX + 0x4d8]",
+              "slot": "disp"
+            }
+          ],
+          "note": "CMP arg1,[actor+X]"
+        },
+        "animSeqType": {
+          "offset": "0x4d0",
+          "type": "ptr<SeqType>",
+          "verdict": "ANCHORED",
+          "check": "anim",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "C",
+              "insn": "0x9fe7f",
+              "fn": "0x9fe50",
+              "text": "MOV RAX,qword ptr [RCX + 0x4d0]",
+              "slot": "disp"
+            }
+          ],
+          "note": "SeqType* read next to the id"
+        },
+        "animDelay": {
+          "offset": "0x4e8",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "C",
+              "insn": "0x9fe9d",
+              "fn": "0x9fe50",
+              "text": "MOV dword ptr [RDI + 0x4e8],R8D",
+              "slot": "disp"
+            }
+          ],
+          "note": "store of arg2 (delay)"
+        },
+        "animLoop": {
+          "offset": "0x4e0",
+          "type": "i16",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "C",
+              "insn": "0x9febc",
+              "fn": "0x9fe50",
+              "text": "MOV word ptr [RDI + 0x4e0],R9W",
+              "slot": "disp"
+            }
+          ],
+          "note": "16-bit reset on restart"
+        },
+        "animState": {
+          "offset": "0x4c8",
+          "type": "AnimState",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "C",
+              "insn": "0x9fe98",
+              "fn": "0x9fe50",
+              "text": "CALL 0x1405e4b10",
+              "slot": "disp"
+            }
+          ],
+          "note": "AnimState block passed by address"
+        },
+        "orientationCandidate": {
+          "offset": "0x494",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "C",
+              "insn": "0x9ff9a",
+              "fn": "0x9fe50",
+              "text": "MOV dword ptr [RDI + 0x494],ECX",
+              "slot": "disp"
+            }
+          ],
+          "note": "[actor+0x494] = [actor+0x3ec] when an animation starts"
+        },
+        "orientationSourceCandidate": {
+          "offset": "0x3ec",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "C",
+              "insn": "0x9ff9a",
+              "fn": "0x9fe50",
+              "text": "MOV dword ptr [RDI + 0x494],ECX",
+              "slot": "disp"
+            }
+          ],
+          "note": "source of the copy above"
+        },
+        "poseAnims": {
+          "offset": "0x280",
+          "type": "i32[]",
+          "verdict": "INFERRED",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "D",
+              "insn": "0x9ddb0",
+              "fn": "0x9dcd0",
+              "text": "MOV qword ptr [RBX + 0x280],-0x1",
+              "slot": "disp"
+            }
+          ],
+          "note": "15 ints initialised to -1"
+        },
+        "poseAnimCount": {
+          "offset": "0xf",
+          "type": "const",
+          "verdict": "INFERRED",
+          "note": "derived from the -1 run"
+        },
+        "defaultHeight": {
+          "offset": "0x49c",
+          "type": "i32",
+          "verdict": "INFERRED",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "D",
+              "insn": "0x9deee",
+              "fn": "0x9dcd0",
+              "text": "MOV dword ptr [RBX + 0x49c],0xc8",
+              "slot": "disp"
+            }
+          ],
+          "note": "dword 200"
+        },
+        "overheadTimer": {
+          "offset": "0x2f4",
+          "type": "i32",
+          "verdict": "INFERRED",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "D",
+              "insn": "0x9de0a",
+              "fn": "0x9dcd0",
+              "text": "MOV qword ptr [RBX + 0x2f4],0x64",
+              "slot": "disp"
+            }
+          ],
+          "note": "100"
+        },
+        "turnSpeed": {
+          "offset": "0x3e8",
+          "type": "i32",
+          "verdict": "INFERRED",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "D",
+              "insn": "0x9de89",
+              "fn": "0x9dcd0",
+              "text": "MOV qword ptr [RBX + 0x3e8],0x20",
+              "slot": "disp"
+            }
+          ],
+          "note": "32"
+        },
+        "nameSsoFlag": {
+          "offset": "0x727",
+          "type": "u8",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x9ffd3",
+              "fn": "0x9ffc0",
+              "text": "MOVSX RDX,byte ptr [RSI + 0x727]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "name": {
+          "offset": "0x710",
+          "type": "eastl.string",
+          "verdict": "ANCHORED",
+          "check": "localPlayerName",
+          "evidence": [
+            {
+              "strategy": "derive",
+              "cls": "A",
+              "insn": "0x9ffd3",
+              "fn": "0x9ffc0",
+              "text": "MOVSX RDX,byte ptr [RSI + 0x727]",
+              "slot": "disp"
+            },
+            {
+              "strategy": "derive",
+              "cls": "A",
+              "insn": "0x3ae551",
+              "fn": "0x3ae4b0",
+              "text": "MOV byte ptr [RSP + 0x47],0x17",
+              "slot": "imm"
+            }
+          ],
+          "note": "= Actor.nameSsoFlag - container.string.heapFlagByte"
+        }
+      }
+    },
+    "HeadbarEntry": {
+      "fields": {
+        "a": {
+          "offset": "0x4",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x21a15f",
+              "fn": "0x21a0e0",
+              "text": "CMP dword ptr [RAX + 0x4],0x0",
+              "slot": "disp"
+            }
+          ]
+        },
+        "b": {
+          "offset": "0x8",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x21a165",
+              "fn": "0x21a0e0",
+              "text": "CMP dword ptr [RAX + 0x8],0x0",
+              "slot": "disp"
+            }
+          ]
+        }
+      }
+    },
+    "SeqType": {
+      "fields": {
+        "priority": {
+          "offset": "0xc8",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "C",
+              "insn": "0x9ff02",
+              "fn": "0x9fe50",
+              "text": "CMP dword ptr [RDX + 0xc8],ECX",
+              "slot": "disp"
+            }
+          ],
+          "note": "old vs new SeqType field compared"
+        },
+        "restartMode": {
+          "offset": "0xe4",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "C",
+              "insn": "0x9fe8c",
+              "fn": "0x9fe50",
+              "text": "CMP ECX,0x1",
+              "slot": "disp"
+            }
+          ],
+          "note": "compared with 1 and 2"
+        }
+      }
+    },
+    "Npc": {
+      "fields": {
+        "type": {
+          "offset": "0x730",
+          "type": "ptr<NpcType>",
+          "verdict": "ANCHORED",
+          "check": "npcType",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x1ec918",
+              "fn": "0x1ec890",
+              "text": "MOV RAX,qword ptr [RSI + 0x730]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "uidLow": {
+          "offset": "0x738",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x1ec7b4",
+              "fn": "0x1ec720",
+              "text": "ADD EDX,dword ptr [RSI + 0x738]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "spawnCycle": {
+          "offset": "0x73c",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x1ec86b",
+              "fn": "0x1ec7e0",
+              "text": "MOV EDX,dword ptr [RSI + 0x73c]",
+              "slot": "disp"
+            }
+          ]
+        }
+      }
+    },
+    "NpcType": {
+      "fields": {
+        "id": {
+          "offset": "0x0",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "npcType",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x1ec91f",
+              "fn": "0x1ec890",
+              "text": "MOV EDX,dword ptr [RAX]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "size": {
+          "offset": "0x20",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "npcType",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x23a51d",
+              "fn": "0x23a500",
+              "text": "MOV EDI,dword ptr [RAX + 0x20]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "name": {
+          "offset": "0x8",
+          "type": "eastl.string",
+          "verdict": "ANCHORED",
+          "check": "npcType",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x1ec985",
+              "fn": "0x1ec950",
+              "text": "ADD RDX,0x8",
+              "slot": "disp"
+            }
+          ]
+        },
+        "type": {
+          "offset": "0x94",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x23a346",
+              "fn": "0x23a320",
+              "text": "MOV EDI,dword ptr [RAX + 0x94]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "ops": {
+          "offset": "0x100",
+          "type": "ptr",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x23a5e5",
+              "fn": "0x23a590",
+              "text": "LEA R8,[RDI + 0x100]",
+              "slot": "disp"
+            }
+          ]
+        }
+      }
+    },
+    "Scene": {
+      "fields": {
+        "sizeX": {
+          "offset": "0x948",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "scene",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "A",
+              "insn": "0x6a2cec",
+              "fn": "0x6a2cb0",
+              "text": "IMUL EAX,dword ptr [RCX + 0x948]",
+              "slot": "disp"
+            }
+          ],
+          "note": "multiplied with the plane"
+        },
+        "sizeZ": {
+          "offset": "0x94c",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "scene",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "A",
+              "insn": "0x6a2cd3",
+              "fn": "0x6a2cb0",
+              "text": "IMUL EAX,dword ptr [RCX + 0x94c]",
+              "slot": "disp"
+            }
+          ],
+          "note": "multiplied with the row index"
+        },
+        "tiles": {
+          "offset": "0x968",
+          "type": "ptr<TileEntry[]>",
+          "verdict": "ANCHORED",
+          "check": "scene",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "A",
+              "insn": "0x6a2d02",
+              "fn": "0x6a2cb0",
+              "text": "MOV RAX,qword ptr [RCX + 0x968]",
+              "slot": "disp"
+            }
+          ],
+          "note": "entry table for plane >= 0"
+        },
+        "bridgeTiles": {
+          "offset": "0x980",
+          "type": "ptr<TileEntry[]>",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "A",
+              "insn": "0x6a2ce0",
+              "fn": "0x6a2cb0",
+              "text": "MOV RAX,qword ptr [RCX + 0x980]",
+              "slot": "disp"
+            }
+          ],
+          "note": "entry table for plane == -1"
+        },
+        "tileEntryStride": {
+          "offset": "0x10",
+          "type": "const",
+          "verdict": "ANCHORED",
+          "check": "scene",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "A",
+              "insn": "0x6a2d12",
+              "fn": "0x6a2cb0",
+              "text": "MOV R8,qword ptr [R8 + RAX*0x1 + 0x8]",
+              "slot": "disp"
+            }
+          ],
+          "note": "index scale"
+        },
+        "tileEntryPtrOffset": {
+          "offset": "0x8",
+          "type": "const",
+          "verdict": "ANCHORED",
+          "check": "scene",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "A",
+              "insn": "0x6a2d12",
+              "fn": "0x6a2cb0",
+              "text": "MOV R8,qword ptr [R8 + RAX*0x1 + 0x8]",
+              "slot": "disp"
+            }
+          ],
+          "note": "Tile* inside each entry"
+        },
+        "collisionMaps": {
+          "offset": "0x2f8",
+          "type": "ptr<CollisionMapRecord[]>",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x3a4d22",
+              "fn": "0x3a4d00",
+              "text": "MOV RAX,qword ptr [R9 + 0x2f8]",
+              "slot": "disp"
+            }
+          ]
+        }
+      }
+    },
+    "Tile": {
+      "fields": {
+        "wall": {
+          "offset": "0x108",
+          "type": "ptr<Loc>",
+          "verdict": "ANCHORED",
+          "check": "scene",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "A",
+              "insn": "0x6a2d55",
+              "fn": "0x6a2cb0",
+              "text": "MOV RCX,qword ptr [R8 + 0x108]",
+              "slot": "disp"
+            }
+          ],
+          "note": "result code 0x100"
+        },
+        "wallDecor": {
+          "offset": "0x110",
+          "type": "ptr<Loc>",
+          "verdict": "ANCHORED",
+          "check": "scene",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "A",
+              "insn": "0x6a2d20",
+              "fn": "0x6a2cb0",
+              "text": "MOV RCX,qword ptr [R8 + 0x110]",
+              "slot": "disp"
+            }
+          ],
+          "note": "result code 0x101"
+        },
+        "groundDecor": {
+          "offset": "0x118",
+          "type": "ptr<Loc>",
+          "verdict": "ANCHORED",
+          "check": "scene",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "A",
+              "insn": "0x6a2d86",
+              "fn": "0x6a2cb0",
+              "text": "MOV RCX,qword ptr [R8 + 0x118]",
+              "slot": "disp"
+            }
+          ],
+          "note": "result code 0x103"
+        },
+        "gameObjectCount": {
+          "offset": "0x34",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "scene",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "A",
+              "insn": "0x6a2c30",
+              "fn": "0x6a2b80",
+              "text": "MOVSXD RAX,dword ptr [R8 + 0x34]",
+              "slot": "disp"
+            }
+          ],
+          "note": "loop bound compared each iteration"
+        },
+        "gameObjects": {
+          "offset": "0x38",
+          "type": "ptr<{ctrl, GameObject*}[]>",
+          "verdict": "ANCHORED",
+          "check": "scene",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "A",
+              "insn": "0x6a2c38",
+              "fn": "0x6a2b80",
+              "text": "MOV R8,qword ptr [R8 + 0x38]",
+              "slot": "disp"
+            }
+          ],
+          "note": "array walked by pointer; object pointer at +8 of each entry"
+        },
+        "gameObjectEntryStride": {
+          "offset": "0x10",
+          "type": "const",
+          "verdict": "ANCHORED",
+          "check": "scene",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "A",
+              "insn": "0x6a2c79",
+              "fn": "0x6a2b80",
+              "text": "ADD R8,0x10",
+              "slot": "imm"
+            }
+          ],
+          "note": "pointer increment per entry"
+        }
+      }
+    },
+    "Loc": {
+      "fields": {
+        "tag": {
+          "offset": "0x38",
+          "type": "i64",
+          "verdict": "ANCHORED",
+          "check": "scene",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "A",
+              "insn": "0x6a2d34",
+              "fn": "0x6a2cb0",
+              "text": "CALL 0x140652270",
+              "slot": "disp"
+            }
+          ],
+          "note": "argument of the tag decoder"
+        },
+        "tagIdShift": {
+          "offset": "0x14",
+          "type": "const",
+          "verdict": "ANCHORED",
+          "check": "scene",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "A",
+              "insn": "0x652276",
+              "fn": "0x652270",
+              "text": "CALL 0x14063cbe0",
+              "slot": "imm"
+            }
+          ],
+          "note": "shift passed to the bit-extract helper"
+        }
+      }
+    },
+    "GameObject": {
+      "fields": {
+        "tag": {
+          "offset": "0x1f0",
+          "type": "i64",
+          "verdict": "ANCHORED",
+          "check": "scene",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "A",
+              "insn": "0x6a2dd5",
+              "fn": "0x6a2cb0",
+              "text": "CALL 0x140652270",
+              "slot": "disp"
+            }
+          ],
+          "note": "tag of the game object returned by the tile object lookup"
+        },
+        "originX": {
+          "offset": "0x210",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "scene",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "A",
+              "insn": "0x6a2c64",
+              "fn": "0x6a2b80",
+              "text": "CMP dword ptr [R9 + 0x210],ESI",
+              "slot": "disp"
+            }
+          ],
+          "note": "compared with the x argument"
+        },
+        "originZ": {
+          "offset": "0x218",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "scene",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "A",
+              "insn": "0x6a2c6d",
+              "fn": "0x6a2b80",
+              "text": "CMP dword ptr [R9 + 0x218],EDI",
+              "slot": "disp"
+            }
+          ],
+          "note": "compared with the z argument"
+        }
+      }
+    },
+    "GroundItem": {
+      "fields": {
+        "id": {
+          "offset": "0x20",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "groundItems",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x9d9d4",
+              "fn": "0x9d980",
+              "text": "CMP dword ptr [RDX + 0x20],R8D",
+              "slot": "disp"
+            }
+          ]
+        },
+        "count": {
+          "offset": "0x24",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "groundItems",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x1edb3f",
+              "fn": "0x1eda90",
+              "text": "MOV EDX,dword ptr [RAX + 0x24]",
+              "slot": "disp"
+            }
+          ]
+        }
+      }
+    },
+    "LocType": {
+      "fields": {
+        "id": {
+          "offset": "0x8",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x1ed1cd",
+              "fn": "0x1ed120",
+              "text": "MOV EDX,dword ptr [RDX + 0x8]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "size": {
+          "offset": "0x1e8",
+          "type": "const",
+          "verdict": "INFERRED",
+          "evidence": [
+            {
+              "strategy": "extractor",
+              "cls": "E",
+              "insn": "0x5ed171",
+              "fn": "0x5ed080",
+              "text": "CALL 0x140ab3fe0",
+              "slot": "imm"
+            }
+          ],
+          "note": "operator new size"
+        }
+      }
+    },
+    "Inventory": {
+      "fields": {
+        "id": {
+          "offset": "0x0",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "inventories",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x30d97",
+              "fn": "0x30d70",
+              "text": "CMP ECX,dword ptr [RAX]",
+              "slot": "disp"
+            },
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x30df7",
+              "fn": "0x30dd0",
+              "text": "CMP ECX,dword ptr [RAX]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "next": {
+          "offset": "0x38",
+          "type": "ptr<Inventory>",
+          "verdict": "ANCHORED",
+          "check": "inventories",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x30d9b",
+              "fn": "0x30d70",
+              "text": "MOV RAX,qword ptr [RAX + 0x38]",
+              "slot": "disp"
+            },
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x30dfb",
+              "fn": "0x30dd0",
+              "text": "MOV RAX,qword ptr [RAX + 0x38]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "ids": {
+          "offset": "0x8",
+          "type": "eastl.vector<i32>.begin",
+          "verdict": "ANCHORED",
+          "check": "inventories",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x30db5",
+              "fn": "0x30d70",
+              "text": "MOV RDX,qword ptr [RAX + 0x8]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "idsEnd": {
+          "offset": "0x10",
+          "type": "eastl.vector<i32>.end",
+          "verdict": "ANCHORED",
+          "check": "inventories",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x30db9",
+              "fn": "0x30d70",
+              "text": "MOV RCX,qword ptr [RAX + 0x10]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "counts": {
+          "offset": "0x20",
+          "type": "eastl.vector<i32>.begin",
+          "verdict": "ANCHORED",
+          "check": "inventories",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x30e12",
+              "fn": "0x30dd0",
+              "text": "MOV RDX,qword ptr [RAX + 0x20]",
+              "slot": "disp"
+            }
+          ]
+        },
+        "countsEnd": {
+          "offset": "0x28",
+          "type": "eastl.vector<i32>.end",
+          "verdict": "ANCHORED",
+          "check": "inventories",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x30e16",
+              "fn": "0x30dd0",
+              "text": "MOV RCX,qword ptr [RAX + 0x28]",
+              "slot": "disp"
+            }
+          ]
+        }
+      }
+    },
+    "IfGroupNode": {
+      "fields": {
+        "key": {
+          "offset": "0x0",
+          "type": "i32",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "hash-map",
+              "cls": "A",
+              "insn": "0x22834c",
+              "fn": "0x2282b0",
+              "text": "MOV RCX,qword ptr [R9 + RAX*0x8]",
+              "slot": "disp"
+            }
+          ],
+          "note": "buckets +0x413cc0, count +0x413cc8"
+        },
+        "next": {
+          "offset": "0x28",
+          "type": "ptr",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "hash-map",
+              "cls": "A",
+              "insn": "0x22834c",
+              "fn": "0x2282b0",
+              "text": "MOV RCX,qword ptr [R9 + RAX*0x8]",
+              "slot": "disp"
+            }
+          ],
+          "note": "buckets +0x413cc0, count +0x413cc8"
+        },
+        "value": {
+          "offset": "0x4",
+          "type": "IfGroup(32 bytes)",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x228390",
+              "fn": "0x2282b0",
+              "text": "MOVUPS XMM0,xmmword ptr [RCX + 0x4]",
+              "slot": "disp"
+            }
+          ]
+        }
+      }
+    },
+    "CollisionMapRecord": {
+      "fields": {
+        "stride": {
+          "offset": "0x28",
+          "type": "const",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x3a4d2d",
+              "fn": "0x3a4d00",
+              "text": "MOV EAX,dword ptr [RAX + RCX*0x8]",
+              "slot": "imm"
+            },
+            {
+              "strategy": "getter",
+              "cls": "A",
+              "insn": "0x3a4d39",
+              "fn": "0x3a4d00",
+              "text": "MOV EAX,dword ptr [RDX + 0x4]",
+              "slot": "imm"
+            }
+          ]
+        }
+      }
+    },
+    "IfType": {
+      "fields": {
+        "subId": {
+          "offset": "0x8",
+          "type": "member(reg 0x24f840)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x226183",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb09f0]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "x": {
+          "offset": "0x5c",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x226b43",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140b9b05c]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "y": {
+          "offset": "0x60",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x226b6a",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140b9b060]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "width": {
+          "offset": "0x64",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x226b91",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0a50]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "height": {
+          "offset": "0x68",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x226bb8",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140b9b06c]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "hidden": {
+          "offset": "0x78",
+          "type": "member(reg 0x24fac0)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x226bdf",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0a48]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "graphic": {
+          "offset": "0xc8",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x226c06",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0a40]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "graphic2": {
+          "offset": "0xcc",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x226c2d",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0a80]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "transparency": {
+          "offset": "0xb0",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x226c54",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb04c8]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "layerId": {
+          "offset": "0x74",
+          "type": "member(reg 0x24f840)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x226ea3",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0a78]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "event": {
+          "offset": "0x2c",
+          "type": "member(reg 0x24f840)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x226eee",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0a68]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "eventCode": {
+          "offset": "0x30",
+          "type": "member(reg 0x24f840)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x226f15",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0ab8]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "isEntityOverlay": {
+          "offset": "0x34",
+          "type": "member(reg 0x24fc00)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x226f3c",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0aa8]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "lastProcess": {
+          "offset": "0x38",
+          "type": "member(reg 0x24f840)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x226f63",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0a98]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "modeX": {
+          "offset": "0x3c",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x226f8a",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0a8c]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "modeY": {
+          "offset": "0x40",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x226fb1",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0aec]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "modeWidth": {
+          "offset": "0x44",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x226fd8",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0ae0]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "modeHeight": {
+          "offset": "0x48",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x226fff",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0ad0]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "dataX": {
+          "offset": "0x4c",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x227026",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0ac4]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "dataY": {
+          "offset": "0x50",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x22704d",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0b24]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "dataWidth": {
+          "offset": "0x54",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x227074",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0b18]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "dataHeight": {
+          "offset": "0x58",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x22709b",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0b08]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "layerIdXMin": {
+          "offset": "0x7c",
+          "type": "member(reg 0x24f840)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x2271d3",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0b60]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "layerIdXMax": {
+          "offset": "0x80",
+          "type": "member(reg 0x24f840)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x2271fa",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0b50]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "overlayType": {
+          "offset": "0x94",
+          "type": "member(reg 0x24fd40)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x227444",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0b98]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "overlayId": {
+          "offset": "0x288",
+          "type": "member(reg 0x24f840)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x22746b",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0b88]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "fill": {
+          "offset": "0xa8",
+          "type": "member(reg 0x24fac0)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x2274f2",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0bdc]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "blendMode": {
+          "offset": "0xac",
+          "type": "member(reg 0x250240)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x227519",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0bd0]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "strokeWidth": {
+          "offset": "0xb8",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x227540",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0bc0]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "diagonalStartAtBottom": {
+          "offset": "0xbc",
+          "type": "member(reg 0x24fac0)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x227567",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0ba8]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "startAngle": {
+          "offset": "0xc0",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x22758e",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0c10]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "stopAngle": {
+          "offset": "0xc4",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x2275b1",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0c00]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "rotate": {
+          "offset": "0xe8",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x2275fc",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb04ac]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "tiling": {
+          "offset": "0xec",
+          "type": "member(reg 0x24fac0)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x227623",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0be4]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "outline": {
+          "offset": "0xf0",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x22764a",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0c40]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "vFlip": {
+          "offset": "0xf8",
+          "type": "member(reg 0x24fac0)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x227691",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0c24]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "hFlip": {
+          "offset": "0xf9",
+          "type": "member(reg 0x24fac0)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x2276b8",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0c1c]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "model1Id": {
+          "offset": "0x100",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x22771f",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0c68]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "model1Type": {
+          "offset": "0xfc",
+          "type": "member(reg 0x250880)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x227746",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0c58]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "model2Id": {
+          "offset": "0x108",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x22776d",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0c48]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "model2Type": {
+          "offset": "0x104",
+          "type": "member(reg 0x250880)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x227794",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0cb0]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "modelAnim": {
+          "offset": "0x10c",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x2277bb",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0ca0]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "modelAnim2": {
+          "offset": "0x110",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x2277e2",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0c90]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "modelXOf": {
+          "offset": "0x114",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x227809",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0c80]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "modelYOf": {
+          "offset": "0x118",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x227830",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0cf0]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "modelXAn": {
+          "offset": "0x11c",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x227857",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0ce0]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "modelYAn": {
+          "offset": "0x120",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x22787e",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0cd0]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "modelZAn": {
+          "offset": "0x124",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x2278a5",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0cc0]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "modelZoom": {
+          "offset": "0x128",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x2278cc",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0d30]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "modelWid": {
+          "offset": "0x12c",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x2278f3",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0d20]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "modelHei": {
+          "offset": "0x130",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x22791a",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0d10]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "modelSpin": {
+          "offset": "0x134",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x227941",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0d00]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "orthog": {
+          "offset": "0x138",
+          "type": "member(reg 0x24fac0)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x227968",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0d6c]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "linkObjType": {
+          "offset": "0xb38",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x22798f",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0d60]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "linkObjCount": {
+          "offset": "0xb3c",
+          "type": "member(reg 0x24f980)",
+          "verdict": "ANCHORED",
+          "check": "widgets",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x2279b6",
+              "fn": "0x225f10",
+              "text": "LEA RAX,[0x140bb0d50]",
+              "slot": "imm"
+            }
+          ]
+        }
+      }
+    },
+    "InterfaceCoordinates": {
+      "fields": {
+        "offX": {
+          "offset": "0x10",
+          "type": "member(reg 0x2517f0)",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x231964",
+              "fn": "0x231930",
+              "text": "LEA RAX,[0x140bb1014]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "offY": {
+          "offset": "0x14",
+          "type": "member(reg 0x2517f0)",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x23198b",
+              "fn": "0x231930",
+              "text": "LEA RAX,[0x140bb100c]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "clipX1": {
+          "offset": "0x0",
+          "type": "member(reg 0x2517f0)",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x2319b2",
+              "fn": "0x231930",
+              "text": "LEA RAX,[0x140bb1060]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "clipX2": {
+          "offset": "0x8",
+          "type": "member(reg 0x2517f0)",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x2319d9",
+              "fn": "0x231930",
+              "text": "LEA RAX,[0x140bb1058]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "clipY1": {
+          "offset": "0x4",
+          "type": "member(reg 0x2517f0)",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x231a00",
+              "fn": "0x231930",
+              "text": "LEA RAX,[0x140bb1050]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "clipY2": {
+          "offset": "0xc",
+          "type": "member(reg 0x2517f0)",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x231a27",
+              "fn": "0x231930",
+              "text": "LEA RAX,[0x140bb1048]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "scriptOffX": {
+          "offset": "0x18",
+          "type": "member(reg 0x2517f0)",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x231a4e",
+              "fn": "0x231930",
+              "text": "LEA RAX,[0x140bb10a0]",
+              "slot": "imm"
+            }
+          ]
+        },
+        "scriptOffY": {
+          "offset": "0x1c",
+          "type": "member(reg 0x2517f0)",
+          "verdict": "ANCHORED",
+          "evidence": [
+            {
+              "strategy": "member",
+              "cls": "A",
+              "insn": "0x231a75",
+              "fn": "0x231930",
+              "text": "LEA RAX,[0x140bb1090]",
+              "slot": "imm"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "enums": {
+    "gameState": {
+      "values": {
+        "LOGGED_IN": 30
+      },
+      "verdict": "ANCHORED"
+    },
+    "events": {
+      "values": {
+        "NULL_EVENT": 0,
+        "POINTER_MOVE": 1,
+        "POINTER_PRESS": 2,
+        "POINTER_RELEASE": 3,
+        "POINTER_DRAG": 4,
+        "POINTER_CANCEL": 5,
+        "KEYBOARD_INPUT_FOCUS_CHANGE": 6,
+        "TEXT_COMMAND_RECEIVED": 7,
+        "WHEEL_SCROLL": 8,
+        "KEY_DOWN": 9,
+        "KEY_UP": 10,
+        "KEY_TYPE": 11,
+        "ON_VAR_TRANSMIT": 12,
+        "ON_INV_TRANSMIT": 13,
+        "ON_STAT_TRANSMIT": 14,
+        "ON_CHAT_TRANSMIT": 15,
+        "ON_FRIEND_TRANSMIT": 16,
+        "ON_STOCK_TRANSMIT": 17,
+        "ON_ACTIVE_OFFERS_TRANSMIT": 18,
+        "ON_CLAN_RECORD_TRANSMIT": 19,
+        "ON_CLAN_CHANNEL_TRANSMIT": 20,
+        "ON_FRIEND_CHANNEL_TRANSMIT": 21,
+        "ON_TARGET_ENTER": 22,
+        "ON_TARGET_LEAVE": 23,
+        "ON_NPC_OP": 24,
+        "ON_LOC_OP": 25,
+        "ON_TILE_OP": 26,
+        "ON_PLAYER_OP": 27,
+        "ON_OBJ_OP": 28,
+        "ON_COMPONENT_OP": 29,
+        "ON_RUN_ENERGY_TRANSMIT": 30,
+        "ON_RUN_WEIGHT_TRANSMIT": 31,
+        "ON_REBOOT_TIMER_TRANSMIT": 32,
+        "ON_DIALOG_ABORT": 33,
+        "ON_SUB_CHANGE": 34,
+        "ON_MAP_REBUILD_PRE": 35,
+        "ON_MAP_REBUILD_POST": 36,
+        "ON_MINIMENU_REBUILD": 37,
+        "ON_MINIMENU_CLICK": 38,
+        "ON_CLIENTSCRIPT": 39,
+        "ON_GAME_STATE_CHANGED": 40,
+        "ON_LOC_LOAD": 41,
+        "ON_LOC_UNLOAD": 42,
+        "ON_NPC_LOAD": 43,
+        "ON_NPC_UNLOAD": 44,
+        "ON_GAME_TICK": 45,
+        "ON_SCREEN_RESIZE": 46,
+        "ON_VARBIT_UPDATE": 47,
+        "ON_IF_LOAD": 48,
+        "ON_IF_CLICK": 49,
+        "ON_IF_CLICK_REPEAT": 50,
+        "ON_IF_HOLD": 51,
+        "ON_IF_MOUSEOVER": 52,
+        "ON_IF_MOUSEREPEAT": 53,
+        "ON_IF_MOUSELEAVE": 54,
+        "ON_IF_DRAG": 55,
+        "ON_IF_DRAG_COMPLETE": 56,
+        "ON_IF_OP": 57,
+        "ON_IF_OPT": 58,
+        "ON_IF_TIMER": 59,
+        "ON_IF_MISC_TRANSMIT": 60,
+        "ON_IF_COMPONENT_CHANGED": 61,
+        "ON_PERF_CAPTURE_START": 62,
+        "ON_PERF_CAPTURE_END": 63
+      },
+      "verdict": "ANCHORED"
+    }
+  },
+  "capabilities": {
+    "core": {
+      "satisfied": true,
+      "missing": []
+    },
+    "skills": {
+      "satisfied": true,
+      "missing": []
+    },
+    "vars": {
+      "satisfied": true,
+      "missing": []
+    },
+    "worlds": {
+      "satisfied": true,
+      "missing": []
+    },
+    "npcs.basic": {
+      "satisfied": true,
+      "missing": []
+    },
+    "npcs.animation": {
+      "satisfied": true,
+      "missing": []
+    },
+    "npcs.combat": {
+      "satisfied": true,
+      "missing": []
+    },
+    "players.basic": {
+      "satisfied": true,
+      "missing": []
+    },
+    "scene.locs": {
+      "satisfied": true,
+      "missing": []
+    },
+    "scene.groundItems": {
+      "satisfied": true,
+      "missing": []
+    },
+    "camera": {
+      "satisfied": true,
+      "missing": []
+    },
+    "projection": {
+      "satisfied": true,
+      "missing": []
+    },
+    "widgets.layout": {
+      "satisfied": true,
+      "missing": []
+    },
+    "events.ids": {
+      "satisfied": true,
+      "missing": []
+    }
+  },
+  "fingerprints": {
+    "NpcLookup": {
+      "rva": "0x1878b0",
+      "status": "MATCHED",
+      "note": "1 match; rule {'callee_of': 'ClientOp.npcCoord', 'imm': 65536}"
+    },
+    "PlayerLookup": {
+      "rva": "0x187280",
+      "status": "MATCHED",
+      "note": "1 match; rule {'callee_of': 'ClientOp.playerCoord', 'imm': 2048}"
+    },
+    "EntityResolver": {
+      "rva": "0x219b90",
+      "status": "MATCHED",
+      "note": "1 match; rule {'common_callee_of': ['osrs.Entity.isInteracting', 'osrs.Entity.isHealthbarRendered', 'osrs.Entity.isHeadbarEmpty']}"
+    },
+    "ActorWorld": {
+      "rva": "0x9f640",
+      "status": "MATCHED",
+      "note": "1 match; rule {'callee_of': 'ClientOp.npcCoord', 'arg0': 'sp_result'}"
+    },
+    "WorldFromCoord": {
+      "rva": "0xec670",
+      "status": "MATCHED",
+      "note": "1 match; rule {'callee_of': 'ClientOp.locFind', 'arg0': {'addr': 'client'}}"
+    },
+    "WorldBounds": {
+      "rva": "0xec4a0",
+      "status": "MATCHED",
+      "note": "1 match; rule {'callee_of': '@WorldFromCoord', 'min_args': 3}"
+    },
+    "TileLookup": {
+      "rva": "0x6a2cb0",
+      "status": "MATCHED",
+      "note": "1 match; rule {'callee_of': 'ClientOp.locFind', 'min_args': 6}"
+    },
+    "ObjPileLookup": {
+      "rva": "0x9d980",
+      "status": "MATCHED",
+      "note": "1 match; rule {'callee_of': 'ClientOp.objFind', 'min_args': 5}"
+    },
+    "VarbitRead": {
+      "rva": "0x5ae330",
+      "status": "MATCHED",
+      "note": "1 match; rule {'callee_of': 'ClientState.getVarbit', 'calls': '@ConfigLoader.14', 'include_self': True}"
+    },
+    "ConfigLoaderCore": {
+      "rva": "0x625a50",
+      "status": "MATCHED",
+      "note": "27 group ids; cache global in arg0 at 28/74 sites"
+    },
+    "ConfigLoader.6": {
+      "rva": "0x5ed080",
+      "status": "MATCHED",
+      "note": "calls the loader core with group 6"
+    },
+    "ConfigLoader.9": {
+      "rva": "0x5f18f0",
+      "status": "MATCHED",
+      "note": "calls the loader core with group 9"
+    },
+    "ConfigLoader.10": {
+      "rva": "0x5f5cd0",
+      "status": "MATCHED",
+      "note": "calls the loader core with group 10"
+    },
+    "ConfigLoader.12": {
+      "rva": "0x5fbb00",
+      "status": "MATCHED",
+      "note": "calls the loader core with group 12"
+    },
+    "ConfigLoader.13": {
+      "rva": "0x5fedf0",
+      "status": "MATCHED",
+      "note": "calls the loader core with group 13"
+    },
+    "ConfigLoader.14": {
+      "rva": "0x600690",
+      "status": "MATCHED",
+      "note": "calls the loader core with group 14"
+    },
+    "SetSequence": {
+      "rva": "0x9fe50",
+      "status": "MATCHED",
+      "note": "caller of SeqType loader comparing arg1 with [actor+anim]"
+    },
+    "ActorCtor": {
+      "rva": "0x9dcd0",
+      "status": "MATCHED",
+      "note": "7 qword -1 stores from +0x280, height 200, timer 100"
+    },
+    "NpcUpdateDecoder": {
+      "rva": "0x98dc0",
+      "status": "MATCHED",
+      "note": "1 match; rule {'caller_of': '@SetSequence', 'calls': '@ConfigLoader.9', 'unique': False}"
+    },
+    "OperatorNew": {
+      "rva": "0xab3fe0",
+      "status": "MATCHED",
+      "note": "621 sized allocations"
+    },
+    "LocTagToId": {
+      "rva": "0x652270",
+      "status": "MATCHED",
+      "note": "called 4x with a loc tag"
+    },
+    "TileGameObjectLookup": {
+      "rva": "0x6a2b80",
+      "status": "MATCHED",
+      "note": "returns {ctrl, GameObject*}"
+    },
+    "ObjPileTile": {
+      "rva": "0x9d8b0",
+      "status": "MATCHED",
+      "note": "3 nested indexed loads"
+    },
+    "WorldToScreen": {
+      "rva": "0x21eb80",
+      "status": "MATCHED",
+      "note": "Graphics.worldToScreenCoord"
+    },
+    "ProjectionCore": {
+      "rva": "0x6aa7c0",
+      "status": "MATCHED",
+      "note": "1 match; rule {'callee_of': '@WorldToScreen', 'min_args': 7}"
+    },
+    "ActorNameGetter": {
+      "rva": "0x9ffc0",
+      "status": "MATCHED",
+      "note": "1 match; rule {'callee_of': 'ClientOp.npcName', 'arg0': 'sp_result'}"
+    },
+    "InvLookupIds": {
+      "rva": "0x30d70",
+      "status": "MATCHED",
+      "note": "1 match; rule {'callee_of': 'ClientOp.invGetObjId'}"
+    },
+    "InvLookupCounts": {
+      "rva": "0x30dd0",
+      "status": "MATCHED",
+      "note": "1 match; rule {'callee_of': 'ClientOp.invGetNum'}"
+    }
+  },
+  "bindings": {
+    "ClientOp.ScriptOpsBinding": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "ClientOp.getNpcIdByName": {
+      "handler": "0x3acf80",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.getNpcIdByNameAll": {
+      "handler": "0x3ad130",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.getNpcIdAll": {
+      "handler": "0x3ad4b0",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.getPlayerIdByName": {
+      "handler": "0x3ad610",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.getPlayerIdAll": {
+      "handler": "0x3ad810",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.invGetObjId": {
+      "handler": "0x1a93d0",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.invGetNum": {
+      "handler": "0x1a9420",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.invTotal": {
+      "handler": "0x1a9470",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.invSize": {
+      "handler": "0x1a94c0",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.getNpcObj": {
+      "handler": "0x3add60",
+      "member": null,
+      "kind": "factory"
+    },
+    "ClientOp.getPlayerObj": {
+      "handler": "0x3adf40",
+      "member": null,
+      "kind": "factory"
+    },
+    "ClientOp.renderProjectiles": {
+      "handler": "0x3ae120",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.areProjectilesRendered": {
+      "handler": "0x3ae150",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.WornSlots": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "ClientOp.coord": {
+      "handler": "0x3ae180",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.coordFine": {
+      "handler": "0x3ae290",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.ocName": {
+      "handler": "0x1ebe40",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.ocOp": {
+      "handler": "0x1ebed0",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.ocCost": {
+      "handler": "0x1ebf90",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.ocStackable": {
+      "handler": "0x1ec020",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.highlightNpcOn": {
+      "handler": "0x1ec0b0",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.highlightNpcOff": {
+      "handler": "0x1ec110",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.highlightNpcChannelActive": {
+      "handler": "0x3a7f30",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.highlightNpcTypeOn": {
+      "handler": "0x1ec170",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.highlightNpcTypeOff": {
+      "handler": "0x1ec1c0",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.highlightNpcTypeChannelActive": {
+      "handler": "0x3a7ff0",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.highlightTileOn": {
+      "handler": "0x1ec210",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.highlightTileOff": {
+      "handler": "0x1ec290",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.highlightTileChannelActive": {
+      "handler": "0x3a8050",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.highlightPlayerOn": {
+      "handler": "0x1ec310",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.highlightPlayerOff": {
+      "handler": "0x1ec390",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.highlightPlayerChannelActive": {
+      "handler": "0x3a80e0",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.highlightObjOn": {
+      "handler": "0x1ec3e0",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.highlightObjOff": {
+      "handler": "0x1ec480",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.highlightObjChannelActive": {
+      "handler": "0x3a8190",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.highlightObjTypeOn": {
+      "handler": "0x1ec520",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.highlightObjTypeOff": {
+      "handler": "0x1ec570",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.highlightObjTypeChannelActive": {
+      "handler": "0x3a8220",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.highlightNpcChannelsGetActive": {
+      "handler": "0x3af500",
+      "member": null,
+      "kind": "factory"
+    },
+    "ClientOp.highlightNpcTypeChannelsGetActive": {
+      "handler": "0x3af590",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.highlightTileChannelsGetActive": {
+      "handler": "0x3af620",
+      "member": null,
+      "kind": "factory"
+    },
+    "ClientOp.highlightPlayerChannelsGetActive": {
+      "handler": "0x3af6a0",
+      "member": null,
+      "kind": "factory"
+    },
+    "ClientOp.highlightObjChannelsGetActive": {
+      "handler": "0x3af840",
+      "member": null,
+      "kind": "factory"
+    },
+    "ClientOp.highlightObjTypeChannelsGetActive": {
+      "handler": "0x3af8d0",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.highlightChannelConfigure": {
+      "handler": "0x3ad8c0",
+      "member": null,
+      "kind": "factory"
+    },
+    "ClientOp.highlightChannelConfigGet": {
+      "handler": "0x3adac0",
+      "member": null,
+      "kind": "factory"
+    },
+    "ClientOp.highlightCategoryEnabledConfigGet": {
+      "handler": "0x3adc80",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.friendsChatGetDisplayName": {
+      "handler": "0x1a9550",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.friendsChatGetChatCount": {
+      "handler": "0x1a9650",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.npcCoord": {
+      "handler": "0x3ae4b0",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.npcCoordFine": {
+      "handler": "0x3ae660",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.npcName": {
+      "handler": "0x1ec5c0",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.npcUid": {
+      "handler": "0x1ec720",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.npcCreationCycle": {
+      "handler": "0x1ec7e0",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.npcTypeId": {
+      "handler": "0x1ec890",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.ncName": {
+      "handler": "0x1ec950",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.npcSay": {
+      "handler": "0x1ecae0",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.playerCoord": {
+      "handler": "0x3ae8c0",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.playerCoordFine": {
+      "handler": "0x3aea70",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.playerName": {
+      "handler": "0x1ecc00",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.playerSay": {
+      "handler": "0x1ecd50",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.playerFindSelf": {
+      "handler": "0x3a8280",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.playerRouteLength": {
+      "handler": "0x1ece80",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.locCoord": {
+      "handler": "0x3aecd0",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.locFind": {
+      "handler": "0x3af050",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.locName": {
+      "handler": "0x1ecf50",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.locTypeId": {
+      "handler": "0x1ed120",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.locGetOp": {
+      "handler": "0x1ed260",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.locWidth": {
+      "handler": "0x1ed3c0",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.locLength": {
+      "handler": "0x1ed540",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.objCoord": {
+      "handler": "0x3aee90",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.objName": {
+      "handler": "0x1ed6c0",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.objTypeId": {
+      "handler": "0x1ed950",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.objCount": {
+      "handler": "0x1eda90",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.objGetOp": {
+      "handler": "0x1edbd0",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientOp.objFind": {
+      "handler": "0x3af300",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientState.getStatEffectiveLevel": {
+      "handler": "0xf5810",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientState.getStatXP": {
+      "handler": "0xf5840",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientState.getStatBaseLevel": {
+      "handler": "0xf5870",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientState.getStatRemainingXPUntilLevel": {
+      "handler": "0xf58a0",
+      "member": null,
+      "kind": "factory"
+    },
+    "ClientState.getVarp": {
+      "handler": "0xf5900",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientState.getVarbit": {
+      "handler": "0xf5910",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientState.getTickCount": {
+      "handler": "0xf5920",
+      "member": null,
+      "kind": "factory"
+    },
+    "ClientState.isLoggedIn": {
+      "handler": "0xf5930",
+      "member": null,
+      "kind": "factory"
+    },
+    "ClientState.getProfileType": {
+      "handler": "0xf5950",
+      "member": null,
+      "kind": "factory"
+    },
+    "ClientState.getIntegerVarc": {
+      "handler": "0xf59a0",
+      "member": null,
+      "kind": "direct"
+    },
+    "ClientState.getStringVarc": {
+      "handler": "0xf59c0",
+      "member": null,
+      "kind": "factory"
+    },
+    "ClientState.ProfileType": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "ClientState.Stats": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "Camera.setControl": {
+      "handler": "0xf2ab0",
+      "member": null,
+      "kind": "direct"
+    },
+    "Camera.isControlled": {
+      "handler": "0xf2af0",
+      "member": null,
+      "kind": "direct"
+    },
+    "Camera.getPos": {
+      "handler": "0xf2b00",
+      "member": null,
+      "kind": "direct"
+    },
+    "Camera.setPos": {
+      "handler": "0xf2b20",
+      "member": null,
+      "kind": "direct"
+    },
+    "Camera.getLookAt": {
+      "handler": "0xf2b60",
+      "member": null,
+      "kind": "direct"
+    },
+    "Camera.setLookAt": {
+      "handler": "0xf2b80",
+      "member": null,
+      "kind": "direct"
+    },
+    "Camera.getLookAtAngles": {
+      "handler": "0xf2ba0",
+      "member": null,
+      "kind": "factory"
+    },
+    "Camera.setLookAtAngles": {
+      "handler": "0xf2bc0",
+      "member": null,
+      "kind": "direct"
+    },
+    "Camera.offsetLookAtAngles": {
+      "handler": "0xf2be0",
+      "member": null,
+      "kind": "direct"
+    },
+    "Camera.targetNpc": {
+      "handler": "0xf2c30",
+      "member": null,
+      "kind": "direct"
+    },
+    "Camera.targetPlayer": {
+      "handler": "0xf2ce0",
+      "member": null,
+      "kind": "direct"
+    },
+    "Camera.clearTarget": {
+      "handler": "0xf2d00",
+      "member": null,
+      "kind": "direct"
+    },
+    "Camera.hasTarget": {
+      "handler": "0xf2d20",
+      "member": null,
+      "kind": "direct"
+    },
+    "Camera.followTarget": {
+      "handler": "0xf2d30",
+      "member": null,
+      "kind": "direct"
+    },
+    "Graphics.clearAllShapes": {
+      "handler": "0x21eb10",
+      "member": null,
+      "kind": "factory"
+    },
+    "Graphics.addShape": {
+      "handler": "0x21e710",
+      "member": null,
+      "kind": "factory"
+    },
+    "Graphics.removeShape": {
+      "handler": "0x21ea00",
+      "member": null,
+      "kind": "factory"
+    },
+    "Graphics.clientDimensions": {
+      "handler": "0x21eb40",
+      "member": null,
+      "kind": "factory"
+    },
+    "Graphics.worldToScreenCoord": {
+      "handler": "0x21eb80",
+      "member": null,
+      "kind": "factory"
+    },
+    "Utils.getCollisionMap": {
+      "handler": "0x3a4d00",
+      "member": null,
+      "kind": "factory"
+    },
+    "Utils.getCollisionMaps": {
+      "handler": "0x3a4b40",
+      "member": null,
+      "kind": "factory"
+    },
+    "osrs.Entity.isRendered3D": {
+      "handler": "0xf2f00",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.Entity.isRendered2D": {
+      "handler": "0xf2f10",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.Entity.render3D": {
+      "handler": "0x219db0",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.Entity.render2D": {
+      "handler": "0x219ea0",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.Entity.isInteracting": {
+      "handler": "0x219f30",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.Entity.isDead": {
+      "handler": "0x219fd0",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.Entity.isHealthbarRendered": {
+      "handler": "0x21a000",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.Entity.isHeadbarEmpty": {
+      "handler": "0x21a0e0",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.Entity.getName": {
+      "handler": "0x17121c",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.Npc.isFollower": {
+      "handler": "0x239f60",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.Npc.isLocalFollower": {
+      "handler": "0x239fd0",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.Npc.getType": {
+      "handler": "0x239fe0",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.Npc.getTypeData": {
+      "handler": "0x23a140",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.Player.isOnlineFriend": {
+      "handler": "0x23ca70",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.Player.isGroup": {
+      "handler": "0x23cad0",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.Player.isIgnored": {
+      "handler": "0x23cb30",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.Player.isFriendChat": {
+      "handler": "0x23cba0",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.Player.isLocalPlayer": {
+      "handler": "0x23cc00",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.NpcType.getType": {
+      "handler": "0x23a320",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.NpcType.getOps": {
+      "handler": "0x23a590",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.NpcType.getSize": {
+      "handler": "0x23a500",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.NpcType.getParams": {
+      "handler": "0x23a3b0",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.NpcType.getStats": {
+      "handler": "0x23a740",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.LocType.blocksWalk": {
+      "handler": "0x230400",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.LocType.blocksRange": {
+      "handler": "0x230540",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.LocType.getWidth": {
+      "handler": "0x2305e0",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.LocType.getLength": {
+      "handler": "0x230700",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.LocType.getWallWidth": {
+      "handler": "0x230670",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.LocType.getParams": {
+      "handler": "0x230980",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.LocType.getActive": {
+      "handler": "0x2304a0",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.LocType.getOps": {
+      "handler": "0x230790",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.LocType.Loc": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.ObjType.getDesc": {
+      "handler": "0x23abf0",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.ObjType.getModelId": {
+      "handler": "0x23acc0",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.ObjType.getCertId": {
+      "handler": "0x23ad50",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.ObjType.getPlaceholderId": {
+      "handler": "0x23adf0",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.ObjType.getCanonicalId": {
+      "handler": "0x23ae90",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.ObjType.getParams": {
+      "handler": "0x23b0f0",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.ObjType.getOps": {
+      "handler": "0x23b2e0",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.ObjType.getIOps": {
+      "handler": "0x23aff0",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.ObjType.getWeight": {
+      "handler": "0x23b490",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.ObjType.getValue": {
+      "handler": "0x23b530",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.ObjType.isStackable": {
+      "handler": "0x23b5d0",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.ObjType.isTradeable": {
+      "handler": "0x23b670",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.ObjType.isEquipable": {
+      "handler": "0x23b710",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.ObjType.isTwoHanded": {
+      "handler": "0x23b7b0",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.ObjType.getSlot": {
+      "handler": "0x23b860",
+      "member": null,
+      "kind": "direct"
+    },
+    "osrs.ObjType.Obj": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.id": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.componentIndex": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.subId": {
+      "handler": null,
+      "member": "0x8",
+      "kind": "member"
+    },
+    "osrs.IfType.type": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.opNames": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.baseOpName": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.children": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.isRendering": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.isStatic": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.parent": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.staticParent": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.sourceName": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.x": {
+      "handler": null,
+      "member": "0x5c",
+      "kind": "member"
+    },
+    "osrs.IfType.y": {
+      "handler": null,
+      "member": "0x60",
+      "kind": "member"
+    },
+    "osrs.IfType.width": {
+      "handler": null,
+      "member": "0x64",
+      "kind": "member"
+    },
+    "osrs.IfType.height": {
+      "handler": null,
+      "member": "0x68",
+      "kind": "member"
+    },
+    "osrs.IfType.hidden": {
+      "handler": null,
+      "member": "0x78",
+      "kind": "member"
+    },
+    "osrs.IfType.graphic": {
+      "handler": null,
+      "member": "0xc8",
+      "kind": "member"
+    },
+    "osrs.IfType.graphic2": {
+      "handler": null,
+      "member": "0xcc",
+      "kind": "member"
+    },
+    "osrs.IfType.transparency": {
+      "handler": null,
+      "member": "0xb0",
+      "kind": "member"
+    },
+    "osrs.IfType.subscribe": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.unsubscribe": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.layerId": {
+      "handler": null,
+      "member": "0x74",
+      "kind": "member"
+    },
+    "osrs.IfType.isIf3": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.event": {
+      "handler": null,
+      "member": "0x2c",
+      "kind": "member"
+    },
+    "osrs.IfType.eventCode": {
+      "handler": null,
+      "member": "0x30",
+      "kind": "member"
+    },
+    "osrs.IfType.isEntityOverlay": {
+      "handler": null,
+      "member": "0x34",
+      "kind": "member"
+    },
+    "osrs.IfType.lastProcess": {
+      "handler": null,
+      "member": "0x38",
+      "kind": "member"
+    },
+    "osrs.IfType.modeX": {
+      "handler": null,
+      "member": "0x3c",
+      "kind": "member"
+    },
+    "osrs.IfType.modeY": {
+      "handler": null,
+      "member": "0x40",
+      "kind": "member"
+    },
+    "osrs.IfType.modeWidth": {
+      "handler": null,
+      "member": "0x44",
+      "kind": "member"
+    },
+    "osrs.IfType.modeHeight": {
+      "handler": null,
+      "member": "0x48",
+      "kind": "member"
+    },
+    "osrs.IfType.dataX": {
+      "handler": null,
+      "member": "0x4c",
+      "kind": "member"
+    },
+    "osrs.IfType.dataY": {
+      "handler": null,
+      "member": "0x50",
+      "kind": "member"
+    },
+    "osrs.IfType.dataWidth": {
+      "handler": null,
+      "member": "0x54",
+      "kind": "member"
+    },
+    "osrs.IfType.dataHeight": {
+      "handler": null,
+      "member": "0x58",
+      "kind": "member"
+    },
+    "osrs.IfType.aspectRatio": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.layerIdXMin": {
+      "handler": null,
+      "member": "0x7c",
+      "kind": "member"
+    },
+    "osrs.IfType.layerIdXMax": {
+      "handler": null,
+      "member": "0x80",
+      "kind": "member"
+    },
+    "osrs.IfType.scrollPos": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.scrollSize": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.overlayType": {
+      "handler": null,
+      "member": "0x94",
+      "kind": "member"
+    },
+    "osrs.IfType.overlayId": {
+      "handler": null,
+      "member": "0x288",
+      "kind": "member"
+    },
+    "osrs.IfType.colour": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.colour2": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.colourOver": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.fill": {
+      "handler": null,
+      "member": "0xa8",
+      "kind": "member"
+    },
+    "osrs.IfType.blendMode": {
+      "handler": null,
+      "member": "0xac",
+      "kind": "member"
+    },
+    "osrs.IfType.strokeWidth": {
+      "handler": null,
+      "member": "0xb8",
+      "kind": "member"
+    },
+    "osrs.IfType.diagonalStartAtBottom": {
+      "handler": null,
+      "member": "0xbc",
+      "kind": "member"
+    },
+    "osrs.IfType.startAngle": {
+      "handler": null,
+      "member": "0xc0",
+      "kind": "member"
+    },
+    "osrs.IfType.stopAngle": {
+      "handler": null,
+      "member": "0xc4",
+      "kind": "member"
+    },
+    "osrs.IfType.graphicURL": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.rotate": {
+      "handler": null,
+      "member": "0xe8",
+      "kind": "member"
+    },
+    "osrs.IfType.tiling": {
+      "handler": null,
+      "member": "0xec",
+      "kind": "member"
+    },
+    "osrs.IfType.outline": {
+      "handler": null,
+      "member": "0xf0",
+      "kind": "member"
+    },
+    "osrs.IfType.shadowColour": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.vFlip": {
+      "handler": null,
+      "member": "0xf8",
+      "kind": "member"
+    },
+    "osrs.IfType.hFlip": {
+      "handler": null,
+      "member": "0xf9",
+      "kind": "member"
+    },
+    "osrs.IfType.text": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.text2": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.model1Id": {
+      "handler": null,
+      "member": "0x100",
+      "kind": "member"
+    },
+    "osrs.IfType.model1Type": {
+      "handler": null,
+      "member": "0xfc",
+      "kind": "member"
+    },
+    "osrs.IfType.model2Id": {
+      "handler": null,
+      "member": "0x108",
+      "kind": "member"
+    },
+    "osrs.IfType.model2Type": {
+      "handler": null,
+      "member": "0x104",
+      "kind": "member"
+    },
+    "osrs.IfType.modelAnim": {
+      "handler": null,
+      "member": "0x10c",
+      "kind": "member"
+    },
+    "osrs.IfType.modelAnim2": {
+      "handler": null,
+      "member": "0x110",
+      "kind": "member"
+    },
+    "osrs.IfType.modelXOf": {
+      "handler": null,
+      "member": "0x114",
+      "kind": "member"
+    },
+    "osrs.IfType.modelYOf": {
+      "handler": null,
+      "member": "0x118",
+      "kind": "member"
+    },
+    "osrs.IfType.modelXAn": {
+      "handler": null,
+      "member": "0x11c",
+      "kind": "member"
+    },
+    "osrs.IfType.modelYAn": {
+      "handler": null,
+      "member": "0x120",
+      "kind": "member"
+    },
+    "osrs.IfType.modelZAn": {
+      "handler": null,
+      "member": "0x124",
+      "kind": "member"
+    },
+    "osrs.IfType.modelZoom": {
+      "handler": null,
+      "member": "0x128",
+      "kind": "member"
+    },
+    "osrs.IfType.modelWid": {
+      "handler": null,
+      "member": "0x12c",
+      "kind": "member"
+    },
+    "osrs.IfType.modelHei": {
+      "handler": null,
+      "member": "0x130",
+      "kind": "member"
+    },
+    "osrs.IfType.modelSpin": {
+      "handler": null,
+      "member": "0x134",
+      "kind": "member"
+    },
+    "osrs.IfType.orthog": {
+      "handler": null,
+      "member": "0x138",
+      "kind": "member"
+    },
+    "osrs.IfType.linkObjType": {
+      "handler": null,
+      "member": "0xb38",
+      "kind": "member"
+    },
+    "osrs.IfType.linkObjCount": {
+      "handler": null,
+      "member": "0xb3c",
+      "kind": "member"
+    },
+    "osrs.IfType.screenCoords": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.IfType.ifType": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "osrs.InterfaceCoordinates.offX": {
+      "handler": null,
+      "member": "0x10",
+      "kind": "member"
+    },
+    "osrs.InterfaceCoordinates.offY": {
+      "handler": null,
+      "member": "0x14",
+      "kind": "member"
+    },
+    "osrs.InterfaceCoordinates.clipX1": {
+      "handler": null,
+      "member": "0x0",
+      "kind": "member"
+    },
+    "osrs.InterfaceCoordinates.clipX2": {
+      "handler": null,
+      "member": "0x8",
+      "kind": "member"
+    },
+    "osrs.InterfaceCoordinates.clipY1": {
+      "handler": null,
+      "member": "0x4",
+      "kind": "member"
+    },
+    "osrs.InterfaceCoordinates.clipY2": {
+      "handler": null,
+      "member": "0xc",
+      "kind": "member"
+    },
+    "osrs.InterfaceCoordinates.scriptOffX": {
+      "handler": null,
+      "member": "0x18",
+      "kind": "member"
+    },
+    "osrs.InterfaceCoordinates.scriptOffY": {
+      "handler": null,
+      "member": "0x1c",
+      "kind": "member"
+    },
+    "InterfaceQuery.retrieveIfType": {
+      "handler": "0x228240",
+      "member": null,
+      "kind": "factory"
+    },
+    "InterfaceQuery.retrieveIfGroup": {
+      "handler": "0x2282b0",
+      "member": null,
+      "kind": "factory"
+    },
+    "InterfaceQuery.addRenderOffset": {
+      "handler": "0x228520",
+      "member": null,
+      "kind": "direct"
+    },
+    "InterfaceQuery.setRenderOffset": {
+      "handler": "0x228590",
+      "member": null,
+      "kind": "direct"
+    },
+    "InterfaceQuery.IfTypes": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "InterfaceQuery.AlignMode": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "InterfaceQuery.SizeMode": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "InterfaceQuery.OverlayTypes": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "InterfaceQuery.BlendMode": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "InterfaceQuery.ModelTypes": {
+      "handler": null,
+      "member": null,
+      "kind": "unpaired"
+    },
+    "CollisionMap.lineOfSight": {
+      "handler": "0xf76e0",
+      "member": null,
+      "kind": "direct"
+    },
+    "CollisionMap.lineOfWalk": {
+      "handler": "0xf7680",
+      "member": null,
+      "kind": "direct"
+    },
+    "CollisionMap.getBitFlags": {
+      "handler": "0x5c29a0",
+      "member": null,
+      "kind": "direct"
+    },
+    "CollisionMap.osrs": {
+      "handler": "0xf7660",
+      "member": null,
+      "kind": "direct"
+    }
+  }
+}

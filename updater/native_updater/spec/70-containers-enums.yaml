@@ -1,0 +1,102 @@
+keys:
+  # Container contracts, re-derived every build so the API can traverse EASTL structures safely.
+  - key: container.hash_map.buckets
+    type: const
+    priority: P0
+    live: hashMap
+    strategies:
+      - extractor: { name: shared_layouts, field: container.hash_map.buckets, cls: A }
+  - key: container.hash_map.bucketCount
+    type: const
+    priority: P0
+    live: hashMap
+    strategies:
+      - extractor: { name: shared_layouts, field: container.hash_map.bucketCount, cls: A }
+  - key: container.hash_map.node.key
+    type: const
+    priority: P0
+    live: hashMap
+    strategies:
+      - hash-map: { in: "@NpcLookup", base: node_value, part: node_key }
+  - key: container.hash_map.node.value
+    type: const
+    priority: P0
+    live: hashMap
+    strategies:
+      - hash-map: { in: "@NpcLookup", base: node_value, part: node_value }
+  - key: container.hash_map.node.next
+    type: const
+    priority: P0
+    live: hashMap
+    strategies:
+      - hash-map: { in: "@NpcLookup", base: node_value, part: node_next }
+  - key: container.shared_ptr.ptr
+    type: const
+    priority: P0
+    live: hashMap
+    strategies:
+      - extractor: { name: shared_layouts, field: container.shared_ptr.ptr, cls: A }
+  - key: container.shared_ptr.ctrl.useCount
+    type: const
+    priority: P1
+    strategies:
+      - extractor: { name: shared_layouts, field: container.shared_ptr.ctrl.useCount, cls: A }
+  - key: container.list.node.value
+    type: const
+    priority: P0
+    live: headbars
+    doc: Offset of the element pointer inside an eastl::list node (observed in the headbar walk).
+    strategies:
+      - extractor: { name: shared_layouts, field: container.list.node.value, cls: A }
+  - key: container.string.size
+    type: const
+    priority: P0
+    live: localPlayerName
+    strategies:
+      - extractor: { name: string_sso, in: ClientOp.npcCoord, field: container.string.size, cls: A }
+  - key: container.string.ssoCapacity
+    type: const
+    priority: P0
+    live: localPlayerName
+    strategies:
+      - extractor: { name: string_sso, in: ClientOp.npcCoord, field: container.string.ssoCapacity, cls: A }
+  - key: container.string.heapFlagByte
+    type: const
+    priority: P0
+    live: localPlayerName
+    strategies:
+      - extractor: { name: string_sso, in: ClientOp.npcCoord, field: container.string.heapFlagByte, cls: A }
+  - key: container.string.heapFlagMask
+    type: const
+    priority: P0
+    live: localPlayerName
+    strategies:
+      - extractor: { name: string_sso, in: ClientOp.npcCoord, field: container.string.heapFlagMask, cls: A }
+
+  - key: enums.events
+    type: table
+    priority: P1
+    doc: Native event ids (ON_GAME_TICK, ON_NPC_LOAD, ...), the P2 event hook contract.
+    strategies:
+      - enum-table: { match: "^ON_" }
+
+capabilities:
+  core:            { min: ANCHORED, keys: [global.client, Client.gameState, Client.tickCount, global.cycle] }
+  skills:          { min: ANCHORED, keys: [Client.skillLevel, Client.skillBase, Client.skillXp] }
+  vars:            { min: ANCHORED, keys: [global.varps, global.varpsBits, global.varbitMaskTable, functions.varbitRead] }
+  worlds:          { min: ANCHORED, keys: [Client.worlds, Client.topLevelWorld, World.plane, World.baseX, World.baseZ, World.width, World.height,
+                                           container.hash_map.buckets, container.hash_map.bucketCount, container.hash_map.node.key,
+                                           container.hash_map.node.value, container.hash_map.node.next, container.shared_ptr.ptr] }
+  npcs.basic:      { min: ANCHORED, keys: [World.npcs, World.npcs.buckets, World.npcs.count, World.npcIndices, World.npcIndexCount,
+                                           Actor.pathX, Actor.pathZ, Actor.fineX, Actor.fineZ, Actor.name, Npc.type, NpcType.id, NpcType.size, NpcType.name] }
+  npcs.animation:  { min: ANCHORED, keys: [Actor.anim, Actor.animSeqType, functions.setSequence] }
+  npcs.combat:     { min: ANCHORED, keys: [Actor.interacting, Actor.interactingValid, Actor.headbars, Actor.headbarCount, container.list.node.value] }
+  players.basic:   { min: ANCHORED, keys: [World.players, World.players.buckets, World.players.count, Client.playerIndexCount, Client.playerIndices, Client.localPlayerIndex] }
+  scene.locs:      { min: ANCHORED, keys: [World.scene, Scene.sizeX, Scene.sizeZ, Scene.tiles, Scene.tileEntryStride, Scene.tileEntryPtrOffset,
+                                           Tile.wall, Tile.wallDecor, Tile.groundDecor, Tile.gameObjectCount, Tile.gameObjects, Tile.gameObjectEntryStride,
+                                           Loc.tag, Loc.tagIdShift, GameObject.tag, GameObject.originX, GameObject.originZ] }
+  scene.groundItems: { min: ANCHORED, keys: [World.objPiles, World.objPiles.stride, World.objPiles.dataOffset, GroundItem.id, GroundItem.count] }
+  camera:          { min: ANCHORED, keys: [Client.camera.pos, Client.camera.angles] }
+  projection:      { min: ANCHORED, keys: [functions.worldToScreen, Client.renderer, Renderer.canvasWidth, Renderer.canvasHeight, Client.camera.pos] }
+  widgets.layout:  { min: ANCHORED, keys: [IfType.x, IfType.y, IfType.width, IfType.height, IfType.hidden, IfType.layerId, IfType.modelZoom, IfType.linkObjType, IfType.linkObjCount] }
+  events.ids:      { min: ANCHORED, keys: [enums.events] }

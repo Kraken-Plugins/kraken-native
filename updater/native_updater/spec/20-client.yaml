@@ -1,0 +1,190 @@
+keys:
+  - key: Client.gameState
+    type: i32
+    priority: P0
+    live: gameState
+    strategies:
+      - getter: { in: ClientState.isLoggedIn, base: client, load: i32, select: { used_in_cmp: true } }
+
+  - key: enums.gameState.LOGGED_IN
+    type: const
+    priority: P0
+    live: gameState
+    strategies:
+      - const: { in: ClientState.isLoggedIn, base: client, load: i32, offset_of: Client.gameState }
+
+  - key: Client.loginToken
+    type: i64
+    priority: P2
+    doc: Compared with -1 in isLoggedIn; meaning unconfirmed.
+    strategies:
+      - getter: { in: ClientState.isLoggedIn, base: client, load: i64, select: { compared_with: -1 } }
+
+  - key: Client.tickCount
+    type: i32
+    priority: P0
+    live: tick
+    strategies:
+      - getter: { in: ClientState.getTickCount, base: client, load: i32, select: { returned: true } }
+
+  - key: Client.skillLevel
+    type: i32[26]
+    priority: P0
+    live: skills
+    strategies:
+      - getter: { in: ClientState.getStatEffectiveLevel, base: client, load: i32, select: { index_scale: 4 } }
+  - key: Client.skillBase
+    type: i32[26]
+    priority: P0
+    live: skills
+    strategies:
+      - getter: { in: ClientState.getStatBaseLevel, base: client, load: i32, select: { index_scale: 4 } }
+  - key: Client.skillXp
+    type: i32[26]
+    priority: P0
+    live: skills
+    strategies:
+      - getter: { in: ClientState.getStatXP, base: client, load: i32, select: { index_scale: 4 } }
+  - key: Client.skillIndexMax
+    type: const
+    priority: P1
+    doc: Highest valid skill index checked by the stat getters (25).
+    strategies:
+      - const: { in: ClientState.getStatXP, arg: 1 }
+  - key: Client.statsValidGate
+    type: i32
+    priority: P1
+    doc: Stat getters return -1 while this is <= 0.
+    strategies:
+      - getter: { in: ClientState.getStatXP, base: client, load: i32, select: { compared_with: 0 } }
+
+  - key: Client.worlds
+    type: WorldManager
+    priority: P0
+    live: worlds
+    doc: World manager; its hash_map of worlds sits at Client.worlds.map.
+    strategies:
+      - getter: { in: ClientOp.npcCoord, base: client, kind: addr, select: { passed_to: { fn: "@NpcLookup", arg: 2 } } }
+      - getter: { in: ClientOp.locFind, base: client, kind: addr, select: { passed_to: { fn: "@WorldFromCoord", arg: 0 } } }
+  - key: Client.worlds.map
+    type: eastl.hash_map<i32, jag.shared_ptr<World>>
+    priority: P0
+    live: worlds
+    strategies:
+      - hash-map: { in: ClientOp.getNpcIdAll, base: client, part: map }
+    invariants:
+      - equals: "Client.worlds + 0x18"
+  - key: Client.worlds.map.buckets
+    type: ptr
+    priority: P0
+    live: worlds
+    strategies:
+      - hash-map: { in: ClientOp.getNpcIdAll, base: client, part: buckets }
+    invariants:
+      - equals: "Client.worlds.map + 8"
+  - key: Client.worlds.map.count
+    type: i64
+    priority: P0
+    live: worlds
+    strategies:
+      - hash-map: { in: ClientOp.getNpcIdAll, base: client, part: count }
+    invariants:
+      - equals: "Client.worlds.map + 0x10"
+
+  - key: Client.topLevelWorld
+    type: ptr<World>
+    priority: P0
+    live: worlds
+    doc: The main world (jag::shared_ptr value slot); boats live in Client.worlds.
+    strategies:
+      - hash-map: { in: "@EntityResolver", base: { field: { of: client } }, part: base_off }
+      - getter: { in: "@ActorWorld", base: client, load: ptr, select: { nth: 0 } }
+      - getter: { in: "@WorldToScreen", base: client, load: ptr, select: { deref_off: 0x10 } }
+  - key: Client.topLevelWorldCtrl
+    type: ptr
+    priority: P2
+    strategies:
+      - getter: { in: "@EntityResolver", base: client, load: ptr, select: { nth: 0 } }
+    invariants:
+      - equals: "Client.topLevelWorld - 8"
+
+  - key: Client.localPlayerIndex
+    type: i32
+    priority: P0
+    live: localPlayer
+    strategies:
+      - getter: { in: ClientOp.playerFindSelf, base: client, load: i32, select: { compared_with: 0 } }
+  - key: Client.playerIndexCount
+    type: i32
+    priority: P0
+    live: players
+    strategies:
+      - getter: { in: ClientOp.getPlayerIdAll, base: client, load: i32, select: { nth: 0 } }
+  - key: Client.playerIndices
+    type: i32[]
+    priority: P0
+    live: players
+    strategies:
+      - getter: { in: ClientOp.getPlayerIdAll, base: client, kind: addr, select: { nth: 0 } }
+    invariants:
+      - equals: "Client.playerIndexCount + 4"
+
+  - key: Client.camera.pos
+    type: i32[3]
+    priority: P0
+    live: camera
+    strategies:
+      - getter: { in: Camera.getPos, base: client, load: i32, select: { nth: 0 } }
+      - getter: { in: "@WorldToScreen", base: client, load: i32, select: { nth: 0 } }
+  - key: Client.camera.lookAt
+    type: i32[3]
+    priority: P1
+    strategies:
+      - getter: { in: Camera.getLookAt, base: client, load: i32, select: { nth: 0 } }
+  - key: Client.camera.angles
+    type: i32[2]
+    priority: P0
+    live: camera
+    doc: 16384 units per circle; which element is pitch is decided by the live probe.
+    strategies:
+      - getter: { in: Camera.getLookAtAngles, base: client, load: i32, select: { nth: 0 } }
+
+  - key: Client.renderer
+    type: ptr<Renderer>
+    priority: P0
+    live: viewport
+    strategies:
+      - getter: { in: Graphics.clientDimensions, base: client, load: ptr, select: { used_as_base: true } }
+  - key: Renderer.canvasWidth
+    type: i32
+    priority: P0
+    live: viewport
+    strategies:
+      - getter: { in: Graphics.clientDimensions, base: { field: { of: client, key: Client.renderer } }, load: i32, select: { nth: 0 } }
+  - key: Renderer.canvasHeight
+    type: i32
+    priority: P0
+    live: viewport
+    strategies:
+      - getter: { in: Graphics.clientDimensions, base: { field: { of: client, key: Client.renderer } }, load: i32, select: { nth: 1 } }
+    invariants:
+      - equals: "Renderer.canvasWidth + 4"
+
+  - key: Client.zoomA
+    type: i32
+    priority: P1
+    doc: First zoom input passed to the viewport's focal-scale method in worldToScreen.
+    strategies:
+      - getter: { in: "@WorldToScreen", base: client, load: i32, select: { passed_to: { arg: 1, indirect: true } } }
+  - key: Client.zoomB
+    type: i32
+    priority: P1
+    strategies:
+      - getter: { in: "@WorldToScreen", base: client, load: i32, select: { passed_to: { arg: 2, indirect: true } } }
+
+  - key: Client.luaLogSink
+    type: ptr
+    priority: P2
+    doc: Error sink the Lua ClientOps report to.
+    strategies:
+      - getter: { in: ClientOp.npcCoord, base: client, load: ptr, select: { passed_to: { arg: 0 } } }

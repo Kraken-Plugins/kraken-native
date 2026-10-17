@@ -1,0 +1,106 @@
+keys:
+  # Inventories: a global hash table keyed by inventory id. Each node holds two eastl::vector<int>: item ids and counts.
+  - key: global.inventories.buckets
+    type: ptr<ptr<Inventory>[]>
+    priority: P0
+    live: inventories
+    strategies:
+      - getter: { in: "@InvLookupIds", kind: global, size: ptr, select: { used_as_index_base: true } }
+      - getter: { in: "@InvLookupCounts", kind: global, size: ptr, select: { used_as_index_base: true } }
+  - key: global.inventories.bucketCount
+    type: i64
+    priority: P0
+    live: inventories
+    strategies:
+      - getter: { in: "@InvLookupIds", kind: global, size: ptr, select: { div_operand: true } }
+      - getter: { in: "@InvLookupCounts", kind: global, size: ptr, select: { div_operand: true } }
+  - key: Inventory.id
+    type: i32
+    priority: P0
+    live: inventories
+    strategies:
+      - getter: { in: "@InvLookupIds", base: hash_node, load: i32, select: { used_in_cmp: true } }
+      - getter: { in: "@InvLookupCounts", base: hash_node, load: i32, select: { used_in_cmp: true } }
+  - key: Inventory.next
+    type: ptr<Inventory>
+    priority: P0
+    live: inventories
+    strategies:
+      - getter: { in: "@InvLookupIds", base: hash_node, load: ptr, select: { used_in_cmp: true } }
+      - getter: { in: "@InvLookupCounts", base: hash_node, load: ptr, select: { used_in_cmp: true } }
+  - key: Inventory.ids
+    type: eastl.vector<i32>.begin
+    priority: P0
+    live: inventories
+    strategies:
+      - getter: { in: "@InvLookupIds", base: hash_node, load: ptr, select: { used_as_index_base: true } }
+  - key: Inventory.idsEnd
+    type: eastl.vector<i32>.end
+    priority: P0
+    live: inventories
+    strategies:
+      - getter: { in: "@InvLookupIds", base: hash_node, load: ptr, select: { combined_with: { key: Inventory.ids } } }
+    invariants:
+      - equals: "Inventory.ids + 8"
+  - key: Inventory.counts
+    type: eastl.vector<i32>.begin
+    priority: P0
+    live: inventories
+    strategies:
+      - getter: { in: "@InvLookupCounts", base: hash_node, load: ptr, select: { used_as_index_base: true } }
+  - key: Inventory.countsEnd
+    type: eastl.vector<i32>.end
+    priority: P0
+    live: inventories
+    strategies:
+      - getter: { in: "@InvLookupCounts", base: hash_node, load: ptr, select: { combined_with: { key: Inventory.counts } } }
+    invariants:
+      - equals: "Inventory.counts + 8"
+
+  # Interface groups: hash_map<int groupId, IfGroup> on the Client. The node keeps the 32-byte value inline
+  # (key at 0, value at 4, next at 0x28), unlike the shared_ptr maps.
+  - key: Client.interfaces.buckets
+    type: ptr
+    priority: P0
+    live: widgets
+    strategies:
+      - hash-map: { in: InterfaceQuery.retrieveIfGroup, base: client, part: buckets }
+  - key: Client.interfaces.bucketCount
+    type: i32
+    priority: P0
+    live: widgets
+    strategies:
+      - hash-map: { in: InterfaceQuery.retrieveIfGroup, base: client, part: count }
+    invariants:
+      - equals: "Client.interfaces.buckets + 8"
+  - key: IfGroupNode.key
+    type: i32
+    priority: P0
+    live: widgets
+    strategies:
+      - hash-map: { in: InterfaceQuery.retrieveIfGroup, base: client, part: node_key }
+  - key: IfGroupNode.next
+    type: ptr
+    priority: P0
+    live: widgets
+    strategies:
+      - hash-map: { in: InterfaceQuery.retrieveIfGroup, base: client, part: node_next }
+  - key: IfGroupNode.value
+    type: IfGroup(32 bytes)
+    priority: P1
+    doc: Copied out as two 16-byte blocks from node+4 by retrieveIfGroup; layout of the group record not mapped yet.
+    strategies:
+      - getter: { in: InterfaceQuery.retrieveIfGroup, base: hash_node, load: any, select: { nth: 1, min: 4 } }
+
+  # Collision maps: array of 40-byte records hanging off the Scene; the flag bitmap inside each record is not mapped yet.
+  - key: Scene.collisionMaps
+    type: ptr<CollisionMapRecord[]>
+    priority: P1
+    doc: Indexed by plane in Utils.getCollisionMap. P0 in the catalog, but the flag array itself still needs mapping.
+    strategies:
+      - getter: { in: Utils.getCollisionMap, base: { field: { of: { field: { of: client, key: Client.topLevelWorld } }, key: World.scene } }, load: ptr, select: { used_as_index_base: true } }
+  - key: CollisionMapRecord.stride
+    type: const
+    priority: P1
+    strategies:
+      - getter: { in: Utils.getCollisionMap, kind: stride, base: { field: { of: { field: { of: { field: { of: client, key: Client.topLevelWorld } }, key: World.scene } }, key: Scene.collisionMaps } } }

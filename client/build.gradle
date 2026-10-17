@@ -1,0 +1,33 @@
+plugins {
+    id 'application'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // Win32 calls to find and re-parent the osclient window
+    implementation 'net.java.dev.jna:jna-platform:5.14.0'
+    // Dark theme + custom title bar (drag, resize, snap, minimize, close), as RuneLite uses
+    implementation 'com.formdev:flatlaf:3.5.4'
+    // Monospaced font for the log console
+    implementation 'com.formdev:flatlaf-fonts-jetbrains-mono:2.304'
+    // Material Design icons as Swing Icons
+    implementation 'org.kordamp.ikonli:ikonli-swing:12.3.1'
+    implementation 'org.kordamp.ikonli:ikonli-materialdesign2-pack:12.3.1'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+application {
+    mainClass = 'com.kraken.client.KrakenClient'
+}
