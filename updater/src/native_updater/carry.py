@@ -1,6 +1,7 @@
 """Carry-forward and delta propagation (design §4.7).
 
-Given the previous build's mapping (with evidence instruction RVAs) and, when cached, its program model:
+Given the previous build's mapping and, when cached, its program model and analysis.json (evidence instruction RVAs,
+bindings, fingerprints):
   1. match functions old -> new: seeds are identical binding names, fingerprints and unique anchor strings;
      the matches propagate through aligned call sequences;
   2. re-extract each key at the instruction of the matched function that corresponds to the old evidence
@@ -20,25 +21,23 @@ from .session import Candidate
 MIN_ALIGN_RATIO = 0.6
 
 
-def apply(session, prev, results, cache_root, log):
-    info = {"previous": prev["build"]["sha256"], "matchedFunctions": 0, "carried": 0, "propagated": 0, "previousModel": False}
-    prev_sha = prev["build"]["sha256"]
-    p = ghidra.paths(cache_root, prev_sha)
-    old = None
-    binary = Path(cache_root) / "store" / prev_sha / "osclient.exe"
-    if p["db"].exists() and binary.exists():
-        old = ProgramModel(p["db"], binary)
+def apply(session, prev, prev_analysis, results, cache_root, log):
+    """prev is the previous mapping file; prev_analysis its analysis.json, or None when it is not cached."""
+    prev_sha = prev["sha256"]
+    info = {"previous": prev["version"], "matchedFunctions": 0, "carried": 0, "propagated": 0, "previousModel": False}
+    old = _previous_model(cache_root, prev_sha) if prev_analysis else None
+    if old is not None:
         info["previousModel"] = True
     else:
-        log(f"previous program model for {prev_sha[:16]} not cached: carry-forward limited to delta propagation")
+        log(f"previous model or analysis for {prev['version']} ({prev_sha[:16]}) not cached: carry-forward limited to delta propagation")
 
     by_key = {r.key: r for r in results}
-    prev_values = emit.flatten(prev)
-    prev_evidence = _evidence_index(prev)
+    prev_values = _values(prev, prev_analysis)
+    prev_evidence = _evidence_index(prev_analysis) if prev_analysis else {}
 
     if old is not None:
         needed = {ev["fn"] for key, ev in prev_evidence.items() if key in by_key and ev.get("fn") is not None}
-        matches = match_functions(session, old, prev, needed)
+        matches = match_functions(session, old, prev_analysis, needed)
         session.carry_matches = matches
         info["matchedFunctions"] = len(matches)
         for key, ev in prev_evidence.items():
@@ -81,17 +80,17 @@ def apply(session, prev, results, cache_root, log):
 
 
 # ---- function matching ---------------------------------------------------------------------------------------------
-def match_functions(session, old, prev, needed):
+def match_functions(session, old, prev_analysis, needed):
     """old fn -> new fn for the functions that carry evidence. Seeds: bindings and fingerprints by name, then
     unique strings referenced by a needed function. Propagation: a needed function is matched through a matched
     caller by aligning the two callers' call sequences; unmatched callers become needed in turn (3 levels)."""
     new_model = session.model
     matches = {}
-    for key, b in prev.get("bindings", {}).items():
+    for key, b in prev_analysis.get("bindings", {}).items():
         nb = session.bindings.get(key)
         if b.get("handler") and nb is not None and nb.handler is not None:
             matches[int(b["handler"], 16)] = nb.handler
-    for name, fp in prev.get("fingerprints", {}).items():
+    for name, fp in prev_analysis.get("fingerprints", {}).items():
         rva = session.fingerprints.get(name)
         if fp.get("rva") and rva is not None:
             matches[int(fp["rva"], 16)] = rva
@@ -208,18 +207,26 @@ def _as_int(v):
     return v if isinstance(v, int) else None
 
 
-def _evidence_index(prev):
+def _previous_model(cache_root, sha):
+    p = ghidra.paths(cache_root, sha)
+    binary = Path(cache_root) / "store" / sha / "osclient.exe"
+    return ProgramModel(p["db"], binary) if p["db"].exists() and binary.exists() else None
+
+
+def _values(prev, prev_analysis):
+    """Previous values by key: every resolved key from the analysis when cached (internal keys included), else the mapping."""
+    if prev_analysis:
+        return {k: e["value"] for k, e in prev_analysis["keys"].items() if e["verdict"] in emit.TRUSTED}
+    return emit.flatten(prev)
+
+
+def _evidence_index(prev_analysis):
+    """First evidence of every global, function and struct key (container and enum values are not carried)."""
     out = {}
-    for section, prefix in (("globals", "global."), ("functions", "functions.")):
-        for name, e in prev.get(section, {}).items():
-            ev = (e.get("evidence") or [None])[0]
-            if ev:
-                out[prefix + name] = _ev_ints(ev)
-    for struct, s in prev.get("structs", {}).items():
-        for f, e in s.get("fields", {}).items():
-            ev = (e.get("evidence") or [None])[0]
-            if ev:
-                out[f"{struct}.{f}"] = _ev_ints(ev)
+    for key, e in prev_analysis.get("keys", {}).items():
+        ev = (e.get("evidence") or [None])[0]
+        if ev and not key.startswith(("container.", "enums.")):
+            out[key] = _ev_ints(ev)
     return out
 
 
@@ -242,19 +249,18 @@ def _structs(flat):
 
 
 # ---- repair bundle -------------------------------------------------------------------------------------------------
-def repair_bundle(session, prev, results, out_dir, cache_root, log):
-    """For each FAILED/NEEDS_REVIEW key with previous evidence: old and new disassembly side by side."""
-    prev_sha = prev["build"]["sha256"]
-    p = ghidra.paths(cache_root, prev_sha)
-    binary = Path(cache_root) / "store" / prev_sha / "osclient.exe"
-    if not (p["db"].exists() and binary.exists()):
+def repair_bundle(session, prev, prev_analysis, results, out_dir, cache_root, log):
+    """For each FAILED/NEEDS_REVIEW key with previous evidence: old and new disassembly side by side, in out_dir/repair."""
+    prev_sha = prev["sha256"]
+    old = _previous_model(cache_root, prev_sha) if prev_analysis else None
+    if old is None:
         return None
-    old = ProgramModel(p["db"], binary)
-    ev_index = _evidence_index(prev)
+    ev_index = _evidence_index(prev_analysis)
+    prev_values = _values(prev, prev_analysis)
     matches = getattr(session, "carry_matches", None)
     if matches is None:
-        matches = match_functions(session, old, prev, {ev["fn"] for ev in ev_index.values() if ev.get("fn") is not None})
-    bundle_dir = Path(out_dir) / f"{session.model.sha256[:16]}.repair"
+        matches = match_functions(session, old, prev_analysis, {ev["fn"] for ev in ev_index.values() if ev.get("fn") is not None})
+    bundle_dir = Path(out_dir) / "repair"
     written = 0
     for r in results:
         if r.verdict not in ("FAILED", "NEEDS_REVIEW") or r.key not in ev_index:
@@ -265,7 +271,7 @@ def repair_bundle(session, prev, results, out_dir, cache_root, log):
         bundle_dir.mkdir(parents=True, exist_ok=True)
         new_fn = matches.get(ev["fn"])
         lines = [f"# Repair: {r.key}", "", f"Verdict: {r.verdict}. {'; '.join(r.reasons)}", "",
-                 f"Previous build {prev_sha[:16]}: value {emit.flatten(prev).get(r.key)} at `{ev['insn']:#x}` in `FUN_{ev['fn'] + old.image_base:x}`: `{ev.get('text', '')}`",
+                 f"Previous build {prev['version']} ({prev_sha[:16]}): value {prev_values.get(r.key)} at `{ev['insn']:#x}` in `FUN_{ev['fn'] + old.image_base:x}`: `{ev.get('text', '')}`",
                  f"Matched new function: {'FUN_%x' % (new_fn + session.model.image_base) if new_fn else 'none'}", "",
                  "REA: `compare_functions` / `find_changed_behavior` between the two functions, then fix the recipe in spec/*.yaml.", "",
                  "## Previous function (around the evidence)", "```"]

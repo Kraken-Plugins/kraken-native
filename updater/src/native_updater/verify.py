@@ -1,4 +1,4 @@
-"""Static verification: type/alignment, relational invariants, uniqueness within a struct, guard bytes.
+"""Static verification: type/alignment, relational invariants, uniqueness within a struct.
 
 Invariant forms (in the spec):
   - equals: "World.npcs + 8"                 expression over other keys, hex/decimal ints, + - *
@@ -84,20 +84,3 @@ def evaluate(expr, values):
         else:
             out.append(t)
     return int(eval("".join(out), {"__builtins__": {}}, {}))
-
-
-def check_guards(model, mapping):
-    """Every guard byte range must match the binary (bytes are hex, '??' is a wildcard)."""
-    bad = []
-    for section in ("globals", "functions"):
-        for name, entry in mapping.get(section, {}).items():
-            g = entry.get("guard")
-            if not g:
-                continue
-            want = g["bytes"].split()
-            have = model.pe.read(int(g["rva"], 16), len(want))
-            for w, h in zip(want, have):
-                if w != "??" and int(w, 16) != h:
-                    bad.append(f"{section}.{name}: guard mismatch at {g['rva']}")
-                    break
-    return bad

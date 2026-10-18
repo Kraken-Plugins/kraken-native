@@ -67,6 +67,7 @@ keys:
   - key: Actor.listHeads
     type: list
     priority: P2
+    internal: true
     doc: Offsets of the intrusive list sentinels the Actor constructor initialises (headbars is one of them).
     strategies:
       - extractor: { name: actor_ctor, field: Actor.listHeads, cls: D }
@@ -171,6 +172,7 @@ keys:
   - key: Actor.nameSsoFlag
     type: u8
     priority: P1
+    internal: true
     doc: The eastl::string flag byte (byte 23) of the actor's name, read by the name getter.
     strategies:
       - getter: { in: "@ActorNameGetter", base: arg0, load: u8, select: { nth: 0 } }

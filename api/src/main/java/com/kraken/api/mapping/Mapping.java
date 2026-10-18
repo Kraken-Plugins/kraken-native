@@ -1,6 +1,7 @@
 package com.kraken.api.mapping;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import java.io.IOException;
@@ -9,43 +10,58 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
- * A single build's offset table, loaded from {@code mappings/<sha16>.json} (the file the updater emits).
- * The API holds no hard-coded offsets; every struct field, global and container layout comes from here,
- * keyed the same way the updater names them.
+ * One client build's offsets, loaded from {@code mappings/<version>.json} (the file the updater writes). The API
+ * holds no hard-coded offsets; every struct field, global and container layout comes from here, keyed the same way
+ * the updater names them:
+ *
+ * <pre>{
+ *   "version": "241.3",
+ *   "sha256": "166231c8…",
+ *   "globals":    { "client": "0xe98c18", … },
+ *   "structs":    { "Actor": { "pathX": "0x3f0", … }, … },
+ *   "containers": { "hash_map": { "node.value": "0x10", … }, … },
+ *   "enums":      { "gameState": { "LOGGED_IN": 30 }, … },
+ *   "functions":  { "worldToScreen": "0x21eb80", … }
+ * }</pre>
  *
  * <ul>
- *   <li>{@link #offset(String)} — a struct field, e.g. {@code "Actor.pathX"} → {@code structs.Actor.fields.pathX.offset}
- *   <li>{@link #global(String)} — a global's RVA, e.g. {@code "client"} → {@code globals.client.rva}
- *   <li>{@link #container(String)} — a container field, e.g. {@code "hash_map.node.value"}
+ *   <li>{@link #offset(String)}: a struct field, e.g. {@code "Actor.pathX"} → {@code structs.Actor.pathX}
+ *   <li>{@link #global(String)}: a global's RVA, e.g. {@code "client"} → {@code globals.client}
+ *   <li>{@link #container(String)}: a container layout value, e.g. {@code "hash_map.node.value"}
  * </ul>
  */
 public final class Mapping {
 
     private final JsonObject root;
-    private final String sha16;
+    private final String version;
+    private final String sha256;
 
-    private Mapping(JsonObject root, String sha16) {
+    private Mapping(JsonObject root) {
         this.root = root;
-        this.sha16 = sha16;
+        this.version = string(root, "version");
+        this.sha256 = string(root, "sha256");
     }
 
-    public static Mapping load(Path file, String sha16) throws IOException {
+    public static Mapping load(Path file) throws IOException {
         try (Reader reader = Files.newBufferedReader(file)) {
-            JsonObject root = new Gson().fromJson(reader, JsonObject.class);
-            return new Mapping(root, sha16);
+            return new Mapping(new Gson().fromJson(reader, JsonObject.class));
         }
     }
 
-    /** The 16-hex-digit build id this mapping is for. */
-    public String build() {
-        return sha16;
+    /** The client version this mapping is for, e.g. {@code "241.3"}. */
+    public String version() {
+        return version;
     }
 
-    /** Byte offset of a struct field, e.g. {@code "Actor.pathX"}. */
+    /** SHA-256 of the exact {@code osclient.exe} the mapping was made from. */
+    public String sha256() {
+        return sha256;
+    }
+
+    /** Byte offset of a struct field, e.g. {@code "Actor.pathX"} or {@code "Client.camera.pos"}. */
     public int offset(String key) {
         String[] parts = split(key);
-        JsonObject fields = obj(obj(obj(root, "structs"), parts[0]), "fields");
-        return (int) parse(obj(fields, parts[1]).get("offset").getAsString(), key);
+        return (int) parse(obj(obj(root, "structs"), parts[0]), parts[1], key);
     }
 
     /** Byte offset of a field, or {@code fallback} if the mapping does not define it. */
@@ -59,14 +75,13 @@ public final class Mapping {
 
     /** RVA (relative to the module base) of a global, e.g. {@code "client"}. */
     public long global(String key) {
-        return parse(obj(obj(root, "globals"), key).get("rva").getAsString(), key);
+        return parse(obj(root, "globals"), key, key);
     }
 
     /** A container layout value, e.g. {@code "string.heapFlagByte"} or {@code "hash_map.node.value"}. */
     public int container(String key) {
         String[] parts = split(key);
-        JsonObject group = obj(obj(root, "containers"), parts[0]);
-        return (int) parse(obj(group, parts[1]).get("value").getAsString(), key);
+        return (int) parse(obj(obj(root, "containers"), parts[0]), parts[1], key);
     }
 
     private static String[] split(String key) {
@@ -85,7 +100,16 @@ public final class Mapping {
         return child;
     }
 
-    private static long parse(String hexOrDec, String key) {
+    private static String string(JsonObject parent, String name) {
+        JsonElement value = parent.get(name);
+        if (value == null || !value.isJsonPrimitive()) {
+            throw new MissingMappingException(name);
+        }
+        return value.getAsString();
+    }
+
+    private static long parse(JsonObject parent, String name, String key) {
+        String hexOrDec = string(parent, name);
         try {
             return Long.decode(hexOrDec);
         } catch (NumberFormatException e) {

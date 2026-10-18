@@ -1,4 +1,4 @@
-"""Minimal PE32+ reader: headers, sections, .pdata and reads by RVA."""
+"""Minimal PE32+ reader: headers, sections, .pdata, the version resource and reads by RVA."""
 import re
 import struct
 from dataclasses import dataclass
@@ -107,11 +107,29 @@ class PE:
                 if len(m.group(1)) >= min_len:
                     yield s.rva + m.start(1), m.group(1).decode("ascii")
 
+    def file_version(self):
+        """(major, minor, build, private) from the version resource, or None. See file_version()."""
+        return file_version(self.data)
+
     def pdata(self):
         """(begin, end) RVAs of every RUNTIME_FUNCTION in the exception directory."""
         rva, size = self.directories[3] if len(self.directories) > 3 else (0, 0)
         blob = self.read(rva, size) if size else b""
         return [(b, e) for b, e, _ in struct.iter_unpack("<III", blob[:size - size % 12])]
+
+
+# VS_FIXEDFILEINFO starts with this signature and struct version; dwFileVersionMS/LS follow.
+_FIXED_FILE_INFO = struct.pack("<II", 0xFEEF04BD, 0x00010000)
+
+
+def file_version(data: bytes):
+    """The exe's file version from its VS_FIXEDFILEINFO, or None. The Java API reads it the same way
+    (ClientBuild) to find mappings/<major>.<minor>.json, so keep the two in step."""
+    at = data.find(_FIXED_FILE_INFO)
+    if at < 0 or at + 16 > len(data):
+        return None
+    ms, ls = struct.unpack_from("<II", data, at + 8)
+    return ms >> 16, ms & 0xFFFF, ls >> 16, ls & 0xFFFF
 
 
 _PRINTABLE = re.compile(rb"[\x20-\x7e\t\r\n]+")

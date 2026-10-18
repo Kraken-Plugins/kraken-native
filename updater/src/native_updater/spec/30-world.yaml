@@ -48,24 +48,6 @@ keys:
     strategies:
       - hash-map: { in: "@PlayerLookup", base: node_value, part: map }
       - hash-map: { in: "@EntityResolver", base: { field: { of: client, key: Client.topLevelWorld } }, nth: 0, part: map }
-  - key: World.players.buckets
-    type: ptr
-    priority: P0
-    live: players
-    strategies:
-      - hash-map: { in: "@PlayerLookup", base: node_value, part: buckets }
-      - hash-map: { in: "@EntityResolver", base: { field: { of: client, key: Client.topLevelWorld } }, nth: 0, part: buckets }
-    invariants:
-      - equals: "World.players + 8"
-  - key: World.players.count
-    type: i64
-    priority: P0
-    live: players
-    strategies:
-      - hash-map: { in: "@PlayerLookup", base: node_value, part: count }
-      - hash-map: { in: "@EntityResolver", base: { field: { of: client, key: Client.topLevelWorld } }, nth: 0, part: count }
-    invariants:
-      - equals: "World.players + 0x10"
 
   - key: World.npcs
     type: eastl.hash_map<i32, jag.shared_ptr<Npc>>
@@ -74,24 +56,6 @@ keys:
     strategies:
       - hash-map: { in: "@NpcLookup", base: node_value, part: map }
       - hash-map: { in: "@EntityResolver", base: { field: { of: client, key: Client.topLevelWorld } }, nth: 1, part: map }
-  - key: World.npcs.buckets
-    type: ptr
-    priority: P0
-    live: npcs
-    strategies:
-      - hash-map: { in: "@NpcLookup", base: node_value, part: buckets }
-      - hash-map: { in: "@EntityResolver", base: { field: { of: client, key: Client.topLevelWorld } }, nth: 1, part: buckets }
-    invariants:
-      - equals: "World.npcs + 8"
-  - key: World.npcs.count
-    type: i64
-    priority: P0
-    live: npcs
-    strategies:
-      - hash-map: { in: "@NpcLookup", base: node_value, part: count }
-      - hash-map: { in: "@EntityResolver", base: { field: { of: client, key: Client.topLevelWorld } }, nth: 1, part: count }
-    invariants:
-      - equals: "World.npcs + 0x10"
 
   - key: World.npcIndices
     type: ptr<i32[]>

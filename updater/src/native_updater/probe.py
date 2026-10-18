@@ -1,13 +1,11 @@
 """Live probe (design §4.8): opt-in, operator-run, read-only.
 
-Safety model: the process must be osclient.exe at the expected install path, the file's sha256 and SizeOfImage
-must match the mapping, reads go through a PssCaptureSnapshot VA clone when available (falling back to
-bounded ReadProcessMemory), and nothing is ever written. Output is an overlay JSON
-  {"meta": {...}, "keys": {"<key>": {"ok": bool, "detail": "..."}}}
-that `native_updater run --probe-overlay` (or --merge here) folds into the mapping as LIVE_VERIFIED flags.
+Safety model: the process must be osclient.exe and the file's sha256 must match the mapping, reads go through a
+PssCaptureSnapshot VA clone when available (falling back to bounded ReadProcessMemory), and nothing is ever written.
+It prints PASS/FAIL/SKIP per check and exits 2 if any check fails.
 
-Checks are named by the `live:` field of the spec; each check lists what it proves. Checks that need the
-cache decoders or in-process execution (varbit recompute, worldToScreen) report "skipped".
+Checks are named by the `live:` field of the spec, so a failing check points at the keys to look at. Checks that
+need the cache decoders or in-process execution (varbit recompute, worldToScreen) report "skipped".
 
 Untested against a live client at the time of writing: run it, read the overlay, then trust it.
 """
@@ -16,7 +14,6 @@ import ctypes.wintypes as wt
 import hashlib
 import json
 import struct
-import sys
 import time
 from pathlib import Path
 
@@ -83,14 +80,9 @@ class Reader:
         return base, size, path
 
     def _verify_identity(self):
-        b = self.m["build"]
         sha = hashlib.sha256(Path(self.path).read_bytes()).hexdigest()
-        if sha != b["sha256"]:
-            raise RuntimeError(f"running client sha256 {sha[:16]} != mapping {b['sha256'][:16]}")
-        if self.size != int(b["sizeOfImage"], 16):
-            raise RuntimeError(f"SizeOfImage {self.size:#x} != mapping {b['sizeOfImage']}")
-        if "jagex launcher" not in self.path.lower():
-            print(f"warning: client path {self.path} is not under the Jagex Launcher", file=sys.stderr)
+        if sha != self.m["sha256"]:
+            raise RuntimeError(f"running client sha256 {sha[:16]} != mapping {self.m['version']} ({self.m['sha256'][:16]})")
 
     def _clone(self):
         """PssCaptureSnapshot VA clone: reads come from a frozen copy. Falls back to the live process."""
@@ -135,14 +127,14 @@ class Reader:
     def u8(self, a):
         return self.read(a, 1)[0]
 
-    def rva(self, name, section="globals"):
-        return self.base + int(self.m[section][name]["rva"], 16)
+    def rva(self, name):
+        return self.base + int(self.m["globals"][name], 16)
 
     def off(self, struct_, field):
-        return int(self.m["structs"][struct_]["fields"][field]["offset"], 16)
+        return int(self.m["structs"][struct_][field], 16)
 
     def const(self, group, name):
-        return int(self.m["containers"][group][name]["value"], 16)
+        return int(self.m["containers"][group][name], 16)
 
     def string(self, addr):
         """eastl::string using the container contract."""
@@ -156,17 +148,16 @@ class Reader:
 
     def hash_lookup(self, map_addr, key):
         """eastl::hash_map<int, shared_ptr<T>>: returns T* or None; verifies the bucket invariant on the way."""
-        hm = self.m["containers"]["hash_map"]
-        buckets = self.ptr(map_addr + int(hm["buckets"]["value"], 16))
-        count = self.i64(map_addr + int(hm["bucketCount"]["value"], 16))
+        buckets = self.ptr(map_addr + self.const("hash_map", "buckets"))
+        count = self.i64(map_addr + self.const("hash_map", "bucketCount"))
         if not (0 < count < 1 << 20):
             raise ValueError(f"bucket count {count}")
         node = self.ptr(buckets + 8 * (key % count))
         steps = 0
         while node and steps < 64:
-            if self.u32(node + int(hm["node.key"]["value"], 16)) == key:
-                return self.ptr(node + int(hm["node.value"]["value"], 16))
-            node = self.ptr(node + int(hm["node.next"]["value"], 16))
+            if self.u32(node + self.const("hash_map", "node.key")) == key:
+                return self.ptr(node + self.const("hash_map", "node.value"))
+            node = self.ptr(node + self.const("hash_map", "node.next"))
             steps += 1
         return None
 
@@ -197,7 +188,7 @@ def run_checks(r, log):
     client = r.ptr(r.rva("client"))
     ok("clientRoot", 0x10000 < client < 0x7fffffffffff, f"Client* = {client:#x}")
     state = r.i32(client + r.off("Client", "gameState"))
-    logged_in = m["enums"].get("gameState", {}).get("values", {}).get("LOGGED_IN")
+    logged_in = m["enums"].get("gameState", {}).get("LOGGED_IN")
     ok("gameState", state == logged_in, f"gameState={state} (LOGGED_IN={logged_in}); log in before probing")
 
     t0, c0 = r.i32(client + r.off("Client", "tickCount")), r.i32(r.rva("cycle"))
@@ -221,8 +212,7 @@ def run_checks(r, log):
     skipped("varbits", "needs VarbitType definitions from the cache to recompute values")
 
     worlds = client + r.off("Client", "worlds.map")
-    hm = m["containers"]["hash_map"]
-    bcount = r.i64(worlds + int(hm["bucketCount"]["value"], 16))
+    bcount = r.i64(worlds + r.const("hash_map", "bucketCount"))
     top = r.ptr(client + r.off("Client", "topLevelWorld"))
     plane = r.i32(top + r.off("World", "plane"))
     bx, bz = r.i32(top + r.off("World", "baseX")), r.i32(top + r.off("World", "baseZ"))
@@ -378,46 +368,16 @@ def run_checks(r, log):
     return results
 
 
-def main(mapping_path, display_name=None, merge=False):
+def main(mapping_path, display_name=None):
     mapping = json.loads(Path(mapping_path).read_text(encoding="utf-8"))
     log = print
     r = Reader(mapping, display_name)
     try:
-        log(f"probing pid {r.pid}, module {r.base:#x} size {r.size:#x}, snapshot={'yes' if r.snapshot else 'no (live reads)'}")
+        log(f"probing client {mapping['version']}: pid {r.pid}, module {r.base:#x} size {r.size:#x}, "
+            f"snapshot={'yes' if r.snapshot else 'no (live reads)'}")
         checks = run_checks(r, log)
     finally:
         r.close()
-    overlay = {"meta": {"pid": r.pid, "moduleBase": f"{r.base:#x}", "snapshot": bool(r.snapshot), "when": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
-               "checks": checks, "keys": {}}
-    # Map checks onto keys through the `check` field the updater writes into every entry.
-    for section in ("globals", "functions"):
-        for name, e in mapping.get(section, {}).items():
-            c = checks.get(e.get("check", ""))
-            if c and c["ok"] is not None:
-                overlay["keys"][f"{'global' if section == 'globals' else 'functions'}.{name}"] = c
-    for struct, s in mapping.get("structs", {}).items():
-        for f, e in s["fields"].items():
-            c = checks.get(e.get("check", ""))
-            if c and c["ok"] is not None:
-                overlay["keys"][f"{struct}.{f}"] = c
-    out = Path(mapping_path).with_suffix(".live.json")
-    out.write_text(json.dumps(overlay, indent=2), encoding="utf-8")
-    log(f"wrote {out}")
-    if merge:
-        from native_updater import pipeline
-        results = []
-        pipeline.apply_overlay(mapping, results, overlay)
-        Path(mapping_path).write_text(json.dumps(mapping, indent=2), encoding="utf-8")
-        log(f"merged LIVE flags into {mapping_path}")
     failed = [k for k, v in checks.items() if v["ok"] is False]
+    log(f"{len(checks) - len(failed)}/{len(checks)} checks passed or skipped" + (f"; failed: {failed}" if failed else ""))
     return 2 if failed else 0
-
-
-if __name__ == "__main__":
-    import argparse
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("mapping")
-    ap.add_argument("--display-name")
-    ap.add_argument("--merge", action="store_true")
-    a = ap.parse_args()
-    sys.exit(main(a.mapping, a.display_name, a.merge))

@@ -9,8 +9,6 @@ import com.kraken.api.memory.ProcessMemory;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -21,7 +19,7 @@ import java.util.logging.Logger;
 
 /**
  * Entry point for the native API. {@link #attach} opens the running {@code osclient.exe}, selects the
- * mapping for its exact build, and exposes a {@link Client} (reads) and {@link Events} (subscriptions).
+ * mapping for its client version ({@code mappings/<version>.json}), and exposes a {@link Client} (reads) and {@link Events} (subscriptions).
  * {@link #start()} runs a background poll loop that synthesises events by diffing successive snapshots.
  *
  * <p>Read-only throughout: it never writes to or calls into the game.
@@ -49,24 +47,27 @@ public final class KrakenApi implements AutoCloseable {
     }
 
     /**
-     * Attaches to the given process and loads the mapping that matches the client binary.
+     * Attaches to the given process and loads the mapping for its client version.
      *
      * @param pid         the {@code osclient.exe} process id
-     * @param exe         path to that binary on disk (hashed to pick the mapping)
+     * @param exe         path to that binary on disk (its version picks the mapping; its hash must match it)
      * @param mappingsDir the repo's {@code mappings/} directory
-     * @throws UnsupportedBuildException if no mapping exists for the build
+     * @throws UnsupportedBuildException if there is no mapping for the version, or it was made from another binary
      * @throws MemoryException           if the process cannot be opened
      */
     public static KrakenApi attach(long pid, Path exe, Path mappingsDir) throws IOException {
-        String sha256 = sha256(exe);
-        String sha16 = sha256.substring(0, 16);
-        Path file = mappingsDir.resolve(sha16 + ".json");
+        ClientBuild build = ClientBuild.of(exe);
+        Path file = mappingsDir.resolve(build.version() + ".json");
         if (!Files.isRegularFile(file)) {
-            throw new UnsupportedBuildException(sha256);
+            throw new UnsupportedBuildException(build, "no " + file.getFileName() + " in " + mappingsDir);
         }
-        Mapping mapping = Mapping.load(file, sha16);
+        Mapping mapping = Mapping.load(file);
+        if (!mapping.sha256().equalsIgnoreCase(build.sha256())) {
+            throw new UnsupportedBuildException(build, file.getFileName() + " was made from a different binary (sha256 "
+                    + mapping.sha256().substring(0, 16) + "); re-run the updater for this one");
+        }
         ProcessMemory memory = ProcessMemory.attach((int) pid, MODULE);
-        log.info("Attached to " + MODULE + " pid " + pid + " (build " + sha16 + ", base 0x"
+        log.info("Attached to " + MODULE + " pid " + pid + " (client " + build.version() + ", base 0x"
                 + Long.toHexString(memory.moduleBase()) + ")");
         return new KrakenApi(memory, mapping);
     }
@@ -176,19 +177,5 @@ public final class KrakenApi implements AutoCloseable {
             thread.interrupt();
         }
         memory.close();
-    }
-
-    private static String sha256(Path file) throws IOException {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(Files.readAllBytes(file));
-            StringBuilder hex = new StringBuilder(hash.length * 2);
-            for (byte b : hash) {
-                hex.append(Character.forDigit((b >> 4) & 0xf, 16)).append(Character.forDigit(b & 0xf, 16));
-            }
-            return hex.toString();
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException(e);
-        }
     }
 }

@@ -4,6 +4,7 @@ import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import com.kraken.client.GameView;
 import com.kraken.client.HomePanel;
+import com.kraken.client.devtools.DevToolsPanel;
 import org.kordamp.ikonli.Ikon;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignP;
@@ -68,7 +69,7 @@ public final class KrakenFrame extends JFrame {
     private static JComponent setting(String title, String description, boolean initial, Consumer<Boolean> onChange) {
         JCheckBox box = new JCheckBox(title, initial);
         box.addActionListener(e -> onChange.accept(box.isSelected()));
-        JLabel hint = new JLabel(html(description, 145, "left"));
+        JLabel hint = new JLabel(Theme.wrap(description, 188, "left"));
         hint.putClientProperty(STYLE_CLASS, "small");
         hint.setForeground(Theme.LIGHT);
         hint.setBorder(new EmptyBorder(2, 26, 14, 0));
@@ -79,17 +80,12 @@ public final class KrakenFrame extends JFrame {
     }
 
     private static JComponent emptyState(Ikon ikon, String title, String text) {
-        JLabel label = new JLabel(html("<b>" + title + "</b><br><br>" + text, 160, "center"), FontIcon.of(ikon, 48, Theme.MEDIUM), SwingConstants.CENTER);
+        JLabel label = new JLabel(Theme.wrap("<b>" + title + "</b><br><br>" + text, 208, "center"), FontIcon.of(ikon, 48, Theme.MEDIUM), SwingConstants.CENTER);
         label.setVerticalTextPosition(SwingConstants.BOTTOM);
         label.setHorizontalTextPosition(SwingConstants.CENTER);
         label.setIconTextGap(12);
         label.setForeground(Theme.LIGHT);
         return label;
-    }
-
-    /** Wrapping label text. Swing's HTML renderer scales CSS px by 1.3, so 160px is about 208 real pixels. */
-    private static String html(String body, int width, String align) {
-        return "<html><div style='width:" + width + "px;text-align:" + align + "'>" + body + "</div></html>";
     }
 
     /** A sidebar panel with a RuneLite-style title. */

@@ -79,24 +79,3 @@ keys:
     doc: Native event ids (ON_GAME_TICK, ON_NPC_LOAD, ...), the P2 event hook contract.
     strategies:
       - enum-table: { match: "^ON_" }
-
-capabilities:
-  core:            { min: ANCHORED, keys: [global.client, Client.gameState, Client.tickCount, global.cycle] }
-  skills:          { min: ANCHORED, keys: [Client.skillLevel, Client.skillBase, Client.skillXp] }
-  vars:            { min: ANCHORED, keys: [global.varps, global.varpsBits, global.varbitMaskTable, functions.varbitRead] }
-  worlds:          { min: ANCHORED, keys: [Client.worlds, Client.topLevelWorld, World.plane, World.baseX, World.baseZ, World.width, World.height,
-                                           container.hash_map.buckets, container.hash_map.bucketCount, container.hash_map.node.key,
-                                           container.hash_map.node.value, container.hash_map.node.next, container.shared_ptr.ptr] }
-  npcs.basic:      { min: ANCHORED, keys: [World.npcs, World.npcs.buckets, World.npcs.count, World.npcIndices, World.npcIndexCount,
-                                           Actor.pathX, Actor.pathZ, Actor.fineX, Actor.fineZ, Actor.name, Npc.type, NpcType.id, NpcType.size, NpcType.name] }
-  npcs.animation:  { min: ANCHORED, keys: [Actor.anim, Actor.animSeqType, functions.setSequence] }
-  npcs.combat:     { min: ANCHORED, keys: [Actor.interacting, Actor.interactingValid, Actor.headbars, Actor.headbarCount, container.list.node.value] }
-  players.basic:   { min: ANCHORED, keys: [World.players, World.players.buckets, World.players.count, Client.playerIndexCount, Client.playerIndices, Client.localPlayerIndex] }
-  scene.locs:      { min: ANCHORED, keys: [World.scene, Scene.sizeX, Scene.sizeZ, Scene.tiles, Scene.tileEntryStride, Scene.tileEntryPtrOffset,
-                                           Tile.wall, Tile.wallDecor, Tile.groundDecor, Tile.gameObjectCount, Tile.gameObjects, Tile.gameObjectEntryStride,
-                                           Loc.tag, Loc.tagIdShift, GameObject.tag, GameObject.originX, GameObject.originZ] }
-  scene.groundItems: { min: ANCHORED, keys: [World.objPiles, World.objPiles.stride, World.objPiles.dataOffset, GroundItem.id, GroundItem.count] }
-  camera:          { min: ANCHORED, keys: [Client.camera.pos, Client.camera.angles] }
-  projection:      { min: ANCHORED, keys: [functions.worldToScreen, Client.renderer, Renderer.canvasWidth, Renderer.canvasHeight, Client.camera.pos] }
-  widgets.layout:  { min: ANCHORED, keys: [IfType.x, IfType.y, IfType.width, IfType.height, IfType.hidden, IfType.layerId, IfType.modelZoom, IfType.linkObjType, IfType.linkObjCount] }
-  events.ids:      { min: ANCHORED, keys: [enums.events] }

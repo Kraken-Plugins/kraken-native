@@ -6,23 +6,24 @@ from pathlib import Path
 from . import consensus, emit, fingerprints, ghidra, strategies, verify
 from .identity import BinaryStore, default_root, identify
 from .model import ProgramModel
-from .session import Blocked, Candidate, Session
+from .session import Blocked, Session
 from .spec import KeySpec, load as load_spec
 
 ROUNDS = 5
 
 
-def run(binary, out_dir, cache_root=None, previous=None, spec_dir=None, log=print, probe_overlay=None, carry_only=False):
+def run(binary, out_dir, cache_root=None, previous=None, spec_dir=None, log=print, carry_only=False, diag_root=None):
+    """Map a binary into out_dir/<version>.json. Diagnostics (analysis.json, repair bundles) go to
+    diag_root/<sha256>/, by default the build's cache directory next to program.db. Returns (exit code, mapping path)."""
     cache_root = Path(cache_root or default_root())
-    store = BinaryStore(cache_root)
-    sha, stored = store.archive(binary)
-    log(f"build {sha[:16]} archived at {stored}")
+    diag_root = Path(diag_root) if diag_root else cache_root / "cache"
+    sha, stored = BinaryStore(cache_root).archive(binary)
+    identity = identify(stored)
+    log(f"client {identity.version} (build {sha[:16]}, linked {identity.timestamp}), archived at {stored}")
     db = ghidra.ensure_model(stored, sha, cache_root, log=log)
     if db is None:
         return 1, None
     model = ProgramModel(db, stored)
-    identity = identify(stored, model)
-    log(f"tag {identity.tag or '?'}, timestamp {identity.timestamp}, SizeOfImage {identity.size_of_image:#x}, client version {identity.client_version}")
 
     spec = load_spec(spec_dir) if spec_dir else load_spec()
     session = Session(model, spec, log)
@@ -34,28 +35,33 @@ def run(binary, out_dir, cache_root=None, previous=None, spec_dir=None, log=prin
     log("fingerprints: " + ", ".join(f"{n}={rva:#x}" if rva else f"{n}=?" for n, rva in session.fingerprints.items()))
 
     carry_info = None
-    prev_mapping = json.loads(Path(previous).read_text(encoding="utf-8")) if previous else None
-    if prev_mapping:
+    prev = json.loads(Path(previous).read_text(encoding="utf-8")) if previous else None
+    prev_analysis = load_analysis(diag_root, prev["sha256"]) if prev else None
+    if prev:
         from . import carry
-        carry_info = carry.apply(session, prev_mapping, results, cache_root, log)
+        carry_info = carry.apply(session, prev, prev_analysis, results, cache_root, log)
         results = regrade(session, results)
 
     failures = verify.check_all(spec, session.values)
     results = regrade(session, results, failures)
-    caps = capabilities(spec, results)
-    if prev_mapping:
+    diag = diag_root / sha
+    if prev:
         from . import carry
-        carry_info["repairBundle"] = carry.repair_bundle(session, prev_mapping, results, out_dir, cache_root, log)
+        carry_info["repairBundle"] = carry.repair_bundle(session, prev, prev_analysis, results, diag, cache_root, log)
 
-    mapping = emit.build_mapping(session, identity, results, spec, caps, carry_info)
-    if probe_overlay:
-        apply_overlay(mapping, results, json.loads(Path(probe_overlay).read_text(encoding="utf-8")))
-    changes = emit.diff(prev_mapping, mapping) if prev_mapping else None
-    md = emit.report(mapping, results, spec, session.notes, changes, prev_mapping)
-    path = emit.write_outputs(out_dir, mapping, md)
+    mapping = emit.build_mapping(identity, results, spec)
+    changes = emit.diff(prev, mapping) if prev else None
+    path = emit.write_json(Path(out_dir) / f"{identity.version}.json", mapping)
+    analysis = emit.write_json(diag / "analysis.json", emit.build_analysis(session, identity, results, changes, carry_info))
+    emit.summarize(log, results, changes)
     code = consensus.exit_code(results, spec.keys)
-    log(f"wrote {path}; summary {mapping['summary']}; exit {code}")
+    log(f"wrote {path} ({len(emit.flatten(mapping))} values) and {analysis}; exit {code}")
     return code, path
+
+
+def load_analysis(diag_root, sha):
+    path = Path(diag_root) / sha / "analysis.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
 
 def expand_member_tables(session):
@@ -110,33 +116,3 @@ def regrade(session, _results, failures=None):
         if r.value is not None:
             session.values[k.key] = r.value
     return out
-
-
-def capabilities(spec, results):
-    by_key = {r.key: r for r in results}
-    out = {}
-    for name, cap in spec.capabilities.items():
-        min_idx = consensus.ORDER.index(cap.get("min", "ANCHORED"))
-        missing = [k for k in cap["keys"] if k not in by_key or consensus.ORDER.index(by_key[k].verdict) < min_idx]
-        out[name] = {"satisfied": not missing, "missing": missing}
-    return out
-
-
-def apply_overlay(mapping, results, overlay):
-    """Merge a live-probe overlay ({key: {ok: bool, detail: str}}) into verdict flags."""
-    flat = {}
-    for r in results:
-        o = overlay.get("keys", {}).get(r.key)
-        if o is not None:
-            r.live = "LIVE_VERIFIED" if o.get("ok") else "LIVE_FAILED"
-            flat[r.key] = r.live
-    for section in ("globals", "functions"):
-        for name, e in mapping.get(section, {}).items():
-            k = f"{'global' if section == 'globals' else 'functions'}.{name}"
-            if k in flat:
-                e["live"] = flat[k]
-    for struct, s in mapping.get("structs", {}).items():
-        for f, e in s["fields"].items():
-            if f"{struct}.{f}" in flat:
-                e["live"] = flat[f"{struct}.{f}"]
-    mapping["liveProbe"] = overlay.get("meta", {})

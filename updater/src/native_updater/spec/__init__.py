@@ -1,4 +1,4 @@
-"""The spec registry: YAML files describing binding tables, fingerprints, keys, capabilities.
+"""The spec registry: YAML files describing binding tables, fingerprints and keys.
 
 A key entry:
   - key: Actor.interacting          # Struct.field, global.name, functions.name, enums.name, container.x.y
@@ -10,9 +10,10 @@ A key entry:
       - adjacent: { key: Actor.interactingValid, delta: -1 }
     live: interacting               # name of the live-probe check (required for P0)
     doc: free text
+    internal: true                  # optional: resolved and verified but not written to the mapping, for keys that
+                                    # only feed other keys (Actor.nameSsoFlag -> Actor.name)
 Carry-forward and delta propagation apply to every key automatically when a previous mapping is supplied.
 """
-import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -33,6 +34,7 @@ class KeySpec:
     live: str = ""
     doc: str = ""
     alias: bool = False                                  # may share an offset with another field of the struct
+    internal: bool = False                               # not written to the mapping
 
     @property
     def struct(self):
@@ -50,8 +52,6 @@ class Spec:
     member_tables: list = field(default_factory=list)
     fingerprints: dict = field(default_factory=dict)
     keys: list = field(default_factory=list)
-    capabilities: dict = field(default_factory=dict)
-    sha256: str = ""
 
     def key(self, name):
         return next((k for k in self.keys if k.key == name), None)
@@ -59,18 +59,13 @@ class Spec:
 
 def load(spec_dir=SPEC_DIR) -> Spec:
     spec = Spec()
-    h = hashlib.sha256()
     for path in sorted(Path(spec_dir).glob("*.yaml")):
-        text = path.read_text(encoding="utf-8")
-        h.update(text.encode("utf-8"))
-        doc = yaml.safe_load(text) or {}
+        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         spec.tables.update(doc.get("tables", {}))
         spec.member_tables.extend(doc.get("member_tables", []))
         spec.fingerprints.update(doc.get("fingerprints", {}))
-        spec.capabilities.update(doc.get("capabilities", {}))
         for raw in doc.get("keys", []):
             spec.keys.append(_key(raw))
-    spec.sha256 = h.hexdigest()
     return spec
 
 
@@ -83,7 +78,7 @@ def _key(raw):
             (kind, params), = s.items()
             strategies.append((kind, params or {}))
     return KeySpec(raw["key"], raw.get("type", "i32"), raw.get("priority", "P1"), strategies,
-                   raw.get("invariants", []), raw.get("live", ""), raw.get("doc", ""), raw.get("alias", False))
+                   raw.get("invariants", []), raw.get("live", ""), raw.get("doc", ""), raw.get("alias", False), raw.get("internal", False))
 
 
 def lint(spec: Spec):
@@ -109,10 +104,6 @@ def lint(spec: Spec):
                     problems.append(f"{k.key}: unknown fingerprint {ref}")
                 if ref.startswith("fn:") and ref[3:] not in seen and spec.key(ref[3:]) is None:
                     problems.append(f"{k.key}: unknown function key {ref}")
-    for name, cap in spec.capabilities.items():
-        for key in cap.get("keys", []):
-            if spec.key(key) is None and not any(mt["struct"] == key.split(".")[0] for mt in spec.member_tables):
-                problems.append(f"capability {name}: unknown key {key}")
     for name, rule in spec.fingerprints.items():
         for ref in _refs(rule):
             if ref.startswith("@") and ref[1:] not in spec.fingerprints:

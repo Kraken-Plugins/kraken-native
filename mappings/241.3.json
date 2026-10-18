@@ -1,0 +1,323 @@
+{
+  "version": "241.3",
+  "sha256": "166231c8f6bd05c7542b8f0d35eb64b0aad701a87ba6ba41f60c4706de946944",
+  "globals": {
+    "client": "0xe98c18",
+    "cycle": "0xe98c14",
+    "varps": "0x155e528",
+    "varpsBits": "0x155e540",
+    "varbitMaskTable": "0xb3d6c0",
+    "configCache": "0xec30f8",
+    "inventories.buckets": "0x154fab8",
+    "inventories.bucketCount": "0x154fac0"
+  },
+  "structs": {
+    "Client": {
+      "gameState": "0x2160",
+      "loginToken": "0x3318",
+      "tickCount": "0x3198",
+      "skillLevel": "0x3350",
+      "skillBase": "0x33b4",
+      "skillXp": "0x3418",
+      "skillIndexMax": "0x19",
+      "statsValidGate": "0x413f24",
+      "worlds": "0xc9b8",
+      "worlds.map": "0xc9d0",
+      "topLevelWorld": "0xca80",
+      "localPlayerIndex": "0xcc4c",
+      "playerIndexCount": "0xccd0",
+      "playerIndices": "0xccd4",
+      "camera.pos": "0x895c8",
+      "camera.lookAt": "0x89640",
+      "camera.angles": "0x895dc",
+      "renderer": "0x90",
+      "zoomA": "0x4830",
+      "zoomB": "0x4814",
+      "interfaces.buckets": "0x413cc0",
+      "interfaces.bucketCount": "0x413cc8"
+    },
+    "Renderer": {
+      "canvasWidth": "0x6c",
+      "canvasHeight": "0x70"
+    },
+    "World": {
+      "scene": "0x10",
+      "plane": "0x18",
+      "baseX": "0x24",
+      "baseZ": "0x28",
+      "width": "0x1c",
+      "height": "0x20",
+      "players": "0x60",
+      "npcs": "0x90",
+      "npcIndices": "0xd0",
+      "npcIndexCount": "0xd8",
+      "objPiles": "0x140",
+      "objPiles.stride": "0x18",
+      "objPiles.dataOffset": "0x10"
+    },
+    "Actor": {
+      "fineX": "0x268",
+      "fineZ": "0x26c",
+      "pathX": "0x3f0",
+      "pathZ": "0x418",
+      "worldId": "0x4a0",
+      "interactingValid": "0x3a7",
+      "interacting": "0x3a8",
+      "headbars": "0x388",
+      "headbarCount": "0x398",
+      "anim": "0x4d8",
+      "animSeqType": "0x4d0",
+      "animDelay": "0x4e8",
+      "animLoop": "0x4e0",
+      "animState": "0x4c8",
+      "orientationCandidate": "0x494",
+      "orientationSourceCandidate": "0x3ec",
+      "poseAnims": "0x280",
+      "poseAnimCount": "0xf",
+      "defaultHeight": "0x49c",
+      "overheadTimer": "0x2f4",
+      "turnSpeed": "0x3e8",
+      "name": "0x710"
+    },
+    "HeadbarEntry": {
+      "a": "0x4",
+      "b": "0x8"
+    },
+    "SeqType": {
+      "priority": "0xc8",
+      "restartMode": "0xe4"
+    },
+    "Npc": {
+      "type": "0x730",
+      "uidLow": "0x738",
+      "spawnCycle": "0x73c"
+    },
+    "NpcType": {
+      "id": "0x0",
+      "size": "0x20",
+      "name": "0x8",
+      "type": "0x94",
+      "ops": "0x100"
+    },
+    "Scene": {
+      "sizeX": "0x948",
+      "sizeZ": "0x94c",
+      "tiles": "0x968",
+      "bridgeTiles": "0x980",
+      "tileEntryStride": "0x10",
+      "tileEntryPtrOffset": "0x8",
+      "collisionMaps": "0x2f8"
+    },
+    "Tile": {
+      "wall": "0x108",
+      "wallDecor": "0x110",
+      "groundDecor": "0x118",
+      "gameObjectCount": "0x34",
+      "gameObjects": "0x38",
+      "gameObjectEntryStride": "0x10"
+    },
+    "Loc": {
+      "tag": "0x38",
+      "tagIdShift": "0x14"
+    },
+    "GameObject": {
+      "tag": "0x1f0",
+      "originX": "0x210",
+      "originZ": "0x218"
+    },
+    "GroundItem": {
+      "id": "0x20",
+      "count": "0x24"
+    },
+    "LocType": {
+      "id": "0x8",
+      "size": "0x1e8"
+    },
+    "Inventory": {
+      "id": "0x0",
+      "next": "0x38",
+      "ids": "0x8",
+      "idsEnd": "0x10",
+      "counts": "0x20",
+      "countsEnd": "0x28"
+    },
+    "IfGroupNode": {
+      "key": "0x0",
+      "next": "0x28",
+      "value": "0x4"
+    },
+    "CollisionMapRecord": {
+      "stride": "0x28"
+    },
+    "IfType": {
+      "subId": "0x8",
+      "x": "0x5c",
+      "y": "0x60",
+      "width": "0x64",
+      "height": "0x68",
+      "hidden": "0x78",
+      "graphic": "0xc8",
+      "graphic2": "0xcc",
+      "transparency": "0xb0",
+      "layerId": "0x74",
+      "event": "0x2c",
+      "eventCode": "0x30",
+      "isEntityOverlay": "0x34",
+      "lastProcess": "0x38",
+      "modeX": "0x3c",
+      "modeY": "0x40",
+      "modeWidth": "0x44",
+      "modeHeight": "0x48",
+      "dataX": "0x4c",
+      "dataY": "0x50",
+      "dataWidth": "0x54",
+      "dataHeight": "0x58",
+      "layerIdXMin": "0x7c",
+      "layerIdXMax": "0x80",
+      "overlayType": "0x94",
+      "overlayId": "0x288",
+      "fill": "0xa8",
+      "blendMode": "0xac",
+      "strokeWidth": "0xb8",
+      "diagonalStartAtBottom": "0xbc",
+      "startAngle": "0xc0",
+      "stopAngle": "0xc4",
+      "rotate": "0xe8",
+      "tiling": "0xec",
+      "outline": "0xf0",
+      "vFlip": "0xf8",
+      "hFlip": "0xf9",
+      "model1Id": "0x100",
+      "model1Type": "0xfc",
+      "model2Id": "0x108",
+      "model2Type": "0x104",
+      "modelAnim": "0x10c",
+      "modelAnim2": "0x110",
+      "modelXOf": "0x114",
+      "modelYOf": "0x118",
+      "modelXAn": "0x11c",
+      "modelYAn": "0x120",
+      "modelZAn": "0x124",
+      "modelZoom": "0x128",
+      "modelWid": "0x12c",
+      "modelHei": "0x130",
+      "modelSpin": "0x134",
+      "orthog": "0x138",
+      "linkObjType": "0xb38",
+      "linkObjCount": "0xb3c"
+    },
+    "InterfaceCoordinates": {
+      "offX": "0x10",
+      "offY": "0x14",
+      "clipX1": "0x0",
+      "clipX2": "0x8",
+      "clipY1": "0x4",
+      "clipY2": "0xc",
+      "scriptOffX": "0x18",
+      "scriptOffY": "0x1c"
+    }
+  },
+  "containers": {
+    "hash_map": {
+      "buckets": "0x8",
+      "bucketCount": "0x10",
+      "node.key": "0x0",
+      "node.value": "0x10",
+      "node.next": "0x18"
+    },
+    "shared_ptr": {
+      "ptr": "0x8",
+      "ctrl.useCount": "0x8"
+    },
+    "list": {
+      "node.value": "0x18"
+    },
+    "string": {
+      "size": "0x18",
+      "ssoCapacity": "0x17",
+      "heapFlagByte": "0x17",
+      "heapFlagMask": "0x80"
+    }
+  },
+  "enums": {
+    "gameState": {
+      "LOGGED_IN": 30
+    },
+    "events": {
+      "NULL_EVENT": 0,
+      "POINTER_MOVE": 1,
+      "POINTER_PRESS": 2,
+      "POINTER_RELEASE": 3,
+      "POINTER_DRAG": 4,
+      "POINTER_CANCEL": 5,
+      "KEYBOARD_INPUT_FOCUS_CHANGE": 6,
+      "TEXT_COMMAND_RECEIVED": 7,
+      "WHEEL_SCROLL": 8,
+      "KEY_DOWN": 9,
+      "KEY_UP": 10,
+      "KEY_TYPE": 11,
+      "ON_VAR_TRANSMIT": 12,
+      "ON_INV_TRANSMIT": 13,
+      "ON_STAT_TRANSMIT": 14,
+      "ON_CHAT_TRANSMIT": 15,
+      "ON_FRIEND_TRANSMIT": 16,
+      "ON_STOCK_TRANSMIT": 17,
+      "ON_ACTIVE_OFFERS_TRANSMIT": 18,
+      "ON_CLAN_RECORD_TRANSMIT": 19,
+      "ON_CLAN_CHANNEL_TRANSMIT": 20,
+      "ON_FRIEND_CHANNEL_TRANSMIT": 21,
+      "ON_TARGET_ENTER": 22,
+      "ON_TARGET_LEAVE": 23,
+      "ON_NPC_OP": 24,
+      "ON_LOC_OP": 25,
+      "ON_TILE_OP": 26,
+      "ON_PLAYER_OP": 27,
+      "ON_OBJ_OP": 28,
+      "ON_COMPONENT_OP": 29,
+      "ON_RUN_ENERGY_TRANSMIT": 30,
+      "ON_RUN_WEIGHT_TRANSMIT": 31,
+      "ON_REBOOT_TIMER_TRANSMIT": 32,
+      "ON_DIALOG_ABORT": 33,
+      "ON_SUB_CHANGE": 34,
+      "ON_MAP_REBUILD_PRE": 35,
+      "ON_MAP_REBUILD_POST": 36,
+      "ON_MINIMENU_REBUILD": 37,
+      "ON_MINIMENU_CLICK": 38,
+      "ON_CLIENTSCRIPT": 39,
+      "ON_GAME_STATE_CHANGED": 40,
+      "ON_LOC_LOAD": 41,
+      "ON_LOC_UNLOAD": 42,
+      "ON_NPC_LOAD": 43,
+      "ON_NPC_UNLOAD": 44,
+      "ON_GAME_TICK": 45,
+      "ON_SCREEN_RESIZE": 46,
+      "ON_VARBIT_UPDATE": 47,
+      "ON_IF_LOAD": 48,
+      "ON_IF_CLICK": 49,
+      "ON_IF_CLICK_REPEAT": 50,
+      "ON_IF_HOLD": 51,
+      "ON_IF_MOUSEOVER": 52,
+      "ON_IF_MOUSEREPEAT": 53,
+      "ON_IF_MOUSELEAVE": 54,
+      "ON_IF_DRAG": 55,
+      "ON_IF_DRAG_COMPLETE": 56,
+      "ON_IF_OP": 57,
+      "ON_IF_OPT": 58,
+      "ON_IF_TIMER": 59,
+      "ON_IF_MISC_TRANSMIT": 60,
+      "ON_IF_COMPONENT_CHANGED": 61,
+      "ON_PERF_CAPTURE_START": 62,
+      "ON_PERF_CAPTURE_END": 63
+    }
+  },
+  "functions": {
+    "worldToScreen": "0x21eb80",
+    "npcLookup": "0x1878b0",
+    "playerLookup": "0x187280",
+    "setSequence": "0x9fe50",
+    "locTypeLoader": "0x5ed080",
+    "npcTypeLoader": "0x5f18f0",
+    "objTypeLoader": "0x5f5cd0",
+    "varbitRead": "0x5ae330"
+  }
+}

@@ -1,9 +1,16 @@
 """Unit tests that need neither Ghidra nor the client binary."""
+import os
+import struct
 import unittest
+from pathlib import Path, PurePath
+from types import SimpleNamespace
+from unittest import mock
 
-from native_updater import x86, verify
+from native_updater import emit, identity, winpaths, x86, verify
 from native_updater.analysis.provenance import Arg, Const, Deref, Global, Provenance, Ret
-from native_updater.spec import lint, load as load_spec
+from native_updater.consensus import Result
+from native_updater.pe import file_version
+from native_updater.spec import KeySpec, lint, load as load_spec
 
 from .fake_model import FakeModel
 
@@ -73,10 +80,71 @@ class SpecTests(unittest.TestCase):
                 self.assertTrue(k.live, k.key)
 
 
+class FileVersionTests(unittest.TestCase):
+    def test_reads_vs_fixedfileinfo(self):
+        info = struct.pack("<IIII", 0xFEEF04BD, 0x00010000, (241 << 16) | 3, (7 << 16) | 9)
+        self.assertEqual(file_version(b"\0" * 100 + info + b"\0" * 40), (241, 3, 7, 9))
+
+    def test_missing_resource(self):
+        self.assertIsNone(file_version(b"MZ" + b"\0" * 200))
+
+
+class MappingTests(unittest.TestCase):
+    def build(self):
+        spec = SimpleNamespace(keys=[KeySpec("Actor.nameSsoFlag", internal=True)])
+        results = [Result("global.client", 0xE98C18, "PROVEN"), Result("Actor.pathX", 0x3F0, "ANCHORED"),
+                   Result("Client.worlds.map", 0xC9D0, "INFERRED"), Result("container.hash_map.node.value", 0x10, "ANCHORED"),
+                   Result("enums.gameState.LOGGED_IN", 30, "ANCHORED"), Result("enums.events", {"ON_GAME_TICK": 9}, "ANCHORED"),
+                   Result("functions.worldToScreen", 0x21EB80, "ANCHORED"), Result("Actor.nameSsoFlag", 0x727, "ANCHORED"),
+                   Result("Actor.anim", 0x4D8, "NEEDS_REVIEW"), Result("Npc.type", None, "FAILED")]
+        return emit.build_mapping(identity.BuildIdentity("ab" * 32, "241.3", ""), results, spec)
+
+    def test_values_only(self):
+        self.assertEqual(self.build(), {
+            "version": "241.3", "sha256": "ab" * 32,
+            "globals": {"client": "0xe98c18"},
+            "structs": {"Actor": {"pathX": "0x3f0"}, "Client": {"worlds.map": "0xc9d0"}},
+            "containers": {"hash_map": {"node.value": "0x10"}},
+            "enums": {"gameState": {"LOGGED_IN": 30}, "events": {"ON_GAME_TICK": 9}},
+            "functions": {"worldToScreen": "0x21eb80"},
+        })
+
+    def test_flatten_uses_spec_keys(self):
+        flat = emit.flatten(self.build())
+        self.assertEqual(flat["Client.worlds.map"], "0xc9d0")
+        self.assertEqual(flat["container.hash_map.node.value"], "0x10")
+        self.assertEqual(flat["enums.events.ON_GAME_TICK"], 9)
+        self.assertNotIn("Actor.anim", flat)
+
+    def test_diff(self):
+        old = self.build()
+        new = self.build()
+        new["structs"]["Actor"]["pathX"] = "0x3f8"
+        del new["globals"]["client"]
+        self.assertEqual(emit.diff(old, new), [("Actor.pathX", "0x3f0", "0x3f8", "moved"), ("global.client", "0xe98c18", None, "gone")])
+
+
 class VerifyTests(unittest.TestCase):
     def test_expression(self):
         self.assertEqual(verify.evaluate("World.npcs + 8", {"World.npcs": 0x90}), 0x98)
         self.assertIsNone(verify.evaluate("Missing + 1", {}))
+
+
+class WinPathsTests(unittest.TestCase):
+    EXE = r"C:\Program Files (x86)\Jagex Launcher\osclient.exe"
+
+    def test_windows_paths_unchanged_off_wsl(self):
+        with mock.patch.object(winpaths, "is_wsl", return_value=False):
+            self.assertEqual(str(winpaths.local(self.EXE)), str(PurePath(self.EXE)))
+
+    def test_drive_path_maps_to_mnt_on_wsl(self):
+        with mock.patch.object(winpaths, "is_wsl", return_value=True), mock.patch.object(winpaths, "_wslpath", return_value=None):
+            self.assertEqual(winpaths.local(self.EXE).as_posix(), "/mnt/c/Program Files (x86)/Jagex Launcher/osclient.exe")
+            self.assertEqual(winpaths.local("/home/me/x.json").as_posix(), "/home/me/x.json")
+
+    def test_cache_root_override(self):
+        with mock.patch.dict(os.environ, {"KRAKEN_NATIVE_HOME": "some/cache"}):
+            self.assertEqual(identity.default_root(), Path("some/cache"))
 
 
 if __name__ == "__main__":

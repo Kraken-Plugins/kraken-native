@@ -60,7 +60,7 @@ osclient.exe + 0xE98C18 ──► Client object (one per game)
 ```
 
 "Mapping the client" means filling in that picture: for each piece of data, which object holds it, and at which
-offset. That is all `mappings/<sha16>.json` contains.
+offset. That is all `mappings/<version>.json` (for example `mappings/241.3.json`) contains.
 
 ### 0.2 Why names are missing
 
@@ -560,12 +560,15 @@ JDK 21 (Temurin). Start it with `ghidraRun.bat` in that folder.
 In PowerShell:
 
 ```powershell
-Get-FileHash "C:\Program Files (x86)\Jagex Launcher\Games\Old School RuneScape\Client\osclient.exe"
+$exe = "C:\Program Files (x86)\Jagex Launcher\Games\Old School RuneScape\Client\osclient.exe"
+(Get-Item $exe).VersionInfo.FileVersionRaw   # 241.3.0.0
+Get-FileHash $exe                             # 166231C8F6BD05C7…
 ```
 
-This guide was written against `166231C8F6BD05C7…`. If yours starts with something else, Jagex has updated the
-client and the addresses below will be different. The steps still work. Write the first 16 characters down; that's
-the build id (`sha16`) the updater uses for `mappings/<sha16>.json`.
+This guide was written against client version 241.3, whose SHA-256 starts `166231C8F6BD05C7…`. If yours differs,
+Jagex has updated the client and the addresses below will be different. The steps still work. The first two parts of
+the version (`241.3`) name the mapping file, `mappings/241.3.json`; the hash identifies the exact binary, and the
+mapping records it so it's never used with a different one.
 
 ### Step 1.2 — Create a project and import
 
@@ -1238,7 +1241,7 @@ Compare the two:
 **The same offset can mean different things in different subclasses.** Players and NPCs share everything up to
 about `+0x710`; after that their layouts differ.
 
-> ⚠️ **This affects the current mapping.** `mappings/166231c8f6bd05c7.json` has one shared `Actor.name = 0x710`,
+> ⚠️ **This affects the current mapping.** `mappings/241.3.json` has one shared `Actor.name = 0x710`,
 > and the probe's `localPlayerName` check reads `player + 0x710` as an inline string. That's right for NPCs (as a
 > custom-name override; see Part 7) but not for players. Player names are behind the pointer at `Player+0x718`.
 > Expect that probe check to fail until the spec gets a separate `Player.name` key.
@@ -1463,7 +1466,7 @@ correctly. Do this before trusting a new offset.
 
 ```bash
 cd updater
-uv run native-updater probe --mapping ../mappings/166231c8f6bd05c7.json --display-name "<your name>"
+uv run native-updater probe --mapping ../mappings/241.3.json --display-name "<your name>"
 ```
 
 It prints PASS/FAIL per check (`localPlayer`, `fineVsPath`, `worldBase`, …). Based on Part 6, expect
@@ -1529,9 +1532,10 @@ Build `166231c8f6bd05c7`. Addresses are Ghidra addresses (RVA = address − `0x1
 | hash map node | `+0x0` / `+0x8` / `+0x10` / `+0x18` | key / control block / value / next |
 | string (24 bytes) | `+0x17` top bit | 1 = heap form `{ptr, len, cap}`; 0 = inline, len = 23 − byte |
 
-Everything else the updater maps (animations, skills, widgets, ground items, the camera) is in
-[`mappings/166231c8f6bd05c7.report.md`](../mappings/166231c8f6bd05c7.report.md), and each entry lists the instruction
-it came from. For practice, pick any key, jump to the listed address with **G**, and work out why that instruction
+Everything else the updater maps (animations, skills, widgets, ground items, the camera) is in `mappings/241.3.json`.
+To see where a value came from, open `analysis.json` in the build's cache folder
+(`%USERPROFILE%\.kraken-native\cache\<sha256>\`, written each time you run the updater): every key lists its
+`evidence`, the instruction address (`insn`) and text it was read from. For practice, pick any key, jump to the listed address with **G**, and work out why that instruction
 proves the value.
 
 ## Appendix B — Ghidra keys and menus

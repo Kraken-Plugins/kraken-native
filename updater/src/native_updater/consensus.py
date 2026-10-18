@@ -21,7 +21,6 @@ class Result:
     candidates: list = field(default_factory=list)
     classes: set = field(default_factory=set)
     reasons: list = field(default_factory=list)
-    live: str = ""          # LIVE_VERIFIED | LIVE_FAILED | "" (set by the probe overlay)
 
     @property
     def ok(self):

@@ -1,24 +1,29 @@
 """uv run native-updater <command>   (or: python -m native_updater <command> inside the venv)
 
-  run         map a binary: --binary PATH [--previous mappings/x.json] [--out mappings] [--probe-overlay x.live.json]
+  run         map a binary into mappings/<version>.json: --binary PATH [--previous mappings/<old>.json] [--out DIR]
   export      print or run the Ghidra headless export for a binary
   build-model import an existing Ghidra export into program.db
   lint        check the spec
   bindings    dump the parsed Lua binding tables for a binary
   sql         ad hoc query against a build's program.db
-  probe       read-only live verification of a mapping against the running client (see probe.py)
-Exit codes: 0 all P0 keys PROVEN/ANCHORED, 1 acquisition failure or crash, 2 output written with FAILED/NEEDS_REVIEW keys.
+  probe       read-only live check of a mapping against the running client (see probe.py)
+Exit codes: 0 all P0 keys PROVEN/ANCHORED, 1 acquisition failure or crash, 2 mapping written but some key is
+FAILED/NEEDS_REVIEW (left out of the mapping) or a P0 key is only INFERRED.
 """
 import argparse
+import os
 import traceback
 from pathlib import Path
 
 from . import ghidra, model, pipeline
-from .identity import DEFAULT_INSTALL, BinaryStore, default_root, identify, sha256_of
+from .identity import DEFAULT_INSTALL, BinaryStore, default_root, sha256_of
 from .spec import lint, load as load_spec
+from .winpaths import local
 
 # updater/src/native_updater/cli.py -> repo root. Valid because uv installs the project in editable mode.
 REPO = Path(__file__).resolve().parents[3]
+# Arguments that take a path; C:\... values are translated so they also work under WSL.
+PATH_ARGS = ("cache", "binary", "out", "previous", "spec", "export", "mapping", "ghidra", "java_home")
 
 
 def main(argv=None):
@@ -31,7 +36,6 @@ def main(argv=None):
     p.add_argument("--out", default=str(REPO / "mappings"))
     p.add_argument("--previous", help="previous mapping JSON for carry-forward, delta propagation and the diff")
     p.add_argument("--spec", help="alternative spec directory")
-    p.add_argument("--probe-overlay", help="live probe overlay JSON to merge")
 
     p = sub.add_parser("export")
     p.add_argument("--binary", default=str(DEFAULT_INSTALL))
@@ -55,7 +59,6 @@ def main(argv=None):
     p = sub.add_parser("probe")
     p.add_argument("--mapping", required=True)
     p.add_argument("--display-name", help="the logged-in character's display name, for the name check")
-    p.add_argument("--merge", action="store_true", help="rewrite the mapping with the LIVE_VERIFIED overlay")
 
     args = ap.parse_args(argv)
     try:
@@ -66,6 +69,13 @@ def main(argv=None):
 
 
 def dispatch(args):
+    for name in PATH_ARGS:
+        if getattr(args, name, None):
+            setattr(args, name, str(local(getattr(args, name))))
+    if getattr(args, "binary", None) and not Path(args.binary).is_file():
+        print(f"osclient.exe not found at {args.binary}\n"
+              "Install Old School RuneScape through the Jagex Launcher, or pass --binary <path to osclient.exe>.")
+        return 1
     root = Path(args.cache or default_root())
     if args.cmd == "lint":
         problems = lint(load_spec())
@@ -74,7 +84,7 @@ def dispatch(args):
         print(f"{len(problems)} problem(s)")
         return 2 if problems else 0
     if args.cmd == "run":
-        code, _ = pipeline.run(args.binary, args.out, root, args.previous, args.spec, probe_overlay=args.probe_overlay)
+        code, _ = pipeline.run(args.binary, args.out, root, args.previous, args.spec)
         return code
     if args.cmd == "export":
         sha, stored = BinaryStore(root).archive(args.binary)
@@ -108,6 +118,9 @@ def dispatch(args):
             print(f"{b.key:50s} {val:>14s} {b.kind}")
         return 0
     if args.cmd == "probe":
+        if os.name != "nt":
+            print("probe reads the running client's memory through Windows APIs: run it from PowerShell or cmd, not WSL.")
+            return 1
         from . import probe
-        return probe.main(args.mapping, args.display_name, args.merge)
+        return probe.main(args.mapping, args.display_name)
     return 1

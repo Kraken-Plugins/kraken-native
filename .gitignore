@@ -12,13 +12,12 @@ replay_pid*
 __pycache__/
 *.py[cod]
 .venv/
+.venv-linux/
 venv/
 .pytest_cache/
 
-# Updater session output: live-probe overlays and repair bundles are per-run diagnostics.
-# Mappings, reports and index.json are the API's contract and are committed.
-mappings/*.live.json
-mappings/*.repair/
+# mappings/<version>.json is the API's contract and is committed. The updater's diagnostics (analysis.json, repair
+# bundles) go to ~/.kraken-native/cache/<sha256>/, outside the repo.
 
 # Client binaries and Ghidra models live outside the repo (~/.kraken-native); never commit them
 *.exe

@@ -10,7 +10,8 @@ import java.nio.file.Path;
 /** Shared test helpers: locate and load the committed seed-build mapping. */
 public final class TestSupport {
 
-    public static final String SEED_SHA16 = "166231c8f6bd05c7";
+    public static final String SEED_VERSION = "241.3";
+    public static final String SEED_SHA256 = "166231c8f6bd05c7542b8f0d35eb64b0aad701a87ba6ba41f60c4706de946944";
 
     private TestSupport() {
     }
@@ -18,12 +19,12 @@ public final class TestSupport {
     public static Mapping seedMapping() throws IOException {
         Path start = Path.of("").toAbsolutePath();
         for (Path dir = start; dir != null; dir = dir.getParent()) {
-            Path file = dir.resolve("mappings").resolve(SEED_SHA16 + ".json");
+            Path file = dir.resolve("mappings").resolve(SEED_VERSION + ".json");
             if (Files.isRegularFile(file)) {
-                return Mapping.load(file, SEED_SHA16);
+                return Mapping.load(file);
             }
         }
-        Assumptions.abort("Seed mapping " + SEED_SHA16 + ".json not found above " + start);
+        Assumptions.abort("Seed mapping " + SEED_VERSION + ".json not found above " + start);
         throw new AssertionError("unreachable");
     }
 }

@@ -18,7 +18,7 @@ takes a client binary and produces that table automatically.
 - **Coverage:** map every key in client-surface.md for any new build without manual reverse engineering. P0 first, then P1 and P2.
 - **Per-key verdicts:** grade every key with a verdict and evidence. Never emit a silent guess.
 - **Diff reports:** say what moved, what was re-anchored, and what failed.
-- **Runtime guards:** emit guards so the API can confirm a mapping really belongs to the loaded module.
+- **Build check:** each mapping records the exe's sha256 so the API can confirm it belongs to the loaded binary.
 - **Speed and determinism:** analysis is cached per build, and tests run in seconds.
 
 Keep it as lean as possible, we will be writing a lot of code and I need to review it all. I want the bare minimum, not extremely fancy,
@@ -76,7 +76,7 @@ binary ──► │ 1 Acquire  │──►│ 2 Program    │──►│ 3 F
            ┌────────────┐   ┌──────────────┐   ┌───────────────────┐
   publish◄─│ 8 Diff &   │◄──│ 7 Emit       │◄──│ 5 Consensus &      │
            │   publish  │   │ mapping JSON,│   │   static verify    │
-           └────────────┘   │ report,guards│   └─────────┬─────────┘
+           └────────────┘   │ analysis     │   └─────────┬─────────┘
                             └──────────────┘             ▼
                                                ┌───────────────────┐
                                                │ 6 Live verify     │ optional, read-only
@@ -217,7 +217,7 @@ These mirror kraken-updater:
 - **`Extractor`** turns fingerprints into key values. It declares `requiredFingerprints()`, `requiredKeys()` and `providedKeys()`.
 - **Registration and ordering:** classes are registered with Guice `Multibinder` and sorted topologically. Duplicates, missing dependencies and cycles fail fast. An extractor whose prerequisites failed is skipped and its keys are marked `FAILED (blocked by X)`. That makes failures visible, unlike kraken-updater's silent nulls.
 
-### 4.6 Consensus, verdicts, capabilities
+### 4.6 Consensus and verdicts
 
 Each strategy returns candidates `{value, strategyClass, evidence[]}`. Candidates are grouped by value and
 graded:
@@ -229,11 +229,9 @@ graded:
 | **INFERRED** | Only D–H strategies (e.g. carry-forward or delta propagation), invariants pass. |
 | **NEEDS_REVIEW** | Strategies disagree, or an invariant fails. All candidates are listed in the report. |
 | **FAILED** | No candidate. |
-| + `LIVE_VERIFIED` | An overlay flag added by the probe (§4.8). |
 
-**Capabilities** are named feature bundles, such as `npcs.basic`, `npcs.animation`, `scene.locs`,
-`widgets.read` and `projection`. Each lists its required keys and a minimum verdict. The mapping file
-records which capabilities are satisfied, and the API enables features from that list.
+Only PROVEN, ANCHORED and INFERRED values reach the mapping (§4.9). The API treats a missing key as "feature
+unavailable for this build" rather than reading a doubtful value.
 
 **Definitions from cache.** Where possible, config definitions (NpcType, LocType, ObjType, SeqType,
 SpotAnimType, VarbitType, enums) are decoded from the local cache. Memory then only needs to supply type
@@ -268,7 +266,6 @@ broken recipe takes minutes.
   - fields in a struct are unique and do not overlap;
   - `tag >> 20` agrees between wall and game-object paths.
 - **Container contracts:** re-detected by the recognizers.
-- **Guards:** every guard byte range matches the binary.
 
 **Cache oracle:**
 
@@ -277,7 +274,7 @@ broken recipe takes minutes.
 
 **Live probe** (opt-in, read-only) runs against a running, logged-in client whose sha256 matches. It reuses
 the safety model of the earlier native work: PID and path check, module base and image size check, file
-sha256, a `PssCaptureSnapshot` clone, bounded reads, and no writes. Each key or capability gets a check:
+sha256, a `PssCaptureSnapshot` clone, bounded reads, and no writes. Each check covers a group of keys (the spec's `live:` field names it):
 
 | Check | Keys proven |
 |---|---|
@@ -294,60 +291,40 @@ sha256, a `PssCaptureSnapshot` clone, bounded reads, and no writes. Each key or 
 | Projectile `endCycle > cycle` while active; `spotAnimId` exists in the cache | projectile keys |
 | Widget tree: root interfaces include known group ids (e.g. inventory 149, chatbox 162); text fields decode | widget keys |
 
-Results come back as a verdict overlay (`LIVE_VERIFIED` per key) attached to the mapping file. The probe
-can live in `probe/` as a small C++ executable (porting `NativeProcess` from the earlier work).
-The contract is a JSON report keyed by mapping key, so the language does not matter.
+The probe (`native-updater probe`, Python over Windows APIs) prints PASS/FAIL/SKIP per check and exits non-zero
+on a failure. It does not modify the mapping.
 
 ### 4.9 Output
 
-Each build produces three files:
+Each build produces one file in the repo and one in the cache:
 
-- `mappings/<sha256-prefix16>.json`, the contract consumed by the API. A new file per build, never overwritten.
-- `mappings/<sha256-prefix16>.report.md`, the verdicts, evidence and diff against the previous build.
-- `mappings/index.json`, mapping sha256 to file, plus the latest build.
+- `mappings/<version>.json`, the contract consumed by the API. `<version>` is major.minor of the exe's file version
+  resource (`241.3`). The API reads that resource to pick the file and checks the recorded `sha256`, so a mapping is
+  never applied to a different binary. It holds values only, for keys with a PROVEN, ANCHORED or INFERRED verdict;
+  NEEDS_REVIEW and FAILED keys, and spec keys marked `internal: true`, are left out.
+- `~/.kraken-native/cache/<sha256>/analysis.json`, next to the build's `program.db`: verdict, anchor classes,
+  evidence and notes per key, fingerprint and binding RVAs, the diff against the previous build and carry-forward
+  stats. It is what a reviewer reads, and the next build's carry-forward input. Repair bundles go to `repair/` beside it.
 
-Example of the mappings file:
+Example of the mappings file (real seed-build values, trimmed):
 
 ```json
 {
-  "schema": "kraken-native-mappings/2",
-  "build": { "sha256": "166231c8f6bd05c7…6944", "timestamp": "2026-09-30T16:41:00Z",
-             "sizeOfImage": "0x2303000", "tag": "OSRS-ORSM295-BWXF", "clientVersion": null },
-  "updater": { "version": "0.1.0", "ghidra": "12.1.4", "specSha256": "…", "generatedAt": "…" },
-  "containers": {
-    "eastl.string":   { "size": 24, "heapFlag": { "byte": 23, "mask": "0x80" }, "ssoLen": "23 - byte[23]" },
-    "jag.shared_ptr": { "size": 16, "ctrl": "0x0", "ptr": "0x8" },
-    "eastl.hash_map": { "buckets": "0x8", "bucketCount": "0x10",
-                        "node": { "key": "0x0", "ctrl": "0x8", "value": "0x10", "next": "0x18" } },
-    "eastl.list":     { "next": "0x0", "prev": "0x8", "size": "0x10", "node": { "ctrl": "0x10", "value": "0x18" } }
-  },
-  "globals": {
-    "client": { "rva": "0xE98C18", "type": "ptr<Client>", "verdict": "PROVEN",
-                "evidence": [ { "strategy": "binding-global", "insn": "0x3AE4C4", "fn": "ClientOp.npcCoord" } ],
-                "guard": { "rva": "0x3AE4C4", "bytes": "48 8B 2D ?? ?? ?? ??" } },
-    "cycle":  { "rva": "0xE98C14", "type": "i32", "verdict": "ANCHORED" }
-  },
-  "functions": {
-    "worldToScreen": { "rva": "0x21EB80", "kind": "sol2-lambda", "verdict": "ANCHORED" },
-    "setSequence":   { "rva": "0x9FE50", "signature": "void(Actor*, int seq, int delay)", "verdict": "ANCHORED" }
-  },
+  "version": "241.3",
+  "sha256": "166231c8f6bd05c7542b8f0d35eb64b0aad701a87ba6ba41f60c4706de946944",
+  "globals":    { "client": "0xe98c18", "cycle": "0xe98c14" },
   "structs": {
-    "Client": { "fields": {
-      "worlds":           { "offset": "0xC9B8", "type": "WorldManager", "verdict": "PROVEN" },
-      "localPlayerIndex": { "offset": "0xCC4C", "type": "i32", "verdict": "ANCHORED" },
-      "projectiles":      { "offset": "0xCC70", "type": "eastl.list<jag.shared_ptr<Projectile>>", "verdict": "ANCHORED" } } },
-    "Actor": { "fields": {
-      "interacting": { "offset": "0x3A8", "type": "i32", "verdict": "ANCHORED", "live": true },
-      "anim":        { "offset": "0x4D8", "type": "i32", "verdict": "ANCHORED" } } }
+    "Client": { "worlds": "0xc9b8", "localPlayerIndex": "0xcc4c", "camera.pos": "0x895c8" },
+    "Actor":  { "interacting": "0x3a8", "anim": "0x4d8" }
   },
-  "enums": { "gameState": { "LOGGED_IN": 30 }, "events": { "ON_GAME_TICK": 0 } },
-  "capabilities": { "npcs.basic": true, "npcs.animation": true, "widgets.read": false }
+  "containers": {
+    "hash_map": { "buckets": "0x8", "bucketCount": "0x10", "node.key": "0x0", "node.value": "0x10", "node.next": "0x18" },
+    "string":   { "size": "0x18", "ssoCapacity": "0x17", "heapFlagByte": "0x17", "heapFlagMask": "0x80" }
+  },
+  "enums":      { "gameState": { "LOGGED_IN": 30 }, "events": { "ON_GAME_TICK": 9 } },
+  "functions":  { "worldToScreen": "0x21eb80", "setSequence": "0x9fe50" }
 }
 ```
-
-Offsets, RVAs and guard bytes in the example are real seed-build values. The `client` guard is the
-`MOV RBP,[rip+disp32]` in `npcCoord` at RVA `0x3AE4C4`. Enum values are placeholders until the enum tables
-are parsed.
 
 ## 5. Representative recipes
 
@@ -421,7 +398,7 @@ cross-check: offsets written by NpcUpdateDecoder include [o..o+0x38]
 - **Golden tests.** For every corpus build, run the full pipeline against the cached `program.db` and assert each key equals the accepted value. Tests skip via `Assume` when the corpus is absent, matching kraken-updater's jar tests.
 - **Unit tests** run `Provenance`, `BindingTableParser`, `StrideDetector` and the recognizers on small instruction fixtures stored as SQL dumps of real functions, so they need neither Ghidra nor the full binary.
 - **Carry-forward tests:** run build N → N+1 with anchor strategies disabled, and assert that carry-forward plus delta propagation reproduce the accepted N+1 mapping.
-- **Spec lint:** every key has at least 2 strategies of different classes, every P0 key has a live check, and every capability references existing keys.
+- **Spec lint:** every key has at least 2 strategies of different classes, and every P0 key has a live check.
 
 ## 8. Authoring workflow
 

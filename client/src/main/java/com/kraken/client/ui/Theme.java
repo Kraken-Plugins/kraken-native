@@ -25,6 +25,8 @@ public final class Theme {
     public static final Color MEDIUM = new Color(0x4d4d4d);
     public static final Color LIGHT = new Color(0xa5a5a5);
     public static final Color TEXT = new Color(0xdcdcdc);
+    /** Background of a hovered list row. */
+    public static final Color HOVER = new Color(0x323232);
     public static final Color ACCENT = new Color(0x76b041);
     public static final Color WARNING = new Color(0xdc8a00);
     public static final Color ERROR = new Color(0xe65050);
@@ -76,6 +78,18 @@ public final class Theme {
 
     public static String hex(Color c) {
         return String.format("#%06x", c.getRGB() & 0xffffff);
+    }
+
+    /**
+     * Label HTML that wraps at {@code width} pixels. Swing's HTML renderer scales CSS px by 1.3, so this divides
+     * it back out. {@code body} is HTML; pass plain text through {@link #escape} first.
+     */
+    public static String wrap(String body, int width, String align) {
+        return "<html><div style='width:" + Math.round(width / 1.3f) + "px;text-align:" + align + "'>" + body + "</div></html>";
+    }
+
+    public static String escape(String text) {
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     private static BufferedImage read(String resource) {

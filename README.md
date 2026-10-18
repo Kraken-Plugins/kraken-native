@@ -33,12 +33,12 @@ Use at your own risk. The developers are not responsible for any consequences re
 | Module | Status | What it is |
 |---|---|---|
 | [`client/`](client) | Proof of concept | Java 17 Swing client that launches `osclient.exe` and embeds its window, with a RuneLite-style sidebar and log console |
-| [`updater/`](updater) | Working | Python updater that maps a client build and writes `mappings/<sha16>.json` |
-| [`mappings/`](mappings) | Seed build | One mapping per client build, keyed by the first 16 hex digits of the exe's SHA-256 |
+| [`updater/`](updater) | Working | Python updater that maps a client build and writes `mappings/<version>.json` |
+| [`mappings/`](mappings) | Seed build | One mapping per client version (e.g. `241.3.json`): the offsets the API reads, nothing else |
 | [`api/`](api) | Designed | Gradle module for the RuneLite-shaped API; see [api-design.md](docs/api-design.md) |
 | [`docs/`](docs) | | Design documents for the client surface, updater and API |
 
-The seed build `166231c8f6bd05c7` maps 210 of 219 keys as PROVEN or ANCHORED, with none failed.
+The seed build, client 241.3, maps 191 of 198 keys as PROVEN or ANCHORED (the other 7 are INFERRED), with none failed.
 [api-gaps.md](docs/api-gaps.md) tracks what the API still needs from the updater.
 
 ## Prerequisites
@@ -127,8 +127,10 @@ uv run native-updater run --binary "<path to osclient.exe>"
 
 The first `uv run` creates `updater/.venv` and installs the locked dependencies from `uv.lock`.
 
-This writes `mappings/<sha16>.json`, a `<sha16>.report.md` with a verdict for every key, and an updated
-`mappings/index.json`. Client binaries and Ghidra models are cached outside the repository in `~/.kraken-native`.
+This writes `mappings/<version>.json`, named after the client version in the exe's version resource (for example
+`241.3.json`). It holds only the values the API reads. The evidence behind them (a verdict per key, the instructions it
+came from, Lua binding and fingerprint addresses) goes to `analysis.json` in the build's cache folder. Client binaries,
+Ghidra models and those analyses are cached outside the repository in `~/.kraken-native`.
 See [updater/README.md](updater/README.md) for the full flow, exit codes, how to write a recipe, and the known gaps.
 
 Run the updater's tests from `updater/`:

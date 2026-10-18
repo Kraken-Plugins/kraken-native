@@ -1,3 +1,6 @@
+# Functions that perform a Lua API operation (Graphics.worldToScreenCoord, the getNpcObj/getPlayerObj lookups,
+# animations, type lookups by id, getVarbit), for the planned in-process backend to call. Helper functions that only
+# locate other values stay fingerprints (00-tables.yaml); their RVAs are in the build's analysis.json.
 keys:
   - key: functions.worldToScreen
     type: "void(const int world[3], float out[2], ...)"
@@ -5,11 +8,6 @@ keys:
     live: projection
     strategies:
       - fingerprint: { name: WorldToScreen }
-  - key: functions.projectionCore
-    type: fn
-    priority: P1
-    strategies:
-      - fingerprint: { name: ProjectionCore }
   - key: functions.npcLookup
     type: "shared_ptr<Npc>*(out, int id, WorldManager*)"
     priority: P0
@@ -22,47 +20,12 @@ keys:
     live: players
     strategies:
       - fingerprint: { name: PlayerLookup }
-  - key: functions.entityResolver
-    type: fn
-    priority: P1
-    strategies:
-      - fingerprint: { name: EntityResolver }
-  - key: functions.actorWorld
-    type: "World*(Actor*)"
-    priority: P1
-    strategies:
-      - fingerprint: { name: ActorWorld }
-  - key: functions.worldFromCoord
-    type: "World*(WorldManager*, coord*)"
-    priority: P1
-    strategies:
-      - fingerprint: { name: WorldFromCoord }
-  - key: functions.tileLookup
-    type: fn
-    priority: P1
-    strategies:
-      - fingerprint: { name: TileLookup }
   - key: functions.setSequence
     type: "void(Actor*, int seq, int delay)"
     priority: P0
     live: anim
     strategies:
       - fingerprint: { name: SetSequence }
-  - key: functions.actorCtor
-    type: fn
-    priority: P1
-    strategies:
-      - fingerprint: { name: ActorCtor }
-  - key: functions.npcUpdateDecoder
-    type: fn
-    priority: P2
-    strategies:
-      - fingerprint: { name: NpcUpdateDecoder }
-  - key: functions.configLoaderCore
-    type: "void(cache, key*, int group, int id)"
-    priority: P1
-    strategies:
-      - fingerprint: { name: ConfigLoaderCore }
   - key: functions.locTypeLoader
     type: fn
     priority: P1
@@ -78,33 +41,8 @@ keys:
     priority: P1
     strategies:
       - fingerprint: { name: ConfigLoader.10 }
-  - key: functions.seqTypeLoader
-    type: fn
-    priority: P1
-    strategies:
-      - fingerprint: { name: ConfigLoader.12 }
-  - key: functions.spotAnimTypeLoader
-    type: fn
-    priority: P1
-    strategies:
-      - fingerprint: { name: ConfigLoader.13 }
-  - key: functions.varbitTypeLoader
-    type: fn
-    priority: P1
-    strategies:
-      - fingerprint: { name: ConfigLoader.14 }
   - key: functions.varbitRead
     type: "int(int varbitId)"
     priority: P1
     strategies:
       - fingerprint: { name: VarbitRead }
-  - key: functions.locTagToId
-    type: "int(int64 tag)"
-    priority: P1
-    strategies:
-      - fingerprint: { name: LocTagToId }
-  - key: functions.operatorNew
-    type: fn
-    priority: P2
-    strategies:
-      - fingerprint: { name: OperatorNew }

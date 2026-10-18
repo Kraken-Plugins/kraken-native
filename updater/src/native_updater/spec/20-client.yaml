@@ -74,22 +74,6 @@ keys:
       - hash-map: { in: ClientOp.getNpcIdAll, base: client, part: map }
     invariants:
       - equals: "Client.worlds + 0x18"
-  - key: Client.worlds.map.buckets
-    type: ptr
-    priority: P0
-    live: worlds
-    strategies:
-      - hash-map: { in: ClientOp.getNpcIdAll, base: client, part: buckets }
-    invariants:
-      - equals: "Client.worlds.map + 8"
-  - key: Client.worlds.map.count
-    type: i64
-    priority: P0
-    live: worlds
-    strategies:
-      - hash-map: { in: ClientOp.getNpcIdAll, base: client, part: count }
-    invariants:
-      - equals: "Client.worlds.map + 0x10"
 
   - key: Client.topLevelWorld
     type: ptr<World>
@@ -100,13 +84,6 @@ keys:
       - hash-map: { in: "@EntityResolver", base: { field: { of: client } }, part: base_off }
       - getter: { in: "@ActorWorld", base: client, load: ptr, select: { nth: 0 } }
       - getter: { in: "@WorldToScreen", base: client, load: ptr, select: { deref_off: 0x10 } }
-  - key: Client.topLevelWorldCtrl
-    type: ptr
-    priority: P2
-    strategies:
-      - getter: { in: "@EntityResolver", base: client, load: ptr, select: { nth: 0 } }
-    invariants:
-      - equals: "Client.topLevelWorld - 8"
 
   - key: Client.localPlayerIndex
     type: i32
@@ -181,10 +158,3 @@ keys:
     priority: P1
     strategies:
       - getter: { in: "@WorldToScreen", base: client, load: i32, select: { passed_to: { arg: 2, indirect: true } } }
-
-  - key: Client.luaLogSink
-    type: ptr
-    priority: P2
-    doc: Error sink the Lua ClientOps report to.
-    strategies:
-      - getter: { in: ClientOp.npcCoord, base: client, load: ptr, select: { passed_to: { arg: 0 } } }

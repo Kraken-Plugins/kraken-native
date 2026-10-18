@@ -3,7 +3,6 @@ package com.kraken.client;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import com.google.inject.name.Named;
-import com.kraken.client.ui.DevToolsPanel;
 import com.sun.jna.platform.win32.WinDef.HWND;
 import lombok.AllArgsConstructor;
 import lombok.extern.java.Log;
@@ -26,9 +25,11 @@ public final class GameLauncher {
     private final File exe;
     private final GameView view;
     private final HomePanel home;
-    private final DevToolsPanel devTools;
+    private final ApiConnection api;
 
-    /** Blocks while the client runs. If it can't be started, logs why and says so on the game view. */
+    /**
+     * Blocks while the client runs. If it can't be started, logs why and says so on the game view.
+     */
     void launch() {
         try {
             run();
@@ -59,8 +60,8 @@ public final class GameLauncher {
         }
         view.embed(hwnd);
 
-        // Attach the native API dev tools to the running client (read-only; safe if it isn't logged in yet)
-        devTools.start(process.pid());
+        // Attach the native API to the running client (read-only; safe if it isn't logged in yet)
+        api.start(process.pid());
 
         // The client resizes itself (restoring its saved size, fixed mode, ...), so keep it pinned to the canvas
         while (process.isAlive()) {
