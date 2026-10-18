@@ -1,6 +1,7 @@
 """uv run native-updater <command>   (or: python -m native_updater <command> inside the venv)
 
-  run         map a binary into mappings/<version>.json: --binary PATH [--previous mappings/<old>.json] [--out DIR]
+  run         map a binary into <out>/<version>.json (default out: the API's bundled mappings,
+              api/src/main/resources/mappings): --binary PATH [--previous <old>.json] [--out DIR]
   export      print or run the Ghidra headless export for a binary
   build-model import an existing Ghidra export into program.db
   lint        check the spec
@@ -22,6 +23,8 @@ from .winpaths import local
 
 # updater/src/native_updater/cli.py -> repo root. Valid because uv installs the project in editable mode.
 REPO = Path(__file__).resolve().parents[3]
+# The API consumes the mappings and bundles them as classpath resources (KrakenApi.attach loads mappings/<version>.json).
+MAPPINGS = REPO / "api" / "src" / "main" / "resources" / "mappings"
 # Arguments that take a path; C:\... values are translated so they also work under WSL.
 PATH_ARGS = ("cache", "binary", "out", "previous", "spec", "export", "mapping", "ghidra", "java_home")
 
@@ -33,7 +36,7 @@ def main(argv=None):
 
     p = sub.add_parser("run")
     p.add_argument("--binary", default=str(DEFAULT_INSTALL))
-    p.add_argument("--out", default=str(REPO / "mappings"))
+    p.add_argument("--out", default=str(MAPPINGS), help=f"mapping output dir (default {MAPPINGS})")
     p.add_argument("--previous", help="previous mapping JSON for carry-forward, delta propagation and the diff")
     p.add_argument("--spec", help="alternative spec directory")
 

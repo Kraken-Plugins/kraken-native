@@ -7,14 +7,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .pe import PE
-from .winpaths import windows_home
+from .winpaths import local, windows_home
 
+# The CLI passes this through winpaths.local(), so under WSL it becomes /mnt/c/...
 DEFAULT_INSTALL = Path(r"C:\Program Files (x86)\Jagex Launcher\Games\Old School RuneScape\Client\osclient.exe")
 
 
 def default_root():
     """KRAKEN_NATIVE_HOME, else .kraken-native in the Windows user's profile (shared by Windows and WSL runs)."""
-    return Path(os.environ.get("KRAKEN_NATIVE_HOME") or windows_home() / ".kraken-native")
+    env = os.environ.get("KRAKEN_NATIVE_HOME")
+    return local(env) if env else windows_home() / ".kraken-native"
 
 
 @dataclass

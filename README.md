@@ -33,8 +33,8 @@ Use at your own risk. The developers are not responsible for any consequences re
 | Module | Status | What it is |
 |---|---|---|
 | [`client/`](client) | Proof of concept | Java 17 Swing client that launches `osclient.exe` and embeds its window, with a RuneLite-style sidebar and log console |
-| [`updater/`](updater) | Working | Python updater that maps a client build and writes `mappings/<version>.json` |
-| [`mappings/`](mappings) | Seed build | One mapping per client version (e.g. `241.3.json`): the offsets the API reads, nothing else |
+| [`updater/`](updater) | Working | Python updater that maps a client build and writes the API's `mappings/<version>.json` |
+| [`api/src/main/resources/mappings/`](api/src/main/resources/mappings) | Seed build | One mapping per client version (e.g. `241.3.json`): the offsets the API reads, nothing else. Bundled on the API's classpath |
 | [`api/`](api) | Designed | Gradle module for the RuneLite-shaped API; see [api-design.md](docs/api-design.md) |
 | [`docs/`](docs) | | Design documents for the client surface, updater and API |
 
@@ -127,8 +127,9 @@ uv run native-updater run --binary "<path to osclient.exe>"
 
 The first `uv run` creates `updater/.venv` and installs the locked dependencies from `uv.lock`.
 
-This writes `mappings/<version>.json`, named after the client version in the exe's version resource (for example
-`241.3.json`). It holds only the values the API reads. The evidence behind them (a verdict per key, the instructions it
+This writes `api/src/main/resources/mappings/<version>.json` (change it with `--out`), named after the client version in the exe's
+version resource (for example `241.3.json`). The API bundles that folder as a classpath resource, so rebuild the API
+(or the client) to pick up a new mapping. It holds only the values the API reads. The evidence behind them (a verdict per key, the instructions it
 came from, Lua binding and fingerprint addresses) goes to `analysis.json` in the build's cache folder. Client binaries,
 Ghidra models and those analyses are cached outside the repository in `~/.kraken-native`.
 See [updater/README.md](updater/README.md) for the full flow, exit codes, how to write a recipe, and the known gaps.

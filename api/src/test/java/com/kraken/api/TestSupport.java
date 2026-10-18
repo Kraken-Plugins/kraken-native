@@ -1,13 +1,10 @@
 package com.kraken.api;
 
 import com.kraken.api.mapping.Mapping;
-import org.junit.jupiter.api.Assumptions;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 
-/** Shared test helpers: locate and load the committed seed-build mapping. */
+/** Shared test helpers: load the bundled seed-build mapping. */
 public final class TestSupport {
 
     public static final String SEED_VERSION = "241.3";
@@ -17,14 +14,10 @@ public final class TestSupport {
     }
 
     public static Mapping seedMapping() throws IOException {
-        Path start = Path.of("").toAbsolutePath();
-        for (Path dir = start; dir != null; dir = dir.getParent()) {
-            Path file = dir.resolve("mappings").resolve(SEED_VERSION + ".json");
-            if (Files.isRegularFile(file)) {
-                return Mapping.load(file);
-            }
+        Mapping mapping = Mapping.bundled(SEED_VERSION);
+        if (mapping == null) {
+            throw new AssertionError("No bundled " + Mapping.RESOURCE_DIR + SEED_VERSION + ".json on the classpath");
         }
-        Assumptions.abort("Seed mapping " + SEED_VERSION + ".json not found above " + start);
-        throw new AssertionError("unreachable");
+        return mapping;
     }
 }

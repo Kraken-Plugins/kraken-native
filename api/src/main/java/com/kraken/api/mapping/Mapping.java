@@ -5,12 +5,16 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.Reader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
- * One client build's offsets, loaded from {@code mappings/<version>.json} (the file the updater writes). The API
+ * One client build's offsets, loaded from {@code mappings/<version>.json} (the file the updater writes into this
+ * module's resources, {@code api/src/main/resources/mappings}, so it ships on the classpath). The API
  * holds no hard-coded offsets; every struct field, global and container layout comes from here, keyed the same way
  * the updater names them:
  *
@@ -42,10 +46,28 @@ public final class Mapping {
         this.sha256 = string(root, "sha256");
     }
 
+    /** Classpath folder holding one {@code <version>.json} per supported client version. */
+    public static final String RESOURCE_DIR = "mappings/";
+
     public static Mapping load(Path file) throws IOException {
         try (Reader reader = Files.newBufferedReader(file)) {
-            return new Mapping(new Gson().fromJson(reader, JsonObject.class));
+            return parse(reader);
         }
+    }
+
+    /** The mapping bundled with the API for {@code version} (e.g. {@code "241.3"}), or null if there is none. */
+    public static Mapping bundled(String version) throws IOException {
+        InputStream in = Mapping.class.getClassLoader().getResourceAsStream(RESOURCE_DIR + version + ".json");
+        if (in == null) {
+            return null;
+        }
+        try (Reader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
+            return parse(reader);
+        }
+    }
+
+    private static Mapping parse(Reader reader) {
+        return new Mapping(new Gson().fromJson(reader, JsonObject.class));
     }
 
     /** The client version this mapping is for, e.g. {@code "241.3"}. */

@@ -69,7 +69,7 @@ public final class KrakenFrame extends JFrame {
     private static JComponent setting(String title, String description, boolean initial, Consumer<Boolean> onChange) {
         JCheckBox box = new JCheckBox(title, initial);
         box.addActionListener(e -> onChange.accept(box.isSelected()));
-        JLabel hint = new JLabel(Theme.wrap(description, 188, "left"));
+        WrapLabel hint = new WrapLabel(description);
         hint.putClientProperty(STYLE_CLASS, "small");
         hint.setForeground(Theme.LIGHT);
         hint.setBorder(new EmptyBorder(2, 26, 14, 0));
@@ -80,7 +80,9 @@ public final class KrakenFrame extends JFrame {
     }
 
     private static JComponent emptyState(Ikon ikon, String title, String text) {
-        JLabel label = new JLabel(Theme.wrap("<b>" + title + "</b><br><br>" + text, 208, "center"), FontIcon.of(ikon, 48, Theme.MEDIUM), SwingConstants.CENTER);
+        WrapLabel label = new WrapLabel("", SwingConstants.CENTER);
+        label.setHtml("<b>" + Theme.escape(title) + "</b><br><br>" + Theme.escape(text));
+        label.setIcon(FontIcon.of(ikon, 48, Theme.MEDIUM));
         label.setVerticalTextPosition(SwingConstants.BOTTOM);
         label.setHorizontalTextPosition(SwingConstants.CENTER);
         label.setIconTextGap(12);

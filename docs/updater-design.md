@@ -298,7 +298,7 @@ on a failure. It does not modify the mapping.
 
 Each build produces one file in the repo and one in the cache:
 
-- `mappings/<version>.json`, the contract consumed by the API. `<version>` is major.minor of the exe's file version
+- `api/src/main/resources/mappings/<version>.json`, the contract consumed by the API (bundled on its classpath). `<version>` is major.minor of the exe's file version
   resource (`241.3`). The API reads that resource to pick the file and checks the recorded `sha256`, so a mapping is
   never applied to a different binary. It holds values only, for keys with a PROVEN, ANCHORED or INFERRED verdict;
   NEEDS_REVIEW and FAILED keys, and spec keys marked `internal: true`, are left out.

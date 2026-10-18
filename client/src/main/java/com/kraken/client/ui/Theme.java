@@ -80,14 +80,7 @@ public final class Theme {
         return String.format("#%06x", c.getRGB() & 0xffffff);
     }
 
-    /**
-     * Label HTML that wraps at {@code width} pixels. Swing's HTML renderer scales CSS px by 1.3, so this divides
-     * it back out. {@code body} is HTML; pass plain text through {@link #escape} first.
-     */
-    public static String wrap(String body, int width, String align) {
-        return "<html><div style='width:" + Math.round(width / 1.3f) + "px;text-align:" + align + "'>" + body + "</div></html>";
-    }
-
+    /** Escapes plain text for use in label HTML. */
     public static String escape(String text) {
         return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }

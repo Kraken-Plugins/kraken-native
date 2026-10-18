@@ -16,7 +16,7 @@ __pycache__/
 venv/
 .pytest_cache/
 
-# mappings/<version>.json is the API's contract and is committed. The updater's diagnostics (analysis.json, repair
+# api/src/main/resources/mappings/<version>.json is the API's contract and is committed. The updater's diagnostics (analysis.json, repair
 # bundles) go to ~/.kraken-native/cache/<sha256>/, outside the repo.
 
 # Client binaries and Ghidra models live outside the repo (~/.kraken-native); never commit them

@@ -5,6 +5,7 @@ import com.kraken.api.game.Client;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.api.memory.MemoryException;
 import com.kraken.api.memory.ProcessMemory;
+import lombok.Setter;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -28,7 +29,7 @@ public final class KrakenApi implements AutoCloseable {
 
     private static final Logger log = Logger.getLogger("kraken.api");
     private static final String MODULE = "osclient.exe";
-    private static final long POLL_INTERVAL_MS = 50;
+    private static final long POLL_INTERVAL_MS = 20;
     private static final long RENDER_INTERVAL_MS = 150;
 
     private final ProcessMemory memory;
@@ -37,6 +38,14 @@ public final class KrakenApi implements AutoCloseable {
     private final Events events = new Events();
 
     private volatile boolean running;
+    /**
+     * -- SETTER --
+     *  A callback run once per poll cycle on the poll thread (throttled), after events are dispatched. The
+     *  dev tools use it to refresh the live view. It may read through
+     * ; it must marshal any
+     *  UI work to its own thread.
+     */
+    @Setter
     private volatile Runnable pollListener;
     private Thread thread;
 
@@ -47,13 +56,27 @@ public final class KrakenApi implements AutoCloseable {
     }
 
     /**
-     * Attaches to the given process and loads the mapping for its client version.
+     * Attaches to the given process using the mapping bundled with the API for its client version (the classpath
+     * resource {@code mappings/<version>.json}).
      *
-     * @param pid         the {@code osclient.exe} process id
-     * @param exe         path to that binary on disk (its version picks the mapping; its hash must match it)
-     * @param mappingsDir the repo's {@code mappings/} directory
+     * @param pid the {@code osclient.exe} process id
+     * @param exe path to that binary on disk (its version picks the mapping; its hash must match it)
      * @throws UnsupportedBuildException if there is no mapping for the version, or it was made from another binary
      * @throws MemoryException           if the process cannot be opened
+     */
+    public static KrakenApi attach(long pid, Path exe) throws IOException {
+        ClientBuild build = ClientBuild.of(exe);
+        String name = build.version() + ".json";
+        Mapping mapping = Mapping.bundled(build.version());
+        if (mapping == null) {
+            throw new UnsupportedBuildException(build, "no bundled " + Mapping.RESOURCE_DIR + name);
+        }
+        return attach(pid, build, mapping, name);
+    }
+
+    /**
+     * Like {@link #attach(long, Path)}, but reads {@code <mappingsDir>/<version>.json} from disk instead of the
+     * bundled mapping, e.g. to try a mapping the updater wrote somewhere else.
      */
     public static KrakenApi attach(long pid, Path exe, Path mappingsDir) throws IOException {
         ClientBuild build = ClientBuild.of(exe);
@@ -61,9 +84,12 @@ public final class KrakenApi implements AutoCloseable {
         if (!Files.isRegularFile(file)) {
             throw new UnsupportedBuildException(build, "no " + file.getFileName() + " in " + mappingsDir);
         }
-        Mapping mapping = Mapping.load(file);
+        return attach(pid, build, Mapping.load(file), file.getFileName().toString());
+    }
+
+    private static KrakenApi attach(long pid, ClientBuild build, Mapping mapping, String name) {
         if (!mapping.sha256().equalsIgnoreCase(build.sha256())) {
-            throw new UnsupportedBuildException(build, file.getFileName() + " was made from a different binary (sha256 "
+            throw new UnsupportedBuildException(build, name + " was made from a different binary (sha256 "
                     + mapping.sha256().substring(0, 16) + "); re-run the updater for this one");
         }
         ProcessMemory memory = ProcessMemory.attach((int) pid, MODULE);
@@ -86,15 +112,6 @@ public final class KrakenApi implements AutoCloseable {
 
     public boolean isAttached() {
         return memory.isValid();
-    }
-
-    /**
-     * A callback run once per poll cycle on the poll thread (throttled), after events are dispatched. The
-     * dev tools use it to refresh the live view. It may read through {@link #client()}; it must marshal any
-     * UI work to its own thread.
-     */
-    public void setPollListener(Runnable pollListener) {
-        this.pollListener = pollListener;
     }
 
     /** Starts the background poll loop. Idempotent. */

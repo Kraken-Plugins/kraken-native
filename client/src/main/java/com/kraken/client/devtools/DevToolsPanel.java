@@ -7,6 +7,7 @@ import com.kraken.api.game.MapCoord;
 import com.kraken.api.game.Player;
 import com.kraken.client.ApiConnection;
 import com.kraken.client.ui.Theme;
+import com.kraken.client.ui.WrapLabel;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignE;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignM;
@@ -38,7 +39,7 @@ public final class DevToolsPanel extends JPanel {
 
     private final DevToolManager manager;
     private final ApiConnection connection;
-    private final JLabel status = new JLabel();
+    private final WrapLabel status = new WrapLabel("");
     private final JLabel gameValue = fact();
     private final JLabel playerValue = fact();
     private final JLabel tileValue = fact();
@@ -87,6 +88,7 @@ public final class DevToolsPanel extends JPanel {
         status.putClientProperty(STYLE_CLASS, "small");
         status.setForeground(Theme.LIGHT);
         status.setIconTextGap(6);
+        status.setVerticalTextPosition(SwingConstants.TOP);
         status.setBorder(new EmptyBorder(6, 2, 10, 0));
 
         JPanel facts = new JPanel(new GridLayout(0, 1, 0, 2));
@@ -193,7 +195,7 @@ public final class DevToolsPanel extends JPanel {
             case WAITING -> Theme.MEDIUM;
         };
         status.setIcon(new Dot(dot));
-        status.setText(Theme.wrap(Theme.escape(connection.getDetail()), 196, "left"));
+        status.setPlainText(connection.getDetail());
         if (!connection.isAttached()) {
             for (JLabel value : new JLabel[]{gameValue, playerValue, tileValue, tickValue}) {
                 value.setText("–");
@@ -237,14 +239,14 @@ public final class DevToolsPanel extends JPanel {
         return row;
     }
 
-    /** A status light. */
+    /** A status light, as tall as a line of small text so it lines up with the first line. */
     private record Dot(Color color) implements Icon {
         @Override
         public void paintIcon(Component c, Graphics g, int x, int y) {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g2.setColor(color);
-            g2.fillOval(x, y + 1, 8, 8);
+            g2.fillOval(x, y + (getIconHeight() - 8) / 2, 8, 8);
             g2.dispose();
         }
 
@@ -255,7 +257,7 @@ public final class DevToolsPanel extends JPanel {
 
         @Override
         public int getIconHeight() {
-            return 10;
+            return 15;
         }
     }
 

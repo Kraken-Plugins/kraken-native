@@ -2,6 +2,7 @@ package com.kraken.client.devtools;
 
 import com.kraken.client.devtools.DevTool.Support;
 import com.kraken.client.ui.Theme;
+import com.kraken.client.ui.WrapLabel;
 import org.kordamp.ikonli.Ikon;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignE;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignO;
@@ -23,8 +24,6 @@ import static com.formdev.flatlaf.FlatClientProperties.*;
  * fixed columns. Clicking the row expands its description and options. Planned tools are greyed out.
  */
 final class ToolRow extends JPanel {
-    /** Width of wrapped detail text; fits the 242 px sidebar with its scrollbar showing. */
-    private static final int TEXT_WIDTH = 160;
     private static final int BUTTON = 26;
     private static final Color PLANNED_TEXT = new Color(0x858585);
     private static final Color PLANNED_ICON = new Color(0x5a5a5a);
@@ -133,11 +132,11 @@ final class ToolRow extends JPanel {
         details.setOpaque(false);
         details.setBorder(new EmptyBorder(0, 34, 8, 8));
 
-        details.add(small(Theme.wrap(Theme.escape(tool.getDescription()), TEXT_WIDTH, "left"), Theme.LIGHT));
+        details.add(small(tool.getDescription(), Theme.LIGHT));
         if (tool.needs() != null && (tool.overlaySupport() == Support.PLANNED || tool.windowSupport() == Support.PLANNED)) {
             details.add(Box.createVerticalStrut(6));
             String what = tool.isPlanned() ? "Planned" : tool.overlaySupport() == Support.PLANNED ? "Overlay planned" : "Window planned";
-            details.add(small(Theme.wrap(what + ": needs " + Theme.escape(tool.needs()) + ".", TEXT_WIDTH, "left"), NEEDS));
+            details.add(small(what + ": needs " + tool.needs() + ".", NEEDS));
         }
         if (!tool.options().isEmpty()) {
             details.add(Box.createVerticalStrut(4));
@@ -197,8 +196,8 @@ final class ToolRow extends JPanel {
         return support == Support.NONE ? Box.createRigidArea(new Dimension(BUTTON, BUTTON)) : button;
     }
 
-    private static JLabel small(String html, Color color) {
-        JLabel label = new JLabel(html);
+    private static JLabel small(String text, Color color) {
+        WrapLabel label = new WrapLabel(text);
         label.putClientProperty(STYLE_CLASS, "small");
         label.setForeground(color);
         label.setAlignmentX(LEFT_ALIGNMENT);

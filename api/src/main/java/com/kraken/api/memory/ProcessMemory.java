@@ -73,8 +73,7 @@ public final class ProcessMemory implements Memory, AutoCloseable {
         if (address < MIN_ADDRESS || address > MAX_ADDRESS || length <= 0) {
             throw new MemoryException("Refusing to read " + length + " bytes at 0x" + Long.toHexString(address));
         }
-        com.sun.jna.Memory buffer = new com.sun.jna.Memory(length);
-        try {
+        try (com.sun.jna.Memory buffer = new com.sun.jna.Memory(length)) {
             IntByReference read = new IntByReference();
             boolean ok = Kernel32.INSTANCE.ReadProcessMemory(process, new Pointer(address), buffer, length, read);
             if (!ok || read.getValue() != length) {
@@ -82,8 +81,6 @@ public final class ProcessMemory implements Memory, AutoCloseable {
                         + " len " + length + " (error " + Kernel32.INSTANCE.GetLastError() + ")");
             }
             return buffer.getByteArray(0, length);
-        } finally {
-            buffer.close();
         }
     }
 

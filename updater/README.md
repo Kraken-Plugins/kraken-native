@@ -1,7 +1,7 @@
 # Kraken native updater
 
 Maps struct offsets, globals and functions of a new `osclient.exe` build and writes the contract the native API
-consumes (`mappings/<version>.json`, e.g. `241.3.json`). Implements [docs/updater-design.md](../docs/updater-design.md).
+consumes (`api/src/main/resources/mappings/<version>.json`, e.g. `241.3.json`). Implements [docs/updater-design.md](../docs/updater-design.md).
 
 Python 3.10+, PyYAML, SQLite (stdlib). Ghidra 12.1 + JDK 21 only for the one-off export per build.
 
@@ -48,11 +48,11 @@ program.db ──► bindings + fingerprints ──► strategies ──► cons
 cd updater
 uv run native-updater lint                                        # check the spec
 uv run native-updater export --binary <osclient.exe> --ghidra <GHIDRA_INSTALL_DIR> --java-home <JDK21>
-uv run native-updater run --binary <osclient.exe>                 # writes ../mappings/<version>.json
-uv run native-updater run --binary <new.exe> --previous ../mappings/<old>.json   # + carry-forward, diff, repair bundles
+uv run native-updater run --binary <osclient.exe>                 # writes ../api/src/main/resources/mappings/<version>.json
+uv run native-updater run --binary <new.exe> --previous ../api/src/main/resources/mappings/<old>.json   # + carry-forward, diff, repair bundles
 uv run native-updater bindings --binary <osclient.exe> --table osrs.IfType       # dump a Lua binding table
 uv run native-updater sql --binary <osclient.exe> "SELECT i.rva, i.text FROM operand o JOIN insn i USING(rva) WHERE o.kind='mem' AND o.disp=0xcc70"
-uv run native-updater probe --mapping ../mappings/<version>.json --display-name <name>   # read-only live check
+uv run native-updater probe --mapping ../api/src/main/resources/mappings/<version>.json --display-name <name>   # read-only live check
 uv run python -m unittest discover -s tests -t .                  # unit + golden tests (golden skip without the cached model)
 ```
 
@@ -66,8 +66,9 @@ The Ghidra export is manual-or-automatic: with `GHIDRA_INSTALL_DIR` (and `JAVA_H
 
 ## Output
 
-`mappings/<version>.json` is the only file written to the repo. The version is the major.minor of the exe's file
-version resource (`241.3`); the Java API reads the same resource to pick the file, then checks `sha256` so a mapping is
+`mappings/<version>.json` is the only file written to the repo. It goes to `api/src/main/resources/mappings/` by default (`--out`
+changes it), because the API ships its mappings as classpath resources. The version is the major.minor of the exe's
+file version resource (`241.3`); the Java API reads the same resource to pick the file, then checks `sha256` so a mapping is
 never applied to a different binary. It holds values only, keyed like the spec:
 
 ```json
@@ -111,7 +112,7 @@ reads it for carry-forward. Repair bundles (`repair/<key>.md`) go in the same fo
 | `src/native_updater/identity.py` | Build identity (client version, sha256), the binary store, the cache root |
 | `src/native_updater/emit.py` | `mappings/<version>.json`, `analysis.json`, the run summary and the diff |
 | `src/native_updater/probe.py` | Read-only live checks of a mapping against the running client (PASS/FAIL per `live:` check) |
-| `corpus/*.golden.json` | Accepted values per build for the golden tests |
+| `corpus/<version>.golden.json` | Accepted values per client version for the golden tests |
 
 ## Writing a recipe
 

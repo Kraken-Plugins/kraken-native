@@ -11,7 +11,6 @@ import lombok.extern.java.Log;
 
 import javax.swing.*;
 import java.io.File;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -76,16 +75,20 @@ public final class ApiConnection {
     }
 
     private void attach(long pid) {
-        Path mappings = mappingsDir();
+        // The API's bundled mappings, unless -Dkraken.mappings=<dir> points at another folder of <version>.json files
+        String override = System.getProperty("kraken.mappings");
+        String source = override != null ? override : "bundled";
         setState(State.ATTACHING, "Attaching to osclient.exe (pid " + pid + ")…");
         Exception last = null;
         for (int attempt = 0; attempt < ATTEMPTS; attempt++) {
             try {
-                KrakenApi attached = KrakenApi.attach(pid, exe.toPath(), mappings);
+                KrakenApi attached = override != null
+                        ? KrakenApi.attach(pid, exe.toPath(), Path.of(override))
+                        : KrakenApi.attach(pid, exe.toPath());
                 attached.setPollListener(() -> poll(attached.client()));
                 api = attached;
                 attached.start();
-                log.info("Native API attached (client " + attached.mapping().version() + ", mappings " + mappings + ")");
+                log.info("Native API attached (client " + attached.mapping().version() + ", mappings " + source + ")");
                 setState(State.ATTACHED, "Attached · client " + attached.mapping().version());
                 return;
             } catch (UnsupportedBuildException e) {
@@ -121,21 +124,5 @@ public final class ApiConnection {
         this.state = state;
         this.detail = detail;
         SwingUtilities.invokeLater(() -> stateListeners.forEach(Runnable::run));
-    }
-
-    /** The repo's {@code mappings/} directory: the {@code kraken.mappings} property, else the nearest one above the CWD. */
-    private static Path mappingsDir() {
-        String override = System.getProperty("kraken.mappings");
-        if (override != null) {
-            return Path.of(override);
-        }
-        Path start = Path.of("").toAbsolutePath();
-        for (Path dir = start; dir != null; dir = dir.getParent()) {
-            Path candidate = dir.resolve("mappings");
-            if (Files.isDirectory(candidate)) {
-                return candidate;
-            }
-        }
-        return start.resolve("mappings");
     }
 }
