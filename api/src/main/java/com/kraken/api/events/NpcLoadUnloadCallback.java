@@ -1,0 +1,13 @@
+package com.kraken.api.events;
+
+/**
+ * Mirrors the Lua {@code OnNpcLoadUnloadCallback}: {@code (npcDisplayName, npcId) => void}, used for both
+ * {@link Events#ON_NPC_LOAD} and {@link Events#ON_NPC_UNLOAD}.
+ *
+ * @param npcDisplayName the NPC's display name
+ * @param npcId          the NPC's index (what {@code ClientOp.npcName}/{@code getNpcObj} take)
+ */
+@FunctionalInterface
+public interface NpcLoadUnloadCallback {
+    void onNpcLoadUnload(String npcDisplayName, int npcId);
+}

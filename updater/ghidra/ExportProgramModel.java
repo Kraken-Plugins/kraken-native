@@ -1,4 +1,4 @@
-// Exports the raw program model the kraken native updater imports into SQLite (updater/model.py).
+// Exports the raw program model the kraken native updater imports into SQLite (updater/src/native_updater/model.py).
 //
 //   analyzeHeadless <projDir> <projName> -import osclient.exe -scriptPath updater/ghidra \
 //       -postScript ExportProgramModel.java <outDir>

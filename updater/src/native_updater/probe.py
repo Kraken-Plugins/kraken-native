@@ -404,9 +404,7 @@ def main(mapping_path, display_name=None, merge=False):
     out.write_text(json.dumps(overlay, indent=2), encoding="utf-8")
     log(f"wrote {out}")
     if merge:
-        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
         from native_updater import pipeline
-        from native_updater.consensus import Result
         results = []
         pipeline.apply_overlay(mapping, results, overlay)
         Path(mapping_path).write_text(json.dumps(mapping, indent=2), encoding="utf-8")

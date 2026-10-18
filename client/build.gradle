@@ -4,7 +4,7 @@ plugins {
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(17)
+        languageVersion = JavaLanguageVersion.of(21)
     }
 }
 
@@ -13,6 +13,9 @@ repositories {
 }
 
 dependencies {
+    // The RuneLite-shaped native API this client embeds dev tools for
+    implementation project(':api')
+
     implementation 'net.java.dev.jna:jna-platform:5.14.0'
     implementation 'com.formdev:flatlaf:3.5.4'
     implementation 'com.formdev:flatlaf-fonts-jetbrains-mono:2.304'

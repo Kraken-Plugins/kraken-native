@@ -47,8 +47,9 @@ You need:
 
 * Windows, with Old School RuneScape installed through the [Jagex Launcher](https://www.jagex.com/launcher).
 * [Java 21](https://adoptium.net/). The Gradle wrapper is included.
-* For the updater only: Python 3.10+ with PyYAML, plus [Ghidra](https://github.com/NationalSecurityAgency/ghidra) 12.1 and JDK 21 for the
-  one-off export of each new client build.
+* For the updater only: [uv](https://docs.astral.sh/uv/) (it installs Python and PyYAML for you), plus
+  [Ghidra](https://github.com/NationalSecurityAgency/ghidra) 12.1 and JDK 21 for the one-off export of each new client
+  build.
 
 ## Running the Client
 
@@ -121,9 +122,10 @@ When Jagex ships a new client, the updater maps it and writes the contract the A
 
 ```bash
 cd updater
-pip install pyyaml
-python -m native_updater run --binary "<path to osclient.exe>"
+uv run native-updater run --binary "<path to osclient.exe>"
 ```
+
+The first `uv run` creates `updater/.venv` and installs the locked dependencies from `uv.lock`.
 
 This writes `mappings/<sha16>.json`, a `<sha16>.report.md` with a verdict for every key, and an updated
 `mappings/index.json`. Client binaries and Ghidra models are cached outside the repository in `~/.kraken-native`.
@@ -132,7 +134,7 @@ See [updater/README.md](updater/README.md) for the full flow, exit codes, how to
 Run the updater's tests from `updater/`:
 
 ```bash
-python -m unittest discover -s tests -t .
+uv run python -m unittest discover -s tests -t .
 ```
 
 ## Roadmap

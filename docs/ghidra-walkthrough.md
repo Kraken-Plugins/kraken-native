@@ -629,49 +629,217 @@ Navigation: **G** jumps to an address, **Alt+←** goes back, double-click follo
 `XREF[1]` means one place in the program uses this string. It's inside function `FUN_1403a82f0`, at instruction
 `1403ab2d0`.
 
-### Step 2.2 — Follow the reference
+### Step 2.2 — Go to the line that uses the string
 
-Double-click `FUN_1403a82f0:1403ab2d0`. You land in a very large function. Scroll up a few lines from the
-highlighted instruction. You'll see this (Ghidra shows names instead of some raw addresses; the addresses are
-included here so you can match them):
+1. Double-click the XREF text `FUN_1403a82f0:1403ab2d0`. Both the Listing and the Decompiler jump there.
+2. **Check where you landed.** The highlighted line in the Listing should be:
+
+   ```
+   1403ab2d0   48 8d 15 11 20 82 00   LEA   RDX,[s_npcName_140bcd2e8]       = "npcName"
+   ```
+
+   If you're instead at the very top of `FUN_1403a82f0` (address `1403a82f0`), press **G**, type `1403ab2d0`
+   and press Enter.
+3. **Give the Decompiler a moment.** `FUN_1403a82f0` is huge: about 3,300 instructions that register around 80
+   script functions one after another. Its decompiled version is about 1,800 lines, so the Decompiler window can take
+   10–30 seconds to fill in. The warning at the top, `/* WARNING: Type propagation algorithm not settling */`, is
+   harmless.
+4. In the Decompiler, the line `FUN_14004b640(local_6b0,"npcName");` should be highlighted. If you can't see it,
+   click inside the Decompiler window, press **Ctrl+F**, and search for `"npcName"` (with the quotes).
+
+### Step 2.3 — What this code is doing
+
+`FUN_1403a82f0` fills in a lookup table for the plugin system. For each script function it does the equivalent of:
+
+```c
+registry.add("npcName", FUN_1401ec5c0);   // "when a plugin calls npcName, run FUN_1401ec5c0"
+registry.add("npcCoord", FUN_1403ae4b0);
+...                                       // ~80 of these, one after another
+```
+
+You already have the name. You want the **second thing in that pair: the function**.
+
+### Step 2.4 — The key idea: "called" vs. "handed over"
+
+A function's name can appear in the code in two different ways, and telling them apart is the whole trick:
+
+| | In the Decompiler | In the Listing | What it means |
+|---|---|---|---|
+| **Called** | `FUN_14004b640(local_6b0,"npcName");`: the name **is followed by `(`** | `CALL FUN_14004b640` | runs that function right now |
+| **Handed over** | `FUN_1403bcc80(local_680,FUN_1401ec5c0);`: `FUN_1401ec5c0` is **not followed by `(`**; it sits inside another call's brackets | `LEA RDX,[FUN_1401ec5c0]` | doesn't run it; passes its **address** along so it can be stored and run later |
+
+Registering a script function means handing its address to the registry. So:
+
+> **The handler is the function that is handed over, not called.** In the Decompiler, it's the `FUN_…` with no `(`
+> after it. In the Listing, it's the `FUN_…` inside the square brackets of an `LEA`. Every `FUN_…` that is
+> followed by `(` (Decompiler) or comes after the word `CALL` (Listing) is a helper: building strings, wrapping the
+> function, registering it. Ignore those.
+
+### Step 2.5 — Method A: find the handler in the Decompiler (easiest)
+
+**The rule:**
+
+1. Find the line with your name in quotes, e.g. `"npcName"`.
+   If the name appears **twice** a few lines apart, use the **second** one. The first, `pcVar8 = "…";`, only measures
+   the text's length.
+2. Look at **that line, the line just above it, and the line just below it**. The handler is the `FUN_…` that has
+   **no `(` right after it**.
+3. If none of those three lines has one, look **upward** for a line shaped like `something = FUN_…;` (again, no
+   `(`). That's the handler.
+
+This finds the right function for all 11 names in this guide. If it ever comes up empty, use Method B.
+
+**Example 1: `npcName` (handler on the line above).** This is what the Decompiler shows:
+
+```c
+FUN_1403bcc80(local_680,FUN_1401ec5c0);     // ◄── FUN_1401ec5c0 has no "(" after it → THE HANDLER
+FUN_14004b640(local_6b0,"npcName");          // ◄── the name
+FUN_1403c1290(param_1,param_2,local_6b0,local_680,local_6c8,&local_6e0);   // register: every FUN_ here has "("
+FUN_140029f40(local_6b0);                    // clean-up calls that end the block
+FUN_14020d4d0(local_680);
+FUN_140043950(local_6c8);
+FUN_140043950(&local_6e0);
+```
+
+Line above the name: `FUN_1403bcc80(…)` is called (it has `(`), but `FUN_1401ec5c0` inside its brackets isn't.
+**Handler: `FUN_1401ec5c0`.**
+
+**Example 2: `npcCoord` (handler on the line below).**
+
+```c
+uVar10 = FUN_14004b4d0(local_6b0,&DAT_140d074c8);
+uVar5 = FUN_14004b640(local_6c8,"npcCoord");          // ◄── the name
+FUN_1403c0cf0(param_2,FUN_1403ae4b0,uVar5,uVar10);    // ◄── FUN_1403ae4b0 has no "(" after it → THE HANDLER
+uVar10 = FUN_14004b4d0(local_6b0,&DAT_140d074c8);
+uVar5 = FUN_14004b640(local_6c8,"npcCoordFine");      //     (the next registration starts here)
+FUN_1403c0fc0(param_2,FUN_1403ae660,uVar5,uVar10);
+```
+
+**Handler: `FUN_1403ae4b0`.** Two lines further down is `FUN_1403ae660`, but that belongs to the next name,
+`npcCoordFine`. That's why you only look one line either side.
+
+**Example 3: `getNpcIdAll` (name appears twice).**
+
+```c
+pcVar8 = "getNpcIdAll";                      // first mention: only measuring the length, skip it
+local_6f8 = (undefined8 *)((ulonglong)local_6f8 & 0xffffffffffffff00);
+local_6e1 = 0x17;
+do {
+  pcVar8 = pcVar8 + 1;
+} while (*pcVar8 != '\0');
+FUN_14004b5b0(&local_6f8,"getNpcIdAll");     // ◄── second mention: use this one
+FUN_1403bc9b0(param_2,FUN_1403ad4b0,&local_6f8,&local_6e0);   // ◄── THE HANDLER
+```
+
+**Handler: `FUN_1403ad4b0`.**
+
+**Example 4: `playerFindSelf` (handler stored in a variable first, further up).**
+
+```c
+local_res8 = 0;
+local_res10 = FUN_1403a8280;                 // ◄── "something = FUN_…;" with no "(" → THE HANDLER
+local_6f8 = (undefined8 *)&local_res8;
+local_resc = 1;
+puStack_6f0 = &local_res10;
+FUN_140040280(local_6c8,&local_6f8);
+local_6d8 = 0;
+local_6d0 = 0;
+uVar10 = FUN_1403c1f10(local_680,&local_res10);
+FUN_14004b640(local_6b0,"playerFindSelf");   // ◄── the name
+FUN_1403c1f50(param_1,param_2,local_6b0,uVar10,&local_6e0,local_6c8);
+```
+
+The name's line and its neighbours contain only called functions, so look upward. Eight lines up:
+`local_res10 = FUN_1403a8280;`. **Handler: `FUN_1403a8280`.** (The client wraps this one in an extra helper object
+first, which is why it's further away.)
+
+### Step 2.6 — Method B: find the handler in the Listing (works every time)
+
+Use this if the Decompiler is slow, shows an error, or Method A comes up empty. It's the same idea in assembly.
+
+**The rule:**
+
+1. Start on the line with the name (`LEA …,[s_npcName_…]`).
+2. **Look down.** Read downward until you've passed **two** `CALL` lines. If you see an `LEA …,[FUN_…]` before the
+   second `CALL`, that's the handler. Stop.
+3. **Otherwise, look up.** Read upward from the name. The first `LEA …,[FUN_…]` you meet is the handler.
+
+I checked this rule against every script name in this build: it finds the right function for all 67 that are
+registered directly.
+
+Here is the `npcName` block in the Listing, with each line labelled:
 
 ```
-1403ab2c0  LEA   RDX,[FUN_1401ec5c0]             ; (1) a pointer to a function
+1403ab2c0  LEA   RDX,[FUN_1401ec5c0]             ◄── FUN_ inside [ ] of an LEA = HANDED OVER = THE HANDLER
 1403ab2c7  LEA   RCX,[RBP + -0x58]
-1403ab2cb  CALL  FUN_1403bcc80                   ;     wrap that function into a callable object
-1403ab2d0  LEA   RDX,[s_npcName_140bcd2e8]       ; (2) the name "npcName"
+1403ab2cb  CALL  FUN_1403bcc80                       helper (called): wraps the handler into an object
+1403ab2d0  LEA   RDX,[s_npcName_140bcd2e8]       ◄── you land here: the name
 1403ab2d7  LEA   RCX,[RSP + 0x78]
-1403ab2dc  CALL  FUN_14004b640                   ;     build a string object from the text
-1403ab2e1  ...
+1403ab2dc  CALL  FUN_14004b640                       first CALL: makes a string object from "npcName"
+1403ab2e1  LEA   RAX,[RSP + 0x48]
+1403ab2e6  MOV   RDX,RSI
+1403ab2e9  MOV   qword ptr [RSP + 0x28],RAX
+1403ab2ee  LEA   R9,[RBP + -0x58]
+1403ab2f2  LEA   RAX,[RSP + 0x60]
+1403ab2f7  MOV   qword ptr [RSP + 0x20],RAX
+1403ab2fc  LEA   R8,[RSP + 0x78]
 1403ab301  MOV   RCX,R14
-1403ab304  CALL  FUN_1403c1290                   ; (3) register: name + function
+1403ab304  CALL  FUN_1403c1290                       second CALL: adds name + handler to the registry
 ```
 
-The pattern is: **load a function pointer, load a name, call "register"**. `FUN_1403a82f0` repeats a block like
-this for every script function. In other words, this code is building a table of name → function pairs.
+Most `LEA` lines have registers inside the brackets (`[RSP + 0x78]`, `[RBP + -0x58]`). Those are local variables,
+not functions. You're looking for the one `LEA` whose brackets contain a **`FUN_` name**.
 
-So `FUN_1401ec5c0` is the code that runs when a plugin calls `npcName(...)`.
+Looking down from `1403ab2d0`: first CALL, then second CALL, and no `LEA …,[FUN_…]` in between. So look up: three
+lines up is `LEA RDX,[FUN_1401ec5c0]`. **Handler: `FUN_1401ec5c0`.**
 
-The order inside a block isn't always the same. Here is the block for `npcCoord`, where the function comes
-**after** the name, right before the register call:
+For `npcCoord`, looking down finds it right away:
 
 ```
-1403ab1fb  LEA   RDX,[s_npcCoord_140bcd2c0]      ; the name "npcCoord"
+1403ab1fb  LEA   RDX,[s_npcCoord_140bcd2c0]      ◄── the name
 1403ab202  MOV   RDI,RAX
 1403ab205  LEA   RCX,[RSP + 0x60]
-1403ab20a  CALL  FUN_14004b640                   ; build a string object from the text
+1403ab20a  CALL  FUN_14004b640                       first CALL
 1403ab20f  MOV   R9,RDI
-1403ab212  LEA   RDX,[FUN_1403ae4b0]             ; the function pointer
+1403ab212  LEA   RDX,[FUN_1403ae4b0]             ◄── LEA of a FUN_ before the second CALL = THE HANDLER
 1403ab219  MOV   R8,RAX
 1403ab21c  MOV   RCX,RSI
-1403ab21f  CALL  FUN_1403c0cf0                   ; register
+1403ab21f  CALL  FUN_1403c0cf0                       second CALL (register)
 ```
 
-**The rule that always works:** each block ends with a register `CALL`. The handler is the one `LEA` of a
-`FUN_…` address between the previous block's register call and this block's register call. In practice it's
-either about 3 instructions above the name or about 5 below it.
+### Step 2.7 — Check that you picked the right function
 
-### Step 2.3 — Rename as you go
+Do at least one of these checks every time. They take a few seconds each.
+
+1. **Count its references.** Right-click the candidate → **References → Show References to**. A handler appears in
+   only **2–5 places**: the line in `FUN_1403a82f0` you came from, plus entries in data tables that every function
+   gets (addresses starting `1422…` or `140c…`; ignore those), and sometimes one small wrapper function that calls
+   it. Real counts in this build: `npcCoord`'s handler has 2, `playerFindSelf`'s has 3, `npcName`'s has 5.
+   Helpers are used far more: `FUN_1403bcc80` (the wrapper) has 23 and `FUN_14004b640` (make a string) has 57.
+   **A long list means you picked a helper.**
+2. **Look at it.** Double-click it. A handler is short (a screen or two in the Decompiler) and does what its name
+   says: `npcName` builds a string, `npcCoord` writes three ints and contains the message
+   `"Invalid NPC ID passed to npc_coord."`, `playerFindSelf` reads `DAT_140e98c18 + 0xcc4c`.
+3. **Compare with the answer key.** The updater already parses this whole table. In a terminal:
+
+   ```bash
+   cd updater
+   uv run native-updater bindings --binary "C:/Program Files (x86)/Jagex Launcher/Games/Old School RuneScape/Client/osclient.exe" --table ClientOp
+   ```
+
+   It prints one line per script function:
+
+   ```
+   ClientOp.npcName                                         0x1ec5c0 direct
+   ClientOp.npcCoord                                        0x3ae4b0 direct
+   ClientOp.getNpcObj                                       0x3add60 factory
+   ```
+
+   The number is an RVA (Part 0.6). Add `0x140000000` to get the Ghidra address: `0x1ec5c0` → `FUN_1401ec5c0`.
+   `direct` means registered the normal way, so the rules above work. `factory` means it's wrapped in an extra helper
+   object and the rules don't apply. None of the functions in this guide are `factory` ones.
+
+### Step 2.8 — Rename as you go
 
 Renaming is how you build understanding. Each name you add shows up everywhere that function is used.
 
@@ -679,32 +847,33 @@ Renaming is how you build understanding. Each name you add shows up everywhere t
    `register_ClientOps`.
 2. Double-click `FUN_1401ec5c0` to go there, press **L**, rename it `op_npcName`.
 
-### Step 2.4 — Repeat for the others
+### Step 2.9 — Repeat for the others
 
-Do the same for each name below: filter Defined Strings, follow the XREF, and take the `LEA` of a `FUN_…` address in
-that block. Rename each one `op_<name>`. The "Handler LEA" column says where to look relative to the name.
+Do the same for each name below:
 
-| Script name | String address | Name used at | Handler LEA | Handler (rename to `op_…`) | What it gives you |
-|---|---|---|---|---|---|
-| `npcName` | `140bcd2e8` | `1403ab2d0` | 3 above | `FUN_1401ec5c0` | an NPC's name |
-| `npcTypeId` | `140bcd3e8` | `1403ab546` | 3 above | `FUN_1401ec890` | the NPC's definition id |
-| `npcCoord` | `140bcd2c0` | `1403ab1fb` | 5 below | `FUN_1403ae4b0` | an NPC's tile |
-| `npcCoordFine` | `140bcd2f0` | `1403ab235` | 5 below | `FUN_1403ae660` | an NPC's precise position |
-| `getNpcIdAll` | `140bccf08` | `1403a8529` | 6 below | `FUN_1403ad4b0` | every loaded NPC index |
-| `ncName` | `140bcd3dc` | `1403ab618` | 3 above | `FUN_1401ec950` | a name from an NPC *definition* id |
-| `playerName` | `140bcd3a0` | `1403ab80e` | 3 above | `FUN_1401ecc00` | a player's name |
-| `playerCoord` | `140bcd388` | `1403ab739` | 5 below | `FUN_1403ae8c0` | a player's tile |
-| `playerCoordFine` | `140bcd3b0` | `1403ab773` | 5 below | `FUN_1403aea70` | a player's precise position |
-| `playerFindSelf` | `140bcd428` | `1403ab985` | 18 above | `FUN_1403a8280` | your own player's index |
-| `getPlayerIdAll` | `140bccf98` | `1403a8639` | 6 below | `FUN_1403ad810` | every loaded player index |
+1. **Defined Strings** → filter for the name → double-click it.
+2. Double-click its XREF (or press **G** and type the "Name used at" address).
+3. Find the handler with Method A (Decompiler, Step 2.5) or Method B (Listing, Step 2.6). The "Handler is" column
+   tells you which direction to look, and "Handler LEA at" is the exact Listing line, so you can check yourself.
+4. Check it (Step 2.7), then rename it `op_<name>`.
 
-Two cases need care:
+| Script name | String address | Name used at | Handler LEA at | Handler is | Handler (rename to `op_…`) | What it gives you |
+|---|---|---|---|---|---|---|
+| `npcName` | `140bcd2e8` | `1403ab2d0` | `1403ab2c0` | above | `FUN_1401ec5c0` | an NPC's name |
+| `npcTypeId` | `140bcd3e8` | `1403ab546` | `1403ab536` | above | `FUN_1401ec890` | the NPC's definition id |
+| `npcCoord` | `140bcd2c0` | `1403ab1fb` | `1403ab212` | below | `FUN_1403ae4b0` | an NPC's tile |
+| `npcCoordFine` | `140bcd2f0` | `1403ab235` | `1403ab24c` | below | `FUN_1403ae660` | an NPC's precise position |
+| `getNpcIdAll` | `140bccf08` | `1403a8529` | `1403a8547` | below | `FUN_1403ad4b0` | every loaded NPC index |
+| `ncName` | `140bcd3dc` | `1403ab618` | `1403ab608` | above | `FUN_1401ec950` | a name from an NPC *definition* id |
+| `playerName` | `140bcd3a0` | `1403ab80e` | `1403ab7fe` | above | `FUN_1401ecc00` | a player's name |
+| `playerCoord` | `140bcd388` | `1403ab739` | `1403ab750` | below | `FUN_1403ae8c0` | a player's tile |
+| `playerCoordFine` | `140bcd3b0` | `1403ab773` | `1403ab78a` | below | `FUN_1403aea70` | a player's precise position |
+| `playerFindSelf` | `140bcd428` | `1403ab985` | `1403ab91e` | further up | `FUN_1403a8280` | your own player's index |
+| `getPlayerIdAll` | `140bccf98` | `1403a8639` | `1403a8657` | below | `FUN_1403ad810` | every loaded player index |
 
-- **`playerFindSelf`** is wrapped in an extra helper object, so its handler is loaded much earlier:
-  `LEA RAX,[FUN_1403a8280]` at `1403ab91e`. The block rule still holds: it's the only `FUN_` `LEA` between the
-  previous register call and this one.
-- **`getNpcIdAll`** and **`getPlayerIdAll`** each have two XREFs, both in the same block (the code measures the
-  string's length, then copies it). Either one gets you to the block.
+`getNpcIdAll` and `getPlayerIdAll` each show **two** XREFs, both in the same block (the code first measures the
+string's length, then copies it). In the Decompiler, use the second mention of the name (Example 3 in Step 2.5). In
+the Listing, the rule works from either one.
 
 > **A second set of anchors.** Some handlers also contain error messages, and those lead to the same functions:
 > `"Invalid Player ID passed to player_coord."`, `"…player_coord_fine."`, `"Invalid NPC ID passed to npc_coord."`,
@@ -1255,7 +1424,7 @@ The anchors you used don't change between builds. The numbers do.
 To re-map a new build by hand: repeat Part 2 (string → XREF → handler) and read the handler (Parts 3–7). Expect
 about an hour the first time and much less after.
 
-**This is exactly what the updater automates.** Each recipe in `updater/native_updater/spec/*.yaml` is one of the
+**This is exactly what the updater automates.** Each recipe in `updater/src/native_updater/spec/*.yaml` is one of the
 steps above, written down so a program can repeat it:
 
 | Manual step in this guide | Updater recipe |
@@ -1273,7 +1442,7 @@ The updater can also answer "who uses offset N?" without Ghidra, using its instr
 
 ```bash
 cd updater
-python -m native_updater sql --binary "<path to osclient.exe>" \
+uv run native-updater sql --binary "<path to osclient.exe>" \
   "SELECT printf('0x%x', i.rva), i.text FROM operand o JOIN insn i USING(rva) WHERE o.kind='mem' AND o.disp=0x718"
 ```
 
@@ -1294,7 +1463,7 @@ correctly. Do this before trusting a new offset.
 
 ```bash
 cd updater
-python -m native_updater probe --mapping ../mappings/166231c8f6bd05c7.json --display-name "<your name>"
+uv run native-updater probe --mapping ../mappings/166231c8f6bd05c7.json --display-name "<your name>"
 ```
 
 It prints PASS/FAIL per check (`localPlayer`, `fineVsPath`, `worldBase`, …). Based on Part 6, expect
@@ -1376,6 +1545,7 @@ proves the value.
 | Who uses this address? | right-click → **References → Show References to…** (Ctrl+Shift+F) |
 | All strings | **Window → Defined Strings** (filter at the bottom) |
 | Search the listing text | **Search → Program Text…** |
+| Find text in the function shown in the Decompiler | click in the Decompiler, then **Ctrl+F** |
 | Open the decompiler | **Window → Decompiler** (Ctrl+E) |
 | Add a comment | right-click → **Comments**, or **;** in the Listing |
 | Make a struct from a variable's uses | decompiler: right-click variable → **Auto Create Structure** |

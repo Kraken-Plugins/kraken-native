@@ -1,4 +1,4 @@
-"""python -m native_updater <command>
+"""uv run native-updater <command>   (or: python -m native_updater <command> inside the venv)
 
   run         map a binary: --binary PATH [--previous mappings/x.json] [--out mappings] [--probe-overlay x.live.json]
   export      print or run the Ghidra headless export for a binary
@@ -6,11 +6,10 @@
   lint        check the spec
   bindings    dump the parsed Lua binding tables for a binary
   sql         ad hoc query against a build's program.db
-  probe       read-only live verification of a mapping against the running client (see probe/)
+  probe       read-only live verification of a mapping against the running client (see probe.py)
 Exit codes: 0 all P0 keys PROVEN/ANCHORED, 1 acquisition failure or crash, 2 output written with FAILED/NEEDS_REVIEW keys.
 """
 import argparse
-import sys
 import traceback
 from pathlib import Path
 
@@ -18,11 +17,12 @@ from . import ghidra, model, pipeline
 from .identity import DEFAULT_INSTALL, BinaryStore, default_root, identify, sha256_of
 from .spec import lint, load as load_spec
 
-REPO = Path(__file__).resolve().parents[2]
+# updater/src/native_updater/cli.py -> repo root. Valid because uv installs the project in editable mode.
+REPO = Path(__file__).resolve().parents[3]
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="native_updater", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(prog="native-updater", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--cache", default=None, help=f"store/cache root (default {default_root()})")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
@@ -108,7 +108,6 @@ def dispatch(args):
             print(f"{b.key:50s} {val:>14s} {b.kind}")
         return 0
     if args.cmd == "probe":
-        sys.path.insert(0, str(REPO / "updater"))
-        from probe import probe
+        from . import probe
         return probe.main(args.mapping, args.display_name, args.merge)
     return 1

@@ -1,0 +1,17 @@
+[project]
+name = "native-updater"
+version = "0.1.0"
+description = "Maps struct offsets, globals and functions of a new osclient.exe build into mappings/<sha16>.json"
+readme = "README.md"
+# The code runs on 3.10+; .python-version pins the interpreter uv uses for the venv (3.12).
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+native-updater = "native_updater.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.13.1,<0.14.0"]
+build-backend = "uv_build"

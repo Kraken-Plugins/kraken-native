@@ -6,7 +6,7 @@ from pathlib import Path
 
 from . import model
 
-SCRIPT_DIR = Path(__file__).resolve().parent.parent / "ghidra"
+SCRIPT_DIR = Path(__file__).resolve().parents[2] / "ghidra"  # updater/ghidra (src/native_updater/ghidra.py -> updater)
 PINNED_GHIDRA = "12.1"
 
 
@@ -39,7 +39,7 @@ def ensure_model(binary, sha, cache_root, log=print, ghidra_dir=None, java_home=
         if not ghidra_dir:
             log("Ghidra export missing. Run the following (or set GHIDRA_INSTALL_DIR to let the updater run it):")
             log("  " + " ".join(f'"{c}"' if " " in c else c for c in cmd))
-            log(f"then: python -m native_updater build-model --binary {binary}")
+            log(f"then: uv run native-updater build-model --binary {binary}")
             return None
         p["project"].mkdir(parents=True, exist_ok=True)
         p["export"].mkdir(parents=True, exist_ok=True)

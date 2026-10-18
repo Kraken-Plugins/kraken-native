@@ -23,7 +23,7 @@ import static com.formdev.flatlaf.FlatClientProperties.TITLE_BAR_SHOW_TITLE;
 @Singleton
 public final class KrakenFrame extends JFrame {
     @Inject
-    KrakenFrame(GameView view, HomePanel home, Sidebar sidebar, ConsolePanel console) {
+    KrakenFrame(GameView view, HomePanel home, Sidebar sidebar, ConsolePanel console, DevToolsPanel devTools) {
         super("Kraken");
         setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         setIconImages(Stream.of(16, 20, 24, 30, 32, 40, 48, 64, 128, 256).map(Theme::logo).toList());
@@ -40,6 +40,7 @@ public final class KrakenFrame extends JFrame {
         });
 
         sidebar.addTab("Kraken", Theme.logoIcon(), Theme.logoIcon(), home);
+        sidebar.addTab("Dev Tools", MaterialDesignC.CODE_TAGS, devTools);
         sidebar.addTab("Plugins", MaterialDesignP.PUZZLE_OUTLINE, page("Plugins", emptyState(MaterialDesignP.PUZZLE_OUTLINE,
                 "No plugins yet", "Plugins built on the Kraken API will show up here.")));
         sidebar.addTab("Settings", MaterialDesignC.COG_OUTLINE, page("Settings", settings(sidebar)));
