@@ -1,5 +1,8 @@
 package com.kraken.client;
 
+import com.google.inject.Singleton;
+import com.kraken.client.ui.Theme;
+
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
@@ -9,7 +12,8 @@ import java.util.Map;
 import static com.formdev.flatlaf.FlatClientProperties.STYLE;
 
 /** Sidebar landing page: a card of live facts about the embedded client. {@link #set} is thread-safe. */
-final class HomePanel extends JPanel {
+@Singleton
+public final class HomePanel extends JPanel {
     private final JPanel facts = new JPanel();
     private final Map<String, JLabel> values = new HashMap<>();
 
@@ -23,7 +27,7 @@ final class HomePanel extends JPanel {
     }
 
     /** Sets a fact row, adding it on first use (rows keep insertion order). */
-    void set(String key, String value) {
+    public void set(String key, String value) {
         SwingUtilities.invokeLater(() -> values.computeIfAbsent(key, k -> {
             JLabel label = new JLabel(k);
             label.setForeground(Theme.LIGHT);

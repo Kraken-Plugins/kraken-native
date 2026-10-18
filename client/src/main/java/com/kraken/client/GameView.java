@@ -1,5 +1,7 @@
 package com.kraken.client;
 
+import com.google.inject.Singleton;
+import com.kraken.client.ui.Theme;
 import com.sun.jna.Native;
 import com.sun.jna.platform.win32.Kernel32;
 import com.sun.jna.platform.win32.User32;
@@ -22,7 +24,8 @@ import static com.sun.jna.platform.win32.WinUser.*;
  * Heavyweight canvas the osclient window is re-parented into (it needs its own HWND).
  * Shows a splash with a status message until the game window covers it.
  */
-final class GameView extends Canvas {
+@Singleton
+public final class GameView extends Canvas {
     private final Image logo = Theme.logoImage(96);
     private volatile String message = "Launching Old School RuneScape…";
     private volatile HWND game;

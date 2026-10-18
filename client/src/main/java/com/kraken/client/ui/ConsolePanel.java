@@ -1,5 +1,7 @@
-package com.kraken.client;
+package com.kraken.client.ui;
 
+import com.google.inject.Singleton;
+import lombok.Getter;
 import org.kordamp.ikonli.Ikon;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignA;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
@@ -29,7 +31,8 @@ import static com.formdev.flatlaf.FlatClientProperties.*;
  * Collapsible terminal-style log console docked at the bottom. Feed it by adding {@link #handler} to a JUL logger.
  * Collapsed, its header doubles as a status bar showing the latest message and warning/error counts.
  */
-final class ConsolePanel extends JPanel {
+@Singleton
+public final class ConsolePanel extends JPanel {
     private static final int MAX_LINES = 5_000;
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
     private static final Formatter MESSAGE = new SimpleFormatter();
@@ -47,7 +50,8 @@ final class ConsolePanel extends JPanel {
     private int warningCount;
     private int errorCount;
 
-    final Handler handler = new Handler() {
+    @Getter
+    private final Handler handler = new Handler() {
         @Override
         public void publish(LogRecord record) {
             if (isLoggable(record)) {

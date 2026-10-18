@@ -1,5 +1,8 @@
-package com.kraken.client;
+package com.kraken.client.ui;
 
+import com.google.inject.Singleton;
+import lombok.Getter;
+import lombok.Setter;
 import org.kordamp.ikonli.Ikon;
 import org.kordamp.ikonli.swing.FontIcon;
 
@@ -9,13 +12,17 @@ import java.awt.*;
 import static com.formdev.flatlaf.FlatClientProperties.*;
 
 /** RuneLite-style sidebar: a strip of tabs on the far right that open one panel at a time. */
-final class Sidebar extends JPanel {
+@Singleton
+public final class Sidebar extends JPanel {
     static final int PANEL_WIDTH = 242;
 
     private final CardLayout cardLayout = new CardLayout();
     private final JPanel cards = new JPanel(cardLayout);
     private final JPanel tabs = new JPanel();
-    boolean growWindow = true;
+    /** Widen the window when a panel opens, instead of shrinking the game. */
+    @Getter
+    @Setter
+    private boolean growWindow = true;
 
     Sidebar() {
         super(new BorderLayout());

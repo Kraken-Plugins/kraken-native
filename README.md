@@ -32,7 +32,7 @@ Use at your own risk. The developers are not responsible for any consequences re
 
 | Module | Status | What it is |
 |---|---|---|
-| [`client/`](client) | Proof of concept | Java 21 Swing client that launches `osclient.exe` and embeds its window, with a RuneLite-style sidebar and log console |
+| [`client/`](client) | Proof of concept | Java 17 Swing client that launches `osclient.exe` and embeds its window, with a RuneLite-style sidebar and log console |
 | [`updater/`](updater) | Working | Python updater that maps a client build and writes `mappings/<sha16>.json` |
 | [`mappings/`](mappings) | Seed build | One mapping per client build, keyed by the first 16 hex digits of the exe's SHA-256 |
 | [`api/`](api) | Designed | Gradle module for the RuneLite-shaped API; see [api-design.md](docs/api-design.md) |
@@ -72,9 +72,48 @@ What you get:
 * A collapsible log console at the bottom. Anything logged through `java.util.logging` appears there, as does the
   client's own output.
 
-Jagex accounts: `osclient.exe` gets its login session from `JX_*` environment variables set by the Jagex Launcher.
-Kraken passes its own environment through to the client. Started outside the launcher, it has no session to hand
-over, so the client shows the legacy login screen.
+### Logging In With a Jagex Account
+
+When you press Play, the Jagex Launcher logs you in and hands the session to `osclient.exe` in environment variables.
+Kraken starts the client itself, so you supply those variables instead: Kraken passes its own environment to the
+client unchanged. Without them, the client shows the legacy login screen, which doesn't accept Jagex accounts.
+
+| Variable | What it holds |
+|---|---|
+| `JX_SESSION_ID` | Your Jagex account's login session. Treat it like a password. |
+| `JX_CHARACTER_ID` | The character to log in as. |
+| `JX_DISPLAY_NAME` | That character's display name. |
+
+The client also reads `JX_ACCESS_TOKEN` and `JX_REFRESH_TOKEN`, but Jagex account logins don't need them.
+
+To get the values, have RuneLite write them out once:
+
+1. In the Jagex Launcher, choose RuneLite as the Old School client.
+2. Run `RuneLite (configure)` from the Start menu and add `--insecure-write-credentials` to **Client arguments**.
+3. Pick the character in the Jagex Launcher and press Play. RuneLite saves the variables, under the same names, to
+   `%USERPROFILE%\.runelite\credentials.properties`.
+4. Copy the values, then remove the flag and delete `credentials.properties`. While the file exists, RuneLite logs in
+   with it instead of with the launcher.
+
+Alternatively, start the official client from the launcher and open `osclient.exe`'s properties in
+[Process Explorer](https://learn.microsoft.com/sysinternals/downloads/process-explorer); the variables are listed on
+its Environment tab.
+
+Then set them in PowerShell and start Kraken from the same window:
+
+```powershell
+$env:JX_SESSION_ID   = "<session id>"
+$env:JX_CHARACTER_ID = "<character id>"
+$env:JX_DISPLAY_NAME = "<display name>"
+./gradlew :client:run
+```
+
+The variables last until you close that window. In IntelliJ, put them in the run configuration's environment
+variables instead. To play a different character on the same Jagex account, change `JX_CHARACTER_ID` and
+`JX_DISPLAY_NAME`; a character on another Jagex account needs that account's session ID.
+
+Don't commit or share these values. If they leak, use **End sessions** in your account settings on runescape.com to
+invalidate them.
 
 ## Mapping a Client Build
 
