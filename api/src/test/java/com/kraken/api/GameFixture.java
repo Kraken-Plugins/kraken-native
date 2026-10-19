@@ -1,8 +1,10 @@
 package com.kraken.api;
 
+import com.kraken.api.game.IfType;
 import com.kraken.api.mapping.Mapping;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.TreeMap;
@@ -31,6 +33,10 @@ import static com.kraken.api.TestSupport.seedMapping;
  *       decoration) on (6, 6) under a bridge. A pile on (3, 3): coins ×100, logs ×1, coins ×5.
  *   <li>Collision maps for 4 levels, one tile wider than the scene on each side (origin -1, like the client); level 0
  *       has a line of scenery across x = 4 for z = 1..6 that blocks walking and sight.
+ *   <li>Interfaces: the store holds groups 149, 150 and 162, and 151 without components (as a group the client hasn't
+ *       loaded). 149 and 162 are open, chained in one bucket of the open-interface map. 149:0 is a layer with dynamic
+ *       children [0] (an item slot), [1] (a dynamic layer) and [2] (text inside [1]); 162:0 is a top-level layer
+ *       holding 162:1 (text "All", drawn this frame, with an op) and 162:2 (hidden, its text on the heap).
  * </ul>
  */
 public final class GameFixture {
@@ -80,6 +86,12 @@ public final class GameFixture {
     public static final long LOC_HEAP = 0xb30000000L;
     public static final long PILES = 0xb40000000L;
     public static final long TILE_POOL = 0xb50000000L;
+    public static final long IF_STORE = 0xc00000000L;
+    public static final long IF_GROUPS = 0xc10000000L;
+    public static final long IF_SLOTS = 0xc20000000L;
+    public static final long IF_TYPES = 0xc30000000L;
+    public static final long IF_OPEN = 0xc40000000L;
+    public static final long IF_HEAP = 0xc50000000L;
     /**
      * Archive tables and file buffers are bump-allocated from here.
      */
@@ -128,11 +140,20 @@ public final class GameFixture {
     private static final int INV_NODE = 0x1000;
     private static final int CONFIG_GROUPS = 16;
 
+    /**
+     * Interfaces: groups in the store, the frame counter components are stamped with when drawn, and 162:2's text.
+     */
+    public static final int IF_GROUP_COUNT = 200;
+    public static final int RENDER_CYCLE = 500;
+    public static final String LONG_TEXT = "A line of chat long enough for the heap";
+
     public final Mapping map;
     public final FakeMemory memory = new FakeMemory();
     private final Map<Integer, Long> invNodes = new HashMap<>();
     private long locHeap = LOC_HEAP;
     private long tilePool = TILE_POOL;
+    private long ifTypes = IF_TYPES;
+    private long ifSlots = IF_SLOTS;
     private final Map<Integer, TreeMap<Integer, byte[]>> configFiles = new TreeMap<>();
     private long archiveHeap = ARCHIVE_HEAP;
 
@@ -152,6 +173,7 @@ public final class GameFixture {
         buildLocs();
         buildPiles();
         buildCollision();
+        buildInterfaces();
     }
 
     public void setGameState(int state) {
@@ -950,6 +972,142 @@ public final class GameFixture {
         for (int z = 1; z <= 6; z++) {
             setCollision(0, 4, z, SCENERY_FLAGS);
         }
+    }
+
+    private void buildInterfaces() {
+        memory.alloc(IF_STORE, 0x7000);
+        memory.putLong(CLIENT + map.offset("Client.interfaceStore"), IF_STORE);
+        memory.putLong(IF_STORE + map.offset("IfStore.groupCount"), IF_GROUP_COUNT);
+        memory.putLong(IF_STORE + map.offset("IfStore.groups"), IF_GROUPS);
+        memory.alloc(IF_GROUPS, IF_GROUP_COUNT * map.offset("IfStoreGroup.stride"));
+        memory.alloc(IF_SLOTS, 0x1000);
+        memory.alloc(IF_HEAP, 0x100);
+        memory.putInt(CLIENT + map.offset("Client.renderCycle"), RENDER_CYCLE);
+
+        int inv = 149 << 16;
+        long invRoot = component(inv, -1, -1, -1, IfType.LAYER, 0, 0, 190, 261);
+        long item = component(inv, 0, -1, inv, IfType.GRAPHIC, 16, 8, 36, 32);
+        memory.putInt(item + map.offset("IfType.linkObjType"), 995);
+        memory.putInt(item + map.offset("IfType.linkObjCount"), 1000);
+        memory.putSsoString(item + map.offset("IfType.baseOpName"), "Coins");
+        ops(item, "Use", "", "Drop");
+        long layer = component(inv, 1, -1, inv, IfType.LAYER, 58, 8, 36, 32);
+        memory.putInt(layer + map.offset("IfType.layerIdXMin"), 2);
+        memory.putInt(layer + map.offset("IfType.layerIdXMax"), 2);
+        long nested = component(inv, 2, 1, inv, IfType.TEXT, 3, 4, 30, 12);
+        memory.putSsoString(nested + map.offset("IfType.text"), "Nested");
+        groupSlots(149, invRoot);
+        dynamicSlots(invRoot, item, layer, nested);
+
+        groupSlots(150, component(150 << 16, -1, -1, -1, IfType.LAYER, 0, 0, 10, 10));
+
+        int chat = 162 << 16;
+        long chatRoot = component(chat, -1, -1, -1, IfType.LAYER, 0, 0, 519, 165);
+        long all = component(chat | 1, -1, -1, chat, IfType.TEXT, 5, 142, 56, 22);
+        memory.putSsoString(all + map.offset("IfType.text"), "All");
+        memory.putInt(all + map.offset("IfType.colour"), 0xffffff);
+        memory.putInt(all + map.offset("IfType.renderCycle"), RENDER_CYCLE);
+        ops(all, "Switch tab");
+        long line = component(chat | 2, -1, -1, chat, IfType.TEXT, 0, 0, 500, 14);
+        memory.putByte(line + map.offset("IfType.hidden"), 1);
+        long text = line + map.offset("IfType.text");
+        memory.putBytes(IF_HEAP, LONG_TEXT.getBytes(StandardCharsets.UTF_8));
+        memory.putLong(text, IF_HEAP);
+        memory.putLong(text + 8, LONG_TEXT.length());
+        memory.putByte(text + map.container("string.heapFlagByte"), map.container("string.heapFlagMask"));
+        groupSlots(162, chatRoot, all, line);
+
+        // Both open groups chain in bucket 6 of 13 (149 % 13 == 162 % 13)
+        int buckets = 13;
+        memory.alloc(IF_OPEN, 0x200);
+        memory.putLong(CLIENT + map.offset("Client.interfaces.buckets"), IF_OPEN);
+        memory.putInt(CLIENT + map.offset("Client.interfaces.bucketCount"), buckets);
+        long first = IF_OPEN + 0x100;
+        long second = first + 0x40;
+        memory.putLong(IF_OPEN + 6 * 8, first);
+        openGroup(first, 162, second, 0, 461, 2, 1);
+        openGroup(second, 149, 0, 970, 328, 0, 0);
+    }
+
+    /**
+     * Allocates an {@code IfType}: empty strings, never drawn, no item, ops or dynamic children.
+     *
+     * @param packedId   {@code group << 16 | component} (a dynamic component's root's)
+     * @param subId      -1 for a static component
+     * @param layerSubId sub id of a dynamic component's direct parent, -1 for its root
+     * @param layerId    the parent's packed id, -1 for a top-level component
+     * @param type       the {@code IfTypes} value
+     * @param x          x relative to the parent
+     * @param y          y relative to the parent
+     * @param w          the width
+     * @param h          the height
+     * @return its address
+     */
+    private long component(int packedId, int subId, int layerSubId, int layerId, int type, int x, int y, int w, int h) {
+        long c = ifTypes;
+        ifTypes += 0x1000;
+        memory.alloc(c, 0xc10);
+        memory.putInt(c + map.offset("IfType.packedId"), packedId);
+        memory.putInt(c + map.offset("IfType.subId"), subId);
+        memory.putInt(c + map.offset("IfType.layerSubId"), layerSubId);
+        memory.putInt(c + map.offset("IfType.layerId"), layerId);
+        memory.putInt(c + map.offset("IfType.type"), type);
+        memory.putInt(c + map.offset("IfType.x"), x);
+        memory.putInt(c + map.offset("IfType.y"), y);
+        memory.putInt(c + map.offset("IfType.width"), w);
+        memory.putInt(c + map.offset("IfType.height"), h);
+        memory.putInt(c + map.offset("IfType.layerIdXMin"), 0xffff);
+        memory.putInt(c + map.offset("IfType.layerIdXMax"), 0);
+        memory.putInt(c + map.offset("IfType.renderCycle"), -1);
+        memory.putInt(c + map.offset("IfType.linkObjType"), -1);
+        for (String field : new String[]{"sourceName", "graphicURL", "text", "text2", "baseOpName"}) {
+            memory.putSsoString(c + map.offset("IfType." + field), "");
+        }
+        return c;
+    }
+
+    private void ops(long component, String... names) {
+        int size = map.container("string.size");
+        long array = ifSlots;
+        ifSlots += (long) names.length * size;
+        for (int i = 0; i < names.length; i++) {
+            memory.putSsoString(array + (long) i * size, names[i]);
+        }
+        memory.putInt(component + map.offset("IfType.opCount"), names.length);
+        memory.putLong(component + map.offset("IfType.opNames"), array);
+    }
+
+    private long slots(long... components) {
+        int stride = map.offset("IfStoreGroup.slotStride");
+        long array = ifSlots;
+        ifSlots += (long) components.length * stride;
+        for (int i = 0; i < components.length; i++) {
+            memory.putLong(array + (long) i * stride + map.container("shared_ptr.ptr"), components[i]);
+        }
+        return array;
+    }
+
+    private void groupSlots(int group, long... components) {
+        long entry = IF_GROUPS + (long) group * map.offset("IfStoreGroup.stride");
+        memory.putLong(entry + map.offset("IfStoreGroup.count"), components.length);
+        memory.putLong(entry + map.offset("IfStoreGroup.slots"), slots(components));
+    }
+
+    private void dynamicSlots(long root, long... children) {
+        memory.putLong(root + map.offset("IfType.dynCount"), children.length);
+        memory.putLong(root + map.offset("IfType.dynSlots"), slots(children));
+    }
+
+    private void openGroup(long node, int group, long next, int offX, int offY, int scriptOffX, int scriptOffY) {
+        memory.putInt(node + map.offset("IfGroupNode.key"), group);
+        memory.putLong(node + map.offset("IfGroupNode.next"), next);
+        long coords = node + map.offset("IfGroupNode.value");
+        memory.putInt(coords + map.offset("InterfaceCoordinates.clipX1"), offX);
+        memory.putInt(coords + map.offset("InterfaceCoordinates.clipY1"), offY);
+        memory.putInt(coords + map.offset("InterfaceCoordinates.offX"), offX);
+        memory.putInt(coords + map.offset("InterfaceCoordinates.offY"), offY);
+        memory.putInt(coords + map.offset("InterfaceCoordinates.scriptOffX"), scriptOffX);
+        memory.putInt(coords + map.offset("InterfaceCoordinates.scriptOffY"), scriptOffY);
     }
 
     private long heap(int size) {

@@ -92,6 +92,164 @@ keys:
     strategies:
       - getter: { in: InterfaceQuery.retrieveIfGroup, base: hash_node, load: any, select: { nth: 1, min: 4 } }
 
+  # Interface store: every loaded group's components, by group id. groups[g] is an array of jag::shared_ptr<IfType>
+  # slots, one per static component; a static component keeps its dynamic children in a slot array of its own.
+  - key: Client.interfaceStore
+    type: ptr<IfStore>
+    priority: P1
+    doc: The interface store; retrieveIfType looks components up in it.
+    strategies:
+      - getter: { in: InterfaceQuery.retrieveIfType, base: client, load: ptr }
+      - getter: { in: osrs.IfType.staticParent, base: client, load: ptr }
+  - key: IfStore.groupCount
+    type: i64
+    priority: P1
+    doc: Number of groups in the store; a group id at or past it is a miss.
+    strategies:
+      - getter: { in: "@IfStoreLookup", base: arg0, load: i64, select: { used_in_cmp: true } }
+  - key: IfStore.groups
+    type: ptr<IfStoreGroup[]>
+    priority: P1
+    strategies:
+      - getter: { in: "@IfStoreLookup", base: arg0, load: ptr, select: { used_as_index_base: true } }
+  - key: IfStoreGroup.stride
+    type: const
+    priority: P1
+    strategies:
+      - getter: { in: "@IfStoreLookup", kind: stride, base: { field: { of: arg0, key: IfStore.groups } } }
+  - key: IfStoreGroup.count
+    type: i64
+    priority: P1
+    doc: Number of component slots; 0 until the client loads the group.
+    strategies:
+      - getter: { in: "@IfStoreLookup", base: { field: { of: arg0, key: IfStore.groups } }, load: i64, select: { indexed: true, used_in_cmp: true } }
+  - key: IfStoreGroup.slots
+    type: ptr<shared_ptr<IfType>[]>
+    priority: P1
+    strategies:
+      - getter: { in: "@IfStoreLookup", base: hash_node, load: ptr, select: { returned: true } }
+  - key: IfStoreGroup.slotStride
+    type: const
+    priority: P1
+    strategies:
+      - getter: { in: "@IfStoreLookup", kind: stride, base: { field: { of: hash_node, key: IfStoreGroup.slots } } }
+
+  # osrs.IfType getters that are lambdas rather than data members (the binding parser follows them to the lambda,
+  # which reads its component through sol_self).
+  - key: IfType.packedId
+    type: i32
+    priority: P1
+    doc: group << 16 | component index; a dynamic component carries its static root's. id reads the high half.
+    strategies:
+      - getter: { in: osrs.IfType.componentIndex, base: sol_self, load: u16 }
+      - getter: { in: osrs.IfType.id, base: sol_self, load: i16, add: -2 }
+  - key: IfType.layerSubId
+    type: i32
+    priority: P1
+    doc: Sub id of a dynamic component's direct parent under the same static root; -1 when that parent is the root.
+    strategies:
+      - getter: { in: "@IfParent", base: arg0, load: i32, select: { passed_to: { fn: "@IfStoreChild", arg: 2 } } }
+  - key: IfType.type
+    type: i32
+    priority: P1
+    doc: InterfaceQuery.IfTypes (0 LAYER, 3 RECT, 4 TEXT, 5 GRAPHIC, 6 MODEL...). Only a LAYER has children.
+    strategies:
+      - getter: { in: "@IfChildren", base: arg2, load: i32, select: { compared_with: 0 } }
+  - key: IfType.sourceName
+    type: eastl.string
+    priority: P2
+    strategies:
+      - getter: { in: osrs.IfType.sourceName, base: sol_self, load: ptr }
+  - key: IfType.aspectRatio
+    type: i32[2]
+    priority: P2
+    strategies:
+      - getter: { in: osrs.IfType.aspectRatio, base: sol_self, load: i32, select: { lowest: true } }
+  - key: IfType.scrollPos
+    type: i32[2]
+    priority: P1
+    strategies:
+      - getter: { in: osrs.IfType.scrollPos, base: sol_self, load: i32, select: { lowest: true } }
+  - key: IfType.scrollSize
+    type: i32[2]
+    priority: P1
+    strategies:
+      - getter: { in: osrs.IfType.scrollSize, base: sol_self, load: i32, select: { lowest: true } }
+  - key: IfType.colour
+    type: i32
+    priority: P1
+    doc: 0xAARRGGBB, as every colour field.
+    strategies:
+      - getter: { in: osrs.IfType.colour, base: sol_self, load: i32 }
+  - key: IfType.colour2
+    type: i32
+    priority: P2
+    strategies:
+      - getter: { in: osrs.IfType.colour2, base: sol_self, load: i32 }
+  - key: IfType.colourOver
+    type: i32
+    priority: P2
+    strategies:
+      - getter: { in: osrs.IfType.colourOver, base: sol_self, load: i32 }
+  - key: IfType.shadowColour
+    type: i32
+    priority: P2
+    strategies:
+      - getter: { in: osrs.IfType.shadowColour, base: sol_self, load: i32 }
+  - key: IfType.graphicURL
+    type: eastl.string
+    priority: P2
+    strategies:
+      - getter: { in: osrs.IfType.graphicURL, base: sol_self, load: ptr }
+  - key: IfType.text
+    type: eastl.string
+    priority: P1
+    strategies:
+      - getter: { in: osrs.IfType.text, base: sol_self, load: ptr }
+  - key: IfType.text2
+    type: eastl.string
+    priority: P2
+    strategies:
+      - getter: { in: osrs.IfType.text2, base: sol_self, load: ptr }
+  - key: IfType.baseOpName
+    type: eastl.string
+    priority: P1
+    strategies:
+      - getter: { in: osrs.IfType.baseOpName, base: sol_self, load: ptr }
+  - key: IfType.opCount
+    type: i32
+    priority: P1
+    strategies:
+      - getter: { in: "@IfOpNames", base: arg2, load: i32, select: { used_in_cmp: true } }
+  - key: IfType.opNames
+    type: ptr<eastl.string[]>
+    priority: P1
+    strategies:
+      - getter: { in: "@IfOpNames", base: arg2, load: ptr, select: { used_as_base: true } }
+  - key: IfType.dynCount
+    type: i64
+    priority: P1
+    doc: Number of dynamic child slots of a static component.
+    strategies:
+      - getter: { in: "@IfStoreChild", base: sp_result, load: i64, select: { used_in_cmp: true } }
+  - key: IfType.dynSlots
+    type: ptr<shared_ptr<IfType>[]>
+    priority: P1
+    doc: The dynamic child slots, indexed by sub id (IfStoreGroup.slotStride bytes each).
+    strategies:
+      - getter: { in: "@IfStoreChild", base: sp_result, load: ptr, select: { returned: true } }
+  - key: IfType.renderCycle
+    type: i32
+    priority: P1
+    doc: Set to Client.renderCycle when the component is drawn; isRendering compares the two.
+    strategies:
+      - getter: { in: osrs.IfType.isRendering, base: sol_self, load: i32 }
+  - key: Client.renderCycle
+    type: i32
+    priority: P1
+    strategies:
+      - getter: { in: osrs.IfType.isRendering, base: client, load: i32 }
+
   # Collision maps: array of 40-byte records hanging off the Scene; the flag bitmap inside each record is not mapped yet.
   - key: Scene.collisionMaps
     type: ptr<CollisionMapRecord[]>

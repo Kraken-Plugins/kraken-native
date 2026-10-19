@@ -9,6 +9,7 @@ import com.kraken.api.game.ClientState;
 import com.kraken.api.game.Collision;
 import com.kraken.api.game.Engine;
 import com.kraken.api.game.Graphics;
+import com.kraken.api.game.InterfaceQuery;
 import com.kraken.api.game.Scene;
 import com.kraken.api.game.Vector2;
 import com.kraken.api.game.World;
@@ -29,7 +30,7 @@ import java.util.logging.Logger;
  * {@link #client()} mirrors {@code osrs.ClientOp}, {@link #clientState()} mirrors {@code osrs.ClientState},
  * {@link #events()} mirrors {@code osrs.Events}, and {@link #camera()}, {@link #graphics()}, {@link #world()} and
  * {@link #collision()} mirror the getters of {@code Camera}, {@code Graphics}, {@code osrs.World} and
- * {@code osrs.Collision}. {@link #start()} runs a background poll loop that synthesises events by diffing successive
+ * {@code osrs.Collision}, and {@link #interfaces()} mirrors {@code InterfaceQuery} (the {@code osrs.IfType} functions). {@link #start()} runs a background poll loop that synthesises events by diffing successive
  * snapshots.
  *
  * <p>Read-only throughout: it never writes to or calls into the game.
@@ -52,6 +53,7 @@ public final class KrakenApi implements AutoCloseable {
     private final World world;
     private final Collision collision;
     private final Scene scene;
+    private final InterfaceQuery interfaces;
     private final Events events = new Events();
     private final EventPoller poller;
 
@@ -76,6 +78,7 @@ public final class KrakenApi implements AutoCloseable {
         this.world = new World(client);
         this.collision = new Collision(client);
         this.scene = new Scene(client);
+        this.interfaces = new InterfaceQuery(memory, mapping);
         this.poller = new EventPoller(events, client, clientState, graphics, scene);
         for (String problem : Events.verify(mapping)) {
             log.warning("Event enum mismatch: " + problem);
@@ -205,6 +208,15 @@ public final class KrakenApi implements AutoCloseable {
      */
     public Scene scene() {
         return scene;
+    }
+
+    /**
+     * Mirrors {@code InterfaceQuery}, the functions the Lua docs list under {@code osrs.IfType}.
+     *
+     * @return the reader for interface components and groups
+     */
+    public InterfaceQuery interfaces() {
+        return interfaces;
     }
 
     /**

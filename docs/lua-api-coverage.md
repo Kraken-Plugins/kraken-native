@@ -19,6 +19,8 @@ in-process backend and are out of scope for the reader.
 | `osrs.Entity`, `osrs.Npc`, `osrs.Player` | `com.kraken.api.game.Entity`, `Npc`, `Player` |
 | `osrs.ObjType`, `osrs.NpcType`, `osrs.LocType`, `osrs.TypeData` | `com.kraken.api.config.ObjType`, `NpcType`, `LocType`, `TypeData` |
 | `osrs.Vector2`, `osrs.MapCoord`, `osrs.FineCoord` | `com.kraken.api.game.Vector2`, `MapCoord`, `FineCoord` |
+| `InterfaceQuery` (the docs' `osrs.IfType` functions) | `KrakenApi.interfaces()` → `com.kraken.api.game.InterfaceQuery` |
+| `osrs.IfType`, `IfGroup`, `osrs.IfType.InterfaceCoordinates`, `osrs.Colour` | `com.kraken.api.game.IfType`, `IfGroup`, `InterfaceCoordinates`, `Colour` |
 
 Java only: `KrakenApi.scene()` → `com.kraken.api.game.Scene` lists the scene's locs and ground items, converts between
 scene and world tiles, and gives ground heights.
@@ -38,7 +40,7 @@ The work is split into sections you can test live with the dev tools, one at a t
 | 4 | Config types: `ocName`/`ocCost`/`ocStackable`/`ocOp`, `invSize`, `getVarbit` + `ON_VARBIT_UPDATE`, `NpcType`/`ObjType`/`LocType` | Done | Item names in Inventories, varbits in Var inspector and Event log |
 | 5 | Camera and projection: `Camera.get*`, `Graphics.clientDimensions`, `Graphics.worldToScreenCoord`, `osrs.screenSize`; `ON_SCREEN_RESIZE` | Done (live check pending) | Camera; labels and tiles over NPCs and players; lines in Interacting |
 | 6 | Scene: `locFind`/`objFind` and the active loc/obj getters, `osrs.World`/`Collision`/`CollisionMap`; `ON_LOC_LOAD`/`UNLOAD`, `ON_MAP_REBUILD_PRE`/`POST` | Done (live check pending) | Game objects, Walls, Ground items, Location, Zone borders, Map squares, Tile flags, Valid movement, Line of sight, Event log |
-| 7 | Interfaces: `InterfaceQuery`, `osrs.IfType` | Next | Widget inspector |
+| 7 | Interfaces: `InterfaceQuery`, `osrs.IfType` | Done | Widget inspector |
 
 Section 4's functions don't read live game state: they look a definition (an item, NPC type, varbit…) up by id. The
 client keeps decoded definitions in one small cache per type (64 entries each, least recently used dropped first), so
@@ -72,6 +74,17 @@ Section 6 note: `locFind` and `objFind` make what they find the *active* loc or 
 `ON_LOC_LOAD`/`UNLOAD` set the active loc before calling subscribers); the Java `Client` keeps its own, so Java and Lua
 plugins don't disturb each other. The active obj is a weak reference in the client: once the item leaves the ground,
 `objTypeId`/`objCount` read -1 and `objName` "". Java checks that the entry is still in its tile's pile instead.
+
+Section 7 note: the client keeps the components of every interface group it has loaded in its interface store
+(`Client.interfaceStore`): per group, an array of `jag::shared_ptr<IfType>` slots, one per static component; per static
+component, an array of slots for its dynamic children, indexed by sub id. A dynamic component carries its static root's
+id, and in a field Lua doesn't expose (`IfType.layerSubId`) its direct parent's sub id, -1 when that parent is the
+root. `children` searches the root's dynamic slots for components whose parent sub id is the caller's, and `parent`
+looks that sub id up. The groups on screen are also in a hash map from group id to their `InterfaceCoordinates`.
+Positions are client pixels, the units of `clientDimensions`. The getters that aren't data members are lambdas behind
+`sol::property`; the updater follows each registration to its lambda (see `updater/README.md`). Checked against the
+live client: inventory slots (items, names, ops), chatbox tabs (text, colours, ops, screen position) and the chat's
+dynamic lines.
 
 ## Worked example: from a Lua handler to a Java method
 
@@ -198,7 +211,7 @@ subscribed; see `EventPoller` for exactly when each fires.
 | `ON_SCREEN_RESIZE` | `ScreenResizeCallback` | 🟡 | The client size (`clientDimensions`) or window size (`screenSize`) changed between polls. The client raises it from its resize handler |
 | `ON_MAP_REBUILD_PRE`, `ON_MAP_REBUILD_POST` | `MapRebuildCallback` | 🟡 | The client raises PRE as a logged-in rebuild starts (just before game state 25) and POST when the load finishes (login too). Java: PRE on game state 30 → 25, POST on 25 → 30; a load that falls between two polls is caught by the map base moving, and fires both |
 | `ON_LOC_LOAD`, `ON_LOC_UNLOAD` | `LocLoadUnloadCallback` (`locTypeId`, `name`, `layer`) | 🟡 | Not in the Lua docs; the payload is what the client passes. The client raises them when the server changes a loc (doors, felled trees), not for a map load's locs, with the loc made active first. Java compares the whole scene once per tick while subscribed (unloads, then loads, loc active during the callback) and takes a silent baseline after a map rebuild, so loc changes the server sends right after a rebuild aren't reported |
-| `ON_IF_*` | | ⏳ | Section 7 |
+| `ON_IF_*` | | ⏳ | Per component (`IfType.subscribe`), raised from the client's input and script handlers, which the reader can't see; need the in-process backend |
 | Input (`POINTER_*`, `KEY_*`, `WHEEL_SCROLL`), menus (`ON_MINIMENU_*`), ops (`ON_*_OP`), chat, friends, clans | | ⏳ | Need the in-process backend: the reader can't see input or packets |
 
 ## `osrs.Entity`, `osrs.Npc`, `osrs.Player`
@@ -248,7 +261,7 @@ Immutable decoded definitions (see the note under Sections). Each implements `Ty
 | `Camera` | ✅ / ✍️ | Getters below; `setPos`, `setLookAt`, `setLookAtAngles`, `offsetLookAtAngles`, `setControl`, `targetNpc`/`targetPlayer`, `clearTarget`, `followTarget` change the camera |
 | `Graphics` | ✅ / ✍️ | `clientDimensions`, `worldToScreenCoord` below; `addShape`, `removeShape`, `clearAllShapes` draw into the client |
 | `osrs.World`, `osrs.CollisionMap`, `osrs.Collision`, `osrs.CollisionFlag` | ✅ | See below |
-| `InterfaceQuery`, `osrs.IfType` | ⏳ | Section 7 (IfType members are mapped) |
+| `InterfaceQuery`, `osrs.IfType` | ✅ / ✍️ | See below; `addRenderOffset` and `setRenderOffset` move interfaces |
 | `osrs.Entity`, `osrs.Npc`, `osrs.Player` | ✅ / ✍️ | See above. `render3D`/`render2D` change the client |
 | `Engine` (`decodeObjType`, `decodeNpcType`, `decodeLocType`) | ✅ | `decodeDBRow`, `decodeSingleDBColumn`, `decodeAllChildDBTables` ⏳: database tables aren't mapped yet |
 | `osrs.ObjType`, `osrs.NpcType`, `osrs.LocType`, `osrs.TypeData` | ✅ | See above |
@@ -297,3 +310,39 @@ Java extra: `projection()` reads one frame's camera so many points can be projec
 Section 6 Java extras (`Scene`): `getBase()`, `toWorld`/`toScene`, `getSize()`, `getLocs(center, radius)` (walls, wall
 decorations, game objects on their origin tile, ground decorations), `getAllLocs()`, `getObjs(center, radius)`,
 `getGroundHeight`, `getTileCenter`, `getTileCorners`.
+
+## `InterfaceQuery` and `osrs.IfType`
+
+The client registers the table as `InterfaceQuery`; the Lua docs list its functions under `osrs.IfType`.
+
+| Lua | Java | Status | Note |
+|---|---|---|---|
+| `retrieveIfType(groupId, componentId)` | `retrieveIfType(int, int)` → `IfType` | 🟡 | null where Lua gives nil. The client loads a group's components from the cache the first time a plugin asks for one; the reader can't, so a group the client hasn't loaded gives null |
+| `retrieveIfGroup(groupId)` | `retrieveIfGroup(int)` → `IfGroup` | 🟡 | `components` is 0-based (Lua's array is 1-based), null where Lua has nil. `coordinates` all zero for a group that isn't open, as in the client. Unloaded groups as `retrieveIfType` |
+| `addRenderOffset`, `setRenderOffset` | | ✍️ | Move an interface |
+| `IfTypes` | `IfType.LAYER` … `IfType.INPUTFIELD`, `IfType.typeName` | ✅ | |
+| `AlignMode`, `SizeMode`, `OverlayTypes`, `BlendMode`, `ModelTypes` | | ⏳ | The getters return the raw ints; the constants aren't copied yet |
+
+Java extras: `getOpenGroups()` (the groups on screen), `getCoordinates(groupId)`.
+
+`IfType` is a snapshot: one read of the component when it is retrieved, where the Lua object reads through to the live
+component. Retrieve it again for fresh values. `getParent`, `getChildren`, `getStaticParent` and `getScreenCoords`
+look the game up when called.
+
+| Lua `osrs.IfType` | Java | Status | Note |
+|---|---|---|---|
+| Data members: `x`, `y`, `width`, `height`, `hidden`, `layerId`, `layerIdXMin`/`Max`, `mode*`, `data*`, `graphic`, `graphic2`, `transparency`, `event`, `eventCode`, `lastProcess`, `overlayType`, `overlayId`, `fill`, `blendMode`, `strokeWidth`, `diagonalStartAtBottom`, `startAngle`, `stopAngle`, `rotate`, `tiling`, `outline`, `vFlip`, `hFlip`, `model*`, `orthog`, `linkObjType`, `linkObjCount` | `getX()`, `isHidden()`, … | ✅ | `linkObjCount` is the docs' `linkObjNumber` |
+| `isEntityOverlay` | `isEntityOverlay()` | 🟡 | The docs say a number; the client registers a bool |
+| `id`, `componentIndex` | `getId()`, `getComponentIndex()` | ✅ | The halves of the packed id (Java extra `getPackedId()`); a dynamic component reports its static root's |
+| `subId`, `isStatic`, `type` | same | ✅ | |
+| `text`, `text2`, `sourceName`, `graphicURL`, `baseOpName` | same | ✅ | With the client's markup (`<col=…>`, `<br>`) |
+| `opNames` | `getOpNames()` | ✅ | One entry per op slot; "" where a slot has none |
+| `colour`, `colour2`, `colourOver`, `shadowColour` | → `Colour` | ✅ | |
+| `aspectRatio`, `scrollPos`, `scrollSize` | → `Vector2` | ✅ | |
+| `isRendering` | `isRendering()` | 🟡 | As of the snapshot: the component's draw stamp against the client's frame counter, read together |
+| `parent` | `getParent()` | ✅ | The docs say nil for a static component; the client returns its static parent (only a top-level component has none), and so does Java |
+| `staticParent` | `getStaticParent()` | ✅ | |
+| `children` | `getChildren()` | ✅ | Dynamic children only, as in the client. A static layer's static children are the components of its group whose `layerId` is its id |
+| `screenCoords` | `getScreenCoords()` | ✅ | x and y summed up the parent chain, plus the group's offset and script offset; like the client, ignores the scroll position of scrolling parents |
+| `isIf3` | | ⏳ | Not mapped: registered from a register, not an immediate |
+| `subscribe`, `unsubscribe` | | ⏳ | See `ON_IF_*` under `osrs.Events` |

@@ -139,9 +139,10 @@ therefore mostly ANCHORED.
 
 ## Known gaps (seed build)
 
-- IfType getter-style properties (`id`, `text`, `children`, `colour`, …) are registered through per-property
-  functions without a visible lambda; only data members are mapped. Interface group record layout (`IfGroupNode.value`)
-  is not decoded.
+- IfType getter-style properties (`id`, `text`, `children`, `colour`, …) are registered through per-property sol2
+  setter templates; the binding parser follows each to its lambda (kind `property`), and recipes read the component
+  through the `sol_self` role. `type` and `isIf3` go through a generic member accessor instead: `type` is mapped from
+  the children helper, `isIf3` (offset 0) is not mapped.
 - Collision record layout and column addressing are mapped; the meaning of the flag bits (the masks lineOfWalk and
   lineOfSight test) is not. Tile heights, player combat level/index, projectiles and graphics objects (P1) are not mapped yet.
 - Pose animation slot order, pitch vs yaw, the two varp arrays and the x/y pair order of the viewport offsets and centres

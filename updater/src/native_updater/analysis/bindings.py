@@ -5,11 +5,12 @@ Registration shapes seen in the client (docs/updater-design.md §4.3):
   (b) usertypes:   LEA handler -> slot; LEA name -> slot; CALL set      handler first
   (c) factories:   LEA name ... CALL factory (body holds LEA handler)   no handler in the table itself
   (d) properties:  MOV dword [slot], offset; LEA name; CALL set         data member: the offset is the payload
+  (e) getters:     LEA name; CALL setter<lambda>                        sol::property(lambda): see _property_getter
 Instead of modelling call sequences, the parser lists the events in a registration function (N = name string,
 H = code address, M = member offset immediate) and pairs each N with an adjacent H/M by maximum matching.
 Pairs that straddle a register call (a CALL whose RCX is not a stack temporary) are penalised, which settles
 runs where both directions are possible. Names left without a partner are resolved through the per-lambda
-factory function called next to them.
+factory function called next to them, then through the per-property setter (shape e).
 
 Enum tables (`osrs.Events` and friends) are static arrays of {const char* name, size_t len, int64 value}
 records in .rdata, found by scanning for runs of such records.
@@ -46,7 +47,6 @@ class BindingTableParser:
     def __init__(self, model):
         self.model = model
 
-    # locating tables -----------------------------------------------------------------------------------------
     def registration_functions(self, anchor_strings):
         """Functions referencing every anchor string (normally exactly one function)."""
         sets = []
@@ -59,7 +59,6 @@ class BindingTableParser:
         common = set.intersection(*sets)
         return sorted(common) if common else sorted(set.union(*sets))
 
-    # parsing -------------------------------------------------------------------------------------------------
     def parse(self, fn, table, namespace_strings=()):
         model = self.model
         body = model.insns(fn)
@@ -132,6 +131,20 @@ class BindingTableParser:
                 used.add(found[0])
             elif found:
                 b.kind, b.candidates = "ambiguous", tuple(found)
+
+        # Property follow-through: a getter lambda reached through the setter template called in the name's window.
+        for k, b in enumerate(out):
+            if b.kind != "unpaired":
+                continue
+            hi = out[k + 1].name_insn if k + 1 < len(out) else 1 << 62
+            found = []
+            for insn in body:
+                if b.name_insn < insn.rva < hi and insn.is_call and insn.target is not None:
+                    g = self._property_getter(model.resolve(insn.target))
+                    if g is not None and g not in found:
+                        found.append(g)
+            if len(found) == 1:
+                b.handler, b.kind = found[0], "property"
         return out
 
     @staticmethod
@@ -210,6 +223,43 @@ class BindingTableParser:
                     found.add(t)
         return found.pop() if len(found) == 1 else None
 
+    def _property_getter(self, fn, depth=0):
+        """The lambda of a sol::property(lambda) registration. The registration calls a setter template made for
+        that property alone (sometimes through a one-off wrapper). Among the code addresses the setter LEAs, the
+        sol2 helpers every setter shares are LEA'd from many functions; the property's own index functions are LEA'd
+        from this setter only, the getter's first and then, for a writable property, the setter's. Each (a JMP stub
+        to its binding) checks `self` and calls the lambda, which nothing else calls. Returns the getter lambda, or
+        None."""
+        model = self.model
+        if depth > 1 or len(model.call_sites(fn)) > FACTORY_MAX_CALLSITES:
+            return None
+        body = model.insns(fn)
+        if not body or len(body) > FACTORY_MAX_INSNS:
+            return None
+        for insn in body:
+            if insn.mnem == "LEA" and len(insn.ops) == 2 and insn.ops[1].base == "RIP" and model.pe.is_code(insn.ops[1].disp):
+                addr = insn.ops[1].disp
+                if {f for _, f, _ in model.xrefs_to(addr, ("lea",))} == {fn}:
+                    lam = self._sole_callee(model.resolve(addr))
+                    if lam is not None:
+                        return lam
+        found = []
+        for insn in body:
+            if insn.is_call and insn.target is not None:
+                lam = self._property_getter(model.resolve(insn.target), depth + 1)
+                if lam is not None and lam not in found:
+                    found.append(lam)
+        return found[0] if len(found) == 1 else None
+
+    def _sole_callee(self, fn):
+        """The one function fn calls that has no other caller, or None."""
+        body = self.model.insns(fn)
+        if not body or len(body) > FACTORY_MAX_INSNS:
+            return None
+        own = {self.model.resolve(i.target) for i in body if i.is_call and i.target is not None
+               and len(self.model.call_sites(self.model.resolve(i.target))) == 1}
+        return own.pop() if len(own) == 1 else None
+
 
 class BindingTable:
     """All parsed bindings keyed by 'Table.name'. The first occurrence of a duplicated name wins."""
@@ -236,7 +286,6 @@ class BindingTable:
         return key in self.bindings
 
 
-# ---- enum tables -------------------------------------------------------------------------------------------
 @dataclass
 class EnumTable:
     rva: int

@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 
@@ -37,6 +38,7 @@ import static com.formdev.flatlaf.FlatClientProperties.*;
 public final class TableView<R> implements ToolView<List<R>> {
     private final List<Column<R>> columns;
     private final Function<R, ?> key;
+    private final Consumer<R> onSelect;
     private final String noun;
     private final Model model = new Model();
     private final TableRowSorter<Model> sorter;
@@ -44,6 +46,7 @@ public final class TableView<R> implements ToolView<List<R>> {
     private final JTextField filter = new JTextField();
     private final JLabel count = new JLabel();
     private final JPanel root = new JPanel(new BorderLayout());
+    private boolean updating;
 
     private record Column<R>(String name, Class<?> type, int width, Function<R, ?> value) {
     }
@@ -51,6 +54,7 @@ public final class TableView<R> implements ToolView<List<R>> {
     private TableView(Builder<R> builder) {
         this.columns = List.copyOf(builder.columns);
         this.key = builder.key;
+        this.onSelect = builder.onSelect;
         this.noun = builder.noun;
 
         // Built here, not as field initializers: both read the columns, which are only set above
@@ -69,6 +73,14 @@ public final class TableView<R> implements ToolView<List<R>> {
         table.setFillsViewportHeight(true);
         table.setShowVerticalLines(false);
         table.getTableHeader().setReorderingAllowed(false);
+        if (onSelect != null) {
+            table.getSelectionModel().addListSelectionListener(e -> {
+                if (!e.getValueIsAdjusting() && !updating) {
+                    int viewRow = table.getSelectedRow();
+                    onSelect.accept(viewRow < 0 ? null : model.rows.get(table.convertRowIndexToModel(viewRow)));
+                }
+            });
+        }
         for (int i = 0; i < columns.size(); i++) {
             table.getColumnModel().getColumn(i).setPreferredWidth(columns.get(i).width());
         }
@@ -125,17 +137,23 @@ public final class TableView<R> implements ToolView<List<R>> {
         for (int viewRow : table.getSelectedRows()) {
             selected.add(key.apply(model.rows.get(table.convertRowIndexToModel(viewRow))));
         }
-        model.setRows(rows);
-        if (!selected.isEmpty()) {
-            ListSelectionModel selection = table.getSelectionModel();
-            selection.setValueIsAdjusting(true);
-            for (int i = 0; i < rows.size(); i++) {
-                int viewRow = table.convertRowIndexToView(i);
-                if (viewRow >= 0 && selected.contains(key.apply(rows.get(i)))) {
-                    selection.addSelectionInterval(viewRow, viewRow);
+        // Restoring the selection isn't a user's choice, so the select listener doesn't hear about it
+        updating = true;
+        try {
+            model.setRows(rows);
+            if (!selected.isEmpty()) {
+                ListSelectionModel selection = table.getSelectionModel();
+                selection.setValueIsAdjusting(true);
+                for (int i = 0; i < rows.size(); i++) {
+                    int viewRow = table.convertRowIndexToView(i);
+                    if (viewRow >= 0 && selected.contains(key.apply(rows.get(i)))) {
+                        selection.addSelectionInterval(viewRow, viewRow);
+                    }
                 }
+                selection.setValueIsAdjusting(false);
             }
-            selection.setValueIsAdjusting(false);
+        } finally {
+            updating = false;
         }
         updateCount();
     }
@@ -166,6 +184,7 @@ public final class TableView<R> implements ToolView<List<R>> {
         private final String noun;
         private final List<Column<R>> columns = new ArrayList<>();
         private Function<R, ?> key = Function.identity();
+        private Consumer<R> onSelect;
 
         private Builder(String noun) {
             this.noun = noun;
@@ -180,6 +199,17 @@ public final class TableView<R> implements ToolView<List<R>> {
         /** What identifies a row across updates (e.g. an NPC's index), so a selection follows it. */
         public Builder<R> key(Function<R, ?> key) {
             this.key = key;
+            return this;
+        }
+
+        /**
+         * Called on the EDT when the user selects a row.
+         *
+         * @param listener gets the selected row, or null when the selection is cleared
+         * @return this builder
+         */
+        public Builder<R> onSelect(Consumer<R> listener) {
+            this.onSelect = listener;
             return this;
         }
 

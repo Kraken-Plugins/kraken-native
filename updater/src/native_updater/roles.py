@@ -7,6 +7,7 @@
   {ret: "@F"}            the raw return value of a call of F
   {ret_indirect: "@F"}   the return value of an indirect call (through a vtable or a pointer) made inside F
   node_value             the value slot of a hash-map node: Deref(any, 0x10)
+  sol_self               the object a sol2 property getter reads: a pointer passed on the stack, Deref(Arg(i >= 4), 0)
   {field: {of: ROLE, key: K}}   Deref(ROLE, value(K)); or {field: {of: ROLE, offset: N}}
   (the YAML key is `offset`, never `off`: YAML 1.1 reads a bare `off` as the boolean false)
   global                 a pointer held in a global: Deref(Global(X), 0)
@@ -32,6 +33,10 @@ def match(session, role, value):
             # i.e. the base is a pointer load (not an object field at +0x10 such as World.scene).
             return isinstance(value, Deref) and value.off == 0x10 and value.index is None and value.size in (0, 8) \
                 and all(isinstance(m, Deref) and m.size in (0, 8) for m in value.base.members())
+        if role == "sol_self":
+            # The lambda behind a sol::property gets its object through a pointer passed on the stack.
+            return isinstance(value, Deref) and isinstance(value.base, Arg) and value.base.i >= 4 and value.off == 0 \
+                and value.index is None and value.size in (0, 8)
         if role == "global":
             return isinstance(value, Deref) and isinstance(value.base, Global) and value.off == 0
         if role == "hash_node":

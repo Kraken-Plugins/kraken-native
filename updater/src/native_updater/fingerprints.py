@@ -7,7 +7,7 @@
   extractor:   {extractor: name}                                               custom logic in extractors.py
 Filters: imm (an immediate used in the function), min_args (call site passes at least N arguments),
 calls (the function calls REF), string (references the exact string), refs_global (reads or addresses the global
-a resolved key names, e.g. global.varps), unique (fail when several match).
+a resolved key names, e.g. global.varps), min_size/max_size (function size in bytes), unique (fail when several match).
 """
 from .analysis.provenance import Const, Arg
 from .session import Blocked
@@ -99,6 +99,10 @@ def _filters_ok(session, target, rule, call):
     if "min_size" in rule:
         f = model.function(target)
         if f is None or f.size < rule["min_size"]:
+            return False
+    if "max_size" in rule:
+        f = model.function(target)
+        if f is None or f.size > rule["max_size"]:
             return False
     return True
 

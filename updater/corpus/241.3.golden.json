@@ -1,7 +1,7 @@
 {
   "sha256": "166231c8f6bd05c7542b8f0d35eb64b0aad701a87ba6ba41f60c4706de946944",
   "version": "241.3",
-  "source": "docs/client-surface.md seed values (static analysis, 2026-10-11) plus registrations read directly from the binary on 2026-10-12; section 3/4 keys from static analysis of the handlers on 2026-10-19",
+  "source": "docs/client-surface.md seed values (static analysis, 2026-10-11) plus registrations read directly from the binary on 2026-10-12; section 3/4 keys from static analysis of the handlers on 2026-10-19; section 7 (interfaces) keys from static analysis of the IfType getters, checked against the live client on 2026-10-19",
   "keys": {
     "global.client": "0xe98c18",
     "global.cycle": "0xe98c14",
@@ -222,7 +222,35 @@
     "CollisionMapRecord.sizeZ": "0xc",
     "CollisionMapRecord.flags": "0x20",
     "CollisionMapRecord.columnStride": "0x18",
-    "CollisionMapRecord.columnData": "0x10"
+    "CollisionMapRecord.columnData": "0x10",
+    "Client.interfaceStore": "0x413bd8",
+    "Client.renderCycle": "0x4133fc",
+    "IfStore.groupCount": "0x6888",
+    "IfStore.groups": "0x6890",
+    "IfStoreGroup.stride": "0x18",
+    "IfStoreGroup.count": "0x8",
+    "IfStoreGroup.slots": "0x10",
+    "IfStoreGroup.slotStride": "0x10",
+    "IfType.packedId": "0x4",
+    "IfType.layerSubId": "0xc",
+    "IfType.type": "0x28",
+    "IfType.sourceName": "0x10",
+    "IfType.aspectRatio": "0x6c",
+    "IfType.scrollPos": "0x84",
+    "IfType.scrollSize": "0x8c",
+    "IfType.colour": "0x98",
+    "IfType.colour2": "0x9c",
+    "IfType.colourOver": "0xa0",
+    "IfType.shadowColour": "0xf4",
+    "IfType.graphicURL": "0xd0",
+    "IfType.text": "0x158",
+    "IfType.text2": "0x170",
+    "IfType.baseOpName": "0x2c0",
+    "IfType.opCount": "0x2e0",
+    "IfType.opNames": "0x2e8",
+    "IfType.dynCount": "0xb50",
+    "IfType.dynSlots": "0xb58",
+    "IfType.renderCycle": "0xb78"
   },
   "fingerprints": {
     "ScreenRescale": "0x61aa30",
@@ -265,7 +293,12 @@
     "NameListContains": "0x3cce0",
     "NameTableFind": "0x41bf0",
     "NameHash": "0x5cac80",
-    "FriendListFind": "0x3cc70"
+    "FriendListFind": "0x3cc70",
+    "IfStoreLookup": "0x5af750",
+    "IfParent": "0x225010",
+    "IfStoreChild": "0x5af860",
+    "IfChildren": "0x227be0",
+    "IfOpNames": "0x227a60"
   },
   "bindings": {
     "ClientOp.npcCoord": "0x3ae4b0",
@@ -299,6 +332,9 @@
     "osrs.Player.isOnlineFriend": "0x23ca70",
     "osrs.Player.isGroup": "0x23cad0",
     "osrs.Player.isIgnored": "0x23cb30",
-    "osrs.Player.isFriendChat": "0x23cba0"
+    "osrs.Player.isFriendChat": "0x23cba0",
+    "osrs.IfType.text": "0x2e4820",
+    "osrs.IfType.children": "0x2e3ff0",
+    "osrs.IfType.componentIndex": "0x2e3ea0"
   }
 }

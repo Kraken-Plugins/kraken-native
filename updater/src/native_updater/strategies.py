@@ -44,7 +44,6 @@ def _cand(session, value, kind, facts_or_evidence, note=""):
     return Candidate(value, kind, CLASS_OF[kind], ev, note)
 
 
-# ---- getter --------------------------------------------------------------------------------------------------
 def getter(session, p, key):
     out = []
     for fn in session.fns(p["in"]):
@@ -55,8 +54,7 @@ def getter(session, p, key):
                 rva = value.rva if isinstance(value, Global) else value.base.rva
                 out.append(_cand(session, rva, "getter", session.evidence(fact.rva, fact.fn, "rip")))
             elif p.get("kind") == "stride":
-                factor = value.index.factor.n if isinstance(value.index, Mul) else 1
-                out.append(_cand(session, value.scale * factor, "getter", session.evidence(fact.rva, fact.fn, "imm")))
+                out.append(_cand(session, _stride(value)[1], "getter", session.evidence(fact.rva, fact.fn, "imm")))
             else:
                 out.append(_cand(session, value.off + p.get("add", 0), "getter", session.evidence(fact.rva, fact.fn, "disp")))
     if isinstance(p.get("in"), dict) and "string" in p["in"]:
@@ -87,8 +85,8 @@ def _select(session, facts, p):
         elif kind == "addr":
             ok = isinstance(value, Add) and roles.match(session, role, value.base)
         elif kind == "stride":          # element size of an indexed access: scale * constant factor of the index
-            ok = isinstance(value, Deref) and value.index is not None and roles.match(session, role, value.base) \
-                and (not isinstance(value.index, Mul) or isinstance(value.index.factor, Const))
+            parts = _stride(value)
+            ok = parts is not None and roles.match(session, role, parts[0])
         else:
             ok = (isinstance(value, Deref) and (size == 0 or value.size in (0, size)) and roles.match(session, role, value.base)
                   and (value.index is None or sel.get("indexed") or sel.get("index_scale")))
@@ -100,6 +98,19 @@ def _select(session, facts, p):
     if "nth" in sel:
         return pairs[sel["nth"]:sel["nth"] + 1] if sel["nth"] < len(pairs) else []
     return pairs
+
+
+def _stride(value):
+    """(array, element size) of an indexed load, or None. In [a + b*1] provenance can't tell which operand is the
+    array: when the scaled index landed in the base slot ([(i * 16) + p]), the other operand is the array."""
+    if not isinstance(value, Deref) or value.index is None:
+        return None
+    if value.scale == 1 and isinstance(value.base, Mul) and isinstance(value.base.factor, Const) \
+            and not isinstance(value.index, Mul):
+        return value.index, value.base.factor.n
+    if isinstance(value.index, Mul):
+        return (value.base, value.scale * value.index.factor.n) if isinstance(value.index.factor, Const) else None
+    return value.base, value.scale
 
 
 def _array_base(pairs):
@@ -216,7 +227,6 @@ def _dedupe(cands):
     return list(out.values())
 
 
-# ---- global-load -----------------------------------------------------------------------------------------------
 def global_load(session, p, key):
     """The first RIP-relative load of the given size in each handler of a table; majority wins."""
     size = SIZES[p.get("size", "ptr")]
@@ -234,7 +244,6 @@ def global_load(session, p, key):
     return [Candidate(rva, "global-load", "A", [session.evidence(ls[0].rva, ls[0].fn, "rip")], f"{len(ls)}/{total} handlers agree")]
 
 
-# ---- hash-map ---------------------------------------------------------------------------------------------------
 class HashMap:
     def __init__(self, base, buckets, count, rva, fn):
         self.base, self.buckets, self.count, self.rva, self.fn = base, buckets, count, rva, fn
@@ -297,7 +306,6 @@ def hash_map(session, p, key):
     return _dedupe(out)
 
 
-# ---- const --------------------------------------------------------------------------------------------------------
 def const(session, p, key):
     """The constant a matching load is compared with: CMP dword [client + gameState], 30 -> 30."""
     out = []
@@ -318,7 +326,6 @@ def const(session, p, key):
     return _dedupe(out)
 
 
-# ---- bindings, fingerprints, enums, members ---------------------------------------------------------------------------
 def member(session, p, key):
     b = session.bindings.get(p["in"])
     if b is None:

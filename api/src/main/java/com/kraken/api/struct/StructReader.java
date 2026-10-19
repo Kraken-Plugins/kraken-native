@@ -4,6 +4,8 @@ import com.kraken.api.mapping.Mapping;
 import com.kraken.api.memory.Memory;
 import com.kraken.api.memory.MemoryException;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -24,6 +26,7 @@ public final class StructReader {
     private final int strFlagByte;
     private final int strFlagMask;
     private final int strSsoCapacity;
+    private final int strSize;
 
     // eastl::hash_map: buckets pointer and bucket count at these offsets from the map object;
     // each node is {u32 key, ..., value, next-node}.
@@ -38,6 +41,7 @@ public final class StructReader {
         this.strFlagByte = mapping.container("string.heapFlagByte");
         this.strFlagMask = mapping.container("string.heapFlagMask");
         this.strSsoCapacity = mapping.container("string.ssoCapacity");
+        this.strSize = mapping.container("string.size");
         this.mapBuckets = mapping.container("hash_map.buckets");
         this.mapBucketCount = mapping.container("hash_map.bucketCount");
         this.nodeKey = mapping.container("hash_map.node.key");
@@ -66,6 +70,45 @@ public final class StructReader {
             }
             byte[] bytes = memory.read(textAddress, length);
             return new String(bytes, StandardCharsets.UTF_8);
+        } catch (MemoryException e) {
+            return "";
+        }
+    }
+
+    /**
+     * The size of an EASTL string object, the stride of an array of them.
+     *
+     * @return the size in bytes
+     */
+    public int stringSize() {
+        return strSize;
+    }
+
+    /**
+     * Decodes an EASTL string held in a block of a struct read earlier: inline text comes from the block, heap text
+     * is read from memory.
+     *
+     * @param block  the struct's bytes
+     * @param offset where the string object starts in the block
+     * @return the text, or "" if the block doesn't cover the string or the text can't be read
+     */
+    public String string(byte[] block, int offset) {
+        if (offset < 0 || offset + strSize > block.length) {
+            return "";
+        }
+        ByteBuffer buffer = ByteBuffer.wrap(block).order(ByteOrder.LITTLE_ENDIAN);
+        int flag = block[offset + strFlagByte] & 0xff;
+        if ((flag & strFlagMask) == 0) {
+            int length = strSsoCapacity - flag;
+            return length <= 0 ? "" : new String(block, offset, length, StandardCharsets.UTF_8);
+        }
+        long textAddress = buffer.getLong(offset);
+        long length = buffer.getLong(offset + 8);
+        if (length <= 0 || length > MAX_STRING || textAddress == 0) {
+            return "";
+        }
+        try {
+            return new String(memory.read(textAddress, (int) length), StandardCharsets.UTF_8);
         } catch (MemoryException e) {
             return "";
         }

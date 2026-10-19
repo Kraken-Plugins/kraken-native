@@ -63,3 +63,9 @@ class FakeModel:
 
     def call_sites(self, fn):
         return [(i.rva, entry) for entry, body in self._insns.items() for i in body if i.is_call and i.target == fn]
+
+    def xrefs_to(self, rva, kinds=None):
+        """LEA references only: (src, containing function, "lea")."""
+        refs = [(i.rva, entry, "lea") for entry, body in self._insns.items() for i in body
+                if i.mnem == "LEA" and len(i.ops) == 2 and i.ops[1].base == "RIP" and i.ops[1].disp == rva]
+        return [r for r in refs if kinds is None or r[2] in kinds]

@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from native_updater import emit, extractors, identity, strategies, winpaths, x86, verify
+from native_updater.analysis.bindings import BindingTableParser
 from native_updater.analysis.provenance import Add, Addr, Arg, Bin, Call, Cmp, Const, Deref, Facts, Global, Load, Mul, Provenance, Ret
 from native_updater.consensus import Result
 from native_updater.pe import file_version
@@ -130,6 +131,19 @@ class RecipeTests(unittest.TestCase):
                                                   "MOV EAX,dword ptr [RAX + 0x14]", "RET"]})
         self.assertEqual(self.values(s, {"base": {"ret_indirect": 0x1000}, "load": "i32"}), [0x14, 0x18])
 
+    def test_sol_self_is_the_object_a_property_lambda_gets_on_the_stack(self):
+        s = GetterSelectorTests.session({0x1000: ["MOV RAX,qword ptr [RSP + 0x48]", "MOV RCX,qword ptr [RAX]",
+                                                  "MOVZX EAX,word ptr [RCX + 0x4]", "RET"]})
+        self.assertEqual(self.values(s, {"base": "sol_self", "load": "u16"}), [0x4])
+        self.assertEqual(self.values(s, {"base": "sol_self", "load": "ptr"}), [])
+
+    def test_stride_when_the_scaled_index_lands_in_the_base_slot(self):
+        # [(i * 16) + [slots]*1 + 8]: the array is the operand that isn't scaled.
+        s = GetterSelectorTests.session({0x1000: ["MOV RAX,qword ptr [RCX + 0x10]", "SHL RDX,0x4",
+                                                  "MOV RAX,qword ptr [RDX + RAX*0x1 + 0x8]", "RET"]})
+        base = {"field": {"of": "arg0", "offset": 0x10}}
+        self.assertEqual(self.values(s, {"kind": "stride", "base": base}), [16])
+
     def test_ret_indirect_ignores_direct_calls(self):
         s = GetterSelectorTests.session({0x2000: ["RET"], 0x1000: ["CALL 0x140002000", "MOV EAX,dword ptr [RAX + 0x14]", "RET"]})
         self.assertEqual(self.values(s, {"base": {"ret_indirect": 0x1000}, "load": "i32"}), [])
@@ -193,6 +207,23 @@ class RecipeTests(unittest.TestCase):
             evidence=lambda rva, fn=None, slot="disp": {"insn": rva, "fn": fn, "text": "", "slot": slot})
         out = extractors.loc_tag_kind(session, {})
         self.assertEqual(out["Loc.tagKindShift"][0], 0x10)
+
+
+class BindingParserTests(unittest.TestCase):
+    def test_property_getter_is_followed_to_its_lambda(self):
+        # LEA name; CALL setter. Each setter LEAs its own binding plus a helper all setters share; the binding calls a
+        # shared self check and the lambda.
+        model = FakeModel({
+            0x1000: ["LEA RAX,[0x140900000]", "MOV qword ptr [RBP + -0x38],RAX", "CALL 0x140002000",
+                     "LEA RAX,[0x140900010]", "MOV qword ptr [RBP + -0x38],RAX", "CALL 0x140002100", "RET"],
+            0x2000: ["LEA RDX,[0x140003000]", "LEA R8,[0x140005000]", "RET"],
+            0x2100: ["LEA RDX,[0x140003100]", "LEA R8,[0x140005000]", "RET"],
+            0x3000: ["CALL 0x140004000", "CALL 0x140004100", "RET"],
+            0x3100: ["CALL 0x140004000", "CALL 0x140004200", "RET"],
+            0x4000: ["RET"], 0x4100: ["RET"], 0x4200: ["RET"], 0x5000: ["RET"],
+        }, strings={0x900000: "text", 0x900010: "colour"})
+        out = {b.name: (b.kind, b.handler) for b in BindingTableParser(model).parse(0x1000, "T")}
+        self.assertEqual(out, {"text": ("property", 0x4100), "colour": ("property", 0x4200)})
 
 
 class SpecTests(unittest.TestCase):

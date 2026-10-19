@@ -58,7 +58,16 @@ record Marks(Vector2 clientSize, List<Mark> marks) {
         private final List<Mark> marks = new ArrayList<>();
 
         Builder(Projector projector) {
-            this.clientSize = projector.clientSize();
+            this(projector.clientSize());
+        }
+
+        /**
+         * For marks that are already in client pixels, such as interface components.
+         *
+         * @param clientSize the client's size
+         */
+        Builder(Vector2 clientSize) {
+            this.clientSize = clientSize;
         }
 
         Builder outline(Vector2[] points, Color color, Color fill) {

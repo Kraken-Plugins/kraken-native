@@ -48,9 +48,7 @@ public final class DevToolCatalog {
                 MovementTool.walk(MaterialDesignW.WALK),
                 MovementTool.sight(MaterialDesignR.RAY_START_END),
 
-                PlannedTool.both("widgets", "Widget inspector", INTERFACE, MaterialDesignW.WIDGETS_OUTLINE,
-                        "Browse the interface tree, and highlight the selected widget in game.",
-                        "interface tree reads (mapped)"),
+                new WidgetInspectorTool(),
                 PlannedTool.window("sounds", "Sound effects", INTERFACE, MaterialDesignV.VOLUME_HIGH,
                         "A log of sound effects as the client plays them.",
                         "a sound event source, which likely needs in-process hooks"),

@@ -97,3 +97,11 @@ fingerprints:
   NameHash:             { callee_of: "@NameTableFind", imm: 0x1000193 }      # FNV-1 over the normalised name
   # The friend lookups by current and by previous name; both return the node's value, so either will do.
   FriendListFind:       { callee_of: "@PlayerFriendCompute", calls: "@NameTableFind", unique: false }
+  # Interface store: component (group << 16 | index) -> its slot, and a component's dynamic child by sub id. The parent
+  # getter's helper calls the child lookup with the parent's id and sub id; the children getter's helper lists them.
+  IfStoreLookup:        { common_callee_of: [InterfaceQuery.retrieveIfType, osrs.IfType.staticParent] }
+  IfParent:             { callee_of: osrs.IfType.parent, min_size: 32 }
+  IfStoreChild:         { callee_of: "@IfParent", calls: "@IfStoreLookup" }
+  IfChildren:           { callee_of: osrs.IfType.children }
+  # The op names getter copies the component (a big copy constructor) and reads the copy in this small helper.
+  IfOpNames:            { callee_of: osrs.IfType.opNames, max_size: 0x400 }
