@@ -4,7 +4,7 @@
 Every extractor is written against provenance facts (what is loaded from where), not against raw bytes,
 so it survives register reallocation. Results are cached per run.
 """
-from .analysis.provenance import Add, Arg, Const, Deref, Global, Mul, Ret, Out, contains, walk
+from .analysis.provenance import Add, Arg, Bin, Const, Deref, Global, Mul, Ret, Out, contains, walk
 from .session import Blocked
 
 _cache = {}
@@ -66,6 +66,113 @@ def config_loader_core(session, p):
     return out
 
 
+def _indexed_record(facts, index, owner_ok):
+    """An array element address `index * stride + [owner + table]` computed in a function:
+    (address value, stride, table offset, rva) for the first whose owner passes owner_ok, or None."""
+    for a in facts.addrs:
+        v = a.value
+        if not (isinstance(v, Bin) and v.op == "+"):
+            continue
+        for mul, table in ((v.a, v.b), (v.b, v.a)):
+            if isinstance(mul, Mul) and mul.base == index and isinstance(mul.factor, Const) \
+                    and isinstance(table, Deref) and table.index is None and table.size in (0, 8) and owner_ok(table.base):
+                return v, mul.factor.n, table.off, a.rva
+    return None
+
+
+def config_archive(session, p):
+    """The config archive as the loader core walks it: core(archive, out, group, file).
+
+      groups[group]  = [archive + Js5Archive.groups] + group * Js5Group.size, after group < [archive + groupCount];
+                       a group whose dword at Js5Group.version is -1 is absent
+      files[file]    = [group + Js5Group.files] + file * Js5File.size, after file < [group + Js5Group.fileCount];
+                       a file whose start (Js5File.start) is -1 is absent, one whose buffer pointer is 0 not loaded yet
+      out->ptr->pos  = file.start (the core rewinds the shared buffer it hands out: Packet.pos)
+    """
+    fn = session.fn("@ConfigLoaderCore")
+    facts = session.prov.facts(fn)
+    archive, outp, group, file = Arg(0), Arg(1), Arg(2), Arg(3)
+    out = {}
+    for c in facts.cmps:
+        for a, b in ((c.a, c.b), (c.b, c.a)):
+            if a == group and _is_field(b, archive, 8):
+                out.setdefault("Js5Archive.groupCount", (b.off, _ev(session, c.rva, fn), "compared with the group id"))
+    grec = _indexed_record(facts, group, lambda base: base == archive)
+    if grec is None:
+        return out
+    grp, gstride, gtable, grva = grec
+    out["Js5Archive.groups"] = (gtable, _ev(session, grva, fn), "group records, indexed by the group id")
+    out["Js5Group.size"] = (gstride, _ev(session, grva, fn, "imm"), "group id * this")
+    frec = _indexed_record(facts, file, lambda base: base == grp)
+    for c in facts.cmps:
+        for a, b in ((c.a, c.b), (c.b, c.a)):
+            if _is_field(a, grp, 4) and b == Const(-1):
+                out.setdefault("Js5Group.version", (a.off, _ev(session, c.rva, fn), "-1 marks an absent group"))
+            if a == file and _is_field(b, grp, 8):
+                out.setdefault("Js5Group.fileCount", (b.off, _ev(session, c.rva, fn), "compared with the file id"))
+    if frec is None:
+        return out
+    rec, fstride, ftable, frva = frec
+    out["Js5Group.files"] = (ftable, _ev(session, frva, fn), "file records, indexed by the file id")
+    out["Js5File.size"] = (fstride, _ev(session, frva, fn, "imm"), "file id * this")
+    for c in facts.cmps:
+        for a, b in ((c.a, c.b), (c.b, c.a)):
+            if _is_field(a, rec, 8) and b == Const(-1):
+                out.setdefault("Js5File.start", (a.off, _ev(session, c.rva, fn), "-1 marks an absent file"))
+            if _is_field(a, rec, 8) and b == Const(0):
+                out.setdefault("Js5File.buffer", (a.off, _ev(session, c.rva, fn), "0 until the group is loaded"))
+    start = out.get("Js5File.start")
+    if start is not None:
+        for s in facts.stores:
+            t = s.target
+            if s.value == Deref(rec, start[0], 8) and isinstance(t, Deref) and t.index is None \
+                    and isinstance(t.base, Deref) and t.base.base == outp:
+                out["Packet.pos"] = (t.off, _ev(session, s.rva, fn), "the returned buffer is rewound to the file's start")
+    return out
+
+
+def packet_layout(session, p):
+    """The js5 group loader splits a group by its footer: it reads the chunk count from the packet's last byte,
+    data[length - 1], and seeks to length - 1 - chunks * files * 4. That one store fixes the packet's position,
+    length and data fields."""
+    fn = session.fn("@ConfigGroupLoader")
+    facts = session.prov.facts(fn)
+    for s in facts.stores:
+        t = s.target
+        if not isinstance(t, Deref) or t.index is not None or t.size not in (0, 8):
+            continue
+        pkt, pos = (t.base.base, t.base.off + t.off) if isinstance(t.base, Add) else (t.base, t.off)
+        subs = list(walk(s.value))
+        lengths = {d.off for d in subs if isinstance(d, Deref) and d.base == pkt and d.index is None and d.size == 8 and d.off != pos}
+        for d in subs:
+            if isinstance(d, Deref) and d.size == 1 and d.index is not None and _is_field(d.base, pkt, 8):
+                length = next((n for n in lengths if contains(d.index, Deref(pkt, n, 8))), None)
+                if length is not None:
+                    ev = _ev(session, s.rva, fn)
+                    return {"Packet.pos": (pos, ev, "seek past the group's chunk table"),
+                            "Packet.length": (length, ev, "the last byte is data[length - 1]"),
+                            "Packet.data": (d.base.off, ev, "byte array the footer is read from")}
+    return {}
+
+
+def player_name_pair(session, p):
+    """Player.name points at a pair of eastl::strings, {display name, normalised name}. playerName pushes the display
+    string, so its offset is how far the pushed string is from the pair pointer (0 when the pointer itself is pushed);
+    the name hash friend and ignore lists use reads the normalised one."""
+    out = {}
+    fn = session.fn("ClientOp.playerName")
+    name = session.value("Player.name")
+    for c in session.prov.facts(fn).calls:
+        if c.target is not None or len(c.args) < 2:
+            continue
+        for m in c.args[1].members():
+            if isinstance(m, Deref) and m.off == name and m.index is None and m.size in (0, 8):
+                out.setdefault("PlayerName.display", (0, _ev(session, c.rva, fn), "the pair pointer is pushed as the display string"))
+            elif isinstance(m, Add) and isinstance(m.base, Deref) and m.base.off == name:
+                out.setdefault("PlayerName.display", (m.off, _ev(session, c.rva, fn), "pair + this is pushed as the display string"))
+    return out
+
+
 # ---- setSequence ---------------------------------------------------------------------------------------------------
 def set_sequence(session, p):
     """Among callers of the SeqType loader, the one comparing its int argument with an Actor field and reading
@@ -104,7 +211,7 @@ def set_sequence(session, p):
         copy = [s for s in facts.stores if _is_field(s.target, Arg(0), 4) and _is_field(s.value, Arg(0), 4) and s.value.off != s.target.off]
         if copy:
             out["Actor.orientationCandidate"] = (copy[0].target.off, _ev(session, copy[0].rva, fn), f"[actor+{copy[0].target.off:#x}] = [actor+{copy[0].value.off:#x}] when an animation starts")
-            out["Actor.orientationSourceCandidate"] = (copy[0].value.off, _ev(session, copy[0].rva, fn), "source of the copy above")
+            out["Actor.pathLength"] = (copy[0].value.off, _ev(session, copy[0].rva, fn), "the path length, copied when an animation starts")
         return out
     return {}
 
@@ -436,7 +543,8 @@ def shared_layouts(session, p):
 
 
 EXTRACTORS = {
-    "config_loader_core": config_loader_core, "set_sequence": set_sequence, "actor_ctor": actor_ctor,
+    "config_loader_core": config_loader_core, "config_archive": config_archive, "packet_layout": packet_layout,
+    "player_name_pair": player_name_pair, "set_sequence": set_sequence, "actor_ctor": actor_ctor,
     "scene_grid": scene_grid, "tile_game_objects": tile_game_objects, "obj_pile_grid": obj_pile_grid,
     "operator_new": operator_new, "alloc_sizes": alloc_sizes, "string_sso": string_sso, "shared_layouts": shared_layouts,
 }

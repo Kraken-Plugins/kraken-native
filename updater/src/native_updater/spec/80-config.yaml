@@ -1,0 +1,81 @@
+# The config archive (cache index 2) every config loader reads through the loader core: core(archive, out, group,
+# file) with the archive in global.configCache. The client keeps loaded groups decompressed and never drops a file's
+# bytes after decoding it, so the API reads any config file from here and decodes it itself (the per-type LRU caches
+# only hold the last 64 types).
+keys:
+  - key: Js5Archive.groupCount
+    type: i64
+    priority: P1
+    strategies:
+      - extractor: { name: config_archive, field: Js5Archive.groupCount, cls: A }
+  - key: Js5Archive.groups
+    type: ptr<Js5Group[]>
+    priority: P1
+    strategies:
+      - extractor: { name: config_archive, field: Js5Archive.groups, cls: A }
+    invariants:
+      - equals: "Js5Archive.groupCount + 8"
+  - key: Js5Group.size
+    type: const
+    priority: P1
+    doc: Stride of the group records.
+    strategies:
+      - extractor: { name: config_archive, field: Js5Group.size, cls: A }
+  - key: Js5Group.version
+    type: i32
+    priority: P1
+    doc: -1 when the archive has no such group.
+    strategies:
+      - extractor: { name: config_archive, field: Js5Group.version, cls: A }
+  - key: Js5Group.fileCount
+    type: i64
+    priority: P1
+    strategies:
+      - extractor: { name: config_archive, field: Js5Group.fileCount, cls: A }
+  - key: Js5Group.files
+    type: ptr<Js5File[]>
+    priority: P1
+    strategies:
+      - extractor: { name: config_archive, field: Js5Group.files, cls: A }
+    invariants:
+      - equals: "Js5Group.fileCount + 8"
+  - key: Js5File.size
+    type: const
+    priority: P1
+    doc: Stride of the file records.
+    strategies:
+      - extractor: { name: config_archive, field: Js5File.size, cls: A }
+  - key: Js5File.start
+    type: i64
+    priority: P1
+    doc: Where the file starts in its buffer; -1 when the group has no such file.
+    strategies:
+      - extractor: { name: config_archive, field: Js5File.start, cls: A }
+  - key: Js5File.buffer
+    type: ptr<Packet>
+    priority: P1
+    doc: The object pointer of the file's jag::shared_ptr to its bytes; 0 until the group is loaded.
+    strategies:
+      - extractor: { name: config_archive, field: Js5File.buffer, cls: A }
+
+  # The byte buffer config decoders (and network packets) read from: {length, data, position}.
+  - key: Packet.length
+    type: i64
+    priority: P1
+    strategies:
+      - extractor: { name: packet_layout, field: Packet.length, cls: A }
+  - key: Packet.data
+    type: ptr<u8[]>
+    priority: P1
+    strategies:
+      - extractor: { name: packet_layout, field: Packet.data, cls: A }
+    invariants:
+      - equals: "Packet.length + 8"
+  - key: Packet.pos
+    type: i64
+    priority: P1
+    strategies:
+      - extractor: { name: config_archive, field: Packet.pos, cls: A }
+      - extractor: { name: packet_layout, field: Packet.pos, cls: A }
+    invariants:
+      - equals: "Packet.data + 8"

@@ -6,7 +6,7 @@ from pathlib import Path, PurePath
 from types import SimpleNamespace
 from unittest import mock
 
-from native_updater import emit, identity, winpaths, x86, verify
+from native_updater import emit, identity, strategies, winpaths, x86, verify
 from native_updater.analysis.provenance import Arg, Const, Deref, Global, Provenance, Ret
 from native_updater.consensus import Result
 from native_updater.pe import file_version
@@ -66,6 +66,42 @@ class ProvenanceTests(unittest.TestCase):
         facts = Provenance(model).facts(0x1000)
         self.assertEqual(facts.calls[0].target, 0x2000)
         self.assertEqual(facts.calls[0].args[2], Deref(Arg(1), 8, 4))
+
+
+class GetterSelectorTests(unittest.TestCase):
+    """Getter selectors over a FakeModel, with a minimal stand-in for the run session."""
+
+    @staticmethod
+    def session(functions, values=None):
+        model = FakeModel(functions)
+        s = SimpleNamespace(model=model, prov=Provenance(model), values=dict(values or {}))
+        s.fns = lambda ref: [ref]
+        s.fn = lambda ref: ref
+        s.value = lambda key: s.values[key]
+        s.evidence = lambda rva, fn=None, slot="disp": {"insn": rva, "fn": fn, "text": "", "slot": slot}
+        return s
+
+    def values(self, session, params):
+        return sorted(c.value for c in strategies.getter(session, {"in": 0x1000, **params}, "key"))
+
+    def test_cmp_with_key_finds_a_vector_end(self):
+        s = self.session({0x1000: ["MOV RAX,qword ptr [RCX + 0xcc58]", "MOV R8,qword ptr [RCX + 0xcc60]", "CMP RAX,R8",
+                                   "MOV EAX,dword ptr [RAX]", "RET"]}, {"Vec.begin": 0xCC58})
+        self.assertEqual(self.values(s, {"base": "arg0", "load": "ptr", "select": {"used_in_cmp": True}}), [0xCC58, 0xCC60])
+        self.assertEqual(self.values(s, {"base": "arg0", "load": "ptr", "select": {"cmp_with": {"key": "Vec.begin"}}}), [0xCC60])
+
+    def test_cmp_with_arg(self):
+        s = self.session({0x1000: ["MOV RAX,qword ptr [RCX + 0x10]", "CMP R9D,dword ptr [RAX + 0x944]",
+                                   "CMP EDX,dword ptr [RAX + 0x948]", "RET"]})
+        base = {"field": {"of": "arg0", "offset": 0x10}}
+        self.assertEqual(self.values(s, {"base": base, "load": "i32", "select": {"cmp_with": {"arg": 3}}}), [0x944])
+        self.assertEqual(self.values(s, {"base": base, "load": "i32", "select": {"cmp_with": {"arg": 1}}}), [0x948])
+
+    def test_index_uses_arg(self):
+        s = self.session({0x1000: ["MOV RAX,qword ptr [RCX + 0x3d0]", "MOV R10,qword ptr [RCX + 0x3e8]",
+                                   "MOV EAX,dword ptr [RAX + RDX*0x4]", "MOV EAX,dword ptr [R10 + R8*0x4]", "RET"]})
+        self.assertEqual(self.values(s, {"base": "arg0", "load": "ptr", "select": {"index_uses": {"arg": 1}}}), [0x3D0])
+        self.assertEqual(self.values(s, {"base": "arg0", "load": "ptr", "select": {"index_uses": {"arg": 2}}}), [0x3E8])
 
 
 class SpecTests(unittest.TestCase):

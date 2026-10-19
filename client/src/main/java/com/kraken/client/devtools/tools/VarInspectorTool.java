@@ -1,6 +1,7 @@
 package com.kraken.client.devtools.tools;
 
 import com.kraken.api.KrakenApi;
+import com.kraken.api.config.VarBitType;
 import com.kraken.api.events.Events;
 import com.kraken.api.game.ClientState;
 import com.kraken.client.devtools.Category;
@@ -23,8 +24,9 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * A log of var changes as they happen, like RuneLite's var inspector. Varps come from {@code ON_VAR_TRANSMIT} (the ids
- * that changed) and {@code getVarp} (their new values); varcs have no event, so they're compared each refresh. Flip a
- * setting in game (run, auto-retaliate…) to see its varp change.
+ * that changed) and {@code getVarp} (their new values), varbits from {@code ON_VARBIT_UPDATE} (the old value is worked
+ * out from the varp before the change); varcs have no event, so they're compared each refresh. Flip a setting in game
+ * (run, auto-retaliate…) to see its varp and varbits change.
  */
 final class VarInspectorTool extends DevTool<List<String>> {
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
@@ -32,11 +34,15 @@ final class VarInspectorTool extends DevTool<List<String>> {
     private static final int MAX_STRING = 60;
 
     private final ToolOption varps = option("varps", "Varps", true);
+    private final ToolOption varbits = option("varbits", "Varbits", true);
     private final ToolOption varcs = option("varcs", "Varcs", true);
     private final Queue<String> pending = new ConcurrentLinkedQueue<>();
     private Events events;
     private int subscription;
-    /** Varp values as last logged; written on the EDT at start, then only on the poll thread. */
+    private int varbitSubscription;
+    /**
+     * Varp values as last logged; written on the EDT at start, then only on the poll thread.
+     */
     private volatile int[] lastVarps;
     // Poll thread only
     private Map<Integer, Integer> lastIntVarcs;
@@ -44,7 +50,8 @@ final class VarInspectorTool extends DevTool<List<String>> {
 
     VarInspectorTool() {
         super("vars", "Var inspector", Category.STATE, MaterialDesignV.VARIABLE,
-                "A live log of varp and varc changes with their old and new values (getVarp, getIntegerVarc, getStringVarc).");
+                "A live log of varp, varbit and varc changes with their old and new values (getVarp, getVarbit, "
+                        + "getIntegerVarc, getStringVarc).");
     }
 
     @Override
@@ -59,14 +66,17 @@ final class VarInspectorTool extends DevTool<List<String>> {
         lastVarps = state.getVarps();
         lastIntVarcs = null;
         lastStringVarcs = null;
+        // Varbit updates fire before the varp transmit, so lastVarps still holds the old varp values for them
+        varbitSubscription = events.subscribe(Events.ON_VARBIT_UPDATE, (id, value) -> varbitChanged(state, id, value));
         subscription = events.subscribe(Events.ON_VAR_TRANSMIT, ids -> varpsChanged(state, ids));
-        add(state.hasVarcs() ? "Watching " + lastVarps.length + " varps and the varcs"
-                : "Watching " + lastVarps.length + " varps (this build's mapping has no varc keys, so no varcs)");
+        add(state.hasVarcs() ? "Watching " + lastVarps.length + " varps, their varbits and the varcs"
+                : "Watching " + lastVarps.length + " varps and their varbits (this build's mapping has no varc keys)");
     }
 
     @Override
     protected void onStop() {
         events.unsubscribe(subscription);
+        events.unsubscribe(varbitSubscription);
         pending.clear();
     }
 
@@ -88,7 +98,12 @@ final class VarInspectorTool extends DevTool<List<String>> {
         return new LogView();
     }
 
-    /** Poll thread: an ON_VAR_TRANSMIT event. */
+    /**
+     * Poll thread: an ON_VAR_TRANSMIT event.
+     *
+     * @param state reads the new values
+     * @param ids   the varps that changed
+     */
     private void varpsChanged(ClientState state, int[] ids) {
         int[] last = lastVarps;
         int maxId = Arrays.stream(ids).max().orElse(-1);
@@ -106,7 +121,29 @@ final class VarInspectorTool extends DevTool<List<String>> {
         lastVarps = last;
     }
 
-    /** Poll thread: compares the varcs with the previous refresh. */
+    /**
+     * Poll thread: an ON_VARBIT_UPDATE event.
+     *
+     * @param state reads the varbit's definition and the tick
+     * @param id    the varbit
+     * @param value its new value
+     */
+    private void varbitChanged(ClientState state, int id, int value) {
+        if (!varbits.isOn()) {
+            return;
+        }
+        VarBitType type = state.getVarbitType(id);
+        int[] last = lastVarps;
+        String was = type == null || type.baseVar() >= last.length ? "?" : String.valueOf(type.extract(last[type.baseVar()]));
+        String where = type == null ? "" : "  (varp " + type.baseVar() + " bits " + type.startBit() + "–" + type.endBit() + ")";
+        add("t" + state.getTickCount() + "  varbit " + id + "  " + was + " → " + value + where);
+    }
+
+    /**
+     * Poll thread: compares the varcs with the previous refresh.
+     *
+     * @param state reads the varcs
+     */
     private void diffVarcs(ClientState state) {
         if (!varcs.isOn() || !state.hasVarcs()) {
             lastIntVarcs = null;

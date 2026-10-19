@@ -18,17 +18,19 @@ import java.util.List;
 
 /**
  * Every slot of every inventory the client holds: your backpack, worn equipment, and the bank or a shop once you've
- * opened it. Item names need the item definitions ({@code ocName}), which the API can't read yet, so items show by id.
+ * opened it, with item names ({@code ocName}) and each inventory's defined size ({@code invSize}).
  */
 final class InventoryTool extends DevTool<List<InventoryTool.Row>> {
-    record Row(long key, int inv, String inventory, int slot, String wornSlot, int item, int count) {
+    record Row(long key, int inv, String inventory, int size, int slot, String wornSlot, int item, String name,
+               int count, Boolean stackable) {
     }
 
     private final ToolOption empty = option("empty", "Show empty slots", false);
 
     InventoryTool() {
         super("inventories", "Inventories", Category.STATE, MaterialDesignB.BAG_PERSONAL_OUTLINE,
-                "Every inventory the client holds (backpack, worn, bank…) with each slot's item id and count.");
+                "Every inventory the client holds (backpack, worn, bank…) with each slot's item, name and count, "
+                        + "and the inventory's size.");
     }
 
     @Override
@@ -38,18 +40,22 @@ final class InventoryTool extends DevTool<List<InventoryTool.Row>> {
 
     @Override
     protected List<Row> read(KrakenApi api) {
-        List<Inventory> inventories = new ArrayList<>(api.client().getInventories());
+        Client client = api.client();
+        List<Inventory> inventories = new ArrayList<>(client.getInventories());
         inventories.sort(Comparator.comparingInt(Inventory::id));
         boolean showEmpty = empty.isOn();
         List<Row> rows = new ArrayList<>();
         for (Inventory inventory : inventories) {
+            int size = client.invSize(inventory.id());
             for (InvItem item : inventory.items()) {
                 if (item.isEmpty() && !showEmpty) {
                     continue;
                 }
                 WornSlots worn = inventory.id() == Client.INV_WORN ? WornSlots.of(item.slot()) : null;
-                rows.add(new Row((long) inventory.id() << 32 | item.slot(), inventory.id(), name(inventory.id()),
-                        item.slot(), worn == null ? "" : worn.name(), item.id(), item.count()));
+                String itemName = item.isEmpty() ? "" : client.ocName(item.id());
+                Boolean stacks = item.isEmpty() ? null : client.ocStackable(item.id());
+                rows.add(new Row((long) inventory.id() << 32 | item.slot(), inventory.id(), name(inventory.id()), size,
+                        item.slot(), worn == null ? "" : worn.name(), item.id(), itemName, item.count(), stacks));
             }
         }
         return rows;
@@ -60,10 +66,13 @@ final class InventoryTool extends DevTool<List<InventoryTool.Row>> {
         return TableView.<Row>builder("slots")
                 .column("Inv", Integer.class, 50, Row::inv)
                 .column("Inventory", String.class, 90, Row::inventory)
+                .column("Size", Integer.class, 46, Row::size)
                 .column("Slot", Integer.class, 46, Row::slot)
                 .column("Worn slot", String.class, 80, Row::wornSlot)
                 .column("Item id", Integer.class, 70, Row::item)
+                .column("Item", String.class, 170, Row::name)
                 .column("Count", Integer.class, 80, Row::count)
+                .column("Stacks", Boolean.class, 56, Row::stackable)
                 .key(Row::key)
                 .build();
     }

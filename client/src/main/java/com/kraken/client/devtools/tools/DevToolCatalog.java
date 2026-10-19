@@ -22,9 +22,7 @@ public final class DevToolCatalog {
         return List.of(
                 new NpcsTool(),
                 new PlayersTool(),
-                PlannedTool.overlay("interacting", "Interacting", ACTORS, MaterialDesignT.TARGET_ACCOUNT,
-                        "Lines from each NPC and player to whatever it's interacting with.",
-                        "actor interaction target reads (mapped) and " + PROJECTION),
+                new InteractingTool(),
                 PlannedTool.both("projectiles", "Projectiles", ACTORS, MaterialDesignB.BULLSEYE_ARROW,
                         "Projectiles in flight with their id, source and target.",
                         "projectile list reads and " + PROJECTION),

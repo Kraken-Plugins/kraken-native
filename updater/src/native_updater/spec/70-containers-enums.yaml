@@ -41,6 +41,18 @@ keys:
     priority: P1
     strategies:
       - extractor: { name: shared_layouts, field: container.shared_ptr.ctrl.useCount, cls: A }
+  - key: container.list.node.next
+    type: const
+    priority: P1
+    doc: The next-node pointer of an eastl::list node; the headbar walk compares it with the list's sentinel.
+    strategies:
+      - getter: { in: osrs.Entity.isHealthbarRendered, base: { field: { of: sp_result, key: Actor.headbars } }, load: ptr, select: { used_in_cmp: true } }
+  - key: container.list.node.prev
+    type: const
+    priority: P1
+    doc: The previous-node pointer; the head-bar update lookup steps back to the last update that has started.
+    strategies:
+      - getter: { in: "@HeadbarUpdate", base: { field: { of: any, key: container.list.node.next } }, load: ptr, select: { stored_to: { arg: 1, offset: 8 } } }
   - key: container.list.node.value
     type: const
     priority: P0

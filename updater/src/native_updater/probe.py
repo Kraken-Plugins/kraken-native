@@ -230,7 +230,9 @@ def run_checks(r, log):
     actors = []
     if player:
         actors.append(("player", local, player))
-        name = r.string(player + r.off("Actor", "name"))
+        # A player's name isn't inline like an NPC's: Player.name points at a {display, normalised} name pair
+        pair = r.ptr(player + r.off("Player", "name"))
+        name = r.string(pair + r.off("PlayerName", "display")) if pair else None
         want = r.display_name
         ok("localPlayerName", name is not None and name.isprintable() and (want is None or name.lower() == want.lower()),
            f"name={name!r}" + (f" expected {want!r}" if want else " (pass --display-name to compare)"))
@@ -258,8 +260,9 @@ def run_checks(r, log):
         px, pz = r.i32(a + r.off("Actor", "pathX")), r.i32(a + r.off("Actor", "pathZ"))
         if fx >> 7 != px or fz >> 7 != pz:
             bad_coords.append((kind, aid, fx, px, fz, pz))
-        iv, it = r.u8(a + r.off("Actor", "interactingValid")), r.i32(a + r.off("Actor", "interacting"))
-        if iv not in (0, 1) or not (it == -1 or 0 <= it < 0x10000 + 2048):
+        # interactingType: 0 none, 1 NPC index, 2 player index, 3 world entity id
+        iv, it = r.u8(a + r.off("Actor", "interactingType")), r.i32(a + r.off("Actor", "interacting"))
+        if iv not in (0, 1, 2, 3) or not (it == -1 or 0 <= it < 0x10000 + 2048):
             bad_inter.append((kind, aid, iv, it))
         an = r.i32(a + r.off("Actor", "anim"))
         st = r.ptr(a + r.off("Actor", "animSeqType"))

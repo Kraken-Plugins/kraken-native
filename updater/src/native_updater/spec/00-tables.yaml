@@ -59,3 +59,32 @@ fingerprints:
   ActorNameGetter:      { callee_of: ClientOp.npcName, arg0: sp_result }
   InvLookupIds:         { callee_of: ClientOp.invGetObjId }
   InvLookupCounts:      { callee_of: ClientOp.invGetNum }
+  # js5 group loader: what the loader core calls (with the archive) for a group whose files aren't loaded yet.
+  ConfigGroupLoader:    { callee_of: "@ConfigLoaderCore", arg0: arg0 }
+  # The local player as ClientOp.coord finds it: in the world the client says it is in (Client.localPlayerWorldId).
+  LocalPlayer:          { callee_of: ClientOp.coord, arg0: client }
+  LocalPlayerWorld:     { callee_of: "@LocalPlayer", arg0: arg0 }
+  # Ground height at a fine position (FineCoord.y): entry(plane, world, x, z, ...) -> height(world, x, z, plane), its
+  # bilinear part (the one weighting by 128 - fraction) and that part's corner-height and under-a-bridge helpers.
+  TileHeightEntry:      { callee_of: ClientOp.npcCoordFine, min_args: 5 }
+  TileHeight:           { callee_of: "@TileHeightEntry" }
+  TileHeightBilinear:   { callee_of: "@TileHeight", arg0: arg0, imm: 0x80 }
+  TileCornerHeight:     { callee_of: "@TileHeightBilinear", arg0: { field: { of: arg0, key: World.scene } } }
+  TileBridgeCheck:      { callee_of: "@TileHeightBilinear", arg0: arg0 }
+  # The update a head bar shows at a cycle: isHeadbarEmpty's callee that takes the head bar.
+  HeadbarUpdate:        { callee_of: osrs.Entity.isHeadbarEmpty, arg0: { field: { of: { field: { of: sp_result, key: Actor.headbars } }, key: container.list.node.value } } }
+  # Multi-NPC transform: the NPC name getter's callee that reads a varbit to pick the child type.
+  MultiNpcResolve:      { callee_of: "@ActorNameGetter", calls: "@VarbitRead" }
+  LocalFollowerCheck:   { callee_of: osrs.Npc.isLocalFollower, arg0: client }
+  # Friend, friends-chat, clan and ignore checks. Each osrs.Player method calls one helper that caches its answer on
+  # the player; the friend and friends-chat helpers work it out from name lists (two string-keyed hash tables each).
+  PlayerIsOnlineFriend: { callee_of: osrs.Player.isOnlineFriend }
+  PlayerIsFriendChat:   { callee_of: osrs.Player.isFriendChat }
+  PlayerIsGroup:        { callee_of: osrs.Player.isGroup }
+  PlayerFriendCompute:  { callee_of: "@PlayerIsOnlineFriend" }
+  PlayerFriendChatCompute: { callee_of: "@PlayerIsFriendChat" }
+  NameListContains:     { callee_of: osrs.Player.isIgnored }
+  NameTableFind:        { callee_of: "@PlayerFriendChatCompute" }
+  NameHash:             { callee_of: "@NameTableFind", imm: 0x1000193 }      # FNV-1 over the normalised name
+  # The friend lookups by current and by previous name; both return the node's value, so either will do.
+  FriendListFind:       { callee_of: "@PlayerFriendCompute", calls: "@NameTableFind", unique: false }

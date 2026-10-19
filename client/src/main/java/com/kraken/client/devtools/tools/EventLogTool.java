@@ -21,7 +21,9 @@ import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.stream.Collectors;
 
-/** A live log of the API's events. Subscribes only while its window is open. */
+/**
+ * A live log of the API's events. Subscribes only while its window is open.
+ */
 final class EventLogTool extends DevTool<List<String>> {
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
     private static final int MAX_PENDING = 1_000;
@@ -32,6 +34,7 @@ final class EventLogTool extends DevTool<List<String>> {
     private final ToolOption inventories = option("inventories", "Inventory transmits", true);
     private final ToolOption stats = option("stats", "Stat transmits", true);
     private final ToolOption vars = option("vars", "Var transmits", false);
+    private final ToolOption varbits = option("varbits", "Varbit updates", false);
     private final ToolOption ticks = option("ticks", "Game ticks", false);
     private final Queue<String> pending = new ConcurrentLinkedQueue<>();
     private final List<Integer> subscriptions = new ArrayList<>();
@@ -39,7 +42,7 @@ final class EventLogTool extends DevTool<List<String>> {
 
     EventLogTool() {
         super("events", "Event log", Category.DIAGNOSTICS, MaterialDesignL.LIGHTNING_BOLT_OUTLINE,
-                "A live log of API events (game state, NPCs, inventories, stats, vars, ticks) as they're seen.");
+                "A live log of API events (game state, NPCs, inventories, stats, vars, varbits, ticks) as they're seen.");
     }
 
     @Override
@@ -75,6 +78,11 @@ final class EventLogTool extends DevTool<List<String>> {
                     line.append(i == 0 ? "" : ", ").append(ids[i]).append(" = ").append(state.getVarp(ids[i]));
                 }
                 add(line.toString());
+            }
+        }));
+        subscriptions.add(events.subscribe(Events.ON_VARBIT_UPDATE, (id, value) -> {
+            if (varbits.isOn()) {
+                add("Varbit  " + id + " = " + value);
             }
         }));
         subscriptions.add(events.subscribe(Events.ON_GAME_TICK, () -> {
@@ -129,7 +137,11 @@ final class EventLogTool extends DevTool<List<String>> {
         return name + " " + update.value() + "/" + update.max() + " " + update.xp() + "xp";
     }
 
-    /** Event callbacks run on the poll thread; {@link #read} drains these on the same thread right after. */
+    /**
+     * Event callbacks run on the poll thread; {@link #read} drains these on the same thread right after.
+     *
+     * @param line the log line, without the timestamp
+     */
     private void add(String line) {
         pending.add(TIME.format(LocalTime.now()) + "  " + line);
         while (pending.size() > MAX_PENDING) {

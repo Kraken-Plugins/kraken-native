@@ -1,24 +1,28 @@
 package com.kraken.api.game;
 
+import com.kraken.api.config.ConfigTypes;
+import com.kraken.api.config.VarBitType;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.api.memory.Memory;
+import com.kraken.api.memory.MemoryException;
 
 import java.nio.ByteBuffer;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Mirrors the client's Lua {@code osrs.ClientState} namespace: stats, varps, varcs, the tick counter, login state and
- * profile type. Each method follows what the native Lua handler reads, so it returns what the Lua function would
- * (including its fallbacks, such as -1 for stats before the server has sent them).
+ * Mirrors the client's Lua {@code osrs.ClientState} namespace: stats, varps, varbits, varcs, the tick counter, login
+ * state and profile type. Each method follows what the native Lua handler reads, so it returns what the Lua function
+ * would (including its fallbacks, such as -1 for stats before the server has sent them).
  *
- * <p>Not yet available: {@code getVarbit}. A varbit is a slice of a varp described by a VarBitType definition, and the
- * client only keeps recently used definitions in memory, so it needs the config-type reader that also unlocks
- * {@code ocName}, {@code invSize} and friends.
+ * <p>A varbit is a slice of a varp described by a VarBitType definition; {@link #getVarbit} decodes the definition
+ * from the client's config archive (see {@link ConfigTypes}) and reads the varp the client's own varbit reader uses.
  */
 public final class ClientState extends GameReader {
 
-    /** Mirrors {@code ClientState.Stats}: each stat's id, as the stat functions take it. */
+    /**
+     * Mirrors {@code ClientState.Stats}: each stat's id, as the stat functions take it.
+     */
     public enum Stats {
         SKILL_ATTACK(0, "Attack"), SKILL_DEFENCE(1, "Defence"), SKILL_STRENGTH(2, "Strength"),
         SKILL_HITPOINTS(3, "Hitpoints"), SKILL_RANGED(4, "Ranged"), SKILL_PRAYER(5, "Prayer"), SKILL_MAGIC(6, "Magic"),
@@ -45,7 +49,12 @@ public final class ClientState extends GameReader {
             return displayName;
         }
 
-        /** The stat with this id, or null. */
+        /**
+         * The stat with an id.
+         *
+         * @param id the stat id the stat functions take
+         * @return the stat, or null if no stat has that id
+         */
         public static Stats of(int id) {
             for (Stats stat : values()) {
                 if (stat.id == id) {
@@ -56,7 +65,9 @@ public final class ClientState extends GameReader {
         }
     }
 
-    /** Mirrors {@code ClientState.ProfileType}: the kind of world the account is logged in to. */
+    /**
+     * Mirrors {@code ClientState.ProfileType}: the kind of world the account is logged in to.
+     */
     public enum ProfileType {
         STANDARD(0), BETA(1), DEADMAN(2), PVP_ARENA(3), QUEST_SPEEDRUNNING(4), SEASONAL(5);
 
@@ -82,27 +93,53 @@ public final class ClientState extends GameReader {
 
     // Raw getGameState() values, as the client's setGameState switches on them (same numbers as the Java client's).
     // Only LOGGED_IN is in the mapping (it's what isLoggedIn compares with); the rest are long-stable protocol values.
-    /** The title (login) screen. */
+
+    /**
+     * The title (login) screen.
+     */
     public static final int GAME_STATE_TITLE = 10;
-    /** Logging in, between the title screen and the world. */
+
+    /**
+     * Logging in, between the title screen and the world.
+     */
     public static final int GAME_STATE_LOGGING_IN = 20;
-    /** Loading the map. */
+
+    /**
+     * Loading the map.
+     */
     public static final int GAME_STATE_LOADING = 25;
-    /** In the world. */
+
+    /**
+     * In the world.
+     */
     public static final int GAME_STATE_LOGGED_IN = 30;
-    /** Lost the connection; the client tries to reconnect. */
+
+    /**
+     * Lost the connection; the client tries to reconnect.
+     */
     public static final int GAME_STATE_CONNECTION_LOST = 40;
-    /** Hopping to another world. */
+
+    /**
+     * Hopping to another world.
+     */
     public static final int GAME_STATE_HOPPING = 45;
 
-    /** Highest level the remaining-XP calculation goes to, as in the client. */
+    /**
+     * Highest level the remaining-XP calculation goes to, as in the client.
+     */
     private static final int MAX_LEVEL = 99;
-    /** XP_FOR_LEVEL[n] = total XP needed for level n (n = 1..99); the client keeps the same table from level 2 up. */
+
+    /**
+     * XP_FOR_LEVEL[n] = total XP needed for level n (n = 1..99); the client keeps the same table from level 2 up.
+     */
     private static final int[] XP_FOR_LEVEL = xpTable();
 
     private static final int MAX_VARPS = 1 << 16;
     private static final int MAX_VARCS = 1 << 16;
-    /** Variant tags of a varc entry's value (eastl::variant index + 1, as the client compares it). */
+
+    /**
+     * Variant tags of a varc entry's value (eastl::variant index + 1, as the client compares it).
+     */
     private static final int VARC_INT = 1;
     private static final int VARC_STRING = 2;
 
@@ -119,6 +156,8 @@ public final class ClientState extends GameReader {
 
     private final long varpsRva;
     private final long varpCountRva;
+    private final long varpsBitsRva;
+    private final ConfigTypes configs;
 
     private final int cWorldFlags;
     private final int cVarcs;
@@ -130,7 +169,19 @@ public final class ClientState extends GameReader {
     private final int varcType;
 
     public ClientState(Memory memory, Mapping mapping) {
+        this(memory, mapping, new ConfigTypes(memory, mapping));
+    }
+
+    /**
+     * Creates the reader, sharing {@code configs} (and its cache) with the other readers.
+     *
+     * @param memory  the client process's memory
+     * @param mapping the client build's mapping
+     * @param configs the config type reader to decode varbit definitions with
+     */
+    public ClientState(Memory memory, Mapping mapping, ConfigTypes configs) {
         super(memory, mapping);
+        this.configs = configs;
         this.cGameState = mapping.offset("Client.gameState");
         this.cLoginToken = mapping.offset("Client.loginToken");
         this.cTick = mapping.offset("Client.tickCount");
@@ -146,6 +197,7 @@ public final class ClientState extends GameReader {
 
         this.varpsRva = mapping.global("varps");
         this.varpCountRva = mapping.hasGlobal("varpCount") ? mapping.global("varpCount") : -1;
+        this.varpsBitsRva = mapping.hasGlobal("varpsBits") ? mapping.global("varpsBits") : -1;
 
         // Added to the mapping after the seed build's first cut; absent keys disable just these reads.
         this.cWorldFlags = optionalOffset("Client.worldFlags");
@@ -158,18 +210,22 @@ public final class ClientState extends GameReader {
         this.varcType = optionalOffset("VarcEntry.type");
     }
 
-    // ---- Login and ticks -----------------------------------------------------------------------
-
     /**
-     * The client's raw game state ({@code Client.gameState}), or -1 if unreadable. Not a Lua function. Values seen in
-     * the client: 10 title screen, 20 logging in, 25 loading, 30 logged in, 40 connection lost, 45 hopping worlds.
+     * The client's raw game state ({@code Client.gameState}). Not a Lua function. Values seen in the client: 10 title
+     * screen, 20 logging in, 25 loading, 30 logged in, 40 connection lost, 45 hopping worlds.
+     *
+     * @return the game state, or -1 if it can't be read
      */
     public int getGameState() {
         long client = clientBase();
         return client == 0 ? -1 : safeInt(client + cGameState, -1);
     }
 
-    /** Mirrors {@code ClientState.isLoggedIn}: the client has a login session and is in the logged-in game state. */
+    /**
+     * Mirrors {@code ClientState.isLoggedIn}.
+     *
+     * @return true if the client has a login session and is in the logged-in game state
+     */
     public boolean isLoggedIn() {
         long client = clientBase();
         if (client == 0) {
@@ -178,7 +234,11 @@ public final class ClientState extends GameReader {
         return safeLong(client + cLoginToken, -1) != -1 && safeInt(client + cGameState, -1) == gameStateLoggedIn;
     }
 
-    /** Mirrors {@code ClientState.getTickCount}: server ticks processed since login. */
+    /**
+     * Mirrors {@code ClientState.getTickCount}.
+     *
+     * @return server ticks processed since login, or 0 if it can't be read
+     */
     public int getTickCount() {
         long client = clientBase();
         return client == 0 ? 0 : safeInt(client + cTick, 0);
@@ -186,8 +246,9 @@ public final class ClientState extends GameReader {
 
     /**
      * Mirrors {@code ClientState.getProfileType}: decodes the world-type flags the same way the native handler does
-     * (beta, then deadman, PvP arena, quest speedrunning and seasonal, the later ones winning). STANDARD if the flags
-     * can't be read.
+     * (beta, then deadman, PvP arena, quest speedrunning and seasonal, the later ones winning).
+     *
+     * @return the kind of world; STANDARD if the flags can't be read
      */
     public ProfileType getProfileType() {
         int flags = getWorldFlags();
@@ -207,15 +268,22 @@ public final class ClientState extends GameReader {
         return ProfileType.of(type);
     }
 
-    /** The raw world-type bitmask {@link #getProfileType} decodes, or 0. Not a Lua function. */
+    /**
+     * The raw world-type bitmask {@link #getProfileType} decodes. Not a Lua function.
+     *
+     * @return the world flags (bit 0 set on members worlds), or 0 if they can't be read
+     */
     public int getWorldFlags() {
         long client = clientBase();
         return client == 0 || cWorldFlags < 0 ? 0 : safeInt(client + cWorldFlags, 0);
     }
 
-    // ---- Stats ------------------------------------------------------------------------------------
-
-    /** Mirrors {@code ClientState.getStatEffectiveLevel}: current (boosted or drained) level, or -1. */
+    /**
+     * Mirrors {@code ClientState.getStatEffectiveLevel}.
+     *
+     * @param statId the stat id (see {@link Stats})
+     * @return the current (boosted or drained) level, or -1 before the server sends stats or for an unknown id
+     */
     public int getStatEffectiveLevel(int statId) {
         return statValue(cSkillLevel, statId);
     }
@@ -224,7 +292,12 @@ public final class ClientState extends GameReader {
         return getStatEffectiveLevel(stat.id());
     }
 
-    /** Mirrors {@code ClientState.getStatBaseLevel}: the level from XP, or -1 before the server sends stats. */
+    /**
+     * Mirrors {@code ClientState.getStatBaseLevel}.
+     *
+     * @param statId the stat id (see {@link Stats})
+     * @return the level from XP, or -1 before the server sends stats or for an unknown id
+     */
     public int getStatBaseLevel(int statId) {
         return statValue(cSkillBase, statId);
     }
@@ -233,7 +306,12 @@ public final class ClientState extends GameReader {
         return getStatBaseLevel(stat.id());
     }
 
-    /** Mirrors {@code ClientState.getStatXP}: the stat's XP, or -1 before the server sends stats. */
+    /**
+     * Mirrors {@code ClientState.getStatXP}.
+     *
+     * @param statId the stat id (see {@link Stats})
+     * @return the stat's XP, or -1 before the server sends stats or for an unknown id
+     */
     public int getStatXP(int statId) {
         return statValue(cSkillXp, statId);
     }
@@ -242,14 +320,23 @@ public final class ClientState extends GameReader {
         return getStatXP(stat.id());
     }
 
-    /** Mirrors {@code ClientState.getStatRemainingXPUntilLevel(statId)}: XP left until the next level. */
+    /**
+     * Mirrors {@code ClientState.getStatRemainingXPUntilLevel(statId)}.
+     *
+     * @param statId the stat id (see {@link Stats})
+     * @return XP left until the next level; -1 before the server sends stats, 0 at level 99
+     */
     public int getStatRemainingXPUntilLevel(int statId) {
         return remainingXp(statId, null);
     }
 
     /**
-     * Mirrors {@code ClientState.getStatRemainingXPUntilLevel(statId, level)}: XP left until {@code level}. Like the
-     * client: -1 before the server sends stats, 0 if {@code level} is below the current base level or above 99.
+     * Mirrors {@code ClientState.getStatRemainingXPUntilLevel(statId, level)}.
+     *
+     * @param statId the stat id (see {@link Stats})
+     * @param level  the target level
+     * @return XP left until {@code level}; like the client: -1 before the server sends stats, 0 if {@code level} is
+     *         below the current base level or above 99, and negative when {@code level} is the current base level
      */
     public int getStatRemainingXPUntilLevel(int statId, int level) {
         return remainingXp(statId, level);
@@ -259,20 +346,30 @@ public final class ClientState extends GameReader {
         return getStatRemainingXPUntilLevel(stat.id());
     }
 
-    /** Whether the server has sent the stats yet (the gate the stat functions check before returning -1). */
+    /**
+     * Whether the server has sent the stats yet (the gate the stat functions check before returning -1).
+     *
+     * @return true once the stats have arrived this session
+     */
     public boolean areStatsTransmitted() {
         long client = clientBase();
         return client != 0 && safeInt(client + cStatsValid, 0) > 0;
     }
 
-    /** Number of stat slots the client keeps (ids 0 to this minus 1). Not a Lua function. */
+    /**
+     * Number of stat slots the client keeps. Not a Lua function.
+     *
+     * @return the stat count (ids 0 to this minus 1)
+     */
     public int getStatCount() {
         return statCount;
     }
 
     /**
-     * Every stat slot's {xp, effective level, base level} in three reads, or null before the server sends stats.
-     * Not a Lua function; the {@code ON_STAT_TRANSMIT} event and the dev tools use it to avoid one read per stat.
+     * Every stat slot's {xp, effective level, base level} in three reads. Not a Lua function; the
+     * {@code ON_STAT_TRANSMIT} event and the dev tools use it to avoid one read per stat.
+     *
+     * @return the three arrays, or null before the server sends stats or if they can't be read
      */
     public StatArrays getStatsAll() {
         long client = clientBase();
@@ -295,11 +392,12 @@ public final class ClientState extends GameReader {
     public record StatArrays(int[] xp, int[] level, int[] base) {
     }
 
-    // ---- Vars ---------------------------------------------------------------------------------------
-
     /**
      * Mirrors {@code ClientState.getVarp}: the value of a varp as the server last sent it. The native handler doesn't
      * bounds-check; this returns -1 for an id outside the client's varp array instead of reading past it.
+     *
+     * @param id the varp id
+     * @return the varp's value, or -1 if the id is outside the varp array or it can't be read
      */
     public int getVarp(int id) {
         if (id < 0 || id >= getVarpCount()) {
@@ -309,7 +407,11 @@ public final class ClientState extends GameReader {
         return varps == 0 ? -1 : safeInt(varps + id * 4L, -1);
     }
 
-    /** How many varps the client has (ids 0 to this minus 1), or 0 if unknown. Not a Lua function. */
+    /**
+     * How many varps the client has. Not a Lua function.
+     *
+     * @return the varp count (ids 0 to this minus 1), or 0 if unknown
+     */
     public int getVarpCount() {
         if (varpCountRva < 0) {
             return 0;
@@ -318,7 +420,11 @@ public final class ClientState extends GameReader {
         return count > 0 && count <= MAX_VARPS ? count : 0;
     }
 
-    /** Every varp in one read (index = varp id), or an empty array if unavailable. Not a Lua function. */
+    /**
+     * Every varp in one read. Not a Lua function.
+     *
+     * @return the server's varp values indexed by varp id, or an empty array if unavailable
+     */
     public int[] getVarps() {
         int count = getVarpCount();
         long varps = safePointer(memory.moduleBase() + varpsRva);
@@ -326,7 +432,71 @@ public final class ClientState extends GameReader {
         return values == null ? new int[0] : values;
     }
 
-    /** Mirrors {@code ClientState.getIntegerVarc}: an integer varc's value, or -1 if it isn't set (or isn't an int). */
+    /**
+     * Mirrors {@code ClientState.getVarbit}: a varbit's value, {@code (varp >> startBit) & mask} from its definition.
+     * Like the client this reads the varp array its varbit reader uses ({@code varpsBits}, which also holds changes
+     * the client makes locally; {@link #getVarp} reads the server's copy), and an id without a definition reads bit 0
+     * of varp 0.
+     *
+     * @param id the varbit id
+     * @return the varbit's value; -1 if the definition or varp can't be read, or (the client doesn't check) if the
+     *         varbit's varp is outside the varp array
+     */
+    public int getVarbit(int id) {
+        VarBitType type = configs.varbit(id);
+        if (type == null || varpsBitsRva < 0 || type.baseVar() >= getVarpCount()) {
+            return -1;
+        }
+        long bits = safePointer(memory.moduleBase() + varpsBitsRva);
+        if (bits == 0) {
+            return -1;
+        }
+        try {
+            return type.extract(memory.readInt(bits + type.baseVar() * 4L));
+        } catch (MemoryException e) {
+            return -1;
+        }
+    }
+
+    /**
+     * A varbit's definition. Not a Lua function.
+     *
+     * @param id the varbit id
+     * @return its varp and bit range ({@link VarBitType#DEFAULT} for an id without one), or null if config types
+     *         can't be read
+     */
+    public VarBitType getVarbitType(int id) {
+        return configs.varbit(id);
+    }
+
+    /**
+     * The varp array varbits are read from, in one read. It matches {@link #getVarps} except for values the client has
+     * changed locally. Not a Lua function; the {@code ON_VARBIT_UPDATE} event uses it.
+     *
+     * @return the varp values varbits read, indexed by varp id, or an empty array if unavailable
+     */
+    public int[] getVarbitVarps() {
+        int count = getVarpCount();
+        long bits = varpsBitsRva < 0 ? 0 : safePointer(memory.moduleBase() + varpsBitsRva);
+        int[] values = count == 0 || bits == 0 ? null : readInts(bits, count);
+        return values == null ? new int[0] : values;
+    }
+
+    /**
+     * The config types this reader decodes, shared with the other readers. Not a Lua function.
+     *
+     * @return the shared config type reader
+     */
+    public ConfigTypes configs() {
+        return configs;
+    }
+
+    /**
+     * Mirrors {@code ClientState.getIntegerVarc}.
+     *
+     * @param id the varc id
+     * @return the varc's value, or -1 if it isn't set (or isn't an int)
+     */
     public int getIntegerVarc(int id) {
         long entry = findVarc(id);
         if (entry == 0 || safeU8(entry + varcType, 0) != VARC_INT) {
@@ -335,7 +505,12 @@ public final class ClientState extends GameReader {
         return safeInt(entry + varcValue, -1);
     }
 
-    /** Mirrors {@code ClientState.getStringVarc}: a string varc's value, or "" if it isn't set (or isn't a string). */
+    /**
+     * Mirrors {@code ClientState.getStringVarc}.
+     *
+     * @param id the varc id
+     * @return the varc's value, or "" if it isn't set (or isn't a string)
+     */
     public String getStringVarc(int id) {
         long entry = findVarc(id);
         if (entry == 0 || safeU8(entry + varcType, 0) != VARC_STRING) {
@@ -344,7 +519,11 @@ public final class ClientState extends GameReader {
         return structs.string(entry + varcValue);
     }
 
-    /** Every integer varc the client holds, by id. Not a Lua function; the var inspector uses it. */
+    /**
+     * Every integer varc the client holds. Not a Lua function; the var inspector uses it.
+     *
+     * @return varc id to value, in id order; empty if the varcs can't be read
+     */
     public Map<Integer, Integer> getIntegerVarcs() {
         Map<Integer, Integer> out = new LinkedHashMap<>();
         forEachVarc((id, type, entry, block, at) -> {
@@ -355,7 +534,11 @@ public final class ClientState extends GameReader {
         return out;
     }
 
-    /** Every string varc the client holds, by id. Not a Lua function; the var inspector uses it. */
+    /**
+     * Every string varc the client holds. Not a Lua function; the var inspector uses it.
+     *
+     * @return varc id to value, in id order; empty if the varcs can't be read
+     */
     public Map<Integer, String> getStringVarcs() {
         Map<Integer, String> out = new LinkedHashMap<>();
         forEachVarc((id, type, entry, block, at) -> {
@@ -366,13 +549,15 @@ public final class ClientState extends GameReader {
         return out;
     }
 
-    /** Whether this build's mapping has what the varc functions need. */
+    /**
+     * Whether this build's mapping has what the varc functions need.
+     *
+     * @return true if every varc key is mapped
+     */
     public boolean hasVarcs() {
         return cVarcs >= 0 && varcsBegin >= 0 && varcsEnd >= 0 && varcStride > 0 && varcKey >= 0 && varcValue >= 0
                 && varcType >= 0;
     }
-
-    // ---- internals -------------------------------------------------------------------------------------
 
     private int statValue(int arrayOffset, int statId) {
         long client = clientBase();
@@ -406,7 +591,11 @@ public final class ClientState extends GameReader {
         return table;
     }
 
-    /** The varc store's sorted entry array as {begin, count}, or null if unavailable. */
+    /**
+     * The varc store's sorted entry array.
+     *
+     * @return {begin address, entry count}, or null if unavailable
+     */
     private long[] varcEntries() {
         if (!hasVarcs()) {
             return null;
@@ -425,7 +614,12 @@ public final class ClientState extends GameReader {
         return new long[]{begin, count};
     }
 
-    /** Binary search over the sorted entries, as the client's own lookup does; the entry's address or 0. */
+    /**
+     * Binary search over the sorted entries, as the client's own lookup does.
+     *
+     * @param id the varc id
+     * @return the entry's address, or 0 if the varc isn't set
+     */
     private long findVarc(int id) {
         long[] entries = varcEntries();
         if (entries == null) {

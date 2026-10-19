@@ -1,5 +1,6 @@
 package com.kraken.api.events;
 
+import com.kraken.api.config.VarBitType;
 import com.kraken.api.events.Events.GameStateTrigger;
 import com.kraken.api.game.Client;
 import com.kraken.api.game.ClientState;
@@ -37,6 +38,9 @@ import static com.kraken.api.game.ClientState.GAME_STATE_TITLE;
  *   <li>{@code ON_STAT_TRANSMIT}: a stat's XP, level or base level changed. All of them fire when stats come back
  *       after a logout.
  *   <li>{@code ON_VAR_TRANSMIT}: a varp changed.
+ *   <li>{@code ON_VARBIT_UPDATE}: like the client, when the server's value of a varp changes, each varbit on that varp
+ *       whose value changed fires with its new value. Values come from the varp array {@code getVarbit} reads. The
+ *       first subscription builds the varp-to-varbits index (about 20k definitions, a fraction of a second).
  *   <li>{@code ON_INV_TRANSMIT}: an inventory's slots changed, or an inventory appeared (all its slots). An inventory
  *       the client drops (it clears them all at login) is forgotten without an event.
  *   <li>{@code ON_NPC_LOAD} / {@code ON_NPC_UNLOAD}: the set of loaded NPC indices changed.
@@ -60,6 +64,9 @@ public final class EventPoller {
 
     private int[] lastVarps;
 
+    private int[] lastServerVarps; // for ON_VARBIT_UPDATE: which varps the server changed
+    private int[] lastVarbitVarps; //   and the values varbits are read from
+
     private Map<Integer, Inventory> lastInventories;
 
     private Map<Integer, String> loadedNpcs; // index -> name, so unload events can name the NPC
@@ -70,10 +77,13 @@ public final class EventPoller {
         this.state = state;
     }
 
-    /** Reads the game once and fires whatever changed since the previous call. Poll thread only. */
+    /**
+     * Reads the game once and fires whatever changed since the previous call. Poll thread only.
+     */
     public void poll() {
         pollGameState();
         pollStats();
+        pollVarbits(); // before ON_VAR_TRANSMIT, the order the client's varp packet handler fires them in
         pollVarps();
         pollInventories();
         pollNpcs();
@@ -198,6 +208,48 @@ public final class EventPoller {
         }
     }
 
+    private void pollVarbits() {
+        if (!events.hasSubscribers(Events.ON_VARBIT_UPDATE)) {
+            lastServerVarps = null;
+            lastVarbitVarps = null;
+            return;
+        }
+        Map<Integer, int[]> varbitsByVarp = state.configs().varbitsByVarp();
+        int[] server = state.getVarps();
+        int[] bits = state.getVarbitVarps();
+        if (varbitsByVarp == null || server.length == 0 || bits.length != server.length) {
+            return; // nothing to compare yet; keep any baseline
+        }
+        if (lastServerVarps == null || lastServerVarps.length != server.length) {
+            lastServerVarps = server;
+            lastVarbitVarps = bits;
+            return;
+        }
+        for (int varp = 0; varp < server.length; varp++) {
+            if (server[varp] == lastServerVarps[varp]) {
+                continue;
+            }
+            int[] varbits = varbitsByVarp.get(varp);
+            if (varbits == null) {
+                continue;
+            }
+            int before = lastVarbitVarps[varp];
+            int after = bits[varp];
+            for (int varbit : varbits) {
+                VarBitType type = state.getVarbitType(varbit);
+                if (type == null) {
+                    continue;
+                }
+                int value = type.extract(after);
+                if (value != type.extract(before)) {
+                    events.fire(Events.ON_VARBIT_UPDATE, cb -> cb.onVarbitUpdate(varbit, value));
+                }
+            }
+        }
+        lastServerVarps = server;
+        lastVarbitVarps = bits;
+    }
+
     private void pollInventories() {
         if (!events.hasSubscribers(Events.ON_INV_TRANSMIT)) {
             lastInventories = null;
@@ -226,7 +278,13 @@ public final class EventPoller {
         }
     }
 
-    /** Slots whose item or count differ; a slot the inventory no longer holds reads as empty. */
+    /**
+     * Slots whose item or count differ between two reads of an inventory.
+     *
+     * @param before the inventory at the previous poll
+     * @param now    the inventory now
+     * @return the slots that changed, as they are now; a slot the inventory no longer holds reads as empty
+     */
     private static List<InvItem> changedSlots(Inventory before, Inventory now) {
         List<InvItem> changed = new ArrayList<>();
         int slots = Math.max(before.items().size(), now.items().size());

@@ -5,22 +5,48 @@ import com.kraken.api.mapping.Mapping;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.TreeMap;
 
 import static com.kraken.api.TestSupport.seedMapping;
 
 /**
- * A small fake game laid out in a {@link FakeMemory} at the real seed mapping's offsets: the Client with a World holding
- * one NPC (index 5, a Goblin) and one player (index 7, Zezima), stats, a varp array, a varc store and an inventory
- * table (backpack 93 and bank 95 in one bucket, worn 94 in the other). Tests read it through the real API classes and
- * change it between reads with the setters.
+ * A small fake game laid out in a {@link FakeMemory} at the real seed mapping's offsets, read through the real API
+ * classes; tests change it between reads with the setters.
+ *
+ * <ul>
+ *   <li>The Client, with a worlds table holding the one World (id 0, also the top-level world).
+ *   <li>NPC 5, a Goblin (type 3029, category 311): hidden model, interacting with player 7, a health bar showing
+ *       empty (so dead), created on cycle 1000. NPC 6, a multi-NPC whose type switches between 3029 and 3030 on
+ *       varbit 2, and the local player's follower (follower varp 12 holds 6).
+ *   <li>Player 7, Zezima, the local player: three queued steps, fine position on tile (2, 3) of the 8×8 scene whose
+ *       corner heights the tests can check. Player 9, Bob, an online friend; player 10, Troll, ignored.
+ *   <li>Stats, varps (both copies), varcs, the inventory table (backpack 93 and bank 95 in one bucket, worn 94 in the
+ *       other), and a config archive with a few varbits, inventories, items, NPC types and a ground decoration.
+ * </ul>
  */
 public final class GameFixture {
 
     public static final long MODULE_BASE = 0x140000000L;
     public static final long CLIENT = 0x200000000L;
     public static final long WORLD = 0x300000000L;
+    public static final long WORLDS_BUCKETS = 0x310000000L;
+    public static final long WORLDS_NODE = 0x320000000L;
+    public static final long SCENE = 0x330000000L;
+    public static final long HEIGHTS = 0x340000000L;
+    public static final long SETTINGS = 0x350000000L;
+    public static final long TILES = 0x360000000L;
+    public static final long TILE = 0x370000000L;
+    public static final long DECOR = 0x380000000L;
     public static final long NPC = 0x400000000L;
     public static final long NPC_TYPE = 0x500000000L;
+    public static final long NPC_MULTI = 0x410000000L;
+    public static final long NPC_MULTI_TYPE = 0x510000000L;
+    public static final long NPC_MULTI_CHILDREN = 0x520000000L;
+    public static final long HEADBAR_NODE = 0x420000000L;
+    public static final long HEADBAR = 0x430000000L;
+    public static final long HEADBAR_TYPE = 0x440000000L;
+    public static final long HEADBAR_UPDATE_NODE = 0x450000000L;
+    public static final long HEADBAR_UPDATE = 0x460000000L;
     public static final long PLAYER = 0x600000000L;
     public static final long PLAYER_NAME = 0x610000000L;
     public static final long BUCKETS_NPC = 0x700000000L;
@@ -29,32 +55,56 @@ public final class GameFixture {
     public static final long NODE_PLAYER = 0x730000000L;
     public static final long NPC_INDICES = 0x740000000L;
     public static final long VARPS = 0x800000000L;
+    public static final long VARP_BITS = 0x808000000L;
     public static final long VARC_STORE = 0x810000000L;
     public static final long VARC_ENTRIES = 0x820000000L;
     public static final long VARC_STRING_HEAP = 0x830000000L;
+    public static final long FOLLOWER_VARPS = 0x840000000L;
+    public static final long FRIEND_MANAGER = 0x850000000L;
+    public static final long NAME_LISTS = 0x860000000L;
     public static final long INV_BUCKETS = 0x900000000L;
     public static final long INV_NODES = 0x910000000L;
+    public static final long ARCHIVE = 0xa00000000L;
+    /**
+     * Archive tables and file buffers are bump-allocated from here.
+     */
+    private static final long ARCHIVE_HEAP = 0xa10000000L;
 
     public static final int VARP_COUNT = 64;
-    /** Inventory slot arrays are allocated this big; an inventory's vectors use the first {@code length} slots. */
+    public static final int SCENE_SIZE = 8;
+    public static final int CYCLE = 150;
+    /**
+     * Loc id of the ground decoration on tile (2, 3), and its height offset (LocType opcode 96).
+     */
+    public static final int DECOR_LOC = 1234;
+    public static final int DECOR_OFFSET = 10;
+
+    /**
+     * Inventory slot arrays are allocated this big; an inventory's vectors use the first {@code length} slots.
+     */
     private static final int INV_CAPACITY = 32;
     private static final int INV_NODE = 0x1000;
+    private static final int CONFIG_GROUPS = 16;
 
     public final Mapping map;
     public final FakeMemory memory = new FakeMemory();
     private final Map<Integer, Long> invNodes = new HashMap<>();
+    private final Map<Integer, TreeMap<Integer, byte[]>> configFiles = new TreeMap<>();
+    private long archiveHeap = ARCHIVE_HEAP;
 
     public GameFixture() throws IOException {
         map = seedMapping();
         memory.setModuleBase(MODULE_BASE);
         buildClient();
         buildWorld();
+        buildScene();
+        buildActors();
         buildStats();
         buildVars();
+        buildFriends();
         buildInventories();
+        buildConfigs();
     }
-
-    // ---- setters -------------------------------------------------------------------------------------------
 
     public void setGameState(int state) {
         memory.putInt(CLIENT + map.offset("Client.gameState"), state);
@@ -78,15 +128,39 @@ public final class GameFixture {
         memory.putInt(CLIENT + map.offset("Client.skillBase") + id * 4L, base);
     }
 
+    /**
+     * Sets a varp the way the server does: both the server copy ({@code getVarp}) and the copy varbits read.
+     *
+     * @param id    the varp
+     * @param value its new value in both copies
+     */
     public void setVarp(int id, int value) {
         memory.putInt(VARPS + id * 4L, value);
+        memory.putInt(VARP_BITS + id * 4L, value);
+    }
+
+    /**
+     * Changes only the copy varbits read, as a client-side script would.
+     *
+     * @param id    the varp
+     * @param value its new value in the varbit copy only
+     */
+    public void setVarpBits(int id, int value) {
+        memory.putInt(VARP_BITS + id * 4L, value);
     }
 
     public void setWorldFlags(int flags) {
         memory.putInt(CLIENT + map.offset("Client.worldFlags"), flags);
     }
 
-    /** Sets a slot of an existing inventory (93, 94 or 95), growing its vectors to cover it like the client does. */
+    /**
+     * Sets a slot of an existing inventory (93, 94 or 95), growing its vectors to cover it like the client does.
+     *
+     * @param inv   the inventory id (93, 94 or 95)
+     * @param slot  the slot to set
+     * @param item  the item id, -1 for empty
+     * @param count the stack size
+     */
     public void setInvSlot(int inv, int slot, int item, int count) {
         long node = invNodes.get(inv);
         long ids = memory.readLong(node + map.offset("Inventory.ids"));
@@ -104,76 +178,246 @@ public final class GameFixture {
         memory.putInt(counts + slot * 4L, count);
     }
 
-    // ---- layout ------------------------------------------------------------------------------------------
+    /**
+     * Adds or replaces a config file and lays the archive out again. Make new readers afterwards: they cache.
+     *
+     * @param group the config group (see {@code ConfigTypes})
+     * @param id    the file id within the group
+     * @param data  the file's bytes, e.g. from {@link ConfigFile}
+     */
+    public void putConfigFile(int group, int id, byte[] data) {
+        configFiles.computeIfAbsent(group, g -> new TreeMap<>()).put(id, data);
+        writeArchive();
+    }
+
+    /**
+     * A corner height of the scene (level, corner x, corner z), in the client's units (more negative is higher).
+     *
+     * @param level  the scene level (plane)
+     * @param x      the corner x, 0 to the scene size
+     * @param z      the corner z, 0 to the scene size
+     * @param height the height there
+     */
+    public void setCornerHeight(int level, int x, int z, int height) {
+        long index = ((long) level * (SCENE_SIZE + 1) + x) * (SCENE_SIZE + 1) + z;
+        memory.putInt(HEIGHTS + index * 4, height);
+    }
+
+    /**
+     * A tile's settings byte (bit 2 marks a tile under a bridge, read on level 1).
+     *
+     * @param level    the scene level (plane)
+     * @param x        the tile x
+     * @param z        the tile z
+     * @param settings the settings byte
+     */
+    public void setTileSettings(int level, int x, int z, int settings) {
+        memory.putByte(SETTINGS + ((long) level * SCENE_SIZE + x) * SCENE_SIZE + z, settings);
+    }
 
     private void buildClient() {
         memory.alloc(MODULE_BASE + map.global("client"), 8);
         memory.alloc(CLIENT, 0x420000);
         memory.putLong(MODULE_BASE + map.global("client"), CLIENT);
+        memory.alloc(MODULE_BASE + map.global("cycle"), 4);
+        memory.putInt(MODULE_BASE + map.global("cycle"), CYCLE);
         setGameState(30);
         setLoginToken(0x1234);
         setTick(123);
         memory.putLong(CLIENT + map.offset("Client.topLevelWorld"), WORLD);
         memory.putInt(CLIENT + map.offset("Client.localPlayerIndex"), 7);
-        memory.putInt(CLIENT + map.offset("Client.playerIndexCount"), 1);
+        memory.putInt(CLIENT + map.offset("Client.localPlayerWorldId"), 0);
+        memory.putInt(CLIENT + map.offset("Client.playerIndexCount"), 3);
         memory.putInt(CLIENT + map.offset("Client.playerIndices"), 7);
+        memory.putInt(CLIENT + map.offset("Client.playerIndices") + 4, 9);
+        memory.putInt(CLIENT + map.offset("Client.playerIndices") + 8, 10);
+
+        // The worlds table: world id 0 is the top-level world
+        long worlds = CLIENT + map.offset("Client.worlds.map");
+        memory.putLong(worlds + map.container("hash_map.buckets"), WORLDS_BUCKETS);
+        memory.putLong(worlds + map.container("hash_map.bucketCount"), 1);
+        memory.alloc(WORLDS_BUCKETS, 8);
+        memory.putLong(WORLDS_BUCKETS, WORLDS_NODE);
+        memory.alloc(WORLDS_NODE, 0x20);
+        memory.putInt(WORLDS_NODE + map.container("hash_map.node.key"), 0);
+        memory.putLong(WORLDS_NODE + map.container("hash_map.node.value"), WORLD);
     }
 
     private void buildWorld() {
-        int buckets = map.container("hash_map.buckets");
-        int bucketCount = map.container("hash_map.bucketCount");
-        int nodeKey = map.container("hash_map.node.key");
-        int nodeValue = map.container("hash_map.node.value");
-        int nodeNext = map.container("hash_map.node.next");
-
         memory.alloc(WORLD, 0x100);
         memory.putInt(WORLD + map.offset("World.plane"), 0);
+        memory.putLong(WORLD + map.offset("World.scene"), SCENE);
 
-        long playerMap = WORLD + map.offset("World.players");
-        memory.putLong(playerMap + buckets, BUCKETS_PLAYER);
-        memory.putLong(playerMap + bucketCount, 1);
-        memory.alloc(BUCKETS_PLAYER, 8);
-        memory.alloc(NODE_PLAYER, 0x20);
-        memory.putLong(BUCKETS_PLAYER, NODE_PLAYER);
-        memory.putInt(NODE_PLAYER + nodeKey, 7);
-        memory.putLong(NODE_PLAYER + nodeValue, PLAYER);
-        memory.putLong(NODE_PLAYER + nodeNext, 0);
-
-        long npcMap = WORLD + map.offset("World.npcs");
-        memory.putLong(npcMap + buckets, BUCKETS_NPC);
-        memory.putLong(npcMap + bucketCount, 1);
-        memory.alloc(BUCKETS_NPC, 8);
-        memory.alloc(NODE_NPC, 0x20);
-        memory.putLong(BUCKETS_NPC, NODE_NPC);
-        memory.putInt(NODE_NPC + nodeKey, 5);
-        memory.putLong(NODE_NPC + nodeValue, NPC);
-        memory.putLong(NODE_NPC + nodeNext, 0);
+        hashMap(WORLD + map.offset("World.players"), BUCKETS_PLAYER, NODE_PLAYER,
+                new int[]{7, 9, 10}, new long[]{PLAYER, player(9), player(10)});
+        hashMap(WORLD + map.offset("World.npcs"), BUCKETS_NPC, NODE_NPC, new int[]{5, 6}, new long[]{NPC, NPC_MULTI});
 
         memory.alloc(NPC_INDICES, 4 * 8);
         memory.putLong(WORLD + map.offset("World.npcIndices"), NPC_INDICES);
-        memory.putInt(WORLD + map.offset("World.npcIndexCount"), 1);
+        memory.putInt(WORLD + map.offset("World.npcIndexCount"), 2);
         memory.putInt(NPC_INDICES, 5);
+        memory.putInt(NPC_INDICES + 4, 6);
+    }
 
-        // The NPC: own name left empty so npcName() falls back to the type name
+    /**
+     * A one-bucket hash_map whose chain holds {@code keys} → {@code values} in order.
+     *
+     * @param map_    address of the hash_map object
+     * @param buckets where to put its single bucket
+     * @param nodes   where to put its nodes (0x20 bytes each)
+     * @param keys    the node keys, in chain order
+     * @param values  the value stored with each key
+     */
+    private void hashMap(long map_, long buckets, long nodes, int[] keys, long[] values) {
+        memory.putLong(map_ + map.container("hash_map.buckets"), buckets);
+        memory.putLong(map_ + map.container("hash_map.bucketCount"), 1);
+        memory.alloc(buckets, 8);
+        memory.putLong(buckets, nodes);
+        memory.alloc(nodes, keys.length * 0x20);
+        for (int i = 0; i < keys.length; i++) {
+            long node = nodes + i * 0x20L;
+            memory.putInt(node + map.container("hash_map.node.key"), keys[i]);
+            memory.putLong(node + map.container("hash_map.node.value"), values[i]);
+            memory.putLong(node + map.container("hash_map.node.next"), i + 1 < keys.length ? node + 0x20 : 0);
+        }
+    }
+
+    /**
+     * An 8×8 scene, 4 levels, flat at height 0, with a ground decoration on tile (2, 3) of level 0.
+     */
+    private void buildScene() {
+        int levels = 4;
+        memory.alloc(SCENE, 0x1000);
+        memory.putInt(SCENE + map.offset("Scene.sizeX"), SCENE_SIZE);
+        memory.putInt(SCENE + map.offset("Scene.sizeZ"), SCENE_SIZE);
+        memory.putInt(SCENE + map.offset("Scene.levels"), levels);
+        memory.alloc(HEIGHTS, levels * (SCENE_SIZE + 1) * (SCENE_SIZE + 1) * 4);
+        memory.putLong(SCENE + map.offset("Scene.heights"), HEIGHTS);
+        memory.alloc(SETTINGS, levels * SCENE_SIZE * SCENE_SIZE);
+        memory.putLong(SCENE + map.offset("Scene.tileSettings"), SETTINGS);
+        int stride = map.offset("Scene.tileEntryStride");
+        memory.alloc(TILES, levels * SCENE_SIZE * SCENE_SIZE * stride);
+        memory.putLong(SCENE + map.offset("Scene.tiles"), TILES);
+
+        memory.alloc(TILE, 0x200);
+        memory.alloc(DECOR, 0x100);
+        memory.putLong(TILES + (2L * SCENE_SIZE + 3) * stride + map.offset("Scene.tileEntryPtrOffset"), TILE);
+        memory.putLong(TILE + map.offset("Tile.groundDecor"), DECOR);
+        memory.putLong(DECOR + map.offset("Loc.tag"), (long) DECOR_LOC << map.offset("Loc.tagIdShift"));
+    }
+
+    private void buildActors() {
+        // NPC 5: own name left empty so npcName() falls back to the type name
         memory.alloc(NPC, 0x740);
         memory.putInt(NPC + map.offset("Actor.pathX"), 3222);
         memory.putInt(NPC + map.offset("Actor.pathZ"), 3218);
         memory.putSsoString(NPC + map.offset("Actor.name"), "");
         memory.putLong(NPC + map.offset("Npc.type"), NPC_TYPE);
-        memory.alloc(NPC_TYPE, 0x30);
+        memory.putInt(NPC + map.offset("Npc.index"), 5);
+        memory.putInt(NPC + map.offset("Npc.spawnCycle"), 1000);
+        memory.putByte(NPC + map.offset("Actor.hidden"), 1);
+        memory.putByte(NPC + map.offset("Actor.render2D"), 1);
+        memory.putByte(NPC + map.offset("Actor.interactingType"), 2);
+        memory.putInt(NPC + map.offset("Actor.interacting"), 7);
+        buildHeadbar(NPC);
+        memory.alloc(NPC_TYPE, 0x200);
         memory.putInt(NPC_TYPE + map.offset("NpcType.id"), 3029);
         memory.putSsoString(NPC_TYPE + map.offset("NpcType.name"), "Goblin");
+        memory.putInt(NPC_TYPE + map.offset("NpcType.type"), 311);
+        memory.putInt(NPC_TYPE + map.offset("NpcType.multiVarbit"), -1);
+        memory.putInt(NPC_TYPE + map.offset("NpcType.multiVarp"), -1);
 
-        // The player: name is behind a pointer at Player+0x718
-        memory.alloc(PLAYER, 0x728);
-        memory.putInt(PLAYER + map.offset("Actor.pathX"), 3221);
-        memory.putInt(PLAYER + map.offset("Actor.pathZ"), 3218);
-        memory.alloc(PLAYER_NAME, 0x18);
-        memory.putLong(PLAYER + map.offsetOr("Player.name", 0x718), PLAYER_NAME);
-        memory.putSsoString(PLAYER_NAME, "Zezima");
+        // NPC 6: a multi-NPC whose base type has no name of its own; varbit 2 picks the child type
+        memory.alloc(NPC_MULTI, 0x740);
+        memory.putInt(NPC_MULTI + map.offset("Actor.pathX"), 3223);
+        memory.putInt(NPC_MULTI + map.offset("Actor.pathZ"), 3218);
+        memory.putSsoString(NPC_MULTI + map.offset("Actor.name"), "");
+        memory.putByte(NPC_MULTI + map.offset("Actor.render2D"), 1);
+        memory.putLong(NPC_MULTI + map.offset("Npc.type"), NPC_MULTI_TYPE);
+        memory.putInt(NPC_MULTI + map.offset("Npc.index"), 6);
+        memory.alloc(NPC_MULTI_TYPE, 0x200);
+        memory.putInt(NPC_MULTI_TYPE + map.offset("NpcType.id"), 3100);
+        memory.putSsoString(NPC_MULTI_TYPE + map.offset("NpcType.name"), "null");
+        memory.putByte(NPC_MULTI_TYPE + map.offset("NpcType.isFollower"), 1);
+        memory.putLong(NPC_MULTI_TYPE + map.offset("NpcType.multiCount"), 3);
+        memory.putLong(NPC_MULTI_TYPE + map.offset("NpcType.multi"), NPC_MULTI_CHILDREN);
+        memory.putInt(NPC_MULTI_TYPE + map.offset("NpcType.multiVarbit"), 2);
+        memory.putInt(NPC_MULTI_TYPE + map.offset("NpcType.multiVarp"), -1);
+        memory.alloc(NPC_MULTI_CHILDREN, 12);
+        memory.putInt(NPC_MULTI_CHILDREN, 3029);
+        memory.putInt(NPC_MULTI_CHILDREN + 4, 3030);
+        memory.putInt(NPC_MULTI_CHILDREN + 8, -1);
+
+        // Player 7, Zezima: name pair behind a pointer at Player+0x718
+        buildPlayer(PLAYER, PLAYER_NAME, 7, "Zezima", "zezima", 3221, 3218);
+        memory.putInt(PLAYER + map.offset("Actor.pathLength"), 3);
+        memory.putInt(PLAYER + map.offset("Actor.fineX"), 2 * 128 + 32);
+        memory.putInt(PLAYER + map.offset("Actor.fineZ"), 3 * 128 + 96);
+        buildPlayer(player(9), player(9) + 0x1000, 9, "Bob", "bob", 3225, 3218);
+        buildPlayer(player(10), player(10) + 0x1000, 10, "Troll", "troll", 3226, 3218);
+        memory.putInt(player(9) + map.offset("Player.friendState"), 0); // not worked out: found in the friend list
+        memory.putInt(player(10) + map.offset("Player.friendState"), 2);
     }
 
-    /** Attack 99, Hitpoints 10 boosted to 12; the rest level 1. */
+    private static long player(int index) {
+        return index == 7 ? PLAYER : PLAYER + index * 0x10000L;
+    }
+
+    private void buildPlayer(long player, long name, int index, String display, String normalized, int x, int z) {
+        memory.alloc(player, 0x7b0);
+        memory.putInt(player + map.offset("Actor.pathX"), x);
+        memory.putInt(player + map.offset("Actor.pathZ"), z);
+        memory.putByte(player + map.offset("Actor.render2D"), 1);
+        memory.putInt(player + map.offset("Player.index"), index);
+        memory.putInt(player + map.offset("Player.level"), 0);
+        memory.alloc(name, 0x30);
+        memory.putLong(player + map.offset("Player.name"), name);
+        memory.putSsoString(name + map.offset("PlayerName.display"), display);
+        memory.putSsoString(name + map.offset("PlayerName.normalized"), normalized);
+    }
+
+    /**
+     * One health bar (head bar type 0, 300 cycles) with one update at cycle 100 showing 0/0: current at cycle 150, so
+     * the bar is rendered and empty.
+     *
+     * @param actor the NPC or player to give the bar to
+     */
+    private void buildHeadbar(long actor) {
+        int next = map.container("list.node.next");
+        int prev = map.container("list.node.prev");
+        int value = map.container("list.node.value");
+        long sentinel = actor + map.offset("Actor.headbars");
+        memory.putLong(sentinel + next, HEADBAR_NODE);
+        memory.putLong(sentinel + prev, HEADBAR_NODE);
+        memory.putLong(actor + map.offset("Actor.headbarCount"), 1);
+        memory.alloc(HEADBAR_NODE, 0x20);
+        memory.putLong(HEADBAR_NODE + next, sentinel);
+        memory.putLong(HEADBAR_NODE + prev, sentinel);
+        memory.putLong(HEADBAR_NODE + value, HEADBAR);
+
+        memory.alloc(HEADBAR, 0x40);
+        memory.putLong(HEADBAR + map.offset("Headbar.type"), HEADBAR_TYPE);
+        long updates = HEADBAR + map.offset("Headbar.updates");
+        memory.putLong(updates + next, HEADBAR_UPDATE_NODE);
+        memory.putLong(updates + prev, HEADBAR_UPDATE_NODE);
+        memory.putLong(HEADBAR + map.offset("Headbar.updateCount"), 1);
+        memory.alloc(HEADBAR_TYPE, 0x40);
+        memory.putInt(HEADBAR_TYPE + map.offset("HeadbarType.id"), 0);
+        memory.putInt(HEADBAR_TYPE + map.offset("HeadbarType.duration"), 300);
+        memory.alloc(HEADBAR_UPDATE_NODE, 0x20);
+        memory.putLong(HEADBAR_UPDATE_NODE + next, updates);
+        memory.putLong(HEADBAR_UPDATE_NODE + prev, updates);
+        memory.putLong(HEADBAR_UPDATE_NODE + value, HEADBAR_UPDATE);
+        memory.alloc(HEADBAR_UPDATE, 0x10);
+        memory.putInt(HEADBAR_UPDATE + map.offset("HeadbarEntry.cycle"), 100);
+        memory.putInt(HEADBAR_UPDATE + map.offset("HeadbarEntry.health"), 0);
+        memory.putInt(HEADBAR_UPDATE + map.offset("HeadbarEntry.health2"), 0);
+        memory.putInt(HEADBAR_UPDATE + map.offset("HeadbarEntry.cycleOffset"), 0);
+    }
+
+    /**
+     * Attack 99, Hitpoints 10 boosted to 12; the rest level 1.
+     */
     private void buildStats() {
         setStatsSent(true);
         int count = map.offset("Client.skillIndexMax");
@@ -184,16 +428,28 @@ public final class GameFixture {
         setStat(3, 1_154, 12, 10);
     }
 
-    /** 64 varps (varp n = n * 10); varcs 10 = 42, 20 = "hello", 30 = -5; world flags 0. */
+    /**
+     * 64 varps (varp n = n * 10, except varp 12 = 6, the follower slot); varcs 10 = 42, 20 = "hello", 30 = -5; world
+     * flags 0 (a free world).
+     */
     private void buildVars() {
         memory.alloc(MODULE_BASE + map.global("varps"), 8);
         memory.alloc(VARPS, VARP_COUNT * 4);
         memory.putLong(MODULE_BASE + map.global("varps"), VARPS);
+        memory.alloc(MODULE_BASE + map.global("varpsBits"), 8);
+        memory.alloc(VARP_BITS, VARP_COUNT * 4);
+        memory.putLong(MODULE_BASE + map.global("varpsBits"), VARP_BITS);
         memory.alloc(MODULE_BASE + map.global("varpCount"), 4);
         memory.putInt(MODULE_BASE + map.global("varpCount"), VARP_COUNT);
         for (int id = 0; id < VARP_COUNT; id++) {
             setVarp(id, id * 10);
         }
+        setVarp(12, 6);
+
+        memory.alloc(FOLLOWER_VARPS, 4);
+        memory.putInt(FOLLOWER_VARPS, 12);
+        memory.putLong(CLIENT + map.offset("Client.followerVarps"), FOLLOWER_VARPS);
+        memory.putLong(CLIENT + map.offset("Client.followerVarpsEnd"), FOLLOWER_VARPS + 4);
 
         int stride = map.offset("VarcEntry.size");
         memory.putLong(CLIENT + map.offset("Client.varcs"), VARC_STORE);
@@ -218,6 +474,41 @@ public final class GameFixture {
         memory.putInt(entry + map.offset("VarcEntry.key"), id);
         memory.putSsoString(entry + map.offset("VarcEntry.value"), value);
         memory.putByte(entry + map.offset("VarcEntry.type"), 2);
+    }
+
+    /**
+     * The friend list holds Bob (online on world 301); the ignore list holds Troll.
+     */
+    private void buildFriends() {
+        memory.alloc(FRIEND_MANAGER, 0x200);
+        memory.putLong(CLIENT + map.offset("Client.friendManager"), FRIEND_MANAGER);
+        memory.alloc(NAME_LISTS, 0x1000);
+        long friend = NAME_LISTS + 0x800;
+        memory.putInt(friend + map.offset("Friend.world"), 301);
+        nameList(FRIEND_MANAGER + map.offset("FriendManager.friends"), NAME_LISTS, "Bob", "bob", friend);
+        nameList(FRIEND_MANAGER + map.offset("FriendManager.ignores"), NAME_LISTS + 0x100, "Troll", "troll", 0);
+    }
+
+    /**
+     * A name list whose current-names table holds one node; its previous-names table is empty.
+     *
+     * @param list       address of the name list (embedded in the friend manager)
+     * @param space      scratch memory for the table's bucket and node
+     * @param display    the name as shown
+     * @param normalized the name the list is keyed by
+     * @param value      the node's value (a Friend for the friend list, 0 otherwise)
+     */
+    private void nameList(long list, long space, String display, String normalized, long value) {
+        long buckets = space;
+        long node = space + 0x10;
+        long table = list + map.offset("NameList.byName");
+        memory.putLong(table + map.container("hash_map.buckets"), buckets);
+        memory.putLong(table + map.container("hash_map.bucketCount"), 1);
+        memory.putLong(buckets, node);
+        memory.putSsoString(node + map.offset("PlayerName.display"), display);
+        memory.putSsoString(node + map.offset("PlayerName.normalized"), normalized);
+        memory.putLong(node + map.offset("NameNode.value"), value);
+        memory.putLong(node + map.offset("NameNode.next"), 0);
     }
 
     /**
@@ -257,5 +548,80 @@ public final class GameFixture {
         memory.putLong(node + map.offset("Inventory.countsEnd"), counts);
         invNodes.put(id, node);
         return node;
+    }
+
+    /**
+     * Varbits 0 (varp 10 bits 0-3), 1 (varp 10 bits 4-7), 2 (varp 11 bit 0) and 4 (varp 12 bits 0-15), id 3 without a
+     * file; inventories 93 (28 slots) and 94 (14); items 995 Coins (stacks), 1511 Logs (cost 4) and 4151 Abyssal whip
+     * (members); NPC types 3029 Goblin and 3030 Goblin chief; loc 1234, a ground decoration raising the ground by 10.
+     */
+    private void buildConfigs() {
+        memory.alloc(MODULE_BASE + map.global("configCache"), 8);
+        memory.putLong(MODULE_BASE + map.global("configCache"), ARCHIVE);
+        memory.alloc(ARCHIVE, 0x100);
+        Map<Integer, byte[]> varbits = configFiles.computeIfAbsent(14, g -> new TreeMap<>());
+        varbits.put(0, ConfigFile.varbit(10, 0, 3));
+        varbits.put(1, ConfigFile.varbit(10, 4, 7));
+        varbits.put(2, ConfigFile.varbit(11, 0, 0));
+        varbits.put(4, ConfigFile.varbit(12, 0, 15));
+        Map<Integer, byte[]> invs = configFiles.computeIfAbsent(5, g -> new TreeMap<>());
+        invs.put(93, new ConfigFile().op(2).g2(28).end());
+        invs.put(94, new ConfigFile().op(2).g2(14).end());
+        Map<Integer, byte[]> objs = configFiles.computeIfAbsent(10, g -> new TreeMap<>());
+        objs.put(995, new ConfigFile().op(2).str("Coins").op(11).op(12).g4(1).end());
+        objs.put(1511, new ConfigFile().op(2).str("Logs").op(12).g4(4).op(32).str("Light").end());
+        objs.put(4151, new ConfigFile().op(2).str("Abyssal whip").op(12).g4(120_001).op(16).end());
+        Map<Integer, byte[]> npcs = configFiles.computeIfAbsent(9, g -> new TreeMap<>());
+        npcs.put(3029, new ConfigFile().op(2).str("Goblin").op(18).g2(311).end());
+        npcs.put(3030, new ConfigFile().op(2).str("Goblin chief").end());
+        Map<Integer, byte[]> locs = configFiles.computeIfAbsent(6, g -> new TreeMap<>());
+        locs.put(DECOR_LOC, new ConfigFile().op(2).str("Daisies").op(96).g1(DECOR_OFFSET).end());
+        writeArchive();
+    }
+
+    /**
+     * Lays the archive's group and file tables out from {@link #configFiles} (fresh memory each time).
+     */
+    private void writeArchive() {
+        int groupStride = map.offset("Js5Group.size");
+        int fileStride = map.offset("Js5File.size");
+        long groups = heap(CONFIG_GROUPS * groupStride);
+        memory.putLong(ARCHIVE + map.offset("Js5Archive.groupCount"), CONFIG_GROUPS);
+        memory.putLong(ARCHIVE + map.offset("Js5Archive.groups"), groups);
+        for (int g = 0; g < CONFIG_GROUPS; g++) {
+            long group = groups + (long) g * groupStride;
+            TreeMap<Integer, byte[]> files = configFiles.get(g);
+            if (files == null) {
+                memory.putInt(group + map.offset("Js5Group.version"), -1);
+                continue;
+            }
+            int count = files.lastKey() + 1;
+            long table = heap(count * fileStride);
+            memory.putInt(group + map.offset("Js5Group.version"), 1);
+            memory.putLong(group + map.offset("Js5Group.fileCount"), count);
+            memory.putLong(group + map.offset("Js5Group.files"), table);
+            for (int id = 0; id < count; id++) {
+                long entry = table + (long) id * fileStride;
+                byte[] data = files.get(id);
+                if (data == null) {
+                    memory.putLong(entry + map.offset("Js5File.start"), -1);
+                    continue;
+                }
+                long buffer = heap(0x20);
+                long bytes = heap(data.length);
+                memory.putBytes(bytes, data);
+                memory.putLong(buffer + map.offset("Packet.length"), data.length);
+                memory.putLong(buffer + map.offset("Packet.data"), bytes);
+                memory.putLong(entry + map.offset("Js5File.start"), 0);
+                memory.putLong(entry + map.offset("Js5File.buffer"), buffer);
+            }
+        }
+    }
+
+    private long heap(int size) {
+        long at = archiveHeap;
+        memory.alloc(at, Math.max(size, 1));
+        archiveHeap += (Math.max(size, 1) + 0xf) & ~0xfL;
+        return at;
     }
 }

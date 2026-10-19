@@ -22,7 +22,9 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** Drives the {@link EventPoller} over the {@link GameFixture}, changing the game between polls. */
+/**
+ * Drives the {@link EventPoller} over the {@link GameFixture}, changing the game between polls.
+ */
 class EventPollerTest {
 
     private GameFixture game;
@@ -151,7 +153,35 @@ class EventPollerTest {
         poller.poll();
         game.memory.putInt(GameFixture.WORLD + game.map.offset("World.npcIndexCount"), 1);
         poller.poll();
-        assertEquals(List.of("unload Goblin 5", "load Goblin 5"), seen);
+        // NPC 6 (a multi-NPC currently showing as a Goblin) leaves too; only index 5 is first in the list
+        assertEquals(List.of("unload Goblin 5", "unload Goblin 6", "load Goblin 5"), seen);
+    }
+
+    @Test
+    void varbitUpdatesFireForEachChangedVarbitBeforeTheVarpTransmit() {
+        List<String> seen = new ArrayList<>();
+        events.subscribe(Events.ON_VARBIT_UPDATE, (id, value) -> seen.add("varbit " + id + " = " + value));
+        events.subscribe(Events.ON_VAR_TRANSMIT, ids -> seen.add("varps " + java.util.Arrays.toString(ids)));
+        poller.poll();
+
+        game.setVarp(10, 0x35); // was 0x64: varbit 0 (bits 0-3) 4 -> 5, varbit 1 (bits 4-7) 6 -> 3
+        poller.poll();
+        assertEquals(List.of("varbit 0 = 5", "varbit 1 = 3", "varps [10]"), seen);
+
+        seen.clear();
+        game.setVarp(10, 0x135); // only bit 8 changes: no varbit on varp 10 covers it
+        poller.poll();
+        assertEquals(List.of("varps [10]"), seen);
+    }
+
+    @Test
+    void varbitUpdatesFollowTheServersVarps() {
+        List<Integer> seen = new ArrayList<>();
+        events.subscribe(Events.ON_VARBIT_UPDATE, (id, value) -> seen.add(id));
+        poller.poll();
+        game.setVarpBits(10, 0); // a client-side change: the client doesn't fire for these
+        poller.poll();
+        assertTrue(seen.isEmpty());
     }
 
     @Test

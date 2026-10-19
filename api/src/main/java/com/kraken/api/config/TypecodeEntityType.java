@@ -1,6 +1,8 @@
 package com.kraken.api.config;
 
-/** Mirrors the Lua {@code osrs.TypecodeEntityType} enum: the kind of entity a type or typecode describes. */
+/**
+ * Mirrors the Lua {@code osrs.TypecodeEntityType} enum: the kind of entity a type or typecode describes.
+ */
 public enum TypecodeEntityType {
     INVALID(-1), PLAYER(0), NPC(1), LOC(2), OBJ(3);
 
@@ -10,12 +12,21 @@ public enum TypecodeEntityType {
         this.value = value;
     }
 
-    /** The value in the Lua API. */
+    /**
+     * The value in the Lua API.
+     *
+     * @return the enum's number in Lua (-1 for {@link #INVALID})
+     */
     public int value() {
         return value;
     }
 
-    /** The entity type with this value, or {@link #INVALID}. */
+    /**
+     * The entity type with a Lua value.
+     *
+     * @param value the number in the Lua API
+     * @return the matching entity type, or {@link #INVALID} if no type has that value
+     */
     public static TypecodeEntityType of(int value) {
         for (TypecodeEntityType type : values()) {
             if (type.value == value) {

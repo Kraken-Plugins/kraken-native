@@ -35,10 +35,10 @@ Use at your own risk. The developers are not responsible for any consequences re
 | [`client/`](client) | Proof of concept | Java 17 Swing client that launches `osclient.exe` and embeds its window, with a RuneLite-style sidebar and log console |
 | [`updater/`](updater) | Working | Python updater that maps a client build and writes the API's `mappings/<version>.json` |
 | [`api/src/main/resources/mappings/`](api/src/main/resources/mappings) | Seed build | One mapping per client version (e.g. `241.3.json`): the offsets the API reads, nothing else. Bundled on the API's classpath |
-| [`api/`](api) | In progress | Java mirror of the Lua plugin API (`ClientOp`, `ClientState`, `Events`), read from outside the process; see [lua-api-coverage.md](docs/lua-api-coverage.md) |
+| [`api/`](api) | In progress | Java mirror of the Lua plugin API (`ClientOp`, `ClientState`, `Events`, `Engine`, the entity objects and config types), read from outside the process; see [lua-api-coverage.md](docs/lua-api-coverage.md) |
 | [`docs/`](docs) | | Design documents for the client surface, updater and API |
 
-The seed build, client 241.3, maps 202 of 209 keys as PROVEN or ANCHORED (the other 7 are INFERRED), with none failed.
+The seed build, client 241.3, maps 253 of 260 keys as PROVEN or ANCHORED (the other 7 are INFERRED), with none failed.
 [lua-api-coverage.md](docs/lua-api-coverage.md) tracks which Lua functions the API mirrors and what the rest need.
 
 ## Prerequisites

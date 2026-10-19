@@ -25,6 +25,27 @@ keys:
     priority: P1
     strategies:
       - extractor: { name: scene_grid, field: Scene.bridgeTiles, cls: A }
+  # Ground heights (FineCoord.y): corner heights are levels x (sizeX+1) x (sizeZ+1) ints; a tile whose level-1 setting
+  # has bit 2 (under a bridge) takes its heights from the level above.
+  - key: Scene.levels
+    type: i32
+    priority: P1
+    doc: Number of levels (planes) the scene holds; the height lookup checks the plane against it.
+    strategies:
+      - getter: { in: "@TileHeight", base: { field: { of: arg0, key: World.scene } }, load: i32, select: { cmp_with: { arg: 3 } } }
+  - key: Scene.heights
+    type: ptr<i32[]>
+    priority: P1
+    doc: "Corner heights: index ((level * (sizeX + 1)) + x) * (sizeZ + 1) + z; more negative is higher."
+    strategies:
+      - getter: { in: "@TileCornerHeight", base: arg0, load: ptr, select: { index_uses: { arg: 1 } } }
+  - key: Scene.tileSettings
+    type: ptr<u8[]>
+    priority: P1
+    doc: "Per-tile setting bytes, index (level * sizeX + x) * sizeZ + z; bit 2 on level 1 marks a bridge."
+    strategies:
+      - getter: { in: "@TileBridgeCheck", base: arg1, load: ptr }
+
   - key: Scene.tileEntryStride
     type: const
     priority: P0

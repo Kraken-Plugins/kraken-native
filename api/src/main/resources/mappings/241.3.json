@@ -28,6 +28,11 @@
       "worlds.map": "0xc9d0",
       "topLevelWorld": "0xca80",
       "localPlayerIndex": "0xcc4c",
+      "localPlayerWorldId": "0xcc50",
+      "followerVarps": "0xcc58",
+      "followerVarpsEnd": "0xcc60",
+      "friendManager": "0x4800",
+      "friendsChat": "0x4748",
       "playerIndexCount": "0xccd0",
       "playerIndices": "0xccd4",
       "camera.pos": "0x895c8",
@@ -74,8 +79,10 @@
       "pathX": "0x3f0",
       "pathZ": "0x418",
       "worldId": "0x4a0",
-      "interactingValid": "0x3a7",
+      "interactingType": "0x3a7",
       "interacting": "0x3a8",
+      "hidden": "0x1c",
+      "render2D": "0x3a0",
       "headbars": "0x388",
       "headbarCount": "0x398",
       "anim": "0x4d8",
@@ -84,7 +91,7 @@
       "animLoop": "0x4e0",
       "animState": "0x4c8",
       "orientationCandidate": "0x494",
-      "orientationSourceCandidate": "0x3ec",
+      "pathLength": "0x3ec",
       "poseAnims": "0x280",
       "poseAnimCount": "0xf",
       "defaultHeight": "0x49c",
@@ -92,9 +99,20 @@
       "turnSpeed": "0x3e8",
       "name": "0x710"
     },
+    "Headbar": {
+      "type": "0x8",
+      "updates": "0x10",
+      "updateCount": "0x20"
+    },
+    "HeadbarType": {
+      "id": "0x0",
+      "duration": "0x18"
+    },
     "HeadbarEntry": {
-      "a": "0x4",
-      "b": "0x8"
+      "cycle": "0x0",
+      "health": "0x4",
+      "health2": "0x8",
+      "cycleOffset": "0xc"
     },
     "SeqType": {
       "priority": "0xc8",
@@ -102,7 +120,7 @@
     },
     "Npc": {
       "type": "0x730",
-      "uidLow": "0x738",
+      "index": "0x738",
       "spawnCycle": "0x73c"
     },
     "NpcType": {
@@ -110,13 +128,48 @@
       "size": "0x20",
       "name": "0x8",
       "type": "0x94",
-      "ops": "0x100"
+      "ops": "0x100",
+      "isFollower": "0x15a",
+      "multiCount": "0x140",
+      "multi": "0x148",
+      "multiVarbit": "0x150",
+      "multiVarp": "0x154"
+    },
+    "Player": {
+      "name": "0x718",
+      "level": "0x798",
+      "index": "0x79c",
+      "friendState": "0x7a0",
+      "friendChatState": "0x7a4",
+      "groupState": "0x7a8"
+    },
+    "PlayerName": {
+      "display": "0x0",
+      "normalized": "0x18"
+    },
+    "FriendManager": {
+      "friends": "0x8",
+      "ignores": "0xb8"
+    },
+    "NameList": {
+      "byName": "0x28",
+      "byPrevName": "0x58"
+    },
+    "NameNode": {
+      "value": "0x30",
+      "next": "0x38"
+    },
+    "Friend": {
+      "world": "0x68"
     },
     "Scene": {
       "sizeX": "0x948",
       "sizeZ": "0x94c",
       "tiles": "0x968",
       "bridgeTiles": "0x980",
+      "levels": "0x944",
+      "heights": "0x3d0",
+      "tileSettings": "0x400",
       "tileEntryStride": "0x10",
       "tileEntryPtrOffset": "0x8",
       "collisionMaps": "0x2f8"
@@ -154,6 +207,14 @@
       "counts": "0x20",
       "countsEnd": "0x28"
     },
+    "IfGroupNode": {
+      "key": "0x0",
+      "next": "0x28",
+      "value": "0x4"
+    },
+    "CollisionMapRecord": {
+      "stride": "0x28"
+    },
     "Js5Archive": {
       "groupCount": "0x28",
       "groups": "0x30"
@@ -173,14 +234,6 @@
       "length": "0x8",
       "data": "0x10",
       "pos": "0x18"
-    },
-    "IfGroupNode": {
-      "key": "0x0",
-      "next": "0x28",
-      "value": "0x4"
-    },
-    "CollisionMapRecord": {
-      "stride": "0x28"
     },
     "IfType": {
       "subId": "0x8",
@@ -263,6 +316,8 @@
       "ctrl.useCount": "0x8"
     },
     "list": {
+      "node.next": "0x0",
+      "node.prev": "0x8",
       "node.value": "0x18"
     },
     "string": {

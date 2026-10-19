@@ -1,9 +1,11 @@
 package com.kraken.api;
 
+import com.kraken.api.config.ConfigTypes;
 import com.kraken.api.events.EventPoller;
 import com.kraken.api.events.Events;
 import com.kraken.api.game.Client;
 import com.kraken.api.game.ClientState;
+import com.kraken.api.game.Engine;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.api.memory.MemoryException;
 import com.kraken.api.memory.ProcessMemory;
@@ -33,8 +35,10 @@ public final class KrakenApi implements AutoCloseable {
 
     private final ProcessMemory memory;
     private final Mapping mapping;
+    private final ConfigTypes configs;
     private final Client client;
     private final ClientState clientState;
+    private final Engine engine;
     private final Events events = new Events();
     private final EventPoller poller;
 
@@ -50,8 +54,10 @@ public final class KrakenApi implements AutoCloseable {
     private KrakenApi(ProcessMemory memory, Mapping mapping) {
         this.memory = memory;
         this.mapping = mapping;
-        this.client = new Client(memory, mapping);
-        this.clientState = new ClientState(memory, mapping);
+        this.configs = new ConfigTypes(memory, mapping);
+        this.client = new Client(memory, mapping, configs);
+        this.clientState = new ClientState(memory, mapping, configs);
+        this.engine = new Engine(client);
         this.poller = new EventPoller(events, client, clientState);
         for (String problem : Events.verify(mapping)) {
             log.warning("Event enum mismatch: " + problem);
@@ -64,6 +70,8 @@ public final class KrakenApi implements AutoCloseable {
      *
      * @param pid the {@code osclient.exe} process id
      * @param exe path to that binary on disk (its version picks the mapping; its hash must match it)
+     * @return the attached API; {@link #start} its poll loop to get events
+     * @throws IOException               if the exe or the mapping can't be read
      * @throws UnsupportedBuildException if there is no mapping for the version, or it was made from another binary
      * @throws MemoryException           if the process cannot be opened
      */
@@ -80,6 +88,14 @@ public final class KrakenApi implements AutoCloseable {
     /**
      * Like {@link #attach(long, Path)}, but reads {@code <mappingsDir>/<version>.json} from disk instead of the
      * bundled mapping, e.g. to try a mapping the updater wrote somewhere else.
+     *
+     * @param pid         the {@code osclient.exe} process id
+     * @param exe         path to that binary on disk (its version picks the mapping; its hash must match it)
+     * @param mappingsDir folder holding {@code <version>.json} mappings
+     * @return the attached API; {@link #start} its poll loop to get events
+     * @throws IOException               if the exe or the mapping can't be read
+     * @throws UnsupportedBuildException if the folder has no mapping for the version, or it was made from another binary
+     * @throws MemoryException           if the process cannot be opened
      */
     public static KrakenApi attach(long pid, Path exe, Path mappingsDir) throws IOException {
         ClientBuild build = ClientBuild.of(exe);
@@ -101,17 +117,47 @@ public final class KrakenApi implements AutoCloseable {
         return new KrakenApi(memory, mapping);
     }
 
-    /** Mirrors {@code osrs.ClientOp}: players, NPCs and inventories. */
+    /**
+     * Mirrors {@code osrs.ClientOp}.
+     *
+     * @return the reader for players, NPCs, inventories and item definitions
+     */
     public Client client() {
         return client;
     }
 
-    /** Mirrors {@code osrs.ClientState}: stats, vars, the tick, login state and profile type. */
+    /**
+     * Mirrors {@code osrs.ClientState}.
+     *
+     * @return the reader for stats, vars, the tick, login state and profile type
+     */
     public ClientState clientState() {
         return clientState;
     }
 
-    /** Mirrors {@code osrs.Events}: subscribe to game events. */
+    /**
+     * Mirrors {@code osrs.Engine}'s config decoders.
+     *
+     * @return the decoder for item, NPC and loc definitions by id
+     */
+    public Engine engine() {
+        return engine;
+    }
+
+    /**
+     * The config types (definitions) every reader shares, with their cache. Not a Lua namespace.
+     *
+     * @return the shared config type reader
+     */
+    public ConfigTypes configs() {
+        return configs;
+    }
+
+    /**
+     * Mirrors {@code osrs.Events}.
+     *
+     * @return the event bus to subscribe to game events on
+     */
     public Events events() {
         return events;
     }
@@ -124,7 +170,9 @@ public final class KrakenApi implements AutoCloseable {
         return memory.isValid();
     }
 
-    /** Starts the background poll loop. Idempotent. */
+    /**
+     * Starts the background poll loop. Idempotent.
+     */
     public synchronized void start() {
         if (running) {
             return;

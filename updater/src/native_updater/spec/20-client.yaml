@@ -150,6 +150,41 @@ keys:
     live: localPlayer
     strategies:
       - getter: { in: ClientOp.playerFindSelf, base: client, load: i32, select: { compared_with: 0 } }
+  - key: Client.localPlayerWorldId
+    type: i32
+    priority: P1
+    doc: Id (Client.worlds.map key) of the world the local player is in; ClientOp.coord/coordFine look the player up there.
+    strategies:
+      - getter: { in: "@LocalPlayerWorld", base: arg0, load: i32, select: { passed_to: { arg: 1 } } }
+
+  # Follower slots: varp ids the server marks as follower varps (the client collects them as they arrive). An NPC is
+  # the local player's follower when one of those varps holds its index in the low 16 bits.
+  - key: Client.followerVarps
+    type: eastl.vector<i32>.begin
+    priority: P1
+    strategies:
+      - getter: { in: "@LocalFollowerCheck", base: arg0, load: ptr, select: { used_as_base: true } }
+  - key: Client.followerVarpsEnd
+    type: eastl.vector<i32>.end
+    priority: P1
+    strategies:
+      - getter: { in: "@LocalFollowerCheck", base: arg0, load: ptr, select: { cmp_with: { key: Client.followerVarps } } }
+    invariants:
+      - equals: "Client.followerVarps + 8"
+
+  - key: Client.friendManager
+    type: ptr<FriendManager>
+    priority: P1
+    doc: Holds the friend list (FriendManager.friends) and ignore list (FriendManager.ignores).
+    strategies:
+      - getter: { in: osrs.Player.isIgnored, base: client, load: ptr, select: { passed_to: { fn: "@NameListContains", arg: 0 } } }
+      - getter: { in: "@PlayerFriendCompute", base: client, load: ptr, select: { passed_to: { fn: "@FriendListFind", arg: 0 } } }
+  - key: Client.friendsChat
+    type: ptr<NameList>
+    priority: P1
+    doc: Members of the friends chat the local player is in; 0 when not in one.
+    strategies:
+      - getter: { in: "@PlayerFriendChatCompute", base: client, load: ptr, select: { passed_to: { fn: "@NameTableFind", arg: 0 } } }
   - key: Client.playerIndexCount
     type: i32
     priority: P0

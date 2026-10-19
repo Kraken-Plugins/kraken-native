@@ -96,8 +96,6 @@ public abstract class DevTool<S> {
         return (overlayOn && overlaySupport() == Support.READY) || view != null;
     }
 
-    // ---- for subclasses --------------------------------------------------------------------------
-
     /** Declares an option. Call from the constructor; the order is the order shown in the sidebar. */
     protected final ToolOption option(String key, String label, boolean defaultValue) {
         ToolOption option = new ToolOption(key, label, defaultValue);
@@ -133,8 +131,6 @@ public abstract class DevTool<S> {
         int self = client.getLocalPlayerIndex();
         return self < 0 ? null : client.playerCoord(self);
     }
-
-    // ---- for DevToolManager ----------------------------------------------------------------------
 
     final void setOverlayOn(boolean on) {
         overlayOn = on;

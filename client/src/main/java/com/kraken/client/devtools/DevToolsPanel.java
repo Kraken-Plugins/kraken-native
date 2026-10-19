@@ -203,7 +203,11 @@ public final class DevToolsPanel extends JPanel {
         }
     }
 
-    /** Poll thread: reads the facts card while this page is on screen. */
+    /**
+     * Poll thread: reads the facts card while this page is on screen.
+     *
+     * @param api the attached API
+     */
     private void readFacts(KrakenApi api) {
         if (!showing) {
             return;
@@ -212,9 +216,10 @@ public final class DevToolsPanel extends JPanel {
         int state = clientState.getGameState();
         int tick = clientState.getTickCount();
         Player local = api.client().getLocalPlayer();
-        MapCoord at = local == null ? null : local.location();
+        MapCoord at = local == null ? null : local.getCoord();
         String game = clientState.isLoggedIn() ? "Logged in" : "Not logged in (" + state + ")";
-        String player = local == null || local.name().isEmpty() ? "–" : local.name();
+        String name = local == null ? "" : local.getName();
+        String player = name.isEmpty() ? "–" : name;
         String tile = at == null ? "–" : at.x() + ", " + at.z() + ", " + at.level();
         SwingUtilities.invokeLater(() -> {
             gameValue.setText(game);
@@ -240,7 +245,9 @@ public final class DevToolsPanel extends JPanel {
         return row;
     }
 
-    /** A status light, as tall as a line of small text so it lines up with the first line. */
+    /**
+     * A status light, as tall as a line of small text so it lines up with the first line.
+     */
     private record Dot(Color color) implements Icon {
         @Override
         public void paintIcon(Component c, Graphics g, int x, int y) {
@@ -262,7 +269,9 @@ public final class DevToolsPanel extends JPanel {
         }
     }
 
-    /** Scroll view that always fits the sidebar's width, so rows wrap instead of scrolling sideways. */
+    /**
+     * Scroll view that always fits the sidebar's width, so rows wrap instead of scrolling sideways.
+     */
     private static final class ScrollablePanel extends JPanel implements Scrollable {
         ScrollablePanel() {
             super(new BorderLayout());

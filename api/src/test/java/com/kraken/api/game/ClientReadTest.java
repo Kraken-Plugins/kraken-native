@@ -33,8 +33,8 @@ class ClientReadTest {
 
     @Test
     void listsLoadedEntities() {
-        assertArrayEquals(new int[]{5}, client.getNpcIdAll());
-        assertArrayEquals(new int[]{7}, client.getPlayerIdAll());
+        assertArrayEquals(new int[]{5, 6}, client.getNpcIdAll());
+        assertArrayEquals(new int[]{7, 9, 10}, client.getPlayerIdAll());
     }
 
     @Test
@@ -45,7 +45,7 @@ class ClientReadTest {
 
         Npc npc = client.getNpcObj(5);
         assertNotNull(npc);
-        assertEquals("Goblin", npc.name());
+        assertEquals("Goblin", npc.getName());
         assertEquals(5, npc.index());
     }
 
@@ -56,7 +56,7 @@ class ClientReadTest {
 
         Player local = client.getLocalPlayer();
         assertNotNull(local);
-        assertEquals("Zezima", local.name());
+        assertEquals("Zezima", local.getName());
         assertEquals(7, local.index());
     }
 

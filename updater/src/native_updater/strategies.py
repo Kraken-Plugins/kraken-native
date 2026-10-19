@@ -12,7 +12,12 @@
 
 Selectors for `getter` (all optional, combined with AND):
   nth, stored_to {arg, offset}, returned, passed_to {fn, arg, indirect}, compared_with N, used_in_cmp, used_as_base,
-  used_as_index_base, indexed, index_scale N, deref_off N, combined_with {key}, min, max
+  used_as_index_base, indexed, index_scale N, deref_off N, combined_with {key}, cmp_with {arg | key}, index_uses {arg},
+  min, max
+
+  cmp_with {arg: N}      the value is compared directly with argument N (e.g. the plane checked against a level count)
+  cmp_with {key: K}      ... with the field at value(K) of the same base, e.g. a vector's end compared with its begin
+  index_uses {arg: N}    the value is the base pointer of an indexed load whose index involves argument N
 """
 from . import roles
 from .analysis.bindings import select_enum_table
@@ -149,6 +154,20 @@ def _selectors_ok(session, facts, v, sel):
         if sel.get("used_as_index_base") and not any(d.index is not None for d in derefs):
             return False
         if "deref_off" in sel and not any(d.off == sel["deref_off"] for d in derefs):
+            return False
+    if "cmp_with" in sel:
+        t = sel["cmp_with"]
+        if "arg" in t:
+            other_ok = lambda o: o == Arg(t["arg"])
+        else:
+            other_off = session.value(t["key"])
+            other_ok = lambda o: any(isinstance(x, Deref) and x.base == v.base and x.off == other_off and x.index is None
+                                     and x.off != v.off for x in walk(o))
+        if not any((_direct(c.a, v) and other_ok(c.b)) or (_direct(c.b, v) and other_ok(c.a)) for c in facts.cmps):
+            return False
+    if "index_uses" in sel:
+        arg = Arg(sel["index_uses"]["arg"])
+        if not any(d.index is not None and contains(d.base, v) and contains(d.index, arg) for d, _ in facts.derefs()):
             return False
     if "combined_with" in sel:
         other_off = session.value(sel["combined_with"]["key"])

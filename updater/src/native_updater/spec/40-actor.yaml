@@ -41,10 +41,12 @@ keys:
     strategies:
       - getter: { in: "@ActorWorld", base: arg0, load: i32, select: { nth: 0 } }
 
-  - key: Actor.interactingValid
+  - key: Actor.interactingType
     type: u8
     priority: P0
     live: interacting
+    doc: What Actor.interacting refers to; 0 none, 1 an NPC index, 2 a player index, 3 a world entity id (the per-cycle
+      face-target code switches on it). isInteracting returns -1 when it is 0.
     strategies:
       - getter: { in: osrs.Entity.isInteracting, base: sp_result, load: u8, select: { nth: 0 } }
   - key: Actor.interacting
@@ -54,7 +56,21 @@ keys:
     strategies:
       - getter: { in: osrs.Entity.isInteracting, base: sp_result, load: i32, select: { returned: true } }
     invariants:
-      - adjacent: { key: Actor.interactingValid, delta: -1 }
+      - adjacent: { key: Actor.interactingType, delta: -1 }
+
+  - key: Actor.hidden
+    type: u8
+    priority: P1
+    doc: Nonzero hides the actor's model; osrs.Entity.render3D(b) writes !b here (isRendered3D reports the Lua object's
+      own copy of the flag).
+    strategies:
+      - getter: { in: osrs.Entity.render3D, base: sp_result, load: u8 }
+  - key: Actor.render2D
+    type: u8
+    priority: P1
+    doc: Nonzero draws the actor's 2D elements (name, head bars, overhead text); osrs.Entity.render2D(b) writes b here.
+    strategies:
+      - getter: { in: osrs.Entity.render2D, base: sp_result, load: u8 }
 
   - key: Actor.headbars
     type: eastl.list<jag.shared_ptr<Headbar>>
@@ -79,17 +95,62 @@ keys:
       - getter: { in: osrs.Entity.isHealthbarRendered, base: sp_result, load: i64, select: { compared_with: 0, min: 0x100 } }
     invariants:
       - equals: "Actor.headbars + 0x10"
-  - key: HeadbarEntry.a
+  # Each list element is a Headbar: its type and its own list of updates {cycle, health, health2, cycleOffset}. The
+  # update showing now is the last whose cycle has started, while cycle + cycleOffset + HeadbarType.duration is ahead.
+  - key: Headbar.type
+    type: ptr<HeadbarType>
+    priority: P1
+    strategies:
+      - getter: { in: osrs.Entity.isHealthbarRendered, base: { field: { of: { field: { of: sp_result, key: Actor.headbars } }, key: container.list.node.value } }, load: ptr, select: { used_as_base: true } }
+  - key: HeadbarType.id
     type: i32
     priority: P1
-    doc: First of the two ints isHeadbarEmpty tests for zero (ratio or scale).
+    doc: isHealthbarRendered is "some head bar has type 0" (the health bar).
+    strategies:
+      - getter: { in: osrs.Entity.isHealthbarRendered, base: { field: { of: { field: { of: { field: { of: sp_result, key: Actor.headbars } }, key: container.list.node.value } }, key: Headbar.type } }, load: i32, select: { compared_with: 0 } }
+  - key: HeadbarType.duration
+    type: i32
+    priority: P1
+    doc: Cycles an update stays up after its cycle and offset.
+    strategies:
+      - getter: { in: "@HeadbarUpdate", base: { field: { of: arg0, key: Headbar.type } }, load: i32 }
+  - key: Headbar.updates
+    type: eastl.list<jag.shared_ptr<HeadbarEntry>>
+    priority: P1
+    strategies:
+      - getter: { in: "@HeadbarUpdate", base: arg0, load: ptr, select: { sentinel: true } }
+  - key: Headbar.updateCount
+    type: i64
+    priority: P1
+    strategies:
+      - getter: { in: "@HeadbarUpdate", base: arg0, load: i64, select: { compared_with: 0 } }
+    invariants:
+      - equals: "Headbar.updates + 0x10"
+  - key: HeadbarEntry.cycle
+    type: i32
+    priority: P1
+    doc: Client cycle the update starts showing on (compared with the cycle argument).
+    strategies:
+      - getter: { in: "@HeadbarUpdate", base: { field: { of: { field: { of: arg0, key: Headbar.updates } }, key: container.list.node.value } }, load: i32, select: { cmp_with: { arg: 2 } } }
+  - key: HeadbarEntry.health
+    type: i32
+    priority: P1
+    doc: First of the two values isHeadbarEmpty tests for zero (the bar's fill).
     strategies:
       - getter: { in: osrs.Entity.isHeadbarEmpty, base: sp_result, load: i32, select: { compared_with: 0, nth: 0 } }
-  - key: HeadbarEntry.b
+  - key: HeadbarEntry.health2
     type: i32
     priority: P1
     strategies:
       - getter: { in: osrs.Entity.isHeadbarEmpty, base: sp_result, load: i32, select: { compared_with: 0, nth: 1 } }
+    invariants:
+      - equals: "HeadbarEntry.health + 4"
+  - key: HeadbarEntry.cycleOffset
+    type: i32
+    priority: P1
+    doc: Added to the update's cycle and the type's duration to decide whether it has expired.
+    strategies:
+      - getter: { in: "@HeadbarUpdate", base: { field: { of: { field: { of: any, key: container.list.node.prev } }, key: container.list.node.value } }, load: i32, select: { combined_with: { key: HeadbarEntry.cycle } } }
 
   - key: Actor.anim
     type: i32
@@ -133,14 +194,17 @@ keys:
   - key: Actor.orientationCandidate
     type: i32
     priority: P2
-    doc: Written from Actor.orientationSourceCandidate when an animation starts; semantics unconfirmed.
+    doc: Actor.pathLength as it was when the current animation started (setSequence copies it); what reads it is
+      unconfirmed, and the name is a leftover guess.
     strategies:
       - extractor: { name: set_sequence, field: Actor.orientationCandidate, cls: C }
-  - key: Actor.orientationSourceCandidate
+  - key: Actor.pathLength
     type: i32
-    priority: P2
+    priority: P1
+    doc: Steps queued on the actor's path (pathX/pathZ[0..len-1]); playerRouteLength returns it. 0 standing still.
     strategies:
-      - extractor: { name: set_sequence, field: Actor.orientationSourceCandidate, cls: C }
+      - getter: { in: ClientOp.playerRouteLength, base: sp_result, load: i32, select: { passed_to: { arg: 1, indirect: true } } }
+      - extractor: { name: set_sequence, field: Actor.pathLength, cls: C }
 
   - key: Actor.poseAnims
     type: i32[]
@@ -195,10 +259,10 @@ keys:
     live: npcType
     strategies:
       - getter: { in: ClientOp.npcTypeId, base: { field: { of: sp_result, key: Npc.type } }, load: i32, select: { nth: 0 } }
-  - key: Npc.uidLow
+  - key: Npc.index
     type: i32
     priority: P1
-    doc: "npcUid = typeId * 0x10000 + this"
+    doc: "The NPC's own index (its key in World.npcs); npcUid = typeId * 0x10000 + this."
     strategies:
       - getter: { in: ClientOp.npcUid, base: sp_result, load: i32, select: { nth: 0 } }
   - key: Npc.spawnCycle
@@ -228,3 +292,132 @@ keys:
     priority: P1
     strategies:
       - getter: { in: osrs.NpcType.getOps, base: sp_result, kind: addr, select: { nth: 0 } }
+  - key: NpcType.isFollower
+    type: u8
+    priority: P1
+    doc: osrs.Npc.isFollower reads it from the NPC's own (untransformed) type.
+    strategies:
+      - getter: { in: osrs.Npc.isFollower, base: { field: { of: node_value, key: Npc.type } }, load: u8 }
+
+  # Multi-NPC transforms: index = varbit's value (if multiVarbit != -1) else varpsBits[multiVarp] (if != -1) else -1;
+  # the child type is multi[index], or multi[count - 1] when the index is outside 0..count-2.
+  - key: NpcType.multiCount
+    type: i64
+    priority: P1
+    strategies:
+      - getter: { in: "@ActorNameGetter", base: { field: { of: arg0, key: Npc.type } }, load: i64, select: { compared_with: 0 } }
+  - key: NpcType.multi
+    type: ptr<i32[]>
+    priority: P1
+    strategies:
+      - getter: { in: "@MultiNpcResolve", base: arg0, load: ptr, select: { used_as_index_base: true } }
+    invariants:
+      - equals: "NpcType.multiCount + 8"
+  - key: NpcType.multiVarbit
+    type: i32
+    priority: P1
+    strategies:
+      - getter: { in: "@MultiNpcResolve", base: arg0, load: i32, select: { passed_to: { fn: "@VarbitRead", arg: 0 } } }
+  - key: NpcType.multiVarp
+    type: i32
+    priority: P1
+    doc: Tested for -1 right after multiVarbit.
+    strategies:
+      - getter: { in: "@MultiNpcResolve", base: arg0, load: i32, select: { compared_with: -1, nth: 1 } }
+    invariants:
+      - equals: "NpcType.multiVarbit + 4"
+
+  # Players. Player.name points at a pair of eastl::strings {display, normalised}; friend and ignore lists are keyed by
+  # the normalised one.
+  - key: Player.name
+    type: ptr<PlayerName>
+    priority: P1
+    strategies:
+      - getter: { in: ClientOp.playerName, base: sp_result, load: ptr, select: { passed_to: { arg: 1, indirect: true } } }
+      - getter: { in: osrs.Player.isIgnored, base: node_value, load: ptr, select: { passed_to: { fn: "@NameListContains", arg: 1 } } }
+  - key: PlayerName.display
+    type: eastl.string
+    priority: P1
+    strategies:
+      - extractor: { name: player_name_pair, field: PlayerName.display, cls: A }
+  - key: PlayerName.normalized
+    type: eastl.string
+    priority: P1
+    doc: Lower-cased name; getPlayerIdByName compares it with the lowered argument.
+    strategies:
+      - getter: { in: "@NameHash", base: arg0, kind: addr, select: { nth: 0 } }
+  - key: Player.level
+    type: i32
+    priority: P1
+    doc: The player's plane; ClientOp.coord returns it (npcCoord/playerCoord use their world's plane instead).
+    strategies:
+      - getter: { in: ClientOp.coord, base: { ret: "@LocalPlayer" }, load: i32, select: { stored_to: { arg: 0, offset: 0 } } }
+      - getter: { in: ClientOp.coordFine, base: { ret: "@LocalPlayer" }, load: i32, select: { passed_to: { fn: "@TileHeightEntry", arg: 0 } } }
+  - key: Player.index
+    type: i32
+    priority: P1
+    doc: The player's own index (its key in World.players); getPlayerIdByName returns it.
+    strategies:
+      - getter: { in: ClientOp.getPlayerIdByName, base: sp_result, load: i32, select: { nth: 0 } }
+  - key: Player.friendState
+    type: i32
+    priority: P1
+    doc: "Cached isOnlineFriend: 0 not worked out yet, 1 yes, 2 no (reset when the friend list changes)."
+    strategies:
+      - getter: { in: "@PlayerIsOnlineFriend", base: arg0, load: i32, select: { compared_with: 1 } }
+  - key: Player.friendChatState
+    type: i32
+    priority: P1
+    doc: Cached isFriendChat, same encoding.
+    strategies:
+      - getter: { in: "@PlayerIsFriendChat", base: arg0, load: i32, select: { compared_with: 1 } }
+    invariants:
+      - equals: "Player.friendState + 4"
+  - key: Player.groupState
+    type: i32
+    priority: P1
+    doc: Cached isGroup (clan), same encoding.
+    strategies:
+      - getter: { in: "@PlayerIsGroup", base: arg0, load: i32, select: { compared_with: 1 } }
+    invariants:
+      - equals: "Player.friendState + 8"
+
+  # Name lists (friends, ignores, friends chat): two string-keyed hash maps, by current and by previous name; nodes
+  # start with the name pair and hold the entry (e.g. a Friend) at NameNode.value.
+  - key: FriendManager.friends
+    type: NameList
+    priority: P1
+    strategies:
+      - getter: { in: "@PlayerFriendCompute", kind: addr, base: { field: { of: client, key: Client.friendManager } }, select: { passed_to: { fn: "@FriendListFind", arg: 0 } } }
+  - key: FriendManager.ignores
+    type: NameList
+    priority: P1
+    strategies:
+      - getter: { in: osrs.Player.isIgnored, kind: addr, base: { field: { of: client, key: Client.friendManager } }, select: { passed_to: { fn: "@NameListContains", arg: 0 } } }
+  - key: NameList.byName
+    type: eastl.hash_map<PlayerName, entry>
+    priority: P1
+    doc: Looked up first; NameList.byPrevName is tried when the current name isn't there.
+    strategies:
+      - getter: { in: "@PlayerFriendChatCompute", kind: addr, base: { field: { of: client, key: Client.friendsChat } }, select: { passed_to: { fn: "@NameTableFind", arg: 0 }, nth: 0 } }
+  - key: NameList.byPrevName
+    type: eastl.hash_map<PlayerName, entry>
+    priority: P1
+    strategies:
+      - getter: { in: "@PlayerFriendChatCompute", kind: addr, base: { field: { of: client, key: Client.friendsChat } }, select: { passed_to: { fn: "@NameTableFind", arg: 0 }, nth: 1 } }
+  - key: NameNode.value
+    type: ptr
+    priority: P1
+    strategies:
+      - getter: { in: "@FriendListFind", base: { field: { of: any, offset: 0 } }, load: ptr, select: { returned: true } }
+  - key: NameNode.next
+    type: ptr<NameNode>
+    priority: P1
+    strategies:
+      - hash-map: { in: "@NameTableFind", base: arg0, part: node_next }
+  - key: Friend.world
+    type: i32
+    priority: P1
+    doc: The friend's world; above 0 means online.
+    strategies:
+      - getter: { in: "@PlayerFriendCompute", base: { ret: "@FriendListFind" }, load: i32, select: { compared_with: 0 } }
