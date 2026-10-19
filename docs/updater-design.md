@@ -363,16 +363,25 @@ for f in callers(seqLoader):
 cross-check: setSequence ∈ callees(NpcUpdateDecoder)   // fingerprint E
 ```
 
-### 5.4 `Client.projectiles` and `Projectile.*` (binding-lambda + ctor block copy)
+### 5.4 `Client.projectiles` and `Projectile.*` (binding getter + list walker)
+
+Implemented in `spec/57-projectiles.yaml` and the `projectiles` extractor; offsets are build 241.3's.
 
 ```
-h = bindings["ClientOp.renderProjectiles"]            // un-analyzed lambda; decode from bytes
-Client.projectiles = pattern(h, "ADD R8, imm32") → imm                      // 0xCC70
-Projectile.hidden  = pattern(h, "MOV [RDX+imm8], CL") → imm                  // 0x1C
-ctor = function calling spotAnimLoader(arg=[RDI+X]) whose caller does make_shared(0x310)
-Projectile.spotAnimId = X                                                    // 0x298
-block = pattern(ctor, "MOVUPS XMM,[R8+k]; MOVUPS [RDI+0x260+k],XMM" ×3) → params base 0x260
-field semantics: align with the packet decoder that fills the param struct (cycle adds → start/end cycle)
+Client.projectiles = sentinel load in ClientOp.areProjectilesRendered / renderProjectiles     // 0xCC70
+Projectile.hidden  = [[node] + list.node.value] + X compared with 0 / written there          // 0x1C
+walker = target of a call passing (client + Client.projectiles), found via the imm/disp index
+         P = [[Arg0] + list.node.value]; two P fields compared with [global.cycle]           // 0x288, 0x28C
+step   = walker's call with P as arg0; the field it compares with an argument is startCycle   // 0x288 (end 0x28C)
+started = byte field the step compares with 0 and sets to 1                                    // 0x2C0
+endpoint = the step's callee that calls @WorldBounds; its args are labelled by what it does:
+         x, z rebased into out[0]/out[2] as (c - base) * 128 + 64; actor decremented into an NPC index
+target fields = endpoint call before the started test; source fields = the one after it        // 0x274.., 0x260..
+heights = next field loaded after each endpoint call (subtracted from its height)              // 0x280, 0x26C
+slope   = field loaded into XMM before the 2π/256 constant (read from .rdata); startDistance = the other  // 0x290, 0x294
+fineX/Y/Z = last double field loaded before each store to the step's out[0]/[1]/[2]            // 0x2A0, 0x2A8, 0x2B0
+yaw = stored angle the walker reads (hands to the renderer); pitch = the other                // 0x2B8, 0x2BC
+spotAnimId = arg the SpotAnim loader gets from its caller that clears the started flag (the ctor)  // 0x298
 ```
 
 ### 5.5 Scene grid (string-anchored + stride detection)

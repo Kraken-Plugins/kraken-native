@@ -14,8 +14,8 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Mirrors the client's Lua {@code osrs.ClientOp} namespace: players, NPCs and inventories, reproduced by following the
- * mapped offset chains in the live process. (Client-wide values such as stats, vars and the tick are in
+ * Mirrors the client's Lua {@code osrs.ClientOp} namespace: players, NPCs, inventories and projectiles, reproduced by
+ * following the mapped offset chains in the live process. (Client-wide values such as stats, vars and the tick are in
  * {@link ClientState}, as they are in Lua.)
  *
  * <p>Actor functions taking an index ({@code npcName(id)}, {@code playerCoord(id)}…) search every loaded world, the
@@ -92,6 +92,7 @@ public final class Client extends GameReader {
 
     private final ActorReader actors;
     private final SceneReader scene;
+    private final ProjectileReader projectiles;
     private final ConfigTypes configs;
 
     private final int cPlayerCount;
@@ -125,6 +126,7 @@ public final class Client extends GameReader {
         this.configs = configs;
         this.actors = new ActorReader(memory, mapping, configs);
         this.scene = new SceneReader(memory, mapping, configs, actors);
+        this.projectiles = new ProjectileReader(memory, mapping);
 
         this.cPlayerCount = mapping.offset("Client.playerIndexCount");
         this.cPlayerIndices = mapping.offset("Client.playerIndices");
@@ -412,6 +414,27 @@ public final class Client extends GameReader {
             }
         }
         return npcs;
+    }
+
+    /**
+     * Mirrors {@code ClientOp.areProjectilesRendered}. The docs say it checks that all projectiles are drawn; the
+     * handler returns true as soon as one projectile in flight is drawn (doesn't carry the hidden flag that
+     * {@code renderProjectiles(false)} sets), and false when none are in flight. This does the same.
+     *
+     * @return true if any projectile in flight is drawn; false if none is, or nothing is in flight
+     */
+    public boolean areProjectilesRendered() {
+        return projectiles.anyRendered();
+    }
+
+    /**
+     * Every projectile in flight, in the client's list order. Not a Lua function.
+     *
+     * @return one snapshot per projectile; empty when nothing is in flight, when logged out, or with a mapping that
+     *         doesn't have the projectile keys
+     */
+    public List<Projectile> getProjectiles() {
+        return projectiles.projectiles();
     }
 
     /**

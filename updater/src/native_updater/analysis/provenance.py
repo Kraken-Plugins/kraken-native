@@ -32,7 +32,6 @@ LEAF_MAX_INSNS = 14
 OUT_PARAM_SPAN = 0x40
 
 
-# ---- values -----------------------------------------------------------------------------------------------
 @dataclass(frozen=True)
 class Value:
     def members(self):
@@ -246,7 +245,6 @@ def contains(container, needle):
     return any(sub in targets for sub in walk(container))
 
 
-# ---- facts -------------------------------------------------------------------------------------------------
 @dataclass(frozen=True)
 class Load:
     rva: int
@@ -340,7 +338,6 @@ class Facts:
                     yield sub, fact
 
 
-# ---- the interpreter ---------------------------------------------------------------------------------------
 class State:
     __slots__ = ("regs", "stack", "sp", "dirty")
 
@@ -393,7 +390,6 @@ class Provenance:
         self._facts = {}
         self._summaries = {}
 
-    # public --------------------------------------------------------------------------------------------------
     def facts(self, fn, inline=True) -> Facts:
         key = (fn, inline)
         if key not in self._facts:
@@ -407,7 +403,6 @@ class Provenance:
             self._summaries[fn] = self._summarise(fn)
         return self._summaries[fn]
 
-    # internals -----------------------------------------------------------------------------------------------
     def _summarise(self, fn):
         f = self.model.function(fn)
         if f is None or f.size > LEAF_MAX_INSNS * 8:
@@ -460,7 +455,6 @@ class Provenance:
             prev_sp = state.sp
         return facts
 
-    # one instruction ------------------------------------------------------------------------------------------
     def _mem(self, op, state):
         """(base value, entry-relative stack offset or None, index value) for a memory operand."""
         if op.base == "RIP":

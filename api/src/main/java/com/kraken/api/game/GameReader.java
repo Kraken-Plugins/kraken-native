@@ -62,6 +62,21 @@ abstract class GameReader {
         return mapping.hasGlobal(key) ? mapping.global(key) : -1;
     }
 
+    /**
+     * A container layout value, for keys older mappings may lack.
+     *
+     * @param key      the container key, e.g. {@code "list.node.value"}
+     * @param fallback the value to use if this build's mapping doesn't have it
+     * @return the value, or {@code fallback}
+     */
+    protected final int containerOr(String key, int fallback) {
+        try {
+            return mapping.container(key);
+        } catch (RuntimeException e) {
+            return fallback;
+        }
+    }
+
     protected final long safePointer(long address) {
         try {
             return memory.readPointer(address);

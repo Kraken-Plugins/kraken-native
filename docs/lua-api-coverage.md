@@ -41,6 +41,7 @@ The work is split into sections you can test live with the dev tools, one at a t
 | 5 | Camera and projection: `Camera.get*`, `Graphics.clientDimensions`, `Graphics.worldToScreenCoord`, `osrs.screenSize`; `ON_SCREEN_RESIZE` | Done (live check pending) | Camera; labels and tiles over NPCs and players; lines in Interacting |
 | 6 | Scene: `locFind`/`objFind` and the active loc/obj getters, `osrs.World`/`Collision`/`CollisionMap`; `ON_LOC_LOAD`/`UNLOAD`, `ON_MAP_REBUILD_PRE`/`POST` | Done (live check pending) | Game objects, Walls, Ground items, Location, Zone borders, Map squares, Tile flags, Valid movement, Line of sight, Event log |
 | 7 | Interfaces: `InterfaceQuery`, `osrs.IfType` | Done | Widget inspector |
+| 8 | Projectiles: `areProjectilesRendered`, and the projectile list Lua doesn't expose (`Client.getProjectiles`) | Done (live check pending) | Projectiles |
 
 Section 4's functions don't read live game state: they look a definition (an item, NPC type, varbit…) up by id. The
 client keeps decoded definitions in one small cache per type (64 entries each, least recently used dropped first), so
@@ -85,6 +86,24 @@ Positions are client pixels, the units of `clientDimensions`. The getters that a
 `sol::property`; the updater follows each registration to its lambda (see `updater/README.md`). Checked against the
 live client: inventory slots (items, names, ops), chatbox tabs (text, colours, ops, screen position) and the chat's
 dynamic lines.
+
+Section 8 note: the client keeps every projectile in flight in a list on the Client (`Client.projectiles`, an
+`eastl::list` of `jag::shared_ptr<Projectile>`). Lua only reaches it through `renderProjectiles(b)`, which writes `!b`
+into every projectile's hidden flag, and `areProjectilesRendered()`, which is true as soon as one projectile lacks that
+flag (the docs say "all", the handler checks "any") and false for an empty list. Everything else in `Projectile` comes
+from the code that moves the list each cycle (see the `projectiles` extractor in the updater):
+
+- The server sends each projectile with a source and a target. Each is a world tile plus an actor reference (0 for none,
+  `n > 0` for NPC index `n - 1`, `n < 0` for player index `-n - 1`) and a height offset. It also sends a start cycle and
+  an end cycle (as delays the client adds to its cycle), a slope, a start distance and the spot anim id.
+- The client drops a projectile once the cycle passes its end cycle. From its start cycle on, it moves it each cycle
+  towards the target's current position: the actor's while it can find it, else the target tile's centre, raised by the
+  end height. So a projectile aimed at an actor follows that actor.
+- The position is three doubles in top-level scene fine units (height in `y`), written from the first cycle on (the
+  `started` flag). The client draws it truncated to ints at the yaw it stores; the pitch tilts the model.
+
+Java returns immutable `Projectile` snapshots. Their endpoint tiles are world tiles (`Scene.toScene` converts), unlike
+the scene tiles of other `MapCoord`s.
 
 ## Worked example: from a Lua handler to a Java method
 
@@ -183,12 +202,13 @@ Java extras (not in Lua): `getGameState()`, `getWorldFlags()`, `areStatsTransmit
 | `objName()`, `objTypeId()`, `objCount()` | same | ✅ | Read live from the pile entry; "" / -1 once it has left the ground |
 | `objGetOp(includeTags, opNumber)` | `objGetOp(int, int)` | ✅ | A ground op, as `ocOp`; markup stripped as `locGetOp` |
 | `friendsChatGetDisplayName`, `friendsChatGetChatCount` | | ⏳ | Not mapped yet |
-| `areProjectilesRendered()` | | ⏳ | Not mapped yet |
+| `areProjectilesRendered()` | `areProjectilesRendered()` | ✅ | True while any projectile in flight is drawn, as the handler checks (the docs say "all"); false when none is in flight |
 | `WornSlots` | `Client.WornSlots` | ✅ | |
 | `npcSay`, `playerSay`, `renderProjectiles`, `highlight*` | | ✍️ | Change what the client draws |
 
 Java extras: `getLocalPlayer()`, `getPlayers()`, `getNpcs()`, `getInventory(int)`, `getInventories()`, `getObjType(int)`,
-`vars()` (the var state conditional ops resolve against), `configs()`, `activateLoc(Loc)` (make a listed loc active).
+`vars()` (the var state conditional ops resolve against), `configs()`, `activateLoc(Loc)` (make a listed loc active),
+`getProjectiles()` (every projectile in flight; see the section 8 note).
 
 When config types can't be read at all (not attached yet, or a mapping without the archive layout), the `oc*` and
 `invSize` functions return "", -1 or false, and `getVarbit` -1.

@@ -244,14 +244,6 @@ final class ActorReader extends GameReader {
         this.mapBucketCount = mapping.container("hash_map.bucketCount");
     }
 
-    private int containerOr(String key, int fallback) {
-        try {
-            return mapping.container(key);
-        } catch (RuntimeException e) {
-            return fallback;
-        }
-    }
-
     long topWorld() {
         long client = clientBase();
         return client == 0 ? 0 : safePointer(client + cTopWorld);

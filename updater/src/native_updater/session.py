@@ -52,7 +52,6 @@ class Session:
         self.blocked = {}               # key -> reason (last round)
         self.notes = []                 # free-text findings for the report
 
-    # tables ------------------------------------------------------------------------------------------------
     def parse_bindings(self):
         parser = BindingTableParser(self.model)
         for table, cfg in self.spec.tables.items():
@@ -66,7 +65,6 @@ class Session:
                 self.bindings.add(b)
         self.enum_tables = parse_enum_tables(self.model)
 
-    # references --------------------------------------------------------------------------------------------
     def fn(self, ref):
         """Resolve a function reference to an RVA; raises Blocked when it is not (yet) known."""
         if isinstance(ref, dict) and "string" in ref:

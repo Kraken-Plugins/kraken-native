@@ -8,7 +8,8 @@ from unittest import mock
 
 from native_updater import emit, extractors, identity, strategies, winpaths, x86, verify
 from native_updater.analysis.bindings import BindingTableParser
-from native_updater.analysis.provenance import Add, Addr, Arg, Bin, Call, Cmp, Const, Deref, Facts, Global, Load, Mul, Provenance, Ret
+from native_updater.analysis.provenance import (Add, Addr, Arg, Bin, Call, Cmp, Const, Deref, Facts, Global, Load, Mul,
+                                                Provenance, Ret, Store, Unknown)
 from native_updater.consensus import Result
 from native_updater.pe import file_version
 from native_updater.spec import KeySpec, lint, load as load_spec
@@ -207,6 +208,75 @@ class RecipeTests(unittest.TestCase):
             evidence=lambda rva, fn=None, slot="disp": {"insn": rva, "fn": fn, "text": "", "slot": slot})
         out = extractors.loc_tag_kind(session, {})
         self.assertEqual(out["Loc.tagKindShift"][0], 0x10)
+
+    def test_projectile_walker_finds_the_cycles_the_step_and_the_drawn_angle(self):
+        cycle = Deref(Global(0xE98C14), 0, 4)
+        proj = Deref(Deref(Arg(0), 0, 8), 0x18, 8)
+        facts = Facts(fn=0x1000,
+                      cmps=[Cmp(0x10, cycle, Deref(proj, 0x28C, 4), 0x1000), Cmp(0x20, cycle, Deref(proj, 0x288, 4), 0x1000)],
+                      loads=[Load(0x14, Deref(proj, 0x28C, 4), "RAX", 0x1000), Load(0x30, Deref(proj, 0x2B8, 4), "R8", 0x1000)],
+                      calls=[Call(0x28, 0x2000, None, (proj, Arg(1)), 0x1000)])
+        cycles, step, drawn = extractors.projectile_walker_fields(facts, proj, cycle)
+        self.assertEqual(cycles, {0x28C: 0x10, 0x288: 0x20})
+        self.assertEqual(step.target, 0x2000)
+        self.assertEqual(drawn, {0x2B8})
+
+    def test_projectile_walker_needs_two_cycle_fields(self):
+        cycle = Deref(Global(0xE98C14), 0, 4)
+        proj = Deref(Deref(Arg(0), 0, 8), 0x18, 8)
+        facts = Facts(fn=0x1000, cmps=[Cmp(0x10, cycle, Deref(proj, 0x28C, 4), 0x1000)],
+                      calls=[Call(0x28, 0x2000, None, (proj,), 0x1000)])
+        self.assertIsNone(extractors.projectile_walker_fields(facts, proj, cycle)[1])
+
+    def test_projectile_endpoint_roles_follow_what_the_lookup_does_with_each_argument(self):
+        """x and z are rebased into out[0] and out[2], the actor reference is decremented, the level goes on."""
+        bounds = Ret(0x50, 0xEC4A0)
+        fine = lambda a, off: Add(Mul(Bin("-", Arg(a), Deref(bounds, off, 4)), Const(0x80)), 0x40)
+        facts = Facts(fn=0xA2B70,
+                      stores=[Store(0x60, Deref(Arg(0), 0, 4), fine(2, 0x24), 0xA2B70),
+                              Store(0x64, Deref(Arg(0), 8, 4), fine(3, 0x28), 0xA2B70)],
+                      calls=[Call(0x20, 0x187F20, None, (Arg(5), Add(Arg(1), -1)), 0xA2B70),
+                             Call(0x70, 0x97980, None, (Deref(Global(0xE98C18), 0, 8), Arg(5), Arg(2), Arg(3), Arg(4)), 0xA2B70)])
+        self.assertEqual(extractors.projectile_endpoint_roles(facts), {"X": 2, "Z": 3, "Actor": 1, "Level": 4})
+
+    def test_projectile_step_fields(self):
+        """The step's shape: the cycle check, the target lookup, the started test, the source lookup, the heights after
+        each, the slope scaled by 2pi/256, the start distance, the position returned truncated, and two angles."""
+        p, out, fn, end = Arg(0), Arg(1), 0xA2630, 0xA2B70
+        f = lambda off, size=4: Deref(p, off, size)
+        scale = Global(0xC4DBF0)
+        unknown = Unknown()
+        facts = Facts(fn=fn,
+                      cmps=[Cmp(0x10, Arg(4), f(0x288), fn), Cmp(0x30, f(0x2C0, 1), Const(0), fn)],
+                      calls=[Call(0x20, end, None, (Arg(1), f(0x284), f(0x278), f(0x27C), f(0x274), Arg(2)), fn),
+                             Call(0x40, end, None, (Arg(1), f(0x270), f(0x264), f(0x268), f(0x260), Arg(2)), fn)],
+                      loads=[Load(0x24, f(0x280), None, fn), Load(0x44, f(0x26C), None, fn),
+                             Load(0x50, f(0x294), "XMM1", fn), Load(0x58, f(0x28C), "RAX", fn),
+                             Load(0x60, f(0x290), "XMM0", fn), Load(0x64, Deref(scale, 0, 8), None, fn),
+                             Load(0x80, f(0x2A0, 8), "RAX", fn), Load(0x88, f(0x2A8, 8), "RAX", fn),
+                             Load(0x90, f(0x2B0, 8), "RAX", fn)],
+                      stores=[Store(0x34, f(0x2C0, 1), Const(1), fn),
+                              Store(0x70, f(0x2A0, 8), unknown, fn), Store(0x72, f(0x2A8, 8), unknown, fn),
+                              Store(0x74, f(0x2B0, 8), unknown, fn), Store(0x76, f(0x2C8, 8), unknown, fn),
+                              Store(0x78, f(0x2B8), unknown, fn), Store(0x7C, f(0x2BC), unknown, fn),
+                              Store(0x84, Deref(out, 0, 4), unknown, fn), Store(0x8C, Deref(out, 4, 4), unknown, fn),
+                              Store(0x94, Deref(out, 8, 4), unknown, fn)])
+        roles = {"X": 2, "Z": 3, "Actor": 1, "Level": 4}
+        fields = {k: v[0] for k, v in extractors.projectile_step_fields(facts, {0x288: 0x8, 0x28C: 0xC}, end, roles, {scale.rva}).items()}
+        self.assertEqual(fields, {
+            "Projectile.startCycle": 0x288, "Projectile.endCycle": 0x28C, "Projectile.started": 0x2C0,
+            "Projectile.targetActor": 0x284, "Projectile.targetX": 0x278, "Projectile.targetZ": 0x27C,
+            "Projectile.targetLevel": 0x274, "Projectile.sourceActor": 0x270, "Projectile.sourceX": 0x264,
+            "Projectile.sourceZ": 0x268, "Projectile.sourceLevel": 0x260, "Projectile.endHeight": 0x280,
+            "Projectile.startHeight": 0x26C, "Projectile.slope": 0x290, "Projectile.startDistance": 0x294,
+            "Projectile.fineX": 0x2A0, "Projectile.fineY": 0x2A8, "Projectile.fineZ": 0x2B0,
+            "Projectile.yaw": 0x2B8, "Projectile.pitch": 0x2BC})
+
+    def test_projectile_step_without_a_started_test_keeps_only_the_cycles(self):
+        fn = 0xA2630
+        facts = Facts(fn=fn, cmps=[Cmp(0x10, Arg(4), Deref(Arg(0), 0x288, 4), fn)])
+        fields = extractors.projectile_step_fields(facts, {0x288: 0x8, 0x28C: 0xC}, 0xA2B70, {}, set())
+        self.assertEqual(set(fields), {"Projectile.startCycle", "Projectile.endCycle"})
 
 
 class BindingParserTests(unittest.TestCase):

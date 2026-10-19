@@ -47,7 +47,8 @@
       "interfaces.bucketCount": "0x413cc8",
       "interfaceStore": "0x413bd8",
       "renderCycle": "0x4133fc",
-      "mapLoader": "0x49a8"
+      "mapLoader": "0x49a8",
+      "projectiles": "0xcc70"
     },
     "Varcs": {
       "entries": "0x48",
@@ -329,6 +330,30 @@
     "MapLoader": {
       "baseX": "0x54bc",
       "baseZ": "0x54c0"
+    },
+    "Projectile": {
+      "hidden": "0x1c",
+      "startCycle": "0x288",
+      "endCycle": "0x28c",
+      "sourceLevel": "0x260",
+      "sourceX": "0x264",
+      "sourceZ": "0x268",
+      "sourceActor": "0x270",
+      "startHeight": "0x26c",
+      "targetLevel": "0x274",
+      "targetX": "0x278",
+      "targetZ": "0x27c",
+      "targetActor": "0x284",
+      "endHeight": "0x280",
+      "slope": "0x290",
+      "startDistance": "0x294",
+      "spotAnimId": "0x298",
+      "started": "0x2c0",
+      "fineX": "0x2a0",
+      "fineY": "0x2a8",
+      "fineZ": "0x2b0",
+      "yaw": "0x2b8",
+      "pitch": "0x2bc"
     },
     "Js5Archive": {
       "groupCount": "0x28",

@@ -105,7 +105,7 @@ reads it for carry-forward. Repair bundles (`repair/<key>.md`) go in the same fo
 | `src/native_updater/roles.py` | Names for pointer bases used by recipes: `client`, `sp_result`, `node_value`, `{field: …}` |
 | `src/native_updater/strategies.py` | Generic strategies: `getter`, `global-load`, `hash-map`, `const`, `member`, `binding`, `fingerprint`, `enum-table`, `derive`, `extractor` |
 | `src/native_updater/fingerprints.py` | Function locators: `callee_of`, `caller_of`, `common_callee_of`, `binding`, `extractor` |
-| `src/native_updater/extractors.py` | Custom recipes over provenance facts: config loaders, setSequence, Actor ctor, scene grid, obj piles, containers |
+| `src/native_updater/extractors.py` | Custom recipes over provenance facts: config loaders, setSequence, Actor ctor, scene grid, obj piles, containers, projectiles |
 | `src/native_updater/spec/*.yaml` | The contract: tables, fingerprints, one entry per key (strategies, invariants, live check) |
 | `src/native_updater/consensus.py`, `verify.py` | Verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED); type, relational and uniqueness checks |
 | `src/native_updater/carry.py` | Carry-forward (function matching + re-extraction), delta propagation, repair bundles |
@@ -144,7 +144,7 @@ therefore mostly ANCHORED.
   through the `sol_self` role. `type` and `isIf3` go through a generic member accessor instead: `type` is mapped from
   the children helper, `isIf3` (offset 0) is not mapped.
 - Collision record layout and column addressing are mapped; the meaning of the flag bits (the masks lineOfWalk and
-  lineOfSight test) is not. Tile heights, player combat level/index, projectiles and graphics objects (P1) are not mapped yet.
+  lineOfSight test) is not. Tile heights, player combat level/index and graphics objects (P1) are not mapped yet.
 - Pose animation slot order, pitch vs yaw, the two varp arrays and the x/y pair order of the viewport offsets and centres
   (ProjectionCore loads offsetX before centerX, offsetY before centerY) need the live probe.
 - The live probe has not been run against a logged-in client yet.

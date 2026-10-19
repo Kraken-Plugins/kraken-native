@@ -151,7 +151,6 @@ class ProgramModel:
         self.sha256 = self.meta.get("sha256", "")
         self._entries = [row[0] for row in self.db.execute("SELECT entry FROM function ORDER BY entry")]
 
-    # functions -------------------------------------------------------------------------------------------
     @lru_cache(maxsize=None)
     def function(self, entry):
         row = self.db.execute("SELECT entry, name, end, size, is_thunk, thunk_target, pdata FROM function WHERE entry = ?",
@@ -233,7 +232,6 @@ class ProgramModel:
                                 "AND i.rva = f.entry AND f.size <= 8", (fn,)).fetchall()
         return tuple({r[0] for r in rows + stubs if r[0] is not None})
 
-    # strings, xrefs and operand indexes -------------------------------------------------------------------
     def string_at(self, rva):
         row = self.db.execute("SELECT value FROM string WHERE rva = ?", (rva,)).fetchone()
         return row[0] if row else self.pe.cstring(rva)

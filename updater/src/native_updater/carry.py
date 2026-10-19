@@ -79,7 +79,6 @@ def apply(session, prev, prev_analysis, results, cache_root, log):
     return info
 
 
-# ---- function matching ---------------------------------------------------------------------------------------------
 def match_functions(session, old, prev_analysis, needed):
     """old fn -> new fn for the functions that carry evidence. Seeds: bindings and fingerprints by name, then
     unique strings referenced by a needed function. Propagation: a needed function is matched through a matched
@@ -157,7 +156,6 @@ def _align(a, b, ka, kb):
                 yield a[i1 + k], b[j1 + k]
 
 
-# ---- re-extraction ----------------------------------------------------------------------------------------------------
 def reextract(session, old, ev, new_fn, old_value=None):
     """Value at the instruction of new_fn that corresponds to ev['insn'] in the old function. Only instructions
     that directly encode the key's previous value are carried (hash-map parts, strides and derived values are not)."""
@@ -248,7 +246,6 @@ def _structs(flat):
     return out
 
 
-# ---- repair bundle -------------------------------------------------------------------------------------------------
 def repair_bundle(session, prev, prev_analysis, results, out_dir, cache_root, log):
     """For each FAILED/NEEDS_REVIEW key with previous evidence: old and new disassembly side by side, in out_dir/repair."""
     prev_sha = prev["sha256"]

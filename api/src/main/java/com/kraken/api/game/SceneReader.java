@@ -164,14 +164,6 @@ final class SceneReader extends GameReader {
         this.cmColumnData = optionalOffset("CollisionMapRecord.columnData");
     }
 
-    private int containerOr(String key, int fallback) {
-        try {
-            return mapping.container(key);
-        } catch (RuntimeException e) {
-            return fallback;
-        }
-    }
-
     /**
      * The top-level world.
      *

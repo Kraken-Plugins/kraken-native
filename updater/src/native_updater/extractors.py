@@ -4,6 +4,9 @@
 Every extractor is written against provenance facts (what is loaded from where), not against raw bytes,
 so it survives register reallocation. Results are cached per run.
 """
+import math
+import struct
+
 from .analysis.provenance import Add, Arg, Bin, Const, Deref, Global, Mul, Ret, Out, contains, walk
 from .session import Blocked
 
@@ -21,7 +24,6 @@ def _ev(session, rva, fn=None, slot="disp"):
     return [session.evidence(rva, fn, slot)]
 
 
-# ---- config loaders --------------------------------------------------------------------------------------------
 REQUIRED_GROUPS = {6, 9, 10, 12, 13, 14}      # loc, npc, obj, seq, spotanim, varbit: the cache protocol constants
 
 
@@ -173,7 +175,6 @@ def player_name_pair(session, p):
     return out
 
 
-# ---- setSequence ---------------------------------------------------------------------------------------------------
 def set_sequence(session, p):
     """Among callers of the SeqType loader, the one comparing its int argument with an Actor field and reading
     the SeqType priority: setSequence(actor, seq, delay). Yields the AnimState layout."""
@@ -224,7 +225,6 @@ def _is_field(v, base, size):
     return isinstance(v, Deref) and v.base == base and v.index is None and (size == 0 or v.size in (0, size))
 
 
-# ---- Actor constructor ---------------------------------------------------------------------------------------------
 def actor_ctor(session, p):
     """The constructor storing a run of -1 qwords (pose animations), a dword 200 (default height) and 100
     (overhead text timer). Candidates are narrowed with SQL first, then checked with provenance."""
@@ -284,7 +284,6 @@ def _longest_run(values, step):
     return best
 
 
-# ---- scene grid ------------------------------------------------------------------------------------------------------
 def scene_grid(session, p):
     """Tile lookup(scene, out, plane, x, z, locType): index = (plane*sizeX + x)*sizeZ + z, entries of
     tileEntryStride bytes with Tile* at tileEntryPtrOffset; a second table serves plane == -1 (bridges).
@@ -431,7 +430,6 @@ def tile_game_objects(session, p):
     return out
 
 
-# ---- ground item piles -------------------------------------------------------------------------------------------------
 def obj_pile_grid(session, p):
     """Nested stride-0x18 containers: *(w+grid+0x10+plane*0x18) -> +0x10+x*0x18 -> z*0x18 = list head."""
     lookup = session.fn("@ObjPileLookup")
@@ -461,7 +459,6 @@ def obj_pile_grid(session, p):
     return {}
 
 
-# ---- allocation sizes ------------------------------------------------------------------------------------------------
 def operator_new(session, p):
     """operator new: the call target most often preceded by MOV ECX, <size> for the known object sizes."""
     rows = session.model.db.execute(
@@ -487,7 +484,6 @@ def alloc_sizes(session, p):
     return {p.get("field", "size"): (sizes[0][0], _ev(session, sizes[0][1], fn, "imm"), "operator new size")}
 
 
-# ---- strings ---------------------------------------------------------------------------------------------------------
 def string_sso(session, p):
     """eastl::string layout from the SSO idiom in a handler: a fresh string sets byte 23 to 23 (remaining
     capacity); the top bit of that byte marks the heap form (tested with SHR AL,7)."""
@@ -646,7 +642,234 @@ def renderer_layout(session, p):
     return {}
 
 
+SLOPE_SCALE = 2 * math.pi / 256    # the step turns a projectile's slope into radians with this constant (0.02454369)
+
+
+def projectiles(session, p):
+    """Client.projectiles and the Projectile layout, from the code that keeps the list moving.
+
+      walker(list, client)  some function is handed client + Client.projectiles. For each node's projectile
+                            P = [node + list.node.value] the walker drops P once global.cycle passes one field (the end
+                            cycle), and calls the step on P once global.cycle reaches the other (the start cycle). It
+                            hands one more field of P to the renderer: the yaw.
+      step(P, out, ...)     compares its cycle argument with the start cycle; see projectile_step_fields.
+      endpoint(out, ...)    the step's callee that calls WorldBounds; see projectile_endpoint_roles.
+      ctor(P, params)       the SpotAnim loader's caller that clears the step's started flag passes it [P + spotAnimId].
+    """
+    model = session.model
+    lst = session.value("Client.projectiles")
+    proj = Deref(Deref(Arg(0), session.value("container.list.node.next"), 8), session.value("container.list.node.value"), 8)
+    cycle = Deref(Global(session.value("global.cycle")), 0, 4)
+    bounds = session.fn("@WorldBounds")
+    loader = session.fn("@ConfigLoader.13")
+    # Immediates first: the walker's caller adds the list offset to the client in a small thunk.
+    hits = [fn for _, fn in model.insns_with_imm(lst)] + [fn for _, fn in model.insns_with_disp(lst)]
+    for fn in dict.fromkeys(f for f in hits if f is not None):
+        for c in session.prov.facts(fn).calls:
+            if c.target is None or not c.args or not any(isinstance(m, Add) and m.off == lst for m in c.args[0].members()):
+                continue
+            out = _projectile_layout(session, c.target, proj, cycle, bounds, loader)
+            if out:
+                return out
+    return {}
+
+
+def _projectile_layout(session, walker, proj, cycle, bounds, loader):
+    model = session.model
+    wf = session.prov.facts(walker)
+    cycles, step, drawn = projectile_walker_fields(wf, proj, cycle)
+    if step is None:
+        return {}
+    fn = step.target
+    sf = session.prov.facts(fn)
+    ends = sorted({c.target for c in sf.calls if c.target is not None and len(c.args) >= 5 and bounds in model.callees(c.target)})
+    if len(ends) != 1:
+        return {}
+    roles = projectile_endpoint_roles(session.prov.facts(ends[0]))
+    if roles is None:
+        return {}
+    scale = {l.value.base.rva for l in sf.loads if isinstance(l.value.base, Global) and l.value.off == 0 and l.value.size == 8
+             and _f64_near(model, l.value.base.rva, SLOPE_SCALE)}
+    fields = projectile_step_fields(sf, cycles, ends[0], roles, scale)
+    if "Projectile.startCycle" not in fields:
+        return {}
+    notes = {
+        "Projectile.startCycle": "compared with the cycle by the walker and with the step's cycle argument",
+        "Projectile.endCycle": "the walker drops the projectile once the cycle passes it",
+        "Projectile.started": "byte the step compares with 0 and sets to 1",
+        "Projectile.endHeight": "subtracted from the target endpoint's height",
+        "Projectile.startHeight": "subtracted from the source endpoint's height",
+        "Projectile.slope": "multiplied by 2pi/256 for the initial climb",
+        "Projectile.startDistance": "how far along the path from the source the projectile starts",
+        "Projectile.fineX": "position double, returned truncated in out[0]",
+        "Projectile.fineY": "height double, returned truncated in out[1]",
+        "Projectile.fineZ": "position double, returned truncated in out[2]",
+        "Projectile.pitch": "the angle the step stores that the walker doesn't draw with",
+    }
+    out = {}
+    for name, (value, rva) in fields.items():
+        where = walker if name == "Projectile.endCycle" else fn
+        out[name] = (value, _ev(session, rva, where), notes.get(name, "argument of the endpoint lookup"))
+    out["ProjectileListUpdate"] = (walker, _ev(session, walker, walker, "rip"), "walks Client.projectiles against the cycle")
+    out["ProjectileUpdate"] = (fn, _ev(session, step.rva, walker, "rip"), "called with each projectile whose start cycle came")
+    out["ProjectileEndpoint"] = (ends[0], _ev(session, ends[0], ends[0], "rip"), "the step's callee that calls WorldBounds")
+    angles = {v: rva for k, (v, rva) in fields.items() if k in ("Projectile.yaw", "Projectile.pitch")}
+    yaw = sorted(set(angles) & drawn)
+    if len(yaw) == 1 and len(angles) == 2:
+        rva = next(l.rva for l in wf.loads if _is_field(l.value, proj, 4) and l.value.off == yaw[0])
+        pitch = next(off for off in angles if off != yaw[0])
+        out["Projectile.yaw"] = (yaw[0], _ev(session, rva, walker), "the angle the walker hands to the renderer")
+        out["Projectile.pitch"] = (pitch, _ev(session, angles[pitch], fn), notes["Projectile.pitch"])
+    else:
+        out.pop("Projectile.yaw", None)
+        out.pop("Projectile.pitch", None)
+    started = fields.get("Projectile.started")
+    if started is not None:
+        for caller in model.callers(loader):
+            cf = session.prov.facts(caller)
+            if not any(_is_field(s.target, Arg(0), 1) and s.target.off == started[0] and s.value == Const(0) for s in cf.stores):
+                continue
+            for c in cf.calls:
+                if c.target is not None and model.resolve(c.target) == loader and len(c.args) > 1 and _is_field(c.args[1], Arg(0), 4):
+                    out["ProjectileCtor"] = (caller, _ev(session, caller, caller, "rip"), "SpotAnim loader caller clearing the started flag")
+                    out["Projectile.spotAnimId"] = (c.args[1].off, _ev(session, c.rva, caller), "id passed to the SpotAnim loader")
+                    break
+            if "ProjectileCtor" in out:
+                break
+    return out
+
+
+def _f64_near(model, rva, want):
+    try:
+        return abs(struct.unpack("<d", model.pe.read(rva, 8))[0] - want) < 1e-6
+    except (AttributeError, struct.error, TypeError, ValueError):
+        return False
+
+
+def projectile_walker_fields(facts, proj, cycle):
+    """What the list walker does with each projectile `proj`: the two fields it compares with the cycle global
+    ({offset: rva}), the call that passes the projectile on (the step), and the other 4-byte fields it reads (the angle
+    it draws with). (cycles, None, drawn) when it isn't the walker."""
+    cycles = {}
+    for c in facts.cmps:
+        for a, b in ((c.a, c.b), (c.b, c.a)):
+            if a == cycle and _is_field(b, proj, 4):
+                cycles.setdefault(b.off, c.rva)
+    step = next((c for c in facts.calls if c.target is not None and c.args and proj in c.args[0].members()), None)
+    drawn = {l.value.off for l in facts.loads if _is_field(l.value, proj, 4)} - set(cycles)
+    return cycles, (step if len(cycles) == 2 else None), drawn
+
+
+def projectile_endpoint_roles(facts):
+    """Which argument of the endpoint lookup endpoint(out, ...) is which: x and z are the arguments it rebases into
+    out[0] and out[2] as (coordinate - base) * 128 + 64, the actor reference is the one it decrements into an NPC index,
+    and the level is the remaining one, passed on to the height lookup. {"X", "Z", "Actor", "Level"} -> argument index,
+    or None."""
+    roles = {}
+    for s in facts.stores:
+        if _is_field(s.target, Arg(0), 4) and s.target.off in (0, 8) and contains(s.value, Const(0x80)):
+            args = {a.i for a in walk(s.value) if isinstance(a, Arg) and 1 <= a.i <= 4}
+            if len(args) == 1:
+                roles.setdefault("X" if s.target.off == 0 else "Z", args.pop())
+    for c in facts.calls:
+        for a in c.args:
+            if isinstance(a, Add) and isinstance(a.base, Arg) and 1 <= a.base.i <= 4 and a.off == -1:
+                roles.setdefault("Actor", a.base.i)
+    rest = {1, 2, 3, 4} - set(roles.values())
+    if len(roles) != 3 or len(rest) != 1:
+        return None
+    level = rest.pop()
+    if not any(Arg(level) in c.args for c in facts.calls):
+        return None
+    roles["Level"] = level
+    return roles
+
+
+def projectile_step_fields(facts, cycles, endpoint, roles, scale):
+    """The fields the per-cycle step(P, out, ...) reads and writes, as {key: (offset, rva)}.
+
+      start cycle   the walker's cycle field the step compares with one of its arguments; the other is the end cycle
+      started       a byte compared with 0 and set to 1. The target endpoint is looked up before that test (every
+                    cycle), the source endpoint after it (only on the first): each lookup passes the endpoint's actor,
+                    x, z and level fields (`roles` says which argument is which)
+      heights       after each lookup, the next field loaded is subtracted from the height it found: the end height
+                    (target) and the start height (source)
+      slope         the field loaded into a float register right before a load of a constant in `scale` (2pi/256)
+      startDistance the other field loaded into a float register
+      position      the step returns its position truncated to ints in out[0], out[1], out[2]: each comes from the
+                    last load, before that store, of a double the step also writes (fineX, fineY = height, fineZ)
+      angles        the two 4-byte fields the step stores; yaw and pitch are told apart by the walker
+    """
+    this = Arg(0)
+    out = {}
+    start = next(((a.off, c.rva) for c in facts.cmps for a, b in ((c.a, c.b), (c.b, c.a))
+                  if _is_field(a, this, 4) and a.off in cycles and isinstance(b, Arg) and b.i > 0), None)
+    if start is None:
+        return out
+    out["Projectile.startCycle"] = start
+    end = next(off for off in cycles if off != start[0])
+    out["Projectile.endCycle"] = (end, cycles[end])
+    claimed = set(cycles)
+
+    flags = {s.target.off for s in facts.stores if _is_field(s.target, this, 1) and s.value == Const(1)}
+    tests = sorted((c.rva, a.off) for c in facts.cmps for a, b in ((c.a, c.b), (c.b, c.a))
+                   if _is_field(a, this, 1) and a.off in flags and b == Const(0))
+    if not tests:
+        return out
+    test_rva, started = tests[0]
+    out["Projectile.started"] = (started, test_rva)
+
+    lookups = sorted((c for c in facts.calls if c.target == endpoint), key=lambda c: c.rva)
+    before = [c for c in lookups if c.rva < test_rva]
+    after = [c for c in lookups if c.rva > test_rva]
+    if len(before) != 1 or len(after) != 1:
+        return out
+    for side, call in (("target", before[0]), ("source", after[0])):
+        for role, i in roles.items():
+            a = call.args[i] if i < len(call.args) else None
+            if not _is_field(a, this, 4):
+                return out
+            out[f"Projectile.{side}{role}"] = (a.off, call.rva)
+            claimed.add(a.off)
+
+    loads = sorted((l for l in facts.loads if _is_field(l.value, this, 4)), key=lambda l: l.rva)
+    for name, call in (("endHeight", before[0]), ("startHeight", after[0])):
+        h = next((l for l in loads if l.rva > call.rva and l.value.off not in claimed), None)
+        if h is not None:
+            out[f"Projectile.{name}"] = (h.value.off, h.rva)
+            claimed.add(h.value.off)
+
+    floats = [l for l in loads if l.dest and l.dest.startswith("XMM") and l.value.off not in claimed]
+    consts = sorted(l.rva for l in facts.loads if isinstance(l.value.base, Global) and l.value.base.rva in scale)
+    slope = [l for l in floats if consts and l.rva < consts[0]]
+    if slope:
+        out["Projectile.slope"] = (slope[-1].value.off, slope[-1].rva)
+        claimed.add(slope[-1].value.off)
+        distance = {l.value.off for l in floats} - claimed
+        if len(distance) == 1:
+            off = distance.pop()
+            out["Projectile.startDistance"] = (off, next(l.rva for l in floats if l.value.off == off))
+            claimed.add(off)
+
+    doubles = {s.target.off for s in facts.stores if _is_field(s.target, this, 8) and not isinstance(s.value, Const)}
+    dloads = sorted((l for l in facts.loads if _is_field(l.value, this, 8) and l.value.off in doubles), key=lambda l: l.rva)
+    for k, name in ((0, "fineX"), (4, "fineY"), (8, "fineZ")):
+        st = [s for s in facts.stores if _is_field(s.target, Arg(1), 4) and s.target.off == k and not isinstance(s.value, Const)]
+        prev = [l for l in dloads if st and l.rva < st[-1].rva]
+        if prev:
+            out[f"Projectile.{name}"] = (prev[-1].value.off, st[-1].rva)
+
+    angles = {}
+    for s in sorted(facts.stores, key=lambda s: s.rva):
+        if _is_field(s.target, this, 4) and s.target.off not in claimed:
+            angles.setdefault(s.target.off, s.rva)
+    if len(angles) == 2:
+        out["Projectile.yaw"], out["Projectile.pitch"] = sorted(angles.items())
+    return out
+
+
 EXTRACTORS = {
+    "projectiles": projectiles,
     "loc_tag_kind": loc_tag_kind, "collision_record": collision_record, "renderer_layout": renderer_layout,
     "config_loader_core": config_loader_core, "config_archive": config_archive, "packet_layout": packet_layout,
     "player_name_pair": player_name_pair, "set_sequence": set_sequence, "actor_ctor": actor_ctor,

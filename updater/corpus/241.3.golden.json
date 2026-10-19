@@ -1,7 +1,7 @@
 {
   "sha256": "166231c8f6bd05c7542b8f0d35eb64b0aad701a87ba6ba41f60c4706de946944",
   "version": "241.3",
-  "source": "docs/client-surface.md seed values (static analysis, 2026-10-11) plus registrations read directly from the binary on 2026-10-12; section 3/4 keys from static analysis of the handlers on 2026-10-19; section 7 (interfaces) keys from static analysis of the IfType getters, checked against the live client on 2026-10-19",
+  "source": "docs/client-surface.md seed values (static analysis, 2026-10-11) plus registrations read directly from the binary on 2026-10-12; section 3/4 keys from static analysis of the handlers on 2026-10-19; section 7 (interfaces) keys from static analysis of the IfType getters, checked against the live client on 2026-10-19; projectile keys from static analysis of the list walker, step and constructor on 2026-10-19",
   "keys": {
     "global.client": "0xe98c18",
     "global.cycle": "0xe98c14",
@@ -250,7 +250,30 @@
     "IfType.opNames": "0x2e8",
     "IfType.dynCount": "0xb50",
     "IfType.dynSlots": "0xb58",
-    "IfType.renderCycle": "0xb78"
+    "IfType.renderCycle": "0xb78",
+    "Client.projectiles": "0xcc70",
+    "Projectile.hidden": "0x1c",
+    "Projectile.startCycle": "0x288",
+    "Projectile.endCycle": "0x28c",
+    "Projectile.sourceLevel": "0x260",
+    "Projectile.sourceX": "0x264",
+    "Projectile.sourceZ": "0x268",
+    "Projectile.startHeight": "0x26c",
+    "Projectile.sourceActor": "0x270",
+    "Projectile.targetLevel": "0x274",
+    "Projectile.targetX": "0x278",
+    "Projectile.targetZ": "0x27c",
+    "Projectile.endHeight": "0x280",
+    "Projectile.targetActor": "0x284",
+    "Projectile.slope": "0x290",
+    "Projectile.startDistance": "0x294",
+    "Projectile.spotAnimId": "0x298",
+    "Projectile.fineX": "0x2a0",
+    "Projectile.fineY": "0x2a8",
+    "Projectile.fineZ": "0x2b0",
+    "Projectile.yaw": "0x2b8",
+    "Projectile.pitch": "0x2bc",
+    "Projectile.started": "0x2c0"
   },
   "fingerprints": {
     "ScreenRescale": "0x61aa30",
@@ -298,7 +321,11 @@
     "IfParent": "0x225010",
     "IfStoreChild": "0x5af860",
     "IfChildren": "0x227be0",
-    "IfOpNames": "0x227a60"
+    "IfOpNames": "0x227a60",
+    "ProjectileListUpdate": "0xc5e10",
+    "ProjectileUpdate": "0xa2630",
+    "ProjectileEndpoint": "0xa2b70",
+    "ProjectileCtor": "0xa24a0"
   },
   "bindings": {
     "ClientOp.npcCoord": "0x3ae4b0",
@@ -335,6 +362,8 @@
     "osrs.Player.isFriendChat": "0x23cba0",
     "osrs.IfType.text": "0x2e4820",
     "osrs.IfType.children": "0x2e3ff0",
-    "osrs.IfType.componentIndex": "0x2e3ea0"
+    "osrs.IfType.componentIndex": "0x2e3ea0",
+    "ClientOp.areProjectilesRendered": "0x3ae150",
+    "ClientOp.renderProjectiles": "0x3ae120"
   }
 }

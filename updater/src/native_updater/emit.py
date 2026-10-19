@@ -134,7 +134,6 @@ def summarize(log, results, changes=None):
             log(f"  {kind:6s} {key}: {o} -> {n}")
 
 
-# ---- diff --------------------------------------------------------------------------------------------------------
 def diff(previous, current):
     """[(key, old, new, kind)] with kind in moved | new | gone, between two mapping files."""
     old, new = flatten(previous), flatten(current)

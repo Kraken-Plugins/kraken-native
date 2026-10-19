@@ -92,7 +92,7 @@ rounds (keys can depend on other keys) → consensus verdicts (PROVEN/ANCHORED/I
   `analysis.json` bindings, map each constant it uses to a mapping key (adding a spec recipe if needed), and replay the
   same steps in Java. Javadoc states any deliberate divergence from the native handler. Update the coverage tables in
   that doc in the same change.
-- Tests: `GameFixture` lays out a fake Client → World → NPC/Player/inventory/scene/camera/interface graph in `FakeMemory` at the bundled 241.3
+- Tests: `GameFixture` lays out a fake Client → World → NPC/Player/inventory/scene/camera/interface/projectile graph in `FakeMemory` at the bundled 241.3
   mapping's real offsets, so tests cover the read plumbing, not whether offsets are correct (the live client verifies
   that). New reads extend `GameFixture`.
 

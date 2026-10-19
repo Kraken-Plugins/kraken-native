@@ -1,0 +1,188 @@
+# Projectiles in flight (arrows, spells, cannonballs...): an eastl::list of jag::shared_ptr<Projectile> on the Client.
+# The server sends each one with its two endpoints (a world tile, or an NPC or player), heights, timing and spot anim.
+# The client moves it every cycle from its start cycle and drops it after its end cycle. The Lua API only touches the
+# list in ClientOp.renderProjectiles and areProjectilesRendered (the hidden flag); the rest of the layout comes from the
+# code that walks the list each cycle (extractor `projectiles`).
+fingerprints:
+  # The walker the client calls with client + Client.projectiles, the per-projectile step it calls, the step's endpoint
+  # lookup (a tile or an actor -> fine position and height) and the constructor (which loads the spot anim).
+  ProjectileListUpdate: { extractor: projectiles, field: ProjectileListUpdate, cls: A }
+  ProjectileUpdate:     { extractor: projectiles, field: ProjectileUpdate, cls: A }
+  ProjectileEndpoint:   { extractor: projectiles, field: ProjectileEndpoint, cls: A }
+  ProjectileCtor:       { extractor: projectiles, field: ProjectileCtor, cls: A }
+
+keys:
+  - key: Client.projectiles
+    type: eastl.list<jag.shared_ptr<Projectile>>
+    priority: P1
+    live: projectiles
+    doc: The projectiles in flight; each list node's value is a Projectile.
+    strategies:
+      - getter: { in: ClientOp.areProjectilesRendered, base: client, load: ptr, select: { sentinel: true } }
+      - getter: { in: ClientOp.renderProjectiles, base: client, load: ptr, select: { sentinel: true } }
+  - key: Projectile.hidden
+    type: u8
+    priority: P1
+    live: projectiles
+    doc: Nonzero hides the projectile. renderProjectiles(b) writes !b on every projectile in the list;
+      areProjectilesRendered is true while any of them has it clear (false for an empty list).
+    strategies:
+      - getter: { in: ClientOp.areProjectilesRendered, base: { field: { of: { field: { of: client, key: Client.projectiles } }, key: container.list.node.value } }, load: u8, select: { compared_with: 0 } }
+      - getter: { in: ClientOp.renderProjectiles, base: { field: { of: { field: { of: client, key: Client.projectiles } }, key: container.list.node.value } }, load: u8 }
+
+  # Timing, in client cycles (20 ms): the server sends delays, which the client adds to the cycle it got them on.
+  - key: Projectile.startCycle
+    type: i32
+    priority: P1
+    live: projectiles
+    doc: Cycle the projectile sets off on; until then it isn't moved or drawn.
+    strategies:
+      - extractor: { name: projectiles, field: Projectile.startCycle, cls: A }
+  - key: Projectile.endCycle
+    type: i32
+    priority: P1
+    live: projectiles
+    doc: Cycle the projectile lands on; the client drops it once the cycle passes this.
+    strategies:
+      - extractor: { name: projectiles, field: Projectile.endCycle, cls: A }
+
+  # The two endpoints. Each is a world tile (level, x, z) the server sent, and an actor reference: 0 for none, n > 0 for
+  # NPC index n - 1, n < 0 for player index -n - 1. The client aims at the actor while it can find it, else at the tile's
+  # centre. The height offset is how far above that point the path starts or ends.
+  - key: Projectile.sourceLevel
+    type: i32
+    priority: P1
+    live: projectiles
+    strategies:
+      - extractor: { name: projectiles, field: Projectile.sourceLevel, cls: A }
+  - key: Projectile.sourceX
+    type: i32
+    priority: P1
+    live: projectiles
+    doc: World tile x of the source.
+    strategies:
+      - extractor: { name: projectiles, field: Projectile.sourceX, cls: A }
+  - key: Projectile.sourceZ
+    type: i32
+    priority: P1
+    live: projectiles
+    doc: World tile z of the source.
+    strategies:
+      - extractor: { name: projectiles, field: Projectile.sourceZ, cls: A }
+  - key: Projectile.sourceActor
+    type: i32
+    priority: P1
+    live: projectiles
+    doc: Actor reference of the source (0 none, n > 0 NPC n - 1, n < 0 player -n - 1).
+    strategies:
+      - extractor: { name: projectiles, field: Projectile.sourceActor, cls: A }
+  - key: Projectile.startHeight
+    type: i32
+    priority: P1
+    live: projectiles
+    doc: Height above the source the path starts at (subtracted from the source's height; more negative is higher).
+    strategies:
+      - extractor: { name: projectiles, field: Projectile.startHeight, cls: A }
+  - key: Projectile.targetLevel
+    type: i32
+    priority: P1
+    live: projectiles
+    strategies:
+      - extractor: { name: projectiles, field: Projectile.targetLevel, cls: A }
+  - key: Projectile.targetX
+    type: i32
+    priority: P1
+    live: projectiles
+    doc: World tile x of the target.
+    strategies:
+      - extractor: { name: projectiles, field: Projectile.targetX, cls: A }
+  - key: Projectile.targetZ
+    type: i32
+    priority: P1
+    live: projectiles
+    doc: World tile z of the target.
+    strategies:
+      - extractor: { name: projectiles, field: Projectile.targetZ, cls: A }
+  - key: Projectile.targetActor
+    type: i32
+    priority: P1
+    live: projectiles
+    doc: Actor reference of the target, encoded like sourceActor.
+    strategies:
+      - extractor: { name: projectiles, field: Projectile.targetActor, cls: A }
+  - key: Projectile.endHeight
+    type: i32
+    priority: P1
+    live: projectiles
+    doc: Height above the target the path ends at.
+    strategies:
+      - extractor: { name: projectiles, field: Projectile.endHeight, cls: A }
+
+  # The path's shape and the projectile's id.
+  - key: Projectile.slope
+    type: i32
+    priority: P1
+    live: projectiles
+    doc: Initial climb, in 1/256 of a turn (the step climbs at tan(slope * 2pi/256) times the horizontal speed).
+    strategies:
+      - extractor: { name: projectiles, field: Projectile.slope, cls: A }
+  - key: Projectile.startDistance
+    type: i32
+    priority: P1
+    live: projectiles
+    doc: How far from the source, in fine units along the path, the projectile appears.
+    strategies:
+      - extractor: { name: projectiles, field: Projectile.startDistance, cls: A }
+  - key: Projectile.spotAnimId
+    type: i32
+    priority: P1
+    live: projectiles
+    doc: The projectile's id (its SpotAnimType id, RuneLite's Projectile.getId).
+    strategies:
+      - extractor: { name: projectiles, field: Projectile.spotAnimId, cls: A }
+      - getter: { in: "@ProjectileCtor", base: arg0, load: i32, select: { passed_to: { fn: "@ConfigLoader.13", arg: 1 } } }
+
+  # Where the projectile is: written by the step from its first cycle on (until then the flag is clear and these are 0).
+  - key: Projectile.started
+    type: u8
+    priority: P1
+    live: projectiles
+    doc: Nonzero once the step has placed the projectile (on its first cycle at or after startCycle).
+    strategies:
+      - extractor: { name: projectiles, field: Projectile.started, cls: A }
+      - getter: { in: "@ProjectileUpdate", base: arg0, load: u8, select: { compared_with: 0 } }
+  - key: Projectile.fineX
+    type: f64
+    priority: P1
+    live: projectiles
+    doc: Position in top-level scene fine units (a double; the client draws it truncated).
+    strategies:
+      - extractor: { name: projectiles, field: Projectile.fineX, cls: A }
+  - key: Projectile.fineY
+    type: f64
+    priority: P1
+    live: projectiles
+    doc: Height (a double; more negative is higher).
+    strategies:
+      - extractor: { name: projectiles, field: Projectile.fineY, cls: A }
+  - key: Projectile.fineZ
+    type: f64
+    priority: P1
+    live: projectiles
+    doc: Position in top-level scene fine units, like fineX.
+    strategies:
+      - extractor: { name: projectiles, field: Projectile.fineZ, cls: A }
+  - key: Projectile.yaw
+    type: i32
+    priority: P1
+    live: projectiles
+    doc: Heading, 0-2047 (2048 per turn), the angle the client draws the model at.
+    strategies:
+      - extractor: { name: projectiles, field: Projectile.yaw, cls: A }
+  - key: Projectile.pitch
+    type: i32
+    priority: P1
+    live: projectiles
+    doc: Climb angle of the flight path, 0-2047.
+    strategies:
+      - extractor: { name: projectiles, field: Projectile.pitch, cls: A }

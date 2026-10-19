@@ -102,7 +102,6 @@ class Reader:
             self.k32.PssFreeSnapshot(self.proc, self.snapshot)
         self.k32.CloseHandle(self.proc)
 
-    # reads -----------------------------------------------------------------------------------------------------
     def read(self, addr, n):
         if not addr or addr < 0x10000 or addr > 0x7fffffffffff or n > MAX_READ:
             raise ValueError(f"refusing to read {n} bytes at {addr:#x}")
@@ -126,6 +125,9 @@ class Reader:
 
     def u8(self, a):
         return self.read(a, 1)[0]
+
+    def f64(self, a):
+        return struct.unpack("<d", self.read(a, 8))[0]
 
     def rva(self, name):
         return self.base + int(self.m["globals"][name], 16)
@@ -162,7 +164,6 @@ class Reader:
         return None
 
 
-# ---- checks --------------------------------------------------------------------------------------------------------
 def level_for_xp(xp):
     points, out = 0, 1
     for lvl in range(1, 99):
@@ -285,6 +286,32 @@ def run_checks(r, log):
         if not (0 <= cnt <= 8) or node != head:
             hb_bad.append((kind, aid, cnt, steps))
     ok("headbars", actors and not hb_bad, "headbar lists terminate at their sentinel with the recorded count" if not hb_bad else f"{hb_bad[:3]}")
+
+    # Projectiles: the list ends at its sentinel; every projectile has a plausible id, endpoints and timing, and a
+    # placed one sits inside the scene.
+    head = client + r.off("Client", "projectiles")
+    cycle = r.i32(r.rva("cycle"))
+    pf = lambda name: r.off("Projectile", name)
+    node, flying, pj_bad = r.ptr(head + r.const("list", "node.next")), 0, []
+    while node and node != head and flying < 256:
+        p = r.ptr(node + r.const("list", "node.value"))
+        flying += 1
+        spot, start, end = r.i32(p + pf("spotAnimId")), r.i32(p + pf("startCycle")), r.i32(p + pf("endCycle"))
+        ends = [(r.i32(p + pf(f"{side}Level")), r.i32(p + pf(f"{side}X")), r.i32(p + pf(f"{side}Z")), r.i32(p + pf(f"{side}Actor")))
+                for side in ("source", "target")]
+        placed, hidden = r.u8(p + pf("started")), r.u8(p + pf("hidden"))
+        fx, fz = r.f64(p + pf("fineX")), r.f64(p + pf("fineZ"))
+        if not (0 <= spot < 0x10000 and start <= end and end >= cycle - 2 and placed in (0, 1) and hidden in (0, 1)
+                and all(0 <= lv <= 3 and 0 <= x < 16384 and 0 <= z < 16384 and -2048 <= a <= 0x10000 for lv, x, z, a in ends)
+                and (not placed or (0 <= fx < 512 * 128 and 0 <= fz < 512 * 128))):
+            pj_bad.append((flying - 1, spot, start, end, cycle, ends, placed, round(fx), round(fz)))
+        node = r.ptr(node + r.const("list", "node.next"))
+    if node != head:
+        ok("projectiles", False, f"the projectile list doesn't return to its sentinel after {flying} nodes")
+    elif not flying:
+        skipped("projectiles", "no projectiles in flight; stand near combat (ranged or magic) and re-run")
+    else:
+        ok("projectiles", not pj_bad, f"{flying} projectiles: ids, endpoints, cycles and positions plausible" if not pj_bad else f"{pj_bad[:2]}")
 
     # NPC types.
     nt_bad = []

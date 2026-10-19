@@ -37,6 +37,8 @@ import static com.kraken.api.TestSupport.seedMapping;
  *       loaded). 149 and 162 are open, chained in one bucket of the open-interface map. 149:0 is a layer with dynamic
  *       children [0] (an item slot), [1] (a dynamic layer) and [2] (text inside [1]); 162:0 is a top-level layer
  *       holding 162:1 (text "All", drawn this frame, with an op) and 162:2 (hidden, its text on the heap).
+ *   <li>Two projectiles in flight: a spell ({@link #SPELL_PROJECTILE}) from player 7 at NPC 5, placed and drawn; and
+ *       an arrow ({@link #ARROW_PROJECTILE}) from one tile to another, hidden and not set off yet.
  * </ul>
  */
 public final class GameFixture {
@@ -92,6 +94,7 @@ public final class GameFixture {
     public static final long IF_TYPES = 0xc30000000L;
     public static final long IF_OPEN = 0xc40000000L;
     public static final long IF_HEAP = 0xc50000000L;
+    public static final long PROJECTILES = 0xb60000000L;
     /**
      * Archive tables and file buffers are bump-allocated from here.
      */
@@ -147,6 +150,12 @@ public final class GameFixture {
     public static final int RENDER_CYCLE = 500;
     public static final String LONG_TEXT = "A line of chat long enough for the heap";
 
+    /**
+     * Spot anim ids of the two projectiles in flight: the spell (first in the list) and the arrow.
+     */
+    public static final int SPELL_PROJECTILE = 91;
+    public static final int ARROW_PROJECTILE = 10;
+
     public final Mapping map;
     public final FakeMemory memory = new FakeMemory();
     private final Map<Integer, Long> invNodes = new HashMap<>();
@@ -174,6 +183,7 @@ public final class GameFixture {
         buildPiles();
         buildCollision();
         buildInterfaces();
+        buildProjectiles();
     }
 
     public void setGameState(int state) {
@@ -370,6 +380,25 @@ public final class GameFixture {
      */
     public void setCollision(int level, int x, int z, int flags) {
         memory.putInt(collisionCell(level, x, z), flags);
+    }
+
+    /**
+     * Hides or shows one projectile, as {@code renderProjectiles} does for all of them.
+     *
+     * @param index  0 for the spell, 1 for the arrow
+     * @param hidden whether the client should hide it
+     */
+    public void setProjectileHidden(int index, boolean hidden) {
+        memory.putByte(projectile(index) + map.offset("Projectile.hidden"), hidden ? 1 : 0);
+    }
+
+    /**
+     * Empties the projectile list, as when everything in flight has landed.
+     */
+    public void clearProjectiles() {
+        long sentinel = CLIENT + map.offset("Client.projectiles");
+        memory.putLong(sentinel + map.container("list.node.next"), sentinel);
+        memory.putLong(sentinel + map.container("list.node.prev"), sentinel);
     }
 
     private void buildClient() {
@@ -1115,5 +1144,79 @@ public final class GameFixture {
         memory.alloc(at, Math.max(size, 1));
         archiveHeap += (Math.max(size, 1) + 0xf) & ~0xfL;
         return at;
+    }
+
+    /**
+     * The projectile list, sentinel → spell → arrow → sentinel. The spell flies from player 7 (actor reference -8) at
+     * NPC 5 (reference 6) between cycles 140 and 170 and has been placed; the arrow flies from tile (1, 1) to tile
+     * (6, 6) (world tiles: the base added) between cycles 160 and 200, so at cycle {@link #CYCLE} it hasn't set off.
+     */
+    private void buildProjectiles() {
+        int next = map.container("list.node.next");
+        int prev = map.container("list.node.prev");
+        int value = map.container("list.node.value");
+        long sentinel = CLIENT + map.offset("Client.projectiles");
+        long spellNode = PROJECTILES;
+        long arrowNode = PROJECTILES + 0x20;
+        memory.alloc(PROJECTILES, 0x40);
+        memory.putLong(sentinel + next, spellNode);
+        memory.putLong(sentinel + prev, arrowNode);
+        memory.putLong(spellNode + next, arrowNode);
+        memory.putLong(spellNode + prev, sentinel);
+        memory.putLong(spellNode + value, projectile(0));
+        memory.putLong(arrowNode + next, sentinel);
+        memory.putLong(arrowNode + prev, spellNode);
+        memory.putLong(arrowNode + value, projectile(1));
+
+        long spell = projectile(0);
+        memory.alloc(spell, 0x300);
+        putProjectile(spell, SPELL_PROJECTILE, new int[]{0, BASE_X + 2, BASE_Z + 3, 43, -8},
+                new int[]{0, BASE_X + 4, BASE_Z + 4, 31, 6}, 140, 170, 16, 64);
+        memory.putByte(spell + map.offset("Projectile.started"), 1);
+        memory.putLong(spell + map.offset("Projectile.fineX"), Double.doubleToRawLongBits(300.75));
+        memory.putLong(spell + map.offset("Projectile.fineY"), Double.doubleToRawLongBits(-150.5));
+        memory.putLong(spell + map.offset("Projectile.fineZ"), Double.doubleToRawLongBits(420.25));
+        memory.putInt(spell + map.offset("Projectile.yaw"), 1536);
+        memory.putInt(spell + map.offset("Projectile.pitch"), 100);
+
+        long arrow = projectile(1);
+        memory.alloc(arrow, 0x300);
+        putProjectile(arrow, ARROW_PROJECTILE, new int[]{0, BASE_X + 1, BASE_Z + 1, 40, 0},
+                new int[]{0, BASE_X + 6, BASE_Z + 6, 36, 0}, 160, 200, 15, 11);
+        setProjectileHidden(1, true);
+    }
+
+    private static long projectile(int index) {
+        return PROJECTILES + 0x1000L * (index + 1);
+    }
+
+    /**
+     * Writes what the server sends for a projectile.
+     *
+     * @param p          the projectile
+     * @param id         its spot anim id
+     * @param source     the source's level, world x, world z, height offset and actor reference
+     * @param target     the target's, in the same order
+     * @param startCycle the cycle it sets off on
+     * @param endCycle   the cycle it lands on
+     * @param slope      its initial climb
+     * @param distance   how far from the source it appears
+     */
+    private void putProjectile(long p, int id, int[] source, int[] target, int startCycle, int endCycle, int slope,
+                               int distance) {
+        memory.putInt(p + map.offset("Projectile.spotAnimId"), id);
+        String[] fields = {"Level", "X", "Z"};
+        for (int i = 0; i < fields.length; i++) {
+            memory.putInt(p + map.offset("Projectile.source" + fields[i]), source[i]);
+            memory.putInt(p + map.offset("Projectile.target" + fields[i]), target[i]);
+        }
+        memory.putInt(p + map.offset("Projectile.startHeight"), source[3]);
+        memory.putInt(p + map.offset("Projectile.sourceActor"), source[4]);
+        memory.putInt(p + map.offset("Projectile.endHeight"), target[3]);
+        memory.putInt(p + map.offset("Projectile.targetActor"), target[4]);
+        memory.putInt(p + map.offset("Projectile.startCycle"), startCycle);
+        memory.putInt(p + map.offset("Projectile.endCycle"), endCycle);
+        memory.putInt(p + map.offset("Projectile.slope"), slope);
+        memory.putInt(p + map.offset("Projectile.startDistance"), distance);
     }
 }
