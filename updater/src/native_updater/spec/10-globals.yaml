@@ -31,6 +31,14 @@ keys:
     strategies:
       - getter: { in: "@VarbitRead", kind: global, size: ptr, select: { used_as_index_base: true } }
 
+  - key: global.varpCount
+    type: i32
+    priority: P1
+    doc: Number of varps (the file count of config group 16); every varp array, global.varps included, has this many
+      entries. The bound of the login-time varp reset loop.
+    strategies:
+      - getter: { in: "@VarpReset", kind: global, size: i32, select: { used_in_cmp: true } }
+
   - key: global.varbitMaskTable
     type: i32[32]
     priority: P0

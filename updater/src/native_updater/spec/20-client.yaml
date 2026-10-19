@@ -58,6 +58,65 @@ keys:
     strategies:
       - getter: { in: ClientState.getStatXP, base: client, load: i32, select: { compared_with: 0 } }
 
+  - key: Client.worldFlags
+    type: u32
+    priority: P1
+    doc: World-type bitmask of the current world; ClientState.getProfileType decodes it (bit 16 beta, 29 deadman,
+      6 PvP Arena, 8 quest speedrunning, 30 seasonal, later bits winning).
+    strategies:
+      - getter: { in: ClientState.getProfileType, base: client, load: i32, select: { nth: 0 } }
+
+  # Varcs: the Client holds a pointer to the varc store, a vector of VarcEntry sorted by key that the
+  # getIntegerVarc / getStringVarc lookups binary-search.
+  - key: Client.varcs
+    type: ptr<Varcs>
+    priority: P1
+    strategies:
+      - getter: { in: ClientState.getIntegerVarc, base: client, load: ptr, select: { passed_to: { fn: "@VarcIntLookup", arg: 0 } } }
+      - getter: { in: ClientState.getStringVarc, base: client, load: ptr, select: { passed_to: { fn: "@VarcStringLookup", arg: 0 } } }
+  - key: Varcs.entries
+    type: VarcEntry*
+    priority: P1
+    doc: Begin of the sorted entry vector.
+    strategies:
+      - getter: { in: "@VarcIntLookup", base: arg0, load: ptr, select: { passed_to: { fn: "@VarcLowerBound", arg: 0 } } }
+      - getter: { in: "@VarcStringLookup", base: arg0, load: ptr, select: { passed_to: { fn: "@VarcLowerBound", arg: 0 } } }
+  - key: Varcs.entriesEnd
+    type: VarcEntry*
+    priority: P1
+    strategies:
+      - getter: { in: "@VarcIntLookup", base: arg0, load: ptr, select: { passed_to: { fn: "@VarcLowerBound", arg: 1 } } }
+      - getter: { in: "@VarcStringLookup", base: arg0, load: ptr, select: { passed_to: { fn: "@VarcLowerBound", arg: 1 } } }
+    invariants:
+      - equals: "Varcs.entries + 8"
+  - key: VarcEntry.size
+    type: const
+    priority: P1
+    doc: Element stride; the lookups step from the lower_bound result to the next entry.
+    strategies:
+      - getter: { in: "@VarcIntLookup", kind: addr, base: { ret: "@VarcLowerBound" } }
+      - getter: { in: "@VarcStringLookup", kind: addr, base: { ret: "@VarcLowerBound" } }
+  - key: VarcEntry.key
+    type: i32
+    priority: P1
+    doc: Varc id; entries are sorted by it.
+    strategies:
+      - getter: { in: "@VarcIntLookup", base: { ret: "@VarcLowerBound" }, load: i32, select: { used_in_cmp: true } }
+      - getter: { in: "@VarcStringLookup", base: { ret: "@VarcLowerBound" }, load: i32, select: { used_in_cmp: true } }
+  - key: VarcEntry.value
+    type: i32 | eastl.string
+    priority: P1
+    doc: "The value variant: an int for type 1, an eastl::string for type 2."
+    strategies:
+      - getter: { in: "@VarcIntLookup", base: { ret: "@VarcLowerBound" }, load: i32, select: { returned: true } }
+  - key: VarcEntry.type
+    type: u8
+    priority: P1
+    doc: Variant tag; 1 = int (getIntegerVarc), 2 = string (getStringVarc). Any other tag reads as not found.
+    strategies:
+      - getter: { in: "@VarcIntLookup", base: { ret: "@VarcLowerBound" }, load: u8, select: { compared_with: 1 } }
+      - getter: { in: "@VarcStringLookup", base: { ret: "@VarcLowerBound" }, load: u8, select: { compared_with: 2 } }
+
   - key: Client.worlds
     type: WorldManager
     priority: P0

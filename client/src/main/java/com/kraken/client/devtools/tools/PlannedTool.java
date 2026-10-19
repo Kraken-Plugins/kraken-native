@@ -1,6 +1,6 @@
 package com.kraken.client.devtools.tools;
 
-import com.kraken.api.game.Client;
+import com.kraken.api.KrakenApi;
 import com.kraken.client.devtools.Category;
 import com.kraken.client.devtools.DevTool;
 import org.kordamp.ikonli.Ikon;
@@ -53,7 +53,7 @@ final class PlannedTool extends DevTool<Void> {
     }
 
     @Override
-    protected Void read(Client client) {
+    protected Void read(KrakenApi api) {
         return null;
     }
 }

@@ -6,7 +6,8 @@
   binding:     {binding: "Table.name"}                                         a handler (for function keys)
   extractor:   {extractor: name}                                               custom logic in extractors.py
 Filters: imm (an immediate used in the function), min_args (call site passes at least N arguments),
-calls (the function calls REF), string (references the exact string), unique (fail when several match).
+calls (the function calls REF), string (references the exact string), refs_global (reads or addresses the global
+a resolved key names, e.g. global.varps), unique (fail when several match).
 """
 from .analysis.provenance import Const, Arg
 from .session import Blocked
@@ -90,6 +91,10 @@ def _filters_ok(session, target, rule, call):
     if "calls" in rule:
         want = session.fn(rule["calls"])
         if want not in _callees(session, target):
+            return False
+    if "refs_global" in rule:
+        rva = session.value(rule["refs_global"])        # Blocked until that key resolves; retried next round
+        if not any(fn == target for _, fn in model.insns_with_disp(rva)):
             return False
     if "min_size" in rule:
         f = model.function(target)

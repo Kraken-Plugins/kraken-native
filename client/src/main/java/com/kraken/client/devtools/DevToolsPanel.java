@@ -2,7 +2,8 @@ package com.kraken.client.devtools;
 
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
-import com.kraken.api.game.Client;
+import com.kraken.api.KrakenApi;
+import com.kraken.api.game.ClientState;
 import com.kraken.api.game.MapCoord;
 import com.kraken.api.game.Player;
 import com.kraken.client.ApiConnection;
@@ -35,7 +36,6 @@ import static com.formdev.flatlaf.FlatClientProperties.*;
 @Singleton
 public final class DevToolsPanel extends JPanel {
     private static final String SHOW_PLANNED = "panel.showPlanned";
-    private static final int GAME_STATE_LOGGED_IN = 30;
 
     private final DevToolManager manager;
     private final ApiConnection connection;
@@ -204,15 +204,16 @@ public final class DevToolsPanel extends JPanel {
     }
 
     /** Poll thread: reads the facts card while this page is on screen. */
-    private void readFacts(Client client) {
+    private void readFacts(KrakenApi api) {
         if (!showing) {
             return;
         }
-        int state = client.gameState();
-        int tick = client.getTickCount();
-        Player local = client.getLocalPlayer();
+        ClientState clientState = api.clientState();
+        int state = clientState.getGameState();
+        int tick = clientState.getTickCount();
+        Player local = api.client().getLocalPlayer();
         MapCoord at = local == null ? null : local.location();
-        String game = state == GAME_STATE_LOGGED_IN ? "Logged in" : "Not logged in (" + state + ")";
+        String game = clientState.isLoggedIn() ? "Logged in" : "Not logged in (" + state + ")";
         String player = local == null || local.name().isEmpty() ? "–" : local.name();
         String tile = at == null ? "–" : at.x() + ", " + at.z() + ", " + at.level();
         SwingUtilities.invokeLater(() -> {

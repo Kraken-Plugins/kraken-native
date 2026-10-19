@@ -3,7 +3,6 @@ package com.kraken.client.devtools;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import com.kraken.api.KrakenApi;
-import com.kraken.api.game.Client;
 import com.kraken.client.ApiConnection;
 import com.kraken.client.GameView;
 import com.kraken.client.devtools.DevTool.Support;
@@ -148,7 +147,7 @@ public final class DevToolManager {
     }
 
     /** Poll thread: refreshes every showing tool, then hands the results to the EDT in one go. */
-    private void poll(Client client) {
+    private void poll(KrakenApi api) {
         List<Runnable> updates = new ArrayList<>();
         boolean overlays = false;
         for (DevTool<?> tool : tools) {
@@ -156,7 +155,7 @@ public final class DevToolManager {
                 continue;
             }
             try {
-                Runnable update = tool.refresh(client);
+                Runnable update = tool.refresh(api);
                 if (update != null) {
                     updates.add(update);
                 }

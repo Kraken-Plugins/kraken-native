@@ -1,5 +1,6 @@
 package com.kraken.client.devtools.tools;
 
+import com.kraken.api.KrakenApi;
 import com.kraken.api.game.Client;
 import com.kraken.api.game.MapCoord;
 import com.kraken.client.devtools.Category;
@@ -39,7 +40,8 @@ final class LocationTool extends DevTool<MapCoord> {
     }
 
     @Override
-    protected MapCoord read(Client client) {
+    protected MapCoord read(KrakenApi api) {
+        Client client = api.client();
         return localTile(client);
     }
 

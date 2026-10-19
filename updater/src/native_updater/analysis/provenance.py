@@ -656,8 +656,21 @@ class Provenance:
             if isinstance(v, Mul):
                 facts.addrs.append(Addr(insn.rva, v, ops[0].reg, fn))
             return
+        if m.startswith("CMOV") and len(ops) == 2 and ops[0].kind == "reg":
+            # dst = cond ? src : dst, so afterwards it holds one of the two (e.g. a lookup's "found ? node : end").
+            # Only when both are known; otherwise unknown, as before.
+            dst, src = ops
+            old = self._value(dst, state)
+            if src.kind == "mem":
+                new, _ = self._deref(src, state, src.size or x86.reg_size(dst.reg))
+                self._note_load(src, new, None, state, facts, insn, fn)
+            else:
+                new = self._value(src, state)
+            v = UNKNOWN if is_unknown(old) or is_unknown(new) else many([old, new])
+            self._write(dst, v, state, facts, insn, fn)
+            return
         if m in ("AND", "OR", "SAR", "SHR", "NEG", "NOT", "BT", "BTS", "BTR", "XCHG", "XADD", "CMPXCHG", "SETZ", "SETNZ",
-                 "CMOVZ", "CMOVNZ", "CDQE", "CDQ", "CQO", "MOVSXD", "SBB", "ADC", "ROL", "ROR", "DIV", "IDIV", "MUL"):
+                 "CDQE", "CDQ", "CQO", "MOVSXD", "SBB", "ADC", "ROL", "ROR", "DIV", "IDIV", "MUL"):
             # Reads still count as loads (e.g. AND EDI,[R10+R9*4]); results are unknown.
             for op in ops:
                 if op.kind == "mem":

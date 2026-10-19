@@ -40,6 +40,13 @@ fingerprints:
   ConfigLoader.12:      { extractor: config_loader_core, field: ConfigLoader.12, cls: C }
   ConfigLoader.13:      { extractor: config_loader_core, field: ConfigLoader.13, cls: C }
   ConfigLoader.14:      { extractor: config_loader_core, field: ConfigLoader.14, cls: C }
+  ConfigLoader.16:      { extractor: config_loader_core, field: ConfigLoader.16, cls: C }
+  # Login-time varp reset: loops over every varp id (loading its VarPlayerType) and zeroes global.varps[id].
+  VarpReset:            { caller_of: "@ConfigLoader.16", refs_global: global.varps }
+  # Varc store lookups (sorted vector of {key, variant value, type tag}) and the lower_bound they share.
+  VarcIntLookup:        { callee_of: ClientState.getIntegerVarc }
+  VarcStringLookup:     { callee_of: ClientState.getStringVarc }
+  VarcLowerBound:       { callee_of: "@VarcIntLookup" }
   SetSequence:          { extractor: set_sequence, field: SetSequence, cls: C }
   ActorCtor:            { extractor: actor_ctor, field: ActorCtor, cls: D }
   NpcUpdateDecoder:     { caller_of: "@SetSequence", calls: "@ConfigLoader.9", unique: false }

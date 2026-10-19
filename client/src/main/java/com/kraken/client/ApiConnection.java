@@ -5,7 +5,6 @@ import com.google.inject.Singleton;
 import com.google.inject.name.Named;
 import com.kraken.api.KrakenApi;
 import com.kraken.api.UnsupportedBuildException;
-import com.kraken.api.game.Client;
 import lombok.Getter;
 import lombok.extern.java.Log;
 
@@ -32,7 +31,7 @@ public final class ApiConnection {
 
     private final File exe;
     private final List<Runnable> stateListeners = new CopyOnWriteArrayList<>();
-    private final List<Consumer<Client>> pollListeners = new CopyOnWriteArrayList<>();
+    private final List<Consumer<KrakenApi>> pollListeners = new CopyOnWriteArrayList<>();
     private volatile KrakenApi api;
     @Getter
     private volatile State state = State.WAITING;
@@ -68,9 +67,9 @@ public final class ApiConnection {
 
     /**
      * Runs {@code listener} on the API poll thread after every poll (about every 150 ms) once attached. It may read
-     * the client, but must hand any UI work to the EDT.
+     * the game through the API, but must hand any UI work to the EDT.
      */
-    public void addPollListener(Consumer<Client> listener) {
+    public void addPollListener(Consumer<KrakenApi> listener) {
         pollListeners.add(listener);
     }
 
@@ -85,7 +84,7 @@ public final class ApiConnection {
                 KrakenApi attached = override != null
                         ? KrakenApi.attach(pid, exe.toPath(), Path.of(override))
                         : KrakenApi.attach(pid, exe.toPath());
-                attached.setPollListener(() -> poll(attached.client()));
+                attached.setPollListener(() -> poll(attached));
                 api = attached;
                 attached.start();
                 log.info("Native API attached (client " + attached.mapping().version() + ", mappings " + source + ")");
@@ -110,10 +109,10 @@ public final class ApiConnection {
         setState(State.FAILED, "Could not attach to osclient.exe. See the console.");
     }
 
-    private void poll(Client client) {
-        for (Consumer<Client> listener : pollListeners) {
+    private void poll(KrakenApi attached) {
+        for (Consumer<KrakenApi> listener : pollListeners) {
             try {
-                listener.accept(client);
+                listener.accept(attached);
             } catch (RuntimeException e) {
                 log.log(Level.WARNING, "API poll listener failed", e);
             }

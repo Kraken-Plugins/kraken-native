@@ -19,8 +19,8 @@
 
 Kraken Native brings the Kraken tooling to the official C++ client (`osclient.exe`) that ships with the Jagex Launcher.
 A Java client wraps the game window in a RuneLite-style frame. A Python updater maps the client's struct offsets,
-globals and functions for each build. A RuneLite-shaped Java API, designed but not yet built, will read game state
-through those mappings.
+globals and functions for each build. A Java API that mirrors the client's Lua plugin API reads game state through
+those mappings, and the client's dev tools show what it sees.
 
 This project is not meant for "botting", automation or rule-breaking purposes, and any material provided by this
 project or its documentation is purely for educational purposes only. Kraken Native is not affiliated with or endorsed
@@ -35,11 +35,11 @@ Use at your own risk. The developers are not responsible for any consequences re
 | [`client/`](client) | Proof of concept | Java 17 Swing client that launches `osclient.exe` and embeds its window, with a RuneLite-style sidebar and log console |
 | [`updater/`](updater) | Working | Python updater that maps a client build and writes the API's `mappings/<version>.json` |
 | [`api/src/main/resources/mappings/`](api/src/main/resources/mappings) | Seed build | One mapping per client version (e.g. `241.3.json`): the offsets the API reads, nothing else. Bundled on the API's classpath |
-| [`api/`](api) | Designed | Gradle module for the RuneLite-shaped API; see [api-design.md](docs/api-design.md) |
+| [`api/`](api) | In progress | Java mirror of the Lua plugin API (`ClientOp`, `ClientState`, `Events`), read from outside the process; see [lua-api-coverage.md](docs/lua-api-coverage.md) |
 | [`docs/`](docs) | | Design documents for the client surface, updater and API |
 
-The seed build, client 241.3, maps 191 of 198 keys as PROVEN or ANCHORED (the other 7 are INFERRED), with none failed.
-[api-gaps.md](docs/api-gaps.md) tracks what the API still needs from the updater.
+The seed build, client 241.3, maps 202 of 209 keys as PROVEN or ANCHORED (the other 7 are INFERRED), with none failed.
+[lua-api-coverage.md](docs/lua-api-coverage.md) tracks which Lua functions the API mirrors and what the rest need.
 
 ## Prerequisites
 
@@ -142,7 +142,8 @@ uv run python -m unittest discover -s tests -t .
 
 ## Roadmap
 
-The API is planned in milestones; see [api-design.md](docs/api-design.md) §12 for the details.
+The API is built in sections you can test live with the dev tools; [lua-api-coverage.md](docs/lua-api-coverage.md)
+lists them and what each covers. The milestones below are the longer-term plan.
 
 * **A0** Load the mapping, attach to the client and verify its identity, then read `Client` scalars such as the game
   state, tick, skills and varps.

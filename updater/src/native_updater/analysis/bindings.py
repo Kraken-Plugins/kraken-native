@@ -244,7 +244,11 @@ class EnumTable:
 
 
 def parse_enum_tables(model, min_entries=3):
-    """Find {char* name, size_t len, int64 value} record arrays in read-only data."""
+    """Find enum registration arrays in read-only data: 24-byte records {int32 value (padded to 8), char* name,
+    size_t len}, value first. The last record is followed by unrelated data (often the name strings themselves),
+    and the client agrees: it fires event 11 (ON_VAR_TRANSMIT in this layout) from the varp packet handler, and
+    getProfileType returns 0..5 in the order the ProfileType records list them. Reading the records name-first
+    instead shifts every value by one record."""
     pe = model.pe
     tables = []
     for sec in pe.sections:
@@ -258,8 +262,8 @@ def parse_enum_tables(model, min_entries=3):
             run = []
             j = k
             while j + 2 < n:
-                ptr, length, value = qwords[j], qwords[j + 1], qwords[j + 2]
-                if not (1 <= length <= 64 and value < (1 << 31) and pe.image_base <= ptr < pe.image_base + pe.size_of_image):
+                value, ptr, length = _int32(qwords[j]), qwords[j + 1], qwords[j + 2]
+                if value is None or not (1 <= length <= 64 and pe.image_base <= ptr < pe.image_base + pe.size_of_image):
                     break
                 text = pe.cstring(ptr - pe.image_base, limit=65)
                 if text is None or len(text) != length:
@@ -272,6 +276,14 @@ def parse_enum_tables(model, min_entries=3):
             else:
                 k += 1
     return tables
+
+
+def _int32(qword):
+    """The signed 32-bit enum value held in an 8-byte slot (upper half zero padding or sign extension), else None."""
+    high, low = qword >> 32, qword & 0xFFFFFFFF
+    if high not in (0, 0xFFFFFFFF):
+        return None
+    return low - (1 << 32) if low & 0x80000000 else low
 
 
 def select_enum_table(tables, name_pattern):

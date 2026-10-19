@@ -121,7 +121,31 @@
     "functions.locTypeLoader": "0x5ed080",
     "functions.npcTypeLoader": "0x5f18f0",
     "functions.objTypeLoader": "0x5f5cd0",
-    "functions.varbitRead": "0x5ae330"
+    "functions.varbitRead": "0x5ae330",
+    "global.varpCount": "0xec3070",
+    "Client.worldFlags": "0x30a4",
+    "Client.varcs": "0x417ca8",
+    "Varcs.entries": "0x48",
+    "Varcs.entriesEnd": "0x50",
+    "VarcEntry.size": "0x30",
+    "VarcEntry.key": "0x0",
+    "VarcEntry.value": "0x8",
+    "VarcEntry.type": "0x28",
+    "enums.gameStateTrigger": {
+      "ENTER_TITLE_STATE": 0,
+      "ENTER_LOADING_STATE": 1,
+      "ENTER_WORLD_STATE": 2,
+      "LEAVE_WORLD_STATE": 3,
+      "ENTER_WORLD_HOP_STATE": 4
+    },
+    "enums.profileType": {
+      "STANDARD": 0,
+      "BETA": 1,
+      "DEADMAN": 2,
+      "PVP_ARENA": 3,
+      "QUEST_SPEEDRUNNING": 4,
+      "SEASONAL": 5
+    }
   },
   "fingerprints": {
     "ProjectionCore": "0x6aa7c0",
@@ -135,7 +159,12 @@
     "ConfigLoader.12": "0x5fbb00",
     "ConfigLoader.13": "0x5fedf0",
     "ConfigLoader.14": "0x600690",
-    "LocTagToId": "0x652270"
+    "LocTagToId": "0x652270",
+    "ConfigLoader.16": "0x6010d0",
+    "VarpReset": "0x8b800",
+    "VarcIntLookup": "0x33170",
+    "VarcStringLookup": "0x33430",
+    "VarcLowerBound": "0x47a90"
   },
   "bindings": {
     "ClientOp.npcCoord": "0x3ae4b0",

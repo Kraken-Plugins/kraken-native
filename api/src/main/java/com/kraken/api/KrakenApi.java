@@ -1,7 +1,9 @@
 package com.kraken.api;
 
+import com.kraken.api.events.EventPoller;
 import com.kraken.api.events.Events;
 import com.kraken.api.game.Client;
+import com.kraken.api.game.ClientState;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.api.memory.MemoryException;
 import com.kraken.api.memory.ProcessMemory;
@@ -10,18 +12,15 @@ import lombok.Setter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Entry point for the native API. {@link #attach} opens the running {@code osclient.exe}, selects the
- * mapping for its client version ({@code mappings/<version>.json}), and exposes a {@link Client} (reads) and {@link Events} (subscriptions).
- * {@link #start()} runs a background poll loop that synthesises events by diffing successive snapshots.
+ * Entry point for the native API, the Java counterpart of the Lua {@code osrs} table. {@link #attach} opens the running
+ * {@code osclient.exe} and selects the mapping for its client version ({@code mappings/<version>.json}); then
+ * {@link #client()} mirrors {@code osrs.ClientOp}, {@link #clientState()} mirrors {@code osrs.ClientState} and
+ * {@link #events()} mirrors {@code osrs.Events}. {@link #start()} runs a background poll loop that synthesises events
+ * by diffing successive snapshots.
  *
  * <p>Read-only throughout: it never writes to or calls into the game.
  */
@@ -35,15 +34,14 @@ public final class KrakenApi implements AutoCloseable {
     private final ProcessMemory memory;
     private final Mapping mapping;
     private final Client client;
+    private final ClientState clientState;
     private final Events events = new Events();
+    private final EventPoller poller;
 
     private volatile boolean running;
     /**
-     * -- SETTER --
-     *  A callback run once per poll cycle on the poll thread (throttled), after events are dispatched. The
-     *  dev tools use it to refresh the live view. It may read through
-     * ; it must marshal any
-     *  UI work to its own thread.
+     * A callback run on the poll thread after events are dispatched, at most every 150 ms. The dev tools use it to
+     * refresh their views. It may read the game; it must hand any UI work to its own thread.
      */
     @Setter
     private volatile Runnable pollListener;
@@ -53,6 +51,11 @@ public final class KrakenApi implements AutoCloseable {
         this.memory = memory;
         this.mapping = mapping;
         this.client = new Client(memory, mapping);
+        this.clientState = new ClientState(memory, mapping);
+        this.poller = new EventPoller(events, client, clientState);
+        for (String problem : Events.verify(mapping)) {
+            log.warning("Event enum mismatch: " + problem);
+        }
     }
 
     /**
@@ -98,10 +101,17 @@ public final class KrakenApi implements AutoCloseable {
         return new KrakenApi(memory, mapping);
     }
 
+    /** Mirrors {@code osrs.ClientOp}: players, NPCs and inventories. */
     public Client client() {
         return client;
     }
 
+    /** Mirrors {@code osrs.ClientState}: stats, vars, the tick, login state and profile type. */
+    public ClientState clientState() {
+        return clientState;
+    }
+
+    /** Mirrors {@code osrs.Events}: subscribe to game events. */
     public Events events() {
         return events;
     }
@@ -126,10 +136,7 @@ public final class KrakenApi implements AutoCloseable {
     }
 
     private void pollLoop() {
-        int previousTick = -1;
-        Map<Integer, String> loadedNpcs = new HashMap<>(); // index -> name, so we can name unload events
         long lastRender = 0;
-
         while (running) {
             try {
                 Thread.sleep(POLL_INTERVAL_MS);
@@ -142,12 +149,7 @@ public final class KrakenApi implements AutoCloseable {
                 break;
             }
             try {
-                int tick = client.getTickCount();
-                if (tick != previousTick) {
-                    previousTick = tick;
-                    events.fireTick();
-                }
-                diffNpcs(loadedNpcs);
+                poller.poll();
 
                 long now = System.currentTimeMillis();
                 Runnable listener = pollListener;
@@ -165,26 +167,6 @@ public final class KrakenApi implements AutoCloseable {
             }
         }
         running = false;
-    }
-
-    private void diffNpcs(Map<Integer, String> loaded) {
-        int[] current = client.getNpcIdAll();
-        Set<Integer> currentSet = new HashSet<>(current.length * 2);
-        for (int index : current) {
-            currentSet.add(index);
-            if (!loaded.containsKey(index)) {
-                String name = client.npcName(index);
-                loaded.put(index, name);
-                events.fireNpc(Events.ON_NPC_LOAD, name, index);
-            }
-        }
-        for (Iterator<Map.Entry<Integer, String>> it = loaded.entrySet().iterator(); it.hasNext(); ) {
-            Map.Entry<Integer, String> entry = it.next();
-            if (!currentSet.contains(entry.getKey())) {
-                events.fireNpc(Events.ON_NPC_UNLOAD, entry.getValue(), entry.getKey());
-                it.remove();
-            }
-        }
     }
 
     @Override

@@ -32,7 +32,7 @@ public record ClientBuild(String version, String sha256) {
 
     /** {@code "<major>.<minor>"} of the file version, e.g. {@code "241.3"}. */
     static String version(byte[] exe) {
-        int at = indexOf(exe, FIXED_FILE_INFO);
+        int at = indexOf(exe);
         if (at < 0 || at + 12 > exe.length) {
             throw new IllegalArgumentException("osclient.exe has no version resource");
         }
@@ -48,11 +48,11 @@ public record ClientBuild(String version, String sha256) {
         }
     }
 
-    private static int indexOf(byte[] data, byte[] pattern) {
+    private static int indexOf(byte[] data) {
         outer:
-        for (int i = 0; i <= data.length - pattern.length; i++) {
-            for (int j = 0; j < pattern.length; j++) {
-                if (data[i + j] != pattern[j]) {
+        for (int i = 0; i <= data.length - ClientBuild.FIXED_FILE_INFO.length; i++) {
+            for (int j = 0; j < ClientBuild.FIXED_FILE_INFO.length; j++) {
+                if (data[i + j] != ClientBuild.FIXED_FILE_INFO[j]) {
                     continue outer;
                 }
             }

@@ -11,6 +11,8 @@ import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * One client build's offsets, loaded from {@code mappings/<version>.json} (the file the updater writes into this
@@ -95,9 +97,54 @@ public final class Mapping {
         }
     }
 
+    /** Whether the mapping has a struct field, e.g. {@code "Client.worldFlags"}. Older mappings may lack newer keys. */
+    public boolean has(String key) {
+        try {
+            offset(key);
+            return true;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
     /** RVA (relative to the module base) of a global, e.g. {@code "client"}. */
     public long global(String key) {
         return parse(obj(root, "globals"), key, key);
+    }
+
+    /** Whether the mapping has a global, e.g. {@code "varpCount"}. */
+    public boolean hasGlobal(String key) {
+        try {
+            global(key);
+            return true;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /**
+     * One value of an enum table, e.g. {@code enumValue("events", "ON_GAME_TICK")} → 44, or {@code fallback} if the
+     * mapping doesn't have it.
+     */
+    public int enumValue(String table, String name, int fallback) {
+        Map<String, Integer> values = enumTable(table);
+        return values.getOrDefault(name, fallback);
+    }
+
+    /** A whole enum table ({@code enums.<table>}) as name → value, or an empty map if the mapping doesn't have it. */
+    public Map<String, Integer> enumTable(String table) {
+        JsonObject enums = root.getAsJsonObject("enums");
+        JsonObject values = enums == null ? null : enums.getAsJsonObject(table);
+        if (values == null) {
+            return Map.of();
+        }
+        Map<String, Integer> out = new LinkedHashMap<>();
+        for (Map.Entry<String, JsonElement> entry : values.entrySet()) {
+            if (entry.getValue().isJsonPrimitive()) {
+                out.put(entry.getKey(), entry.getValue().getAsInt());
+            }
+        }
+        return out;
     }
 
     /** A container layout value, e.g. {@code "string.heapFlagByte"} or {@code "hash_map.node.value"}. */

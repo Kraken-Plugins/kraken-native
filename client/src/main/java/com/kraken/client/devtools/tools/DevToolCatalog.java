@@ -35,6 +35,11 @@ public final class DevToolCatalog {
                         "Moving sub-worlds such as boats, with their id, position and bounds.",
                         "world entity reads and " + PROJECTION),
 
+                new ClientStateTool(),
+                new SkillsTool(),
+                new InventoryTool(),
+                new VarInspectorTool(),
+
                 PlannedTool.both("gameObjects", "Game objects", SCENE, MaterialDesignC.CUBE_OUTLINE,
                         "Scenery such as trees, rocks and doors, with its id and name.",
                         "scene loc reads (mapped) and " + PROJECTION),
@@ -63,9 +68,6 @@ public final class DevToolCatalog {
                 PlannedTool.both("widgets", "Widget inspector", INTERFACE, MaterialDesignW.WIDGETS_OUTLINE,
                         "Browse the interface tree, and highlight the selected widget in game.",
                         "interface tree reads (mapped)"),
-                PlannedTool.window("vars", "Var inspector", INTERFACE, MaterialDesignV.VARIABLE,
-                        "Live varps and varbits, highlighting values as they change.",
-                        "varp and varbit reads (mapped)"),
                 PlannedTool.window("sounds", "Sound effects", INTERFACE, MaterialDesignV.VOLUME_HIGH,
                         "A log of sound effects as the client plays them.",
                         "a sound event source, which likely needs in-process hooks"),

@@ -76,6 +76,20 @@ keys:
   - key: enums.events
     type: table
     priority: P1
-    doc: Native event ids (ON_GAME_TICK, ON_NPC_LOAD, ...), the P2 event hook contract.
+    doc: Native event ids (ON_GAME_TICK, ON_NPC_LOAD, ...), the P2 event hook contract. NULL_EVENT is -1.
     strategies:
       - enum-table: { match: "^ON_" }
+
+  - key: enums.gameStateTrigger
+    type: table
+    priority: P1
+    doc: osrs.Events.GameStateTrigger, the argument of ON_GAME_STATE_CHANGED callbacks.
+    strategies:
+      - enum-table: { match: "^(ENTER|LEAVE)_\\w+_STATE$" }
+
+  - key: enums.profileType
+    type: table
+    priority: P1
+    doc: osrs.ClientState.ProfileType, what ClientState.getProfileType returns.
+    strategies:
+      - enum-table: { match: "^(STANDARD|BETA|DEADMAN|PVP_ARENA|QUEST_SPEEDRUNNING|SEASONAL)$" }

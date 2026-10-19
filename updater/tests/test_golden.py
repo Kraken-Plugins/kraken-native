@@ -63,7 +63,10 @@ class GoldenTests(unittest.TestCase):
                 for key, e in analysis["keys"].items():
                     if key in internal or e["verdict"] not in emit.TRUSTED:
                         self.assertNotIn(key, flat)
-                    elif not key.startswith("enums.events"):
+                    elif isinstance(e["value"], dict):       # a whole enum table flattens to one key per entry
+                        for name, v in e["value"].items():
+                            self.assertEqual(flat[f"{key}.{name}"], v, f"{key}.{name}")
+                    else:
                         self.assertEqual(flat[key], e["value"], key)
                 self.assertEqual(set(mapping), {"version", "sha256", "globals", "structs", "containers", "enums", "functions"})
 

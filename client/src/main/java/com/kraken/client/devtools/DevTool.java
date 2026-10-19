@@ -105,8 +105,11 @@ public abstract class DevTool<S> {
         return option;
     }
 
-    /** Poll thread: reads what this tool shows. Return null when there's nothing to show. */
-    protected abstract S read(Client client);
+    /**
+     * Poll thread: reads what this tool shows. {@code api.client()} mirrors Lua's {@code ClientOp},
+     * {@code api.clientState()} its {@code ClientState}. Return null when there's nothing to show.
+     */
+    protected abstract S read(KrakenApi api);
 
     /** EDT: draws the latest snapshot over the game. */
     protected void paintOverlay(S snapshot, OverlayContext overlay) {
@@ -152,8 +155,8 @@ public abstract class DevTool<S> {
     }
 
     /** Poll thread: reads a fresh snapshot, returning the EDT work that shows it in the open window (or null). */
-    final Runnable refresh(Client client) {
-        S snapshot = read(client);
+    final Runnable refresh(KrakenApi api) {
+        S snapshot = read(api);
         latest = snapshot;
         ToolView<S> v = view;
         if (snapshot == null || v == null) {

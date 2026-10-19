@@ -8,6 +8,7 @@ import lombok.Getter;
 @AllArgsConstructor
 public enum Category {
     ACTORS("Actors"),
+    STATE("Client state"),
     SCENE("Scene"),
     MAP("Map & movement"),
     INTERFACE("Interface"),

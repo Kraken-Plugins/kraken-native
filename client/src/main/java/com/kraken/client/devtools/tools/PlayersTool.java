@@ -1,5 +1,6 @@
 package com.kraken.client.devtools.tools;
 
+import com.kraken.api.KrakenApi;
 import com.kraken.api.game.Client;
 import com.kraken.api.game.MapCoord;
 import com.kraken.api.game.Player;
@@ -38,7 +39,8 @@ final class PlayersTool extends DevTool<List<PlayersTool.Row>> {
     }
 
     @Override
-    protected List<Row> read(Client client) {
+    protected List<Row> read(KrakenApi api) {
+        Client client = api.client();
         int selfIndex = client.getLocalPlayerIndex();
         MapCoord self = localTile(client);
         List<Row> rows = new ArrayList<>();
