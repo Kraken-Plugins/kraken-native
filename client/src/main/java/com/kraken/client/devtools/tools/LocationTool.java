@@ -15,18 +15,24 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Where you're standing, as an info box over the game and in a window. A map square (region) is 64×64 tiles and a
- * zone is 8×8, so both follow from the world tile.
+ * Where you're standing, as an info box over the game and in a window. The client keeps tiles relative to the loaded
+ * map's base (the scene tile); adding the base gives the world tile, from which the map square (64×64 region) and zone
+ * (8×8) follow.
  */
-final class LocationTool extends DevTool<MapCoord> {
+final class LocationTool extends DevTool<LocationTool.Where> {
+    record Where(MapCoord scene, MapCoord world, MapCoord base) {
+    }
+
     private final ToolOption tile = option("tile", "World tile", true);
+    private final ToolOption sceneTile = option("sceneTile", "Scene tile", false);
     private final ToolOption mapSquare = option("mapSquare", "Map square", true);
     private final ToolOption mapSquareTile = option("mapSquareTile", "Tile in map square", true);
     private final ToolOption zone = option("zone", "Zone", false);
 
     LocationTool() {
         super("location", "Location", Category.MAP, MaterialDesignM.MAP_MARKER_OUTLINE,
-                "Your world tile, the map square (64×64 region) and zone (8×8) it's in, and your tile within the map square.");
+                "Your world tile, your tile in the loaded scene, the map square (64×64 region) and zone (8×8) you're in, "
+                        + "and your tile within the map square.");
     }
 
     @Override
@@ -40,37 +46,60 @@ final class LocationTool extends DevTool<MapCoord> {
     }
 
     @Override
-    protected MapCoord read(KrakenApi api) {
+    protected Where read(KrakenApi api) {
         Client client = api.client();
-        return localTile(client);
-    }
-
-    @Override
-    protected void paintOverlay(MapCoord at, OverlayContext overlay) {
-        overlay.infoPanel("Location", facts(at, true));
-    }
-
-    @Override
-    protected ToolView<MapCoord> createView() {
-        return new FactsView<>(at -> facts(at, false));
-    }
-
-    /** The rows to show; {@code onlyEnabled} applies the options (the window always shows everything). */
-    private Map<String, String> facts(MapCoord at, boolean onlyEnabled) {
-        int squareX = at.x() >> 6;
-        int squareZ = at.z() >> 6;
-        Map<String, String> rows = new LinkedHashMap<>();
-        if (!onlyEnabled || tile.isOn()) {
-            rows.put("Tile", at.x() + ", " + at.z() + ", " + at.level());
+        MapCoord at = localTile(client);
+        if (at == null) {
+            return null;
         }
+        MapCoord base = api.scene().getBase();
+        return new Where(at, base == null ? null : api.scene().toWorld(at), base);
+    }
+
+    @Override
+    protected void paintOverlay(Where where, OverlayContext overlay) {
+        overlay.infoPanel("Location", facts(where, true));
+    }
+
+    @Override
+    protected ToolView<Where> createView() {
+        return new FactsView<>(where -> facts(where, false));
+    }
+
+    /**
+     * The rows to show.
+     *
+     * @param where       where you are
+     * @param onlyEnabled apply the options (the window always shows everything)
+     * @return the rows, in order
+     */
+    private Map<String, String> facts(Where where, boolean onlyEnabled) {
+        Map<String, String> rows = new LinkedHashMap<>();
+        MapCoord world = where.world();
+        if (!onlyEnabled || tile.isOn()) {
+            rows.put("Tile", world == null ? "?" : world.x() + ", " + world.z() + ", " + world.level());
+        }
+        if (!onlyEnabled || sceneTile.isOn()) {
+            MapCoord at = where.scene();
+            rows.put("Scene tile", at.x() + ", " + at.z() + ", " + at.level());
+        }
+        if (!onlyEnabled) {
+            MapCoord base = where.base();
+            rows.put("Scene base", base == null ? "?" : base.x() + ", " + base.z());
+        }
+        if (world == null) {
+            return rows;
+        }
+        int squareX = world.x() >> 6;
+        int squareZ = world.z() >> 6;
         if (!onlyEnabled || mapSquare.isOn()) {
             rows.put("Map square", squareX + ", " + squareZ + " (" + (squareX << 8 | squareZ) + ")");
         }
         if (!onlyEnabled || mapSquareTile.isOn()) {
-            rows.put("In square", (at.x() & 63) + ", " + (at.z() & 63));
+            rows.put("In square", (world.x() & 63) + ", " + (world.z() & 63));
         }
         if (!onlyEnabled || zone.isOn()) {
-            rows.put("Zone", (at.x() >> 3) + ", " + (at.z() >> 3));
+            rows.put("Zone", (world.x() >> 3) + ", " + (world.z() >> 3));
         }
         return rows;
     }

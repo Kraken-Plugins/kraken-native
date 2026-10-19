@@ -13,11 +13,16 @@
 Selectors for `getter` (all optional, combined with AND):
   nth, stored_to {arg, offset}, returned, passed_to {fn, arg, indirect}, compared_with N, used_in_cmp, used_as_base,
   used_as_index_base, indexed, index_scale N, deref_off N, combined_with {key}, cmp_with {arg | key}, index_uses {arg},
-  min, max
+  min, max, lowest
 
   cmp_with {arg: N}      the value is compared directly with argument N (e.g. the plane checked against a level count)
   cmp_with {key: K}      ... with the field at value(K) of the same base, e.g. a vector's end compared with its begin
   index_uses {arg: N}    the value is the base pointer of an indexed load whose index involves argument N
+  lowest: true           of the matches (which must form a run of 4-byte fields, an f32[N] array), the lowest offset
+
+Other `getter` parameters:
+  add N                  added to the offset read. For a base that is itself a sub-object (the rescaler is called with
+                         renderer + 0x10), N is that base's offset in the parent struct.
 """
 from . import roles
 from .analysis.bindings import select_enum_table
@@ -53,7 +58,7 @@ def getter(session, p, key):
                 factor = value.index.factor.n if isinstance(value.index, Mul) else 1
                 out.append(_cand(session, value.scale * factor, "getter", session.evidence(fact.rva, fact.fn, "imm")))
             else:
-                out.append(_cand(session, value.off, "getter", session.evidence(fact.rva, fact.fn, "disp")))
+                out.append(_cand(session, value.off + p.get("add", 0), "getter", session.evidence(fact.rva, fact.fn, "disp")))
     if isinstance(p.get("in"), dict) and "string" in p["in"]:
         for c in out:
             c.cls, c.strategy = "B", "string-anchored"
@@ -90,9 +95,23 @@ def _select(session, facts, p):
         if ok and _selectors_ok(session, facts, value, sel) and value not in seen:
             seen[value] = fact
     pairs = sorted(seen.items(), key=lambda kv: kv[1].rva)
+    if sel.get("lowest"):
+        pairs = _array_base(pairs)
     if "nth" in sel:
         return pairs[sel["nth"]:sel["nth"] + 1] if sel["nth"] < len(pairs) else []
     return pairs
+
+
+def _array_base(pairs):
+    """The lowest of the matches when they fill a run of 4-byte fields from it (an f32[N] array read field by field);
+    empty when they do not form one, so a scattered set of loads never passes for an array."""
+    if not pairs:
+        return []
+    base = min(pairs, key=lambda kv: kv[0].off)
+    offs = sorted(v.off for v, _ in pairs)
+    if offs != [base[0].off + 4 * i for i in range(len(offs))]:
+        return []
+    return [base]
 
 
 def _values(facts, kind):

@@ -4,19 +4,33 @@ import com.kraken.api.KrakenApi;
 import com.kraken.api.game.Client;
 import com.kraken.api.game.MapCoord;
 import com.kraken.api.game.Npc;
+import com.kraken.api.config.NpcType;
+import com.kraken.api.game.FineCoord;
 import com.kraken.client.devtools.Category;
 import com.kraken.client.devtools.DevTool;
+import com.kraken.client.devtools.ToolOption;
+import com.kraken.client.devtools.view.MappedView;
 import com.kraken.client.devtools.view.TableView;
 import com.kraken.client.devtools.view.ToolView;
+import com.kraken.client.overlay.OverlayContext;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignG;
 
+import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Every NPC loaded around you, in a live table. Labels above their heads come once the API can project.
+ * Every NPC loaded around you, in a live table, and over the game their names above their heads and the tiles they
+ * stand on.
  */
-final class NpcsTool extends DevTool<List<NpcsTool.Row>> {
+final class NpcsTool extends DevTool<Listing<NpcsTool.Row>> {
+    private static final Color COLOR = new Color(0xf0c850);
+    private static final Color FILL = new Color(240, 200, 80, 30);
+
+    private final ToolOption names = option("names", "Names", true);
+    private final ToolOption ids = option("ids", "Ids", false);
+    private final ToolOption tiles = option("tiles", "Tiles", true);
+
     record Row(int index, int id, String name, Integer x, Integer z, Integer level, Integer distance, Integer height,
                int category, String target, String health, String follower, String hidden, int uid, int spawned) {
     }
@@ -29,7 +43,7 @@ final class NpcsTool extends DevTool<List<NpcsTool.Row>> {
 
     @Override
     public Support overlaySupport() {
-        return Support.PLANNED;
+        return Support.READY;
     }
 
     @Override
@@ -38,16 +52,16 @@ final class NpcsTool extends DevTool<List<NpcsTool.Row>> {
     }
 
     @Override
-    public String needs() {
-        return "world-to-screen projection, for labels above heads";
-    }
-
-    @Override
-    protected List<Row> read(KrakenApi api) {
+    protected Listing<Row> read(KrakenApi api) {
         Client client = api.client();
         MapCoord self = localTile(client);
         List<Row> rows = new ArrayList<>();
+        Projector projector = isOverlayOn() ? Projector.of(api) : null;
+        Marks.Builder marks = projector == null ? null : new Marks.Builder(projector);
         for (Npc npc : client.getNpcs()) {
+            if (marks != null) {
+                mark(marks, projector, client, npc);
+            }
             MapCoord at = npc.getCoord();
             String follower = npc.isLocalFollower() ? "yours" : npc.isFollower() ? "yes" : "";
             rows.add(new Row(npc.index(), npc.getTypeId(), npc.getName(),
@@ -56,11 +70,38 @@ final class NpcsTool extends DevTool<List<NpcsTool.Row>> {
                     Actors.target(client, npc), Actors.health(npc), follower, Actors.hidden(npc), npc.getUid(),
                     npc.getCreationCycle()));
         }
-        return rows;
+        return new Listing<>(rows, marks == null ? Marks.NONE : marks.build());
+    }
+
+    private void mark(Marks.Builder marks, Projector projector, Client client, Npc npc) {
+        MapCoord at = npc.getCoord();
+        if (at == null) {
+            return;
+        }
+        if (tiles.isOn()) {
+            NpcType type = npc.getTypeData();
+            int size = type == null ? 1 : Math.max(1, type.getSize());
+            marks.outline(projector.area(at, size, size), COLOR, FILL);
+        }
+        String label = names.isOn() ? npc.getName() : "";
+        if (ids.isOn()) {
+            label = (label.isEmpty() ? "" : label + " ") + "(" + npc.getTypeId() + ")";
+        }
+        FineCoord fine = client.npcCoordFine(npc.index());
+        marks.label(label, projector.above(fine, Projector.LABEL_LIFT), COLOR);
     }
 
     @Override
-    protected ToolView<List<Row>> createView() {
+    protected void paintOverlay(Listing<Row> snapshot, OverlayContext overlay) {
+        snapshot.marks().paint(overlay);
+    }
+
+    @Override
+    protected ToolView<Listing<Row>> createView() {
+        return new MappedView<>(table(), Listing::rows);
+    }
+
+    private static TableView<Row> table() {
         return TableView.<Row>builder("NPCs")
                 .column("Index", Integer.class, 56, Row::index)
                 .column("Id", Integer.class, 60, Row::id)

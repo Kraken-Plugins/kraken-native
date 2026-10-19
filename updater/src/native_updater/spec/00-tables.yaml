@@ -56,6 +56,15 @@ fingerprints:
   ObjPileTile:          { extractor: obj_pile_grid, field: ObjPileTile, cls: A }
   WorldToScreen:        { binding: Graphics.worldToScreenCoord }
   ProjectionCore:       { callee_of: "@WorldToScreen", min_args: 7 }
+  # The rescaler WorldToScreen calls with the renderer block (renderer + 0x10): canvas and screen sizes.
+  ScreenRescale:        { callee_of: "@WorldToScreen", arg0: { addr: { field: { of: client, key: Client.renderer } } } }
+  # The renderer constructor: the function that builds the projection object and its holder (see renderer_layout).
+  RendererCtor:         { extractor: renderer_layout }
+  # The walk core that lineOfWalk runs on a collision record (x, z, x2, z2).
+  CollisionWalkCore:    { callee_of: CollisionMap.lineOfWalk }
+  # The flag accessor CollisionMap:getBitFlags. The binding parser pairs its Lua name with the wrong handler in the
+  # CollisionMap table; the handler behind the name CollisionMap.osrs is the accessor.
+  CollisionBitFlags:    { binding: CollisionMap.osrs }
   ActorNameGetter:      { callee_of: ClientOp.npcName, arg0: sp_result }
   InvLookupIds:         { callee_of: ClientOp.invGetObjId }
   InvLookupCounts:      { callee_of: ClientOp.invGetNum }

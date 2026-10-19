@@ -2,6 +2,7 @@ package com.kraken.api.game;
 
 import com.kraken.api.config.ConfigTypes;
 import com.kraken.api.config.InvType;
+import com.kraken.api.config.LocType;
 import com.kraken.api.config.NpcType;
 import com.kraken.api.config.ObjType;
 import com.kraken.api.mapping.Mapping;
@@ -26,6 +27,13 @@ import java.util.List;
  * <p>Naming note: player names live behind a pointer at {@code Player+0x718} (the pointed-to object holds the display
  * name and the normalised name), whereas an NPC's own name is the inline string at {@code Npc+0x710}, falling back to
  * its type's name.
+ *
+ * <p>Coordinates ({@link MapCoord}) are scene tiles: relative to the loaded map's base, as the client stores them
+ * ({@link Scene#getBase()} turns them into world tiles).
+ *
+ * <p>Like the Lua functions, {@link #locFind} and {@link #objFind} make what they find the <em>active</em> loc or obj,
+ * which the no-argument {@code loc*}/{@code obj*} functions then read. The client keeps one active loc and obj for its
+ * Lua plugins; this reader keeps its own (one per {@code Client}), so the two never disturb each other.
  */
 public final class Client extends GameReader {
 
@@ -83,6 +91,7 @@ public final class Client extends GameReader {
     public static final int INV_BANK = 95;
 
     private final ActorReader actors;
+    private final SceneReader scene;
     private final ConfigTypes configs;
 
     private final int cPlayerCount;
@@ -115,6 +124,7 @@ public final class Client extends GameReader {
         super(memory, mapping);
         this.configs = configs;
         this.actors = new ActorReader(memory, mapping, configs);
+        this.scene = new SceneReader(memory, mapping, configs, actors);
 
         this.cPlayerCount = mapping.offset("Client.playerIndexCount");
         this.cPlayerIndices = mapping.offset("Client.playerIndices");
@@ -483,6 +493,329 @@ public final class Client extends GameReader {
      */
     public ObjType.VarReader vars() {
         return actors.vars;
+    }
+
+    /**
+     * The reader {@link Scene}, {@link World} and {@link Collision} share with this one.
+     *
+     * @return the scene reader
+     */
+    SceneReader sceneReader() {
+        return scene;
+    }
+
+    /**
+     * The actor reader the scene facades use for ground heights.
+     *
+     * @return the actor reader
+     */
+    ActorReader actorReader() {
+        return actors;
+    }
+
+    /**
+     * What {@link #locFind} found: the loc's type, its tile (as bytes, in the world it was found in), its layer, and
+     * the world coordinate it was searched at.
+     */
+    private record ActiveLoc(int type, int level, int x, int z, int layer, int worldX, int worldZ) {
+    }
+
+    /**
+     * What {@link #objFind} found: the pile entry (the client holds a weak reference to it), where its pile is, and the
+     * world coordinate it was searched at.
+     */
+    private record ActiveObj(long item, long world, int level, int x, int z, int worldX, int worldZ) {
+    }
+
+    private volatile ActiveLoc activeLoc;
+    private volatile ActiveObj activeObj;
+
+    /**
+     * Mirrors {@code ClientOp.locFind}: looks for a loc of a type on a tile and, if there is one, makes it the active
+     * loc for {@link #locCoord}, {@link #locName} and the other {@code loc*} functions. Like the client, it turns the
+     * scene coordinate into a world coordinate, finds the world holding it (a boat's, or the top-level world), and
+     * checks that tile's wall decoration, wall, ground decoration and game object, in that order. A miss leaves the
+     * previous active loc in place.
+     *
+     * @param type  the loc type id
+     * @param coord the tile, in scene coordinates (as {@link #coord()} returns them)
+     * @return true if the tile has such a loc
+     */
+    public boolean locFind(int type, MapCoord coord) {
+        int[] at = coord == null ? null : scene.toWorld(coord);
+        long world = at == null ? 0 : scene.worldAt(at[1], at[2]);
+        int[] base = scene.worldBase(world);
+        if (base == null) {
+            return false;
+        }
+        int x = at[1] - base[0];
+        int z = at[2] - base[1];
+        if (!scene.inWorld(world, at[0], x, z)) {
+            return false;
+        }
+        int layer = scene.findLoc(scene.sceneOf(world), at[0], x, z, type);
+        if (layer < 0) {
+            return false;
+        }
+        activeLoc = new ActiveLoc(type, at[0] & 0xff, x & 0xff, z & 0xff, layer, at[1], at[2]);
+        return true;
+    }
+
+    /**
+     * Makes a loc the active one without searching for it, as the client does before it calls
+     * {@code ON_LOC_LOAD}/{@code ON_LOC_UNLOAD} subscribers (the loc may already be gone). Not a Lua function.
+     *
+     * @param loc a loc of the top-level scene, e.g. from {@link Scene#getLocs}
+     */
+    public void activateLoc(Loc loc) {
+        long world = scene.topWorld();
+        int[] base = scene.worldBase(world);
+        if (loc == null || base == null) {
+            return;
+        }
+        MapCoord at = loc.coord();
+        activeLoc = new ActiveLoc(loc.id(), at.level() & 0xff, at.x() & 0xff, at.z() & 0xff, loc.layer(),
+                at.x() + base[0], at.z() + base[1]);
+    }
+
+    /**
+     * Mirrors {@code ClientOp.locCoord}: the active loc's tile. The level is one lower for a tile under a bridge, as
+     * the client reports it.
+     *
+     * @return the tile in scene coordinates (of the world it is in), or null if no loc is active or its world isn't
+     *         loaded any more
+     */
+    public MapCoord locCoord() {
+        ActiveLoc loc = activeLoc;
+        if (loc == null) {
+            return null;
+        }
+        long world = scene.worldAt(loc.worldX(), loc.worldZ());
+        long sc = scene.sceneOf(world);
+        if (sc == 0) {
+            return null;
+        }
+        return new MapCoord(scene.visibleLevel(sc, loc.level(), loc.x(), loc.z()) & 3, loc.x(), loc.z());
+    }
+
+    /**
+     * Mirrors {@code ClientOp.locName}: the active loc's name, from its type.
+     *
+     * @return the name, or "" if no loc is active or config types can't be read
+     */
+    public String locName() {
+        LocType type = activeLocType();
+        return type == null ? "" : type.getName();
+    }
+
+    /**
+     * Mirrors {@code ClientOp.locTypeId}.
+     *
+     * @return the active loc's type id, or -1 if no loc is active
+     */
+    public int locTypeId() {
+        ActiveLoc loc = activeLoc;
+        return loc == null ? -1 : loc.type();
+    }
+
+    /**
+     * Mirrors {@code ClientOp.locGetOp}: one of the active loc's ops, with conditional ops resolved against the
+     * current vars like the client does.
+     *
+     * @param includeTags 0 to strip the op's markup ({@code <col=…>} and friends; {@code <lt>}, {@code <gt>},
+     *                    {@code <at>} become {@code <}, {@code >}, {@code @} and {@code <br>} a newline), anything else
+     *                    to return it as stored
+     * @param opNumber    the op, 1-based as in Lua
+     * @return the op's text; "" for an op the loc doesn't have, or if no loc is active
+     */
+    public String locGetOp(int includeTags, int opNumber) {
+        LocType type = activeLocType();
+        if (type == null || opNumber < 1 || opNumber > type.getOps().size()) {
+            return "";
+        }
+        String op = type.getOps(actors.vars::varp, actors.vars::varbit).get(opNumber - 1);
+        return includeTags != 0 ? op : stripTags(op);
+    }
+
+    /**
+     * Mirrors {@code ClientOp.locWidth}: the active loc's size along x, from its type (not turned for its rotation).
+     *
+     * @return the width in tiles, or -1 if no loc is active (Lua gets nothing back)
+     */
+    public int locWidth() {
+        LocType type = activeLocType();
+        return type == null ? -1 : type.getWidth();
+    }
+
+    /**
+     * Mirrors {@code ClientOp.locLength}: the active loc's size along z, from its type (not turned for its rotation).
+     *
+     * @return the length in tiles, or -1 if no loc is active (Lua gets nothing back)
+     */
+    public int locLength() {
+        LocType type = activeLocType();
+        return type == null ? -1 : type.getLength();
+    }
+
+    private LocType activeLocType() {
+        ActiveLoc loc = activeLoc;
+        return loc == null ? null : configs.loc(loc.type());
+    }
+
+    /**
+     * Mirrors {@code ClientOp.objFind}: looks for an item of a type in a tile's pile and, if there is one, makes it
+     * the active obj for {@link #objCoord}, {@link #objCount} and the other {@code obj*} functions. The first matching
+     * entry in the pile's order wins. A miss leaves the previous active obj in place.
+     *
+     * @param type  the item id
+     * @param coord the tile, in scene coordinates (as {@link #coord()} returns them)
+     * @return true if the tile has such an item
+     */
+    public boolean objFind(int type, MapCoord coord) {
+        int[] at = coord == null ? null : scene.toWorld(coord);
+        int[] base = scene.mapBase();
+        long world = at == null ? 0 : scene.worldAt(at[1], at[2]);
+        if (world == 0 || base == null) {
+            return false;
+        }
+        int x = at[1] - base[0];
+        int z = at[2] - base[1];
+        if (!scene.inWorld(world, at[0], x, z)) {
+            return false;
+        }
+        for (long item : scene.pileItems(world, at[0], x, z)) {
+            if (scene.itemId(item) == type) {
+                activeObj = new ActiveObj(item, world, at[0], x, z, at[1], at[2]);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Mirrors {@code ClientOp.objCoord}: the active obj's tile. The level is reported as the client does: 0 for a tile
+     * whose settings have bit 3 set, else one lower under a bridge.
+     *
+     * @return the tile in scene coordinates (of the world it is in), or null if no obj is active or its world isn't
+     *         loaded any more
+     */
+    public MapCoord objCoord() {
+        ActiveObj obj = activeObj;
+        if (obj == null) {
+            return null;
+        }
+        long world = scene.worldAt(obj.worldX(), obj.worldZ());
+        int[] base = scene.worldBase(world);
+        long sc = scene.sceneOf(world);
+        if (base == null || sc == 0) {
+            return null;
+        }
+        int x = obj.worldX() - base[0];
+        int z = obj.worldZ() - base[1];
+        return new MapCoord(scene.objLevel(sc, obj.level(), x, z) & 3, x, z);
+    }
+
+    /**
+     * Mirrors {@code ClientOp.objName}: the active obj's name, from its type, as {@link #ocName} gives it.
+     *
+     * @return the name, or "" if no obj is active, it has left the ground, or config types can't be read
+     */
+    public String objName() {
+        long item = liveObj();
+        return item == 0 ? "" : ocName(scene.itemId(item));
+    }
+
+    /**
+     * Mirrors {@code ClientOp.objTypeId}.
+     *
+     * @return the active obj's item id, or -1 if no obj is active or it has left the ground
+     */
+    public int objTypeId() {
+        long item = liveObj();
+        return item == 0 ? -1 : scene.itemId(item);
+    }
+
+    /**
+     * Mirrors {@code ClientOp.objCount}: the active obj's stack size, read live (it follows the stack as it changes).
+     *
+     * @return the count, or -1 if no obj is active or it has left the ground
+     */
+    public int objCount() {
+        long item = liveObj();
+        return item == 0 ? -1 : scene.itemCount(item);
+    }
+
+    /**
+     * Mirrors {@code ClientOp.objGetOp}: one of the active obj's ground ops, with conditional ops resolved like
+     * {@link #ocOp}.
+     *
+     * @param includeTags 0 to strip the op's markup (see {@link #locGetOp}), anything else to return it as stored
+     * @param opNumber    the op, 1-based as in Lua (3 is usually "Take")
+     * @return the op's text; "" for an op the item doesn't have, if no obj is active or it has left the ground
+     */
+    public String objGetOp(int includeTags, int opNumber) {
+        long item = liveObj();
+        if (item == 0) {
+            return "";
+        }
+        String op = ocOp(scene.itemId(item), opNumber);
+        return includeTags != 0 ? op : stripTags(op);
+    }
+
+    /**
+     * The active obj's pile entry if it is still on the ground. The client keeps a weak reference to the entry, which
+     * dies when the item leaves the pile; this checks the entry is still in its tile's pile instead.
+     *
+     * @return the entry's address, or 0 if no obj is active or it has gone
+     */
+    private long liveObj() {
+        ActiveObj obj = activeObj;
+        if (obj == null) {
+            return 0;
+        }
+        for (long item : scene.pileItems(obj.world(), obj.level(), obj.x(), obj.z())) {
+            if (item == obj.item()) {
+                return item;
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * The client's op text cleanup for {@code locGetOp}/{@code objGetOp} with tags excluded: text between tags is kept,
+     * {@code <lt>}, {@code <gt>} and {@code <at>} become {@code <}, {@code >} and {@code @}, {@code <br>} and
+     * {@code <n>} become a newline, and any other tag is dropped. Replays the client's loop, including its handling of
+     * an unclosed {@code <} (the text before it is written twice).
+     *
+     * @param text the op text as stored
+     * @return the text without markup
+     */
+    static String stripTags(String text) {
+        StringBuilder out = new StringBuilder(text.length());
+        int segment = 0;
+        int tag = -1;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '<') {
+                out.append(text, segment, i);
+                tag = i;
+            } else if (c == '>' && tag != -1) {
+                switch (text.substring(tag + 1, i)) {
+                    case "lt" -> out.append('<');
+                    case "gt" -> out.append('>');
+                    case "at" -> out.append('@');
+                    case "br", "n" -> out.append('\n');
+                    default -> {
+                    }
+                }
+                tag = -1;
+                segment = i + 1;
+            }
+        }
+        if (segment < text.length()) {
+            out.append(text, segment, text.length());
+        }
+        return out.toString();
     }
 
     /**

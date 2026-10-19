@@ -4,8 +4,10 @@ import com.kraken.api.GameFixture;
 import com.kraken.api.events.Events.GameStateTrigger;
 import com.kraken.api.game.Client;
 import com.kraken.api.game.ClientState;
+import com.kraken.api.game.Graphics;
 import com.kraken.api.game.InvItem;
 import com.kraken.api.game.Inventory;
+import com.kraken.api.game.Scene;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -30,12 +32,15 @@ class EventPollerTest {
     private GameFixture game;
     private Events events;
     private EventPoller poller;
+    private Client client;
 
     @BeforeEach
     void setUp() throws IOException {
         game = new GameFixture();
         events = new Events();
-        poller = new EventPoller(events, new Client(game.memory, game.map), new ClientState(game.memory, game.map));
+        client = new Client(game.memory, game.map);
+        poller = new EventPoller(events, client, new ClientState(game.memory, game.map),
+                new Graphics(game.memory, game.map), new Scene(client));
     }
 
     @Test
@@ -202,6 +207,94 @@ class EventPollerTest {
         GameTickCallback callback = () -> {
         };
         assertEquals(events.subscribe(Events.ON_GAME_TICK, callback), events.subscribe(Events.ON_GAME_TICK, callback));
+    }
+
+    @Test
+    void screenResizeFiresWhenTheClientChangesSize() {
+        int[] resizes = {0};
+        events.subscribe(Events.ON_SCREEN_RESIZE, () -> resizes[0]++);
+        poller.poll();
+        poller.poll();
+        assertEquals(0, resizes[0]);
+        game.setClientSize(1000, 700, 1500, 1050);
+        poller.poll();
+        poller.poll();
+        assertEquals(1, resizes[0]);
+        game.setClientSize(1000, 700, 2000, 1400);
+        poller.poll();
+        assertEquals(2, resizes[0], "the window alone changing size (a display scaling change) counts too");
+    }
+
+    @Test
+    void mapRebuildFiresAroundTheLoadingState() {
+        List<String> seen = new ArrayList<>();
+        events.subscribe(Events.ON_MAP_REBUILD_PRE, () -> seen.add("pre"));
+        events.subscribe(Events.ON_MAP_REBUILD_POST, () -> seen.add("post"));
+        poller.poll();
+        step(GAME_STATE_LOADING);
+        assertEquals(List.of("pre"), seen);
+        game.setMapBase(GameFixture.BASE_X + 8, GameFixture.BASE_Z);
+        step(GAME_STATE_LOADING);
+        step(GAME_STATE_LOGGED_IN);
+        assertEquals(List.of("pre", "post"), seen);
+    }
+
+    @Test
+    void aLoginLoadOnlyFiresPost() {
+        List<String> seen = new ArrayList<>();
+        events.subscribe(Events.ON_MAP_REBUILD_PRE, () -> seen.add("pre"));
+        events.subscribe(Events.ON_MAP_REBUILD_POST, () -> seen.add("post"));
+        game.setGameState(GAME_STATE_TITLE);
+        poller.poll();
+        step(GAME_STATE_LOGGING_IN);
+        step(GAME_STATE_LOADING);
+        step(GAME_STATE_LOGGED_IN);
+        assertEquals(List.of("post"), seen);
+    }
+
+    @Test
+    void aRebuildBetweenPollsIsCaughtByTheBaseMoving() {
+        List<String> seen = new ArrayList<>();
+        events.subscribe(Events.ON_MAP_REBUILD_PRE, () -> seen.add("pre"));
+        events.subscribe(Events.ON_MAP_REBUILD_POST, () -> seen.add("post"));
+        poller.poll();
+        game.setMapBase(GameFixture.BASE_X, GameFixture.BASE_Z + 8);
+        poller.poll();
+        poller.poll();
+        assertEquals(List.of("pre", "post"), seen);
+    }
+
+    @Test
+    void locChangesFireOncePerTickWithTheLocActive() {
+        List<String> seen = new ArrayList<>();
+        events.subscribe(Events.ON_LOC_UNLOAD, (id, name, layer) -> seen.add("unload " + id + " " + name + " "
+                + layer + " " + client.locCoord()));
+        events.subscribe(Events.ON_LOC_LOAD, (id, name, layer) -> seen.add("load " + id + " " + name + " " + layer
+                + " " + client.locCoord()));
+        poller.poll();
+        game.setWall(0, 1, 1, GameFixture.WALL_LOC);
+        poller.poll();
+        assertTrue(seen.isEmpty(), "scans wait for the next tick");
+        game.setTick(124);
+        poller.poll();
+        assertEquals(List.of("unload 1500 Door 0 (1, 1, 0)", "load 1700 Wall 0 (1, 1, 0)"), seen);
+        seen.clear();
+        game.setWall(0, 1, 1, -1);
+        game.setTick(125);
+        poller.poll();
+        assertEquals(List.of("unload 1700 Wall 0 (1, 1, 0)"), seen);
+    }
+
+    @Test
+    void aMapRebuildRebaselinesTheLocs() {
+        List<Integer> seen = new ArrayList<>();
+        events.subscribe(Events.ON_LOC_LOAD, (id, name, layer) -> seen.add(id));
+        poller.poll();
+        game.setWall(0, 2, 2, GameFixture.WALL_LOC);
+        game.setMapBase(GameFixture.BASE_X + 8, GameFixture.BASE_Z);
+        game.setTick(124);
+        poller.poll();
+        assertTrue(seen.isEmpty(), "a new area's locs are the map load's, not loc changes");
     }
 
     @Test

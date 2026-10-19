@@ -12,8 +12,16 @@ in-process backend and are out of scope for the reader.
 | `osrs.ClientState` | `KrakenApi.clientState()` → `com.kraken.api.game.ClientState` |
 | `osrs.Events` | `KrakenApi.events()` → `com.kraken.api.events.Events` |
 | `osrs.Engine` (config decoders) | `KrakenApi.engine()` → `com.kraken.api.game.Engine` |
+| `Camera` (getters) | `KrakenApi.camera()` → `com.kraken.api.game.Camera` |
+| `Graphics` (getters), `osrs.screenSize` | `KrakenApi.graphics()` → `com.kraken.api.game.Graphics`; `KrakenApi.screenSize()` |
+| `osrs.World` | `KrakenApi.world()` → `com.kraken.api.game.World` |
+| `osrs.Collision`, `osrs.CollisionMap`, `osrs.CollisionFlag` | `KrakenApi.collision()` → `com.kraken.api.game.Collision`; `CollisionMap`; `CollisionFlag` |
 | `osrs.Entity`, `osrs.Npc`, `osrs.Player` | `com.kraken.api.game.Entity`, `Npc`, `Player` |
 | `osrs.ObjType`, `osrs.NpcType`, `osrs.LocType`, `osrs.TypeData` | `com.kraken.api.config.ObjType`, `NpcType`, `LocType`, `TypeData` |
+| `osrs.Vector2`, `osrs.MapCoord`, `osrs.FineCoord` | `com.kraken.api.game.Vector2`, `MapCoord`, `FineCoord` |
+
+Java only: `KrakenApi.scene()` → `com.kraken.api.game.Scene` lists the scene's locs and ground items, converts between
+scene and world tiles, and gives ground heights.
 
 Status: ✅ mirrored · 🟡 mirrored with a difference (see note) · ⏳ planned for the reader · ✍️ changes the client, needs
 the in-process backend.
@@ -26,11 +34,11 @@ The work is split into sections you can test live with the dev tools, one at a t
 |---|---|---|---|
 | 1 | NPCs and players: ids, names, tiles; `ON_NPC_LOAD`/`UNLOAD`, `ON_GAME_TICK` | Done | NPCs, Players, Location, Event log |
 | 2 | ClientState (stats, varps, varcs, tick, login, profile type), inventories; `ON_STAT_TRANSMIT`, `ON_VAR_TRANSMIT`, `ON_INV_TRANSMIT`, `ON_GAME_STATE_CHANGED` | Done | Client state, Skills, Inventories, Var inspector, Event log |
-| 3 | Actors in depth: fine coords, uids, creation cycles, find-by-name, route length, `osrs.Entity`/`Npc`/`Player` members | Done (live check pending) | NPCs/Players columns, Interacting |
-| 4 | Config types: `ocName`/`ocCost`/`ocStackable`/`ocOp`, `invSize`, `getVarbit` + `ON_VARBIT_UPDATE`, `NpcType`/`ObjType`/`LocType` | Done (live check pending) | Item names in Inventories, varbits in Var inspector and Event log |
-| 5 | Camera and projection: `Camera.get*`, `Graphics.clientDimensions`, `Graphics.worldToScreenCoord` | Next | Camera, labels over NPCs and players |
-| 6 | Scene: locs and ground objs (`locFind`, `objFind`, …), collision maps | Planned | Game objects, Ground items, Tile flags |
-| 7 | Interfaces: `InterfaceQuery`, `osrs.IfType` | Planned | Widget inspector |
+| 3 | Actors in depth: fine coords, uids, creation cycles, find-by-name, route length, `osrs.Entity`/`Npc`/`Player` members | Done | NPCs/Players columns, Interacting |
+| 4 | Config types: `ocName`/`ocCost`/`ocStackable`/`ocOp`, `invSize`, `getVarbit` + `ON_VARBIT_UPDATE`, `NpcType`/`ObjType`/`LocType` | Done | Item names in Inventories, varbits in Var inspector and Event log |
+| 5 | Camera and projection: `Camera.get*`, `Graphics.clientDimensions`, `Graphics.worldToScreenCoord`, `osrs.screenSize`; `ON_SCREEN_RESIZE` | Done (live check pending) | Camera; labels and tiles over NPCs and players; lines in Interacting |
+| 6 | Scene: `locFind`/`objFind` and the active loc/obj getters, `osrs.World`/`Collision`/`CollisionMap`; `ON_LOC_LOAD`/`UNLOAD`, `ON_MAP_REBUILD_PRE`/`POST` | Done (live check pending) | Game objects, Walls, Ground items, Location, Zone borders, Map squares, Tile flags, Valid movement, Line of sight, Event log |
+| 7 | Interfaces: `InterfaceQuery`, `osrs.IfType` | Next | Widget inspector |
 
 Section 4's functions don't read live game state: they look a definition (an item, NPC type, varbit…) up by id. The
 client keeps decoded definitions in one small cache per type (64 entries each, least recently used dropped first), so
@@ -43,6 +51,27 @@ the item they note, members items renamed on free worlds, and so on). The bytes 
 Section 3 note: as in the client, the `ClientOp` functions that take an index (`npcName(id)`, `playerCoord(id)`…)
 search every loaded world (the main one and sub-worlds such as boats), while the `Npc`/`Player` objects only resolve in
 the top-level world.
+
+Coordinates: a `MapCoord` (from `coord()`, `npcCoord()`…) is a **scene** tile, relative to the loaded map's base,
+not a world tile. The client subtracts the base when it places an actor (the player update does
+`x = worldX - World.baseX` before storing the tile), and its `MapCoord` functions add it back when they need a world
+coordinate (`locFind`, `objFind`, `MapCoord.getMapTile`). A normal scene is 104×104 tiles. Fine coordinates and the
+camera use the same space, times 128. `Scene.getBase()` gives the base (from the map loader, `MapLoader.baseX/Z`) and
+`Scene.toWorld` the world tile the wiki and RuneLite use.
+
+Section 5 note: `worldToScreenCoord` replays the client's handler: the point minus the camera's eye, rotated by the
+sines and cosines of the yaw and pitch the scene keeps for the frame (`Scene.cameraTrig`), divided by depth and
+multiplied by the projection scale (`Client.zoomA`, the viewport height × the zoom ÷ 334), offset to the viewport's
+centre, then rescaled from window pixels to client pixels (`Renderer.canvasWidth / Renderer.screenWidth`) with the
+client's rounding. Results are in the client's own (DPI-scaled) pixels, the units `clientDimensions` measures; the
+window's physical size is `osrs.screenSize`. The camera and trig are written each frame and the reader samples them,
+so a point projected while the camera turns can be a frame off.
+
+Section 6 note: `locFind` and `objFind` make what they find the *active* loc or obj, which the no-argument
+`loc*`/`obj*` functions read. The client keeps one active loc and one active obj for all its Lua plugins (and
+`ON_LOC_LOAD`/`UNLOAD` set the active loc before calling subscribers); the Java `Client` keeps its own, so Java and Lua
+plugins don't disturb each other. The active obj is a weak reference in the client: once the item leaves the ground,
+`objTypeId`/`objCount` read -1 and `objName` "". Java checks that the entry is still in its tile's pile instead.
 
 ## Worked example: from a Lua handler to a Java method
 
@@ -131,15 +160,22 @@ Java extras (not in Lua): `getGameState()`, `getWorldFlags()`, `areStatsTransmit
 | `ocCost(objId)` | `ocCost(int)` | ✅ | 1 without a definition, as in the client |
 | `ocStackable(objId)` | `ocStackable(int)` | ✅ | |
 | `ocOp(objId, index)` | `ocOp(int, int)` | ✅ | `index` is 1-based and picks a **ground** op (3 is usually "Take"); conditional ops are resolved against the current vars |
-| `locCoord`, `locFind`, `locName`, `locTypeId`, `locGetOp`, `locWidth`, `locLength` | | ⏳ | Section 6 (the definitions they need are in now) |
-| `objCoord`, `objFind`, `objName`, `objTypeId`, `objCount`, `objGetOp` | | ⏳ | Section 6 |
+| `locFind(type, coord)` | `locFind(int, MapCoord)` | ✅ | Scene coord + map base → the world holding it (a boat's, else the top-level world) → that world's tile; checks wall decoration, wall, ground decoration, then the game object whose origin is the tile, in the client's order. A miss keeps the previous active loc |
+| `locCoord()` | `locCoord()` | 🟡 | The active loc's tile; one level lower under a bridge, as the client reports it. null when no loc is active (Lua gets `{-1,-1,-1}`) |
+| `locName()`, `locTypeId()` | same | ✅ | From the active loc's type; "" / -1 when none |
+| `locGetOp(includeTags, opNumber)` | `locGetOp(int, int)` | ✅ | 1-based; conditional ops resolved against the current vars. `includeTags` 0 strips markup the client's way (`<lt>`→`<`, `<gt>`→`>`, `<at>`→`@`, `<br>`/`<n>`→newline, other tags dropped) |
+| `locWidth()`, `locLength()` | same | 🟡 | The type's size, not turned for the loc's rotation; -1 when no loc is active (Lua gets nothing back) |
+| `objFind(type, coord)` | `objFind(int, MapCoord)` | ✅ | First matching entry in the tile's pile, in pile order. Like the client, subtracts the map loader's base (not the found world's) |
+| `objCoord()` | `objCoord()` | 🟡 | Level 0 when the tile's setting bit 3 is set, else one lower under a bridge, as the client does; null when no obj is active |
+| `objName()`, `objTypeId()`, `objCount()` | same | ✅ | Read live from the pile entry; "" / -1 once it has left the ground |
+| `objGetOp(includeTags, opNumber)` | `objGetOp(int, int)` | ✅ | A ground op, as `ocOp`; markup stripped as `locGetOp` |
 | `friendsChatGetDisplayName`, `friendsChatGetChatCount` | | ⏳ | Not mapped yet |
 | `areProjectilesRendered()` | | ⏳ | Not mapped yet |
 | `WornSlots` | `Client.WornSlots` | ✅ | |
 | `npcSay`, `playerSay`, `renderProjectiles`, `highlight*` | | ✍️ | Change what the client draws |
 
 Java extras: `getLocalPlayer()`, `getPlayers()`, `getNpcs()`, `getInventory(int)`, `getInventories()`, `getObjType(int)`,
-`vars()` (the var state conditional ops resolve against), `configs()`.
+`vars()` (the var state conditional ops resolve against), `configs()`, `activateLoc(Loc)` (make a listed loc active).
 
 When config types can't be read at all (not attached yet, or a mapping without the archive layout), the `oc*` and
 `invSize` functions return "", -1 or false, and `getVarbit` -1.
@@ -159,8 +195,9 @@ subscribed; see `EventPoller` for exactly when each fires.
 | `ON_INV_TRANSMIT` | `InvTransmitCallback` (`List<Inventory>`) | 🟡 | Only slots that changed |
 | `ON_GAME_STATE_CHANGED` | `GameStateChangeCallback` (`GameStateTrigger`) | 🟡 | Derived from `Client.gameState` moves |
 | `ON_VARBIT_UPDATE` | `VarbitUpdateCallback` (`varbitId`, `value`) | 🟡 | Like the client: when the server's value of a varp changes, each varbit on it whose value changed fires (before `ON_VAR_TRANSMIT`). Found by comparing polls; the first subscription indexes all ~20k varbits once |
-| `ON_LOC_LOAD`/`UNLOAD`, `ON_MAP_REBUILD_*` | | ⏳ | Section 6 |
-| `ON_SCREEN_RESIZE` | | ⏳ | Section 5 |
+| `ON_SCREEN_RESIZE` | `ScreenResizeCallback` | 🟡 | The client size (`clientDimensions`) or window size (`screenSize`) changed between polls. The client raises it from its resize handler |
+| `ON_MAP_REBUILD_PRE`, `ON_MAP_REBUILD_POST` | `MapRebuildCallback` | 🟡 | The client raises PRE as a logged-in rebuild starts (just before game state 25) and POST when the load finishes (login too). Java: PRE on game state 30 → 25, POST on 25 → 30; a load that falls between two polls is caught by the map base moving, and fires both |
+| `ON_LOC_LOAD`, `ON_LOC_UNLOAD` | `LocLoadUnloadCallback` (`locTypeId`, `name`, `layer`) | 🟡 | Not in the Lua docs; the payload is what the client passes. The client raises them when the server changes a loc (doors, felled trees), not for a map load's locs, with the loc made active first. Java compares the whole scene once per tick while subscribed (unloads, then loads, loc active during the callback) and takes a silent baseline after a map rebuild, so loc changes the server sends right after a rebuild aren't reported |
 | `ON_IF_*` | | ⏳ | Section 7 |
 | Input (`POINTER_*`, `KEY_*`, `WHEEL_SCROLL`), menus (`ON_MINIMENU_*`), ops (`ON_*_OP`), chat, friends, clans | | ⏳ | Need the in-process backend: the reader can't see input or packets |
 
@@ -208,14 +245,55 @@ Immutable decoded definitions (see the note under Sections). Each implements `Ty
 
 | Lua | Status | Note |
 |---|---|---|
-| `Camera` | ⏳ / ✍️ | Getters are section 5 (positions and angles mapped); setters change the camera |
-| `Graphics` | ⏳ / ✍️ | `clientDimensions`, `worldToScreenCoord` are section 5; shapes draw into the client |
-| `World` (`getCollisionMap(s)`), `CollisionMap`, `osrs.Collision` | ⏳ | Section 6 |
+| `Camera` | ✅ / ✍️ | Getters below; `setPos`, `setLookAt`, `setLookAtAngles`, `offsetLookAtAngles`, `setControl`, `targetNpc`/`targetPlayer`, `clearTarget`, `followTarget` change the camera |
+| `Graphics` | ✅ / ✍️ | `clientDimensions`, `worldToScreenCoord` below; `addShape`, `removeShape`, `clearAllShapes` draw into the client |
+| `osrs.World`, `osrs.CollisionMap`, `osrs.Collision`, `osrs.CollisionFlag` | ✅ | See below |
 | `InterfaceQuery`, `osrs.IfType` | ⏳ | Section 7 (IfType members are mapped) |
 | `osrs.Entity`, `osrs.Npc`, `osrs.Player` | ✅ / ✍️ | See above. `render3D`/`render2D` change the client |
 | `Engine` (`decodeObjType`, `decodeNpcType`, `decodeLocType`) | ✅ | `decodeDBRow`, `decodeSingleDBColumn`, `decodeAllChildDBTables` ⏳: database tables aren't mapped yet |
 | `osrs.ObjType`, `osrs.NpcType`, `osrs.LocType`, `osrs.TypeData` | ✅ | See above |
 | `osrs.FineCoord` | ✅ | `FineCoord` record; `getMapCoordinate(level)` takes the plane, which a FineCoord doesn't carry |
+| `osrs.MapCoord` | 🟡 | `MapCoord` record (scene tiles). `getMapTile`/`toBitPacked` need the map base: use `Scene.toWorld`. For `getFineCoordinate(Corners)` use `Scene.getTileCenter`/`getTileCorners` (with the ground's height) |
+| `osrs.Vector2` | ✅ | `Vector2` record |
+| `osrs.screenSize()` | ✅ | `KrakenApi.screenSize()`: the window's physical pixel size |
 | `osrs.HintArrow` | ⏳ / ✍️ | Getters not mapped yet; setters change the arrow |
 | `Settings` (`get`, `setOnChangedHandler`) | ⏳ | The game settings store isn't mapped yet |
 | `HTTP`, `Math`, `Persistence`, `Shape`, `Ui` | | Plugin-side helpers (HTTP, bit maths, storage, drawing, UI widgets) rather than game state; Java and the Kraken client have their own |
+
+## `Camera` (getters)
+
+| Lua | Java | Status | Note |
+|---|---|---|---|
+| `getPos()` | `getPos()` → `FineCoord` | ✅ | The eye, in scene fine coordinates (height in `y`) |
+| `getLookAt()` | `getLookAt()` → `FineCoord` | ✅ | |
+| `getLookAtAngles()` | `getLookAtAngles()` → `Vector2` | ✅ | `x` pitch, `y` yaw, in degrees, with the client's float constants (2π/16384, then a degrees factor one ulp below 180/π) |
+| `isControlled()` | `isControlled()` | ✅ | Whether a Lua plugin took control (`setControl(true)`) |
+| `hasTarget()` | `hasTarget()` | ✅ | Whether a Lua plugin set a target (`targetNpc`/`targetPlayer`) |
+
+Java extras: `getPitch()`, `getYaw()` (native units, 16384 per circle; RuneLite's × 8), `getZoom()` (`Client.zoomB`),
+`getScale()` (`Client.zoomA`, the projection scale).
+
+## `Graphics` (getters)
+
+| Lua | Java | Status | Note |
+|---|---|---|---|
+| `clientDimensions()` | `clientDimensions()` → `Vector2` | ✅ | The client's size in its own (DPI-scaled) pixels |
+| `worldToScreenCoord(coord)` | `worldToScreenCoord(FineCoord)` → `Vector2` | 🟡 | The client's arithmetic step by step (see the section 5 note). null for a point at or behind the camera, where the client returns a meaningless position |
+
+Java extra: `projection()` reads one frame's camera so many points can be projected with `Projection.project`.
+
+## `osrs.World`, `osrs.CollisionMap`, `osrs.Collision`
+
+| Lua | Java | Status | Note |
+|---|---|---|---|
+| `World.getCollisionMap(level)` | `World.getCollisionMap(int)` → `CollisionMap` | 🟡 | A copy of the level's flags, as the Lua object is. null for a level the scene doesn't have (the client doesn't check) |
+| `World.getCollisionMaps()` | `World.getCollisionMaps()` | ✅ | One per level, from the scene's record vector |
+| `CollisionMap.getBitFlags(x, z)` | same | 🟡 | The native method indexes the grid with the coordinates as given, without subtracting the grid's origin (-1) the way the walk and sight checks do, so in Lua it returns the flags of the tile one south-west. Java returns the asked tile's flags; `UNLOADED` outside the grid |
+| `CollisionMap.lineOfSight(x1, z1, x2, z2)`, `lineOfWalk(…)` | same | ✅ | The client's line tests step for step, with its masks. Only the end tile is bounds-checked for walking; both for sight. Tiles past the grid read as `UNLOADED` (blocked) where the client would read past it |
+| `Collision.getBitFlags(coord)` | `getBitFlags(MapCoord)` | 🟡 | Live from the top-level scene; same origin difference as `CollisionMap.getBitFlags` |
+| `Collision.lineOfSight(a, b)`, `lineOfWalk(a, b)` | same | ✅ | false for different levels, as in the client; reads only the tiles the line crosses |
+| `osrs.CollisionFlag` | `CollisionFlag` | ✅ | int constants (flags combine); `CollisionFlag.isSet(flags, mask)` |
+
+Section 6 Java extras (`Scene`): `getBase()`, `toWorld`/`toScene`, `getSize()`, `getLocs(center, radius)` (walls, wall
+decorations, game objects on their origin tile, ground decorations), `getAllLocs()`, `getObjs(center, radius)`,
+`getGroundHeight`, `getTileCenter`, `getTileCorners`.

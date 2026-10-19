@@ -240,6 +240,71 @@ keys:
       - getter: { in: Graphics.clientDimensions, base: { field: { of: client, key: Client.renderer } }, load: i32, select: { nth: 1 } }
     invariants:
       - equals: "Renderer.canvasWidth + 4"
+  # The window's pixel size (what osrs.screenSize reports). The rescaler reads the block at renderer + 0x10: canvas
+  # size at +0x5c/+0x60 (the canvas keys above) and screen size at +0x20/+0x24, which the min/max filter keeps.
+  - key: Renderer.screenWidth
+    type: i32
+    priority: P0
+    live: viewport
+    doc: Window width in physical pixels; the rescaler maps canvas coordinates onto it.
+    strategies:
+      - getter: { in: "@ScreenRescale", base: arg0, load: i32, add: 0x10, select: { min: 0x20, max: 0x24, nth: 0 } }
+  - key: Renderer.screenHeight
+    type: i32
+    priority: P0
+    live: viewport
+    doc: Window height in physical pixels.
+    strategies:
+      - getter: { in: "@ScreenRescale", base: arg0, load: i32, add: 0x10, select: { min: 0x20, max: 0x24, nth: 1 } }
+    invariants:
+      - equals: "Renderer.screenWidth + 4"
+  # The projection object is embedded in the renderer. The holder at +0x1b0 (internal) is what WorldToScreen hands to
+  # ProjectionCore; its vtable returns the projection at +0xf8.
+  - key: Renderer.holder
+    type: i32
+    priority: P1
+    internal: true
+    doc: Offset of the holder object whose vtable slot returns the projection.
+    strategies:
+      - extractor: { name: renderer_layout, field: Renderer.holder, cls: A }
+  - key: Renderer.viewport
+    type: Viewport
+    priority: P0
+    live: viewport
+    doc: Offset of the projection object (Viewport) embedded in the renderer.
+    strategies:
+      - extractor: { name: renderer_layout, field: Renderer.viewport, cls: A }
+  # ProjectionCore reads the viewport it gets from the holder's vtable: after the perspective divide it adds offsetX
+  # and centerX (x pair), then offsetY and centerY (y pair), each pair loaded in that order. The min filter drops the
+  # scale load at +0x10.
+  - key: Viewport.offsetX
+    type: i32
+    priority: P0
+    live: viewport
+    doc: Offset added to the projected x (zero at the login screen).
+    strategies:
+      - getter: { in: "@ProjectionCore", base: { ret_indirect: "@ProjectionCore" }, load: i32, select: { min: 0x14, nth: 0 } }
+  - key: Viewport.centerX
+    type: i32
+    priority: P0
+    live: viewport
+    doc: Principal point x of the projection, added to the projected x.
+    strategies:
+      - getter: { in: "@ProjectionCore", base: { ret_indirect: "@ProjectionCore" }, load: i32, select: { min: 0x14, nth: 1 } }
+  - key: Viewport.offsetY
+    type: i32
+    priority: P0
+    live: viewport
+    doc: Offset added to the projected y (zero at the login screen).
+    strategies:
+      - getter: { in: "@ProjectionCore", base: { ret_indirect: "@ProjectionCore" }, load: i32, select: { min: 0x14, nth: 2 } }
+  - key: Viewport.centerY
+    type: i32
+    priority: P0
+    live: viewport
+    doc: Principal point y of the projection, added to the projected y.
+    strategies:
+      - getter: { in: "@ProjectionCore", base: { ret_indirect: "@ProjectionCore" }, load: i32, select: { min: 0x14, nth: 3 } }
 
   - key: Client.zoomA
     type: i32

@@ -3,23 +3,31 @@ package com.kraken.client.devtools.tools;
 import com.kraken.api.KrakenApi;
 import com.kraken.api.game.Client;
 import com.kraken.api.game.Entity;
+import com.kraken.api.game.FineCoord;
 import com.kraken.api.game.MapCoord;
 import com.kraken.api.game.Npc;
 import com.kraken.api.game.Player;
+import com.kraken.api.game.Vector2;
 import com.kraken.client.devtools.Category;
 import com.kraken.client.devtools.DevTool;
+import com.kraken.client.devtools.view.MappedView;
 import com.kraken.client.devtools.view.TableView;
 import com.kraken.client.devtools.view.ToolView;
+import com.kraken.client.overlay.OverlayContext;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignT;
 
+import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Who is interacting with whom: every NPC and player with a target ({@code isInteracting}), and what it is. Lines
- * between them over the game come once the API can project.
+ * Who is interacting with whom: every NPC and player with a target ({@code isInteracting}), and what it is, in a table
+ * and as lines between them over the game.
  */
-final class InteractingTool extends DevTool<List<InteractingTool.Row>> {
+final class InteractingTool extends DevTool<Listing<InteractingTool.Row>> {
+    private static final Color LINE = new Color(240, 120, 200);
+    private static final int LIFT = 100;
+
     record Row(String key, String source, String target, Integer distance) {
     }
 
@@ -30,7 +38,7 @@ final class InteractingTool extends DevTool<List<InteractingTool.Row>> {
 
     @Override
     public Support overlaySupport() {
-        return Support.PLANNED;
+        return Support.READY;
     }
 
     @Override
@@ -39,45 +47,62 @@ final class InteractingTool extends DevTool<List<InteractingTool.Row>> {
     }
 
     @Override
-    public String needs() {
-        return "world-to-screen projection, for lines between actors";
-    }
-
-    @Override
-    protected List<Row> read(KrakenApi api) {
+    protected Listing<Row> read(KrakenApi api) {
         Client client = api.client();
+        Projector projector = isOverlayOn() ? Projector.of(api) : null;
+        Marks.Builder marks = projector == null ? null : new Marks.Builder(projector);
         List<Row> rows = new ArrayList<>();
         for (Player player : client.getPlayers()) {
-            add(rows, client, "p" + player.index(), "Player " + player.index() + " " + player.getName(), player);
+            add(rows, marks, projector, client, "p" + player.index(), "Player " + player.index() + " " + player.getName(),
+                    player, client.playerCoordFine(player.index()));
         }
         for (Npc npc : client.getNpcs()) {
-            add(rows, client, "n" + npc.index(), "NPC " + npc.index() + " " + npc.getName(), npc);
+            add(rows, marks, projector, client, "n" + npc.index(), "NPC " + npc.index() + " " + npc.getName(), npc,
+                    client.npcCoordFine(npc.index()));
         }
-        return rows;
+        return new Listing<>(rows, marks == null ? Marks.NONE : marks.build());
     }
 
-    private static void add(List<Row> rows, Client client, String key, String source, Entity entity) {
+    private static void add(List<Row> rows, Marks.Builder marks, Projector projector, Client client, String key,
+                            String source, Entity entity, FineCoord from) {
         int type = entity.getInteractingType();
         int id = entity.isInteracting();
         if (id < 0) {
             return;
         }
-        MapCoord from = entity.getCoord();
+        MapCoord at = entity.getCoord();
         MapCoord to = switch (type) {
             case Entity.TARGET_NPC -> client.npcCoord(id);
             case Entity.TARGET_PLAYER -> client.playerCoord(id);
             default -> null;
         };
-        rows.add(new Row(key, source, Actors.target(client, type, id), NpcsTool.distance(from, to)));
+        rows.add(new Row(key, source, Actors.target(client, type, id), NpcsTool.distance(at, to)));
+        if (marks != null) {
+            FineCoord target = switch (type) {
+                case Entity.TARGET_NPC -> client.npcCoordFine(id);
+                case Entity.TARGET_PLAYER -> client.playerCoordFine(id);
+                default -> null;
+            };
+            Vector2 a = projector.above(from, LIFT);
+            Vector2 b = projector.above(target, LIFT);
+            if (a != null && b != null) {
+                marks.line(new Vector2[]{a, b}, LINE);
+            }
+        }
     }
 
     @Override
-    protected ToolView<List<Row>> createView() {
-        return TableView.<Row>builder("interactions")
+    protected void paintOverlay(Listing<Row> snapshot, OverlayContext overlay) {
+        snapshot.marks().paint(overlay);
+    }
+
+    @Override
+    protected ToolView<Listing<Row>> createView() {
+        return new MappedView<>(TableView.<Row>builder("interactions")
                 .column("Actor", String.class, 220, Row::source)
                 .column("Interacting with", String.class, 220, Row::target)
                 .column("Dist", Integer.class, 50, Row::distance)
                 .key(Row::key)
-                .build();
+                .build(), Listing::rows);
     }
 }

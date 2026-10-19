@@ -76,10 +76,13 @@ rounds (keys can depend on other keys) → consensus verdicts (PROVEN/ANCHORED/I
 - No hard-coded offsets: `Mapping` serves everything from the JSON. `KrakenApi.attach` picks `mappings/<version>.json`
   by the exe's version resource and rejects it unless its `sha256` matches the exe. `ClientBuild.version` parses the
   version the same way as the updater's `pe.py: file_version`; change the two together.
-- `GameReader` is the base for the Lua-namespace mirrors (`Client`, `ClientState`). Chains start at
+- `GameReader` is the base for the Lua-namespace mirrors (`Client`, `ClientState`, `Camera`, `Graphics`) and the
+  package-private readers they share (`ActorReader`, `SceneReader`). Chains start at
   `moduleBase + globals.client`. Constructors resolve offsets once: `mapping.offset(key)` for required keys (throws
   `MissingMappingException`), `optionalOffset`/`offsetOr`/`has` for keys older mappings may lack. Reads go through the
   `safe*` helpers and return fallbacks (-1, "", empty array, null) for unreadable or logged-out state.
+- Coordinates: a `MapCoord` is a scene tile (relative to the loaded map's base, as the client stores actor tiles), not a
+  world tile; `Scene.getBase()`/`toWorld` convert. Fine coordinates and the camera are the same space × 128.
 - Read-only by design: the API only reads the game process. Lua functions that change the client (highlights, camera
   control, actions) belong to a future in-process backend and are out of scope.
 - Events are synthesised: `EventPoller` diffs snapshots every 20 ms on the `kraken-api-poll` thread, only for events
@@ -89,7 +92,7 @@ rounds (keys can depend on other keys) → consensus verdicts (PROVEN/ANCHORED/I
   `analysis.json` bindings, map each constant it uses to a mapping key (adding a spec recipe if needed), and replay the
   same steps in Java. Javadoc states any deliberate divergence from the native handler. Update the coverage tables in
   that doc in the same change.
-- Tests: `GameFixture` lays out a fake Client → World → NPC/Player/inventory graph in `FakeMemory` at the bundled 241.3
+- Tests: `GameFixture` lays out a fake Client → World → NPC/Player/inventory/scene/camera graph in `FakeMemory` at the bundled 241.3
   mapping's real offsets, so tests cover the read plumbing, not whether offsets are correct (the live client verifies
   that). New reads extend `GameFixture`.
 

@@ -54,3 +54,17 @@ keys:
     strategies:
       - getter: { in: "@ConfigLoader.9", kind: global, select: { passed_to: { fn: "@ConfigLoaderCore", arg: 0 } } }
       - getter: { in: "@ConfigLoader.9", kind: global_addr, select: { passed_to: { fn: "@ConfigLoaderCore", arg: 0 } } }
+
+  # Camera control state: a byte that isControlled returns, and the follow target that hasTarget compares with -1.
+  - key: global.cameraControlled
+    type: u8
+    priority: P1
+    doc: Returned by Camera.isControlled; Camera.setControl writes it.
+    strategies:
+      - getter: { in: Camera.isControlled, kind: global, load: u8, select: { returned: true } }
+  - key: global.cameraTarget
+    type: i32
+    priority: P1
+    doc: Camera follow target; -1 when there is none (Camera.hasTarget compares it with -1, clearTarget writes -1).
+    strategies:
+      - getter: { in: Camera.hasTarget, kind: global, load: i32, select: { compared_with: -1 } }

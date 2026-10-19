@@ -104,3 +104,89 @@ keys:
     priority: P1
     strategies:
       - getter: { in: Utils.getCollisionMap, kind: stride, base: { field: { of: { field: { of: { field: { of: client, key: Client.topLevelWorld } }, key: World.scene } }, key: Scene.collisionMaps } } }
+
+  # Map loader: the current map base tile (world coordinates). ClientOp.objFind rebases an absolute coordinate by it:
+  # z is subtracted first, then x, so the two i32 loads off the loader are told apart by their order.
+  - key: Client.mapLoader
+    type: ptr<MapLoader>
+    priority: P1
+    doc: Pointer to the map loader state; the base tile that coordinates are rebased by lives in it.
+    strategies:
+      - getter: { in: ClientOp.objFind, base: client, load: ptr, select: { used_as_base: true } }
+  - key: MapLoader.baseX
+    type: i32
+    priority: P1
+    doc: Current map base tile x (world coordinates).
+    strategies:
+      - getter: { in: ClientOp.objFind, base: { field: { of: client, key: Client.mapLoader } }, load: i32, select: { nth: 1 } }
+  - key: MapLoader.baseZ
+    type: i32
+    priority: P1
+    doc: Current map base tile z (world coordinates).
+    strategies:
+      - getter: { in: ClientOp.objFind, base: { field: { of: client, key: Client.mapLoader } }, load: i32, select: { nth: 0 } }
+    invariants:
+      - equals: "MapLoader.baseX + 4"
+
+  # The record vector runs from Scene.collisionMaps (begin) to this field (end): Utils.getCollisionMaps walks it.
+  - key: Scene.collisionMapsEnd
+    type: ptr<CollisionMapRecord[]>
+    priority: P1
+    doc: End of the collision map record vector; the walk over the records stops here.
+    strategies:
+      - getter: { in: Utils.getCollisionMaps, base: { field: { of: { field: { of: client, key: Client.topLevelWorld } }, key: World.scene } }, load: ptr, select: { cmp_with: { key: Scene.collisionMaps } } }
+    invariants:
+      - equals: "Scene.collisionMaps + 8"
+
+  # Record fields: the walk and line-of-sight cores (CollisionWalkCore) and the flag accessor (CollisionBitFlags) read
+  # the same record. Origins are subtracted from the coordinates, sizes bound the rebased coordinates, and flags sit
+  # behind a pointer to per-x columns, each a pointer at +columnData with columnStride bytes per x.
+  - key: CollisionMapRecord.originX
+    type: i32
+    priority: P1
+    doc: Map origin x, subtracted from the x coordinate before indexing the flags.
+    strategies:
+      - extractor: { name: collision_record, field: CollisionMapRecord.originX, cls: A }
+  - key: CollisionMapRecord.originZ
+    type: i32
+    priority: P1
+    doc: Map origin z, subtracted from the z coordinate before indexing the flags.
+    strategies:
+      - extractor: { name: collision_record, field: CollisionMapRecord.originZ, cls: A }
+    invariants:
+      - equals: "CollisionMapRecord.originX + 4"
+  - key: CollisionMapRecord.sizeX
+    type: i32
+    priority: P1
+    doc: Map width in tiles; the rebased x must stay below it.
+    strategies:
+      - extractor: { name: collision_record, field: CollisionMapRecord.sizeX, cls: A }
+  - key: CollisionMapRecord.sizeZ
+    type: i32
+    priority: P1
+    doc: Map depth in tiles; the rebased z must stay below it.
+    strategies:
+      - extractor: { name: collision_record, field: CollisionMapRecord.sizeZ, cls: A }
+    invariants:
+      - equals: "CollisionMapRecord.sizeX + 4"
+  - key: CollisionMapRecord.flags
+    type: ptr<CollisionColumn[]>
+    priority: P1
+    doc: Pointer to the array of per-x columns of flag pointers.
+    strategies:
+      - getter: { in: "@CollisionBitFlags", base: arg0, load: ptr, select: { used_as_base: true } }
+      - extractor: { name: collision_record, field: CollisionMapRecord.flags, cls: A }
+  - key: CollisionMapRecord.columnStride
+    type: const
+    priority: P1
+    doc: Bytes per x step in the column array.
+    strategies:
+      - getter: { in: "@CollisionBitFlags", kind: stride, base: { field: { of: arg0, offset: 0x20 } } }
+      - extractor: { name: collision_record, field: CollisionMapRecord.columnStride, cls: A }
+  - key: CollisionMapRecord.columnData
+    type: const
+    priority: P1
+    doc: Offset of the flag array pointer inside each column entry.
+    strategies:
+      - getter: { in: "@CollisionBitFlags", base: { field: { of: arg0, offset: 0x20 } }, load: ptr, select: { index_scale: 8 } }
+      - extractor: { name: collision_record, field: CollisionMapRecord.columnData, cls: A }

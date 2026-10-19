@@ -542,7 +542,112 @@ def shared_layouts(session, p):
     return out
 
 
+def loc_tag_kind(session, p):
+    """The loc tag kind: a decoder the tile game-object lookup calls, which returns tag >> n and is compared with 2
+    (a loc). Its shift n is the one passed to the bit-extract helper, next to the tag id decoder's shift."""
+    fn = session.fn("@TileGameObjectLookup")
+    for call in session.prov.facts(fn).calls:
+        if call.target is None:
+            continue
+        for cmp in session.prov.facts(call.target).cmps:
+            for side, other in ((cmp.a, cmp.b), (cmp.b, cmp.a)):
+                if not (isinstance(side, Ret) and side.target is not None and other == Const(2)):
+                    continue
+                for c in session.prov.facts(side.target).calls:
+                    shifts = [a.n for a in c.args[1:] if isinstance(a, Const) and 8 <= a.n <= 40]
+                    if shifts:
+                        return {"Loc.tagKindShift": (shifts[0], _ev(session, c.rva, side.target, "imm"),
+                                                     f"kind = tag >> n, compared with 2 in {call.target:#x}")}
+    return {}
+
+
+def _const_product(v):
+    """Product of the constant factors in a chain of Mul nodes: ((x - o) * 3) * 8 gives 24."""
+    total = 1
+    while isinstance(v, Mul):
+        if isinstance(v.factor, Const):
+            total *= v.factor.n
+            v = v.base
+        elif isinstance(v.base, Const):
+            total *= v.base.n
+            v = v.factor
+        else:
+            break
+    return total
+
+
+def collision_record_fields(facts):
+    """What a walk or line-of-sight core reads from its CollisionMapRecord (arg0): the origin subtracted from the x and z
+    coordinates (args 1 and 2), the sizes the rebased coordinates (args 3 and 4) are compared with, and the flag columns
+    indexed as [flags + (x - originX) * columnStride + columnData] + (z - originZ) * 4."""
+    rec = Arg(0)
+    origin, bound = {}, {}
+    for v, fact in facts.values():
+        for sub in walk(v):
+            if isinstance(sub, Bin) and sub.op == "-" and sub.a in (Arg(1), Arg(2)) and isinstance(sub.b, Deref) \
+                    and sub.b.base == rec and sub.b.index is None and sub.b.size in (0, 4):
+                origin.setdefault(sub.a.i, (sub.b.off, fact.rva))
+    for c in facts.cmps:
+        for side, other in ((c.a, c.b), (c.b, c.a)):
+            if isinstance(side, Deref) and side.base == rec and side.index is None and side.size in (0, 4):
+                for i in (3, 4):
+                    if contains(other, Arg(i)):
+                        bound.setdefault(i, (side.off, c.rva))
+    out = {}
+    if 1 in origin:
+        out["CollisionMapRecord.originX"] = origin[1]
+    if 2 in origin:
+        out["CollisionMapRecord.originZ"] = origin[2]
+    if 3 in bound:
+        out["CollisionMapRecord.sizeX"] = bound[3]
+    if 4 in bound:
+        out["CollisionMapRecord.sizeZ"] = bound[4]
+    for d, fact in facts.derefs():
+        if d.index is None:
+            continue
+        # The column pointer is a load of [flags + x * stride + columnData]; flags can sit on either side of the sum.
+        for flat, term, scale in ((d.base, d.index, d.scale), (d.index, d.base, 1)):
+            if isinstance(flat, Deref) and flat.base == rec and flat.index is None and flat.size in (0, 8) \
+                    and contains(term, Arg(1)):
+                out.setdefault("CollisionMapRecord.flags", (flat.off, fact.rva))
+                out.setdefault("CollisionMapRecord.columnData", (d.off, fact.rva))
+                out.setdefault("CollisionMapRecord.columnStride", (_const_product(term) * scale, fact.rva))
+    return out
+
+
+def collision_record(session, p):
+    """Fields of CollisionMapRecord read by the walk core (CollisionWalkCore, the callee of the lineOfWalk handler)."""
+    fn = session.fn("@CollisionWalkCore")
+    return {name: (value, _ev(session, rva, fn), "read from the record by the walk core")
+            for name, (value, rva) in collision_record_fields(session.prov.facts(fn)).items()}
+
+
+def renderer_layout(session, p):
+    """The renderer keeps its viewport (the projection) at +V and a holder object at +H whose vtable slot returns the
+    viewport. H is the offset WorldToScreen passes to ProjectionCore; the renderer constructor passes both [renderer + H]
+    (to the holder helper) and [renderer + V] (to the viewport initialiser), so V is the other argument of that call."""
+    wts = session.fn("@WorldToScreen")
+    proj = session.fn("@ProjectionCore")
+    hold = next((c for c in session.prov.facts(wts).calls
+                 if c.target == proj and len(c.args) > 1 and isinstance(c.args[1], Add)), None)
+    if hold is None:
+        return {}
+    holder = hold.args[1].off
+    for fn in sorted({f for _, f in session.model.insns_with_disp(holder) if f is not None}):
+        for c in session.prov.facts(fn).calls:
+            if len(c.args) < 2:
+                continue
+            a, b = c.args[0], c.args[1]
+            if isinstance(a, Add) and a.off == holder and isinstance(b, Add) and b.base == a.base and b.off != holder:
+                ev = _ev(session, c.rva, fn)
+                return {"Renderer.holder": (holder, ev, "holder offset WorldToScreen passes to ProjectionCore"),
+                        "Renderer.viewport": (b.off, ev, "viewport beside the holder in the renderer constructor"),
+                        "RendererCtor": (fn, _ev(session, fn, fn, "rip"), "renderer constructor")}
+    return {}
+
+
 EXTRACTORS = {
+    "loc_tag_kind": loc_tag_kind, "collision_record": collision_record, "renderer_layout": renderer_layout,
     "config_loader_core": config_loader_core, "config_archive": config_archive, "packet_layout": packet_layout,
     "player_name_pair": player_name_pair, "set_sequence": set_sequence, "actor_ctor": actor_ctor,
     "scene_grid": scene_grid, "tile_game_objects": tile_game_objects, "obj_pile_grid": obj_pile_grid,

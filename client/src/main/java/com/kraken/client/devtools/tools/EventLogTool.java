@@ -36,13 +36,17 @@ final class EventLogTool extends DevTool<List<String>> {
     private final ToolOption vars = option("vars", "Var transmits", false);
     private final ToolOption varbits = option("varbits", "Varbit updates", false);
     private final ToolOption ticks = option("ticks", "Game ticks", false);
+    private final ToolOption map = option("map", "Map rebuilds", true);
+    private final ToolOption locs = option("locs", "Loc load / unload", false);
+    private final ToolOption resize = option("resize", "Screen resizes", true);
     private final Queue<String> pending = new ConcurrentLinkedQueue<>();
     private final List<Integer> subscriptions = new ArrayList<>();
+    private final List<Integer> locSubscriptions = new ArrayList<>();
     private Events events;
 
     EventLogTool() {
         super("events", "Event log", Category.DIAGNOSTICS, MaterialDesignL.LIGHTNING_BOLT_OUTLINE,
-                "A live log of API events (game state, NPCs, inventories, stats, vars, varbits, ticks) as they're seen.");
+                "A live log of API events (game state, NPCs, inventories, stats, vars, varbits, ticks, map rebuilds, locs, resizes) as they're seen.");
     }
 
     @Override
@@ -90,17 +94,36 @@ final class EventLogTool extends DevTool<List<String>> {
                 add("Game tick  " + state.getTickCount());
             }
         }));
+        subscriptions.add(events.subscribe(Events.ON_MAP_REBUILD_PRE, () -> {
+            if (map.isOn()) {
+                add("Map rebuild started");
+            }
+        }));
+        subscriptions.add(events.subscribe(Events.ON_MAP_REBUILD_POST, () -> {
+            if (map.isOn()) {
+                add("Map rebuilt  base " + api.scene().getBase());
+            }
+        }));
+        subscriptions.add(events.subscribe(Events.ON_SCREEN_RESIZE, () -> {
+            if (resize.isOn()) {
+                add("Screen resized  client " + api.graphics().clientDimensions() + ", window "
+                        + api.graphics().screenSize());
+            }
+        }));
     }
 
     @Override
     protected void onStop() {
         subscriptions.forEach(events::unsubscribe);
         subscriptions.clear();
+        locSubscriptions.forEach(events::unsubscribe);
+        locSubscriptions.clear();
         pending.clear();
     }
 
     @Override
     protected List<String> read(KrakenApi api) {
+        syncLocSubscriptions(api);
         if (pending.isEmpty()) {
             return null;
         }
@@ -109,6 +132,27 @@ final class EventLogTool extends DevTool<List<String>> {
             lines.add(line);
         }
         return lines;
+    }
+
+    /**
+     * Subscribes to loc loads and unloads only while their option is on: each subscription makes the poller compare
+     * the whole scene every tick. Poll thread.
+     *
+     * @param api the attached API
+     */
+    private void syncLocSubscriptions(KrakenApi api) {
+        if (events == null) {
+            return;
+        }
+        if (locs.isOn() && locSubscriptions.isEmpty()) {
+            locSubscriptions.add(events.subscribe(Events.ON_LOC_LOAD, (id, name, layer) ->
+                    add("Loc loaded  " + id + " " + name + " (layer " + layer + ") at " + api.client().locCoord())));
+            locSubscriptions.add(events.subscribe(Events.ON_LOC_UNLOAD, (id, name, layer) ->
+                    add("Loc unloaded  " + id + " " + name + " (layer " + layer + ") at " + api.client().locCoord())));
+        } else if (!locs.isOn() && !locSubscriptions.isEmpty()) {
+            locSubscriptions.forEach(events::unsubscribe);
+            locSubscriptions.clear();
+        }
     }
 
     @Override

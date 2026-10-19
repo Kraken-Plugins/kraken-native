@@ -21,7 +21,16 @@ import static com.kraken.api.TestSupport.seedMapping;
  *   <li>Player 7, Zezima, the local player: three queued steps, fine position on tile (2, 3) of the 8×8 scene whose
  *       corner heights the tests can check. Player 9, Bob, an online friend; player 10, Troll, ignored.
  *   <li>Stats, varps (both copies), varcs, the inventory table (backpack 93 and bank 95 in one bucket, worn 94 in the
- *       other), and a config archive with a few varbits, inventories, items, NPC types and a ground decoration.
+ *       other), and a config archive with a few varbits, inventories, items, NPC types and locs.
+ *   <li>The camera, the renderer (client 765×503 in a 1530×1006 window) and the viewport, set up so a point straight
+ *       ahead of the eye projects to the viewport's centre.
+ *   <li>The map's base at world tile ({@link #BASE_X}, {@link #BASE_Z}), which is also the world's base; the world is
+ *       the 8×8 scene.
+ *   <li>Locs: daisies (ground decoration) on (2, 3), a door (wall) on (1, 1), an oak (game object, also listed on
+ *       (6, 5), and next to an actor on its own tile) on (5, 5), a wall on (4, 4), and on level 1 a lamp (wall
+ *       decoration) on (6, 6) under a bridge. A pile on (3, 3): coins ×100, logs ×1, coins ×5.
+ *   <li>Collision maps for 4 levels, one tile wider than the scene on each side (origin -1, like the client); level 0
+ *       has a line of scenery across x = 4 for z = 1..6 that blocks walking and sight.
  * </ul>
  */
 public final class GameFixture {
@@ -65,6 +74,12 @@ public final class GameFixture {
     public static final long INV_BUCKETS = 0x900000000L;
     public static final long INV_NODES = 0x910000000L;
     public static final long ARCHIVE = 0xa00000000L;
+    public static final long RENDERER = 0xb00000000L;
+    public static final long MAP_LOADER = 0xb10000000L;
+    public static final long COLLISION = 0xb20000000L;
+    public static final long LOC_HEAP = 0xb30000000L;
+    public static final long PILES = 0xb40000000L;
+    public static final long TILE_POOL = 0xb50000000L;
     /**
      * Archive tables and file buffers are bump-allocated from here.
      */
@@ -80,6 +95,33 @@ public final class GameFixture {
     public static final int DECOR_OFFSET = 10;
 
     /**
+     * The map's (and the world's) base tile.
+     */
+    public static final int BASE_X = 3200;
+    public static final int BASE_Z = 3200;
+
+    /**
+     * Loc ids: a door (wall, 1×2, ops "Open", which reads "Close" while varp 10 is 50-150, and a tagged "Knock"), an
+     * oak (2×2 game object), a plain wall and a lamp (wall decoration).
+     */
+    public static final int DOOR_LOC = 1500;
+    public static final int TREE_LOC = 1600;
+    public static final int WALL_LOC = 1700;
+    public static final int LAMP_LOC = 1800;
+
+    /**
+     * Collision grids start one tile outside the scene and are 2 tiles wider, as in the client.
+     */
+    public static final int COLLISION_ORIGIN = -1;
+    public static final int COLLISION_SIZE = 10;
+    public static final int COLLISION_STRIDE = 0x28;
+
+    /**
+     * The flags of the scenery line across x = 4 on level 0 (blocks walking and sight).
+     */
+    public static final int SCENERY_FLAGS = 0x20100;
+
+    /**
      * Inventory slot arrays are allocated this big; an inventory's vectors use the first {@code length} slots.
      */
     private static final int INV_CAPACITY = 32;
@@ -89,6 +131,8 @@ public final class GameFixture {
     public final Mapping map;
     public final FakeMemory memory = new FakeMemory();
     private final Map<Integer, Long> invNodes = new HashMap<>();
+    private long locHeap = LOC_HEAP;
+    private long tilePool = TILE_POOL;
     private final Map<Integer, TreeMap<Integer, byte[]>> configFiles = new TreeMap<>();
     private long archiveHeap = ARCHIVE_HEAP;
 
@@ -104,6 +148,10 @@ public final class GameFixture {
         buildFriends();
         buildInventories();
         buildConfigs();
+        buildView();
+        buildLocs();
+        buildPiles();
+        buildCollision();
     }
 
     public void setGameState(int state) {
@@ -215,6 +263,93 @@ public final class GameFixture {
         memory.putByte(SETTINGS + ((long) level * SCENE_SIZE + x) * SCENE_SIZE + z, settings);
     }
 
+    /**
+     * Moves the map's base, as a map rebuild does (the world's base stays).
+     *
+     * @param x the new base x
+     * @param z the new base z
+     */
+    public void setMapBase(int x, int z) {
+        memory.putInt(MAP_LOADER + map.offset("MapLoader.baseX"), x);
+        memory.putInt(MAP_LOADER + map.offset("MapLoader.baseZ"), z);
+    }
+
+    /**
+     * Resizes the client and its window.
+     *
+     * @param width        the client's width in its own pixels
+     * @param height       the client's height
+     * @param screenWidth  the window's width in physical pixels
+     * @param screenHeight the window's height
+     */
+    public void setClientSize(int width, int height, int screenWidth, int screenHeight) {
+        memory.putInt(RENDERER + map.offset("Renderer.canvasWidth"), width);
+        memory.putInt(RENDERER + map.offset("Renderer.canvasHeight"), height);
+        memory.putInt(RENDERER + map.offset("Renderer.screenWidth"), screenWidth);
+        memory.putInt(RENDERER + map.offset("Renderer.screenHeight"), screenHeight);
+    }
+
+    /**
+     * Points the camera: its eye, and the sines and cosines the scene keeps for the frame.
+     *
+     * @param x        the eye's fine x
+     * @param y        the eye's height
+     * @param z        the eye's fine z
+     * @param sinPitch sine of the pitch
+     * @param cosPitch cosine of the pitch
+     * @param sinYaw   sine of the yaw
+     * @param cosYaw   cosine of the yaw
+     */
+    public void setCamera(int x, int y, int z, float sinPitch, float cosPitch, float sinYaw, float cosYaw) {
+        long pos = CLIENT + map.offset("Client.camera.pos");
+        memory.putInt(pos, x);
+        memory.putInt(pos + 4, y);
+        memory.putInt(pos + 8, z);
+        long trig = SCENE + map.offset("Scene.cameraTrig");
+        memory.putInt(trig, Float.floatToRawIntBits(sinPitch));
+        memory.putInt(trig + 4, Float.floatToRawIntBits(cosPitch));
+        memory.putInt(trig + 8, Float.floatToRawIntBits(sinYaw));
+        memory.putInt(trig + 12, Float.floatToRawIntBits(cosYaw));
+    }
+
+    /**
+     * Takes the first item off a pile, as when it is picked up.
+     *
+     * @param level the level
+     * @param x     the tile x
+     * @param z     the tile z
+     */
+    public void removeFirstPileItem(int level, int x, int z) {
+        long sentinel = pileSentinel(level, x, z);
+        int next = map.container("list.node.next");
+        long first = memory.readLong(sentinel + next);
+        memory.putLong(sentinel + next, memory.readLong(first + next));
+    }
+
+    /**
+     * Puts a wall on a tile, replacing any wall there, as a server loc change does.
+     *
+     * @param level the level
+     * @param x     the tile x
+     * @param z     the tile z
+     * @param id    the wall's loc id, or -1 to remove the wall
+     */
+    public void setWall(int level, int x, int z, int id) {
+        memory.putLong(tile(level, x, z) + map.offset("Tile.wall"), id < 0 ? 0 : loc(id));
+    }
+
+    /**
+     * Sets a tile's collision flags.
+     *
+     * @param level the level
+     * @param x     the scene tile x
+     * @param z     the scene tile z
+     * @param flags the flags
+     */
+    public void setCollision(int level, int x, int z, int flags) {
+        memory.putInt(collisionCell(level, x, z), flags);
+    }
+
     private void buildClient() {
         memory.alloc(MODULE_BASE + map.global("client"), 8);
         memory.alloc(CLIENT, 0x420000);
@@ -232,6 +367,12 @@ public final class GameFixture {
         memory.putInt(CLIENT + map.offset("Client.playerIndices") + 4, 9);
         memory.putInt(CLIENT + map.offset("Client.playerIndices") + 8, 10);
 
+        memory.putLong(CLIENT + map.offset("Client.renderer"), RENDERER);
+        memory.putLong(CLIENT + map.offset("Client.mapLoader"), MAP_LOADER);
+        memory.alloc(MODULE_BASE + map.global("cameraControlled"), 1);
+        memory.alloc(MODULE_BASE + map.global("cameraTarget"), 4);
+        memory.putInt(MODULE_BASE + map.global("cameraTarget"), -1);
+
         // The worlds table: world id 0 is the top-level world
         long worlds = CLIENT + map.offset("Client.worlds.map");
         memory.putLong(worlds + map.container("hash_map.buckets"), WORLDS_BUCKETS);
@@ -244,8 +385,12 @@ public final class GameFixture {
     }
 
     private void buildWorld() {
-        memory.alloc(WORLD, 0x100);
+        memory.alloc(WORLD, 0x200);
         memory.putInt(WORLD + map.offset("World.plane"), 0);
+        memory.putInt(WORLD + map.offset("World.baseX"), BASE_X);
+        memory.putInt(WORLD + map.offset("World.baseZ"), BASE_Z);
+        memory.putInt(WORLD + map.offset("World.width"), SCENE_SIZE);
+        memory.putInt(WORLD + map.offset("World.height"), SCENE_SIZE);
         memory.putLong(WORLD + map.offset("World.scene"), SCENE);
 
         hashMap(WORLD + map.offset("World.players"), BUCKETS_PLAYER, NODE_PLAYER,
@@ -576,6 +721,12 @@ public final class GameFixture {
         npcs.put(3030, new ConfigFile().op(2).str("Goblin chief").end());
         Map<Integer, byte[]> locs = configFiles.computeIfAbsent(6, g -> new TreeMap<>());
         locs.put(DECOR_LOC, new ConfigFile().op(2).str("Daisies").op(96).g1(DECOR_OFFSET).end());
+        locs.put(DOOR_LOC, new ConfigFile().op(2).str("Door").op(15).g1(2).op(30).str("Open")
+                .op(31).str("<col=ff0000>Knock</col><lt>3").op(101).g1(0).g2(10).g2(0xffff).g4(50).g4(150)
+                .str("Close").end());
+        locs.put(TREE_LOC, new ConfigFile().op(2).str("Oak").op(14).g1(2).op(15).g1(2).op(30).str("Chop down").end());
+        locs.put(WALL_LOC, new ConfigFile().op(2).str("Wall").end());
+        locs.put(LAMP_LOC, new ConfigFile().op(2).str("Lamp").end());
         writeArchive();
     }
 
@@ -615,6 +766,189 @@ public final class GameFixture {
                 memory.putLong(entry + map.offset("Js5File.start"), 0);
                 memory.putLong(entry + map.offset("Js5File.buffer"), buffer);
             }
+        }
+    }
+
+    /**
+     * The camera 1000 above fine (0, 0) looking north along z (no pitch, no yaw), scale 512, zoom 600, angles
+     * {pitch 4096, yaw 8192}, the look-at point ahead; the renderer and its viewport (centre 383, 251 in window
+     * pixels); the map loader.
+     */
+    private void buildView() {
+        memory.alloc(RENDERER, 0x200);
+        setCamera(0, -1000, 0, 0f, 1f, 0f, 1f);
+        long lookAt = CLIENT + map.offset("Client.camera.lookAt");
+        memory.putInt(lookAt, 0);
+        memory.putInt(lookAt + 4, -1000);
+        memory.putInt(lookAt + 8, 1024);
+        long angles = CLIENT + map.offset("Client.camera.angles");
+        memory.putInt(angles, 4096);
+        memory.putInt(angles + 4, 8192);
+        memory.putInt(CLIENT + map.offset("Client.zoomA"), 512);
+        memory.putInt(CLIENT + map.offset("Client.zoomB"), 600);
+
+        setClientSize(765, 503, 1530, 1006);
+        long viewport = RENDERER + map.offset("Renderer.viewport");
+        memory.putInt(viewport + map.offset("Viewport.centerX"), 383);
+        memory.putInt(viewport + map.offset("Viewport.centerY"), 251);
+
+        memory.alloc(MAP_LOADER, 0x6000);
+        setMapBase(BASE_X, BASE_Z);
+    }
+
+    /**
+     * A scene tile, created if the tile table has none there yet.
+     *
+     * @param level the level
+     * @param x     the tile x
+     * @param z     the tile z
+     * @return the tile's address
+     */
+    private long tile(int level, int x, int z) {
+        int stride = map.offset("Scene.tileEntryStride");
+        long entry = TILES + ((long) (level * SCENE_SIZE + x) * SCENE_SIZE + z) * stride
+                + map.offset("Scene.tileEntryPtrOffset");
+        long tile = memory.readLong(entry);
+        if (tile == 0) {
+            tile = tilePool;
+            tilePool += 0x200;
+            memory.alloc(tile, 0x200);
+            memory.putLong(entry, tile);
+        }
+        return tile;
+    }
+
+    private long loc(int id) {
+        long loc = locHeap;
+        locHeap += 0x100;
+        memory.alloc(loc, 0x100);
+        memory.putLong(loc + map.offset("Loc.tag"), (long) id << map.offset("Loc.tagIdShift"));
+        return loc;
+    }
+
+    private long gameObject(int id, int kind, int originX, int originZ) {
+        long object = locHeap;
+        locHeap += 0x300;
+        memory.alloc(object, 0x300);
+        memory.putLong(object + map.offset("GameObject.tag"),
+                (long) id << map.offset("Loc.tagIdShift") | (long) kind << map.offset("Loc.tagKindShift"));
+        memory.putInt(object + map.offset("GameObject.originX"), originX);
+        memory.putInt(object + map.offset("GameObject.originZ"), originZ);
+        return object;
+    }
+
+    private void putGameObjects(long tile, long... objects) {
+        int stride = map.offset("Tile.gameObjectEntryStride");
+        long array = locHeap;
+        locHeap += 0x100;
+        memory.alloc(array, objects.length * stride);
+        for (int i = 0; i < objects.length; i++) {
+            memory.putLong(array + (long) i * stride + 8, objects[i]);
+        }
+        memory.putInt(tile + map.offset("Tile.gameObjectCount"), objects.length);
+        memory.putLong(tile + map.offset("Tile.gameObjects"), array);
+    }
+
+    private void buildLocs() {
+        memory.putLong(tile(0, 1, 1) + map.offset("Tile.wall"), loc(DOOR_LOC));
+        memory.putLong(tile(0, 4, 4) + map.offset("Tile.wall"), loc(WALL_LOC));
+        long oak = gameObject(TREE_LOC, 2, 5, 5);
+        long actor = gameObject(0, 0, 5, 5);
+        putGameObjects(tile(0, 5, 5), actor, oak);
+        putGameObjects(tile(0, 6, 5), oak);
+        memory.putLong(tile(1, 6, 6) + map.offset("Tile.wallDecor"), loc(LAMP_LOC));
+        setTileSettings(1, 6, 6, 2);
+    }
+
+    /**
+     * The pile grid: level 0's columns and column 3's rows (empty lists); no other column has rows.
+     */
+    private void buildPiles() {
+        int stride = map.offset("World.objPiles.stride");
+        int data = map.offset("World.objPiles.dataOffset");
+        long levels = PILES;
+        long columns = PILES + 0x100;
+        long rows = PILES + 0x400;
+        memory.alloc(PILES, 0x2000);
+        memory.putLong(WORLD + map.offset("World.objPiles"), levels);
+        memory.putLong(levels + data, columns);
+        memory.putLong(columns + 3L * stride + data, rows);
+        for (int z = 0; z < SCENE_SIZE; z++) {
+            long sentinel = rows + (long) z * stride;
+            memory.putLong(sentinel + map.container("list.node.next"), sentinel);
+            memory.putLong(sentinel + map.container("list.node.prev"), sentinel);
+        }
+        pile(0, 3, 3, new int[]{995, 1511, 995}, new int[]{100, 1, 5});
+    }
+
+    private long pileSentinel(int level, int x, int z) {
+        int stride = map.offset("World.objPiles.stride");
+        int data = map.offset("World.objPiles.dataOffset");
+        long levels = memory.readLong(WORLD + map.offset("World.objPiles"));
+        long columns = memory.readLong(levels + (long) level * stride + data);
+        return memory.readLong(columns + (long) x * stride + data) + (long) z * stride;
+    }
+
+    private void pile(int level, int x, int z, int[] ids, int[] counts) {
+        long sentinel = pileSentinel(level, x, z);
+        int next = map.container("list.node.next");
+        int value = map.container("list.node.value");
+        long nodes = PILES + 0x1000;
+        long items = PILES + 0x1400;
+        long previous = sentinel;
+        for (int i = 0; i < ids.length; i++) {
+            long node = nodes + i * 0x40L;
+            long item = items + i * 0x40L;
+            memory.putInt(item + map.offset("GroundItem.id"), ids[i]);
+            memory.putInt(item + map.offset("GroundItem.count"), counts[i]);
+            memory.putLong(node + value, item);
+            memory.putLong(previous + next, node);
+            previous = node;
+        }
+        memory.putLong(previous + next, sentinel);
+    }
+
+    private long collisionCell(int level, int x, int z) {
+        long record = COLLISION + (long) level * COLLISION_STRIDE;
+        long columns = memory.readLong(record + map.offset("CollisionMapRecord.flags"));
+        long column = memory.readLong(columns + (long) (x - COLLISION_ORIGIN) * map.offset("CollisionMapRecord.columnStride")
+                + map.offset("CollisionMapRecord.columnData"));
+        return column + (long) (z - COLLISION_ORIGIN) * 4;
+    }
+
+    /**
+     * Four records (the vector the scene points at), each a 10×10 grid of columns; the ring around the scene reads as
+     * unloaded.
+     */
+    private void buildCollision() {
+        int levels = 4;
+        int colStride = map.offset("CollisionMapRecord.columnStride");
+        int colData = map.offset("CollisionMapRecord.columnData");
+        long heap = COLLISION + 0x1000;
+        memory.alloc(COLLISION, 0x40000);
+        memory.putLong(SCENE + map.offset("Scene.collisionMaps"), COLLISION);
+        memory.putLong(SCENE + map.offset("Scene.collisionMapsEnd"), COLLISION + (long) levels * COLLISION_STRIDE);
+        for (int level = 0; level < levels; level++) {
+            long record = COLLISION + (long) level * COLLISION_STRIDE;
+            memory.putInt(record + map.offset("CollisionMapRecord.originX"), COLLISION_ORIGIN);
+            memory.putInt(record + map.offset("CollisionMapRecord.originZ"), COLLISION_ORIGIN);
+            memory.putInt(record + map.offset("CollisionMapRecord.sizeX"), COLLISION_SIZE);
+            memory.putInt(record + map.offset("CollisionMapRecord.sizeZ"), COLLISION_SIZE);
+            long columns = heap;
+            heap += (long) COLLISION_SIZE * colStride;
+            memory.putLong(record + map.offset("CollisionMapRecord.flags"), columns);
+            for (int ix = 0; ix < COLLISION_SIZE; ix++) {
+                long data = heap;
+                heap += COLLISION_SIZE * 4L;
+                memory.putLong(columns + (long) ix * colStride + colData, data);
+                for (int iz = 0; iz < COLLISION_SIZE; iz++) {
+                    boolean edge = ix == 0 || iz == 0 || ix == COLLISION_SIZE - 1 || iz == COLLISION_SIZE - 1;
+                    memory.putInt(data + iz * 4L, edge ? 0x1000000 : 0);
+                }
+            }
+        }
+        for (int z = 1; z <= 6; z++) {
+            setCollision(0, 4, z, SCENERY_FLAGS);
         }
     }
 

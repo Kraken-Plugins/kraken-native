@@ -1,11 +1,17 @@
 package com.kraken.api.events;
 
+import com.kraken.api.config.LocType;
 import com.kraken.api.config.VarBitType;
 import com.kraken.api.events.Events.GameStateTrigger;
 import com.kraken.api.game.Client;
 import com.kraken.api.game.ClientState;
+import com.kraken.api.game.Graphics;
 import com.kraken.api.game.InvItem;
 import com.kraken.api.game.Inventory;
+import com.kraken.api.game.Loc;
+import com.kraken.api.game.MapCoord;
+import com.kraken.api.game.Scene;
+import com.kraken.api.game.Vector2;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -14,6 +20,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 import static com.kraken.api.game.ClientState.GAME_STATE_CONNECTION_LOST;
@@ -44,6 +51,18 @@ import static com.kraken.api.game.ClientState.GAME_STATE_TITLE;
  *   <li>{@code ON_INV_TRANSMIT}: an inventory's slots changed, or an inventory appeared (all its slots). An inventory
  *       the client drops (it clears them all at login) is forgotten without an event.
  *   <li>{@code ON_NPC_LOAD} / {@code ON_NPC_UNLOAD}: the set of loaded NPC indices changed.
+ *   <li>{@code ON_SCREEN_RESIZE}: the client's size ({@code Graphics.clientDimensions}) or the window's
+ *       ({@code osrs.screenSize}) changed.
+ *   <li>{@code ON_MAP_REBUILD_PRE} / {@code ON_MAP_REBUILD_POST}: the client raises PRE when it starts loading a new
+ *       area while logged in, just before the game state goes to loading (25), and POST when the load finishes, at
+ *       login too. So PRE fires when the game state moves from logged in (30) to loading, and POST when it moves from
+ *       loading back to logged in. A load short enough to fall between two polls still moves the map's base
+ *       ({@code Scene.getBase}); then both fire together.
+ *   <li>{@code ON_LOC_LOAD} / {@code ON_LOC_UNLOAD}: the client raises these when the server changes a loc (a door
+ *       opens, a tree is felled and becomes a stump), not for the locs a map load builds. So the scene's locs are
+ *       compared once per game tick, and a loc that appeared or went fires (unloads first, as the client replaces a
+ *       loc); after a map rebuild the next scan is a silent baseline. Like the client, each callback runs with the loc
+ *       as the active loc ({@code Client.locCoord()}). A scan reads the whole scene, so only subscribe while needed.
  * </ul>
  */
 public final class EventPoller {
@@ -51,6 +70,8 @@ public final class EventPoller {
     private final Events events;
     private final Client client;
     private final ClientState state;
+    private final Graphics graphics;
+    private final Scene scene;
 
     private boolean tickBaselined;
     private int lastTick;
@@ -71,22 +92,48 @@ public final class EventPoller {
 
     private Map<Integer, String> loadedNpcs; // index -> name, so unload events can name the NPC
 
-    public EventPoller(Events events, Client client, ClientState state) {
+    private boolean screenBaselined;
+    private Vector2 lastDimensions;
+    private Vector2 lastScreen;
+
+    private Map<Long, Loc> lastLocs;
+    private int lastLocTick;
+    private MapCoord lastLocBase;
+
+    private boolean mapBaselined;
+    private int lastMapState;
+    private MapCoord lastBase;
+
+    /**
+     * Creates the poller.
+     *
+     * @param events   the bus to fire on
+     * @param client   reads actors and inventories
+     * @param state    reads stats, vars, the tick and the game state
+     * @param graphics reads the client's size
+     * @param scene    reads the map's base
+     */
+    public EventPoller(Events events, Client client, ClientState state, Graphics graphics, Scene scene) {
         this.events = events;
         this.client = client;
         this.state = state;
+        this.graphics = graphics;
+        this.scene = scene;
     }
 
     /**
      * Reads the game once and fires whatever changed since the previous call. Poll thread only.
      */
     public void poll() {
+        pollScreen();
+        pollMapRebuild();
         pollGameState();
         pollStats();
         pollVarbits(); // before ON_VAR_TRANSMIT, the order the client's varp packet handler fires them in
         pollVarps();
         pollInventories();
         pollNpcs();
+        pollLocs();
         pollTick();
     }
 
@@ -101,6 +148,126 @@ public final class EventPoller {
         }
         lastTick = tick;
         tickBaselined = true;
+    }
+
+    private void pollScreen() {
+        if (!events.hasSubscribers(Events.ON_SCREEN_RESIZE)) {
+            screenBaselined = false;
+            return;
+        }
+        Vector2 dimensions = graphics.clientDimensions();
+        Vector2 screen = graphics.screenSize();
+        if (dimensions == null) {
+            return; // can't read the size now; keep the baseline
+        }
+        boolean changed = screenBaselined && (!dimensions.equals(lastDimensions)
+                || (screen != null && lastScreen != null && !screen.equals(lastScreen)));
+        lastDimensions = dimensions;
+        lastScreen = screen;
+        screenBaselined = true;
+        if (changed) {
+            events.fire(Events.ON_SCREEN_RESIZE, ScreenResizeCallback::onScreenResize);
+        }
+    }
+
+    private void pollMapRebuild() {
+        if (!events.hasSubscribers(Events.ON_MAP_REBUILD_PRE) && !events.hasSubscribers(Events.ON_MAP_REBUILD_POST)) {
+            mapBaselined = false;
+            return;
+        }
+        int now = state.getGameState();
+        MapCoord base = scene.getBase();
+        if (now < 0) {
+            return;
+        }
+        if (!mapBaselined) {
+            mapBaselined = true;
+            lastMapState = now;
+            lastBase = base;
+            return;
+        }
+        boolean pre = false;
+        boolean post = false;
+        if (now == GAME_STATE_LOADING && lastMapState == GAME_STATE_LOGGED_IN) {
+            pre = true;
+        } else if (now == GAME_STATE_LOGGED_IN && lastMapState == GAME_STATE_LOADING) {
+            post = true;
+        } else if (now == GAME_STATE_LOGGED_IN && lastMapState == GAME_STATE_LOGGED_IN && base != null
+                && lastBase != null && !Objects.equals(base, lastBase)) {
+            pre = true;
+            post = true;
+        }
+        lastMapState = now;
+        if (base != null) {
+            lastBase = base;
+        }
+        if (pre) {
+            events.fire(Events.ON_MAP_REBUILD_PRE, MapRebuildCallback::onMapRebuild);
+        }
+        if (post) {
+            events.fire(Events.ON_MAP_REBUILD_POST, MapRebuildCallback::onMapRebuild);
+        }
+    }
+
+    private void pollLocs() {
+        if (!events.hasSubscribers(Events.ON_LOC_LOAD) && !events.hasSubscribers(Events.ON_LOC_UNLOAD)) {
+            lastLocs = null;
+            return;
+        }
+        if (state.getGameState() != GAME_STATE_LOGGED_IN) {
+            lastLocs = null;
+            return;
+        }
+        int tick = state.getTickCount();
+        MapCoord base = scene.getBase();
+        if (lastLocs != null && tick == lastLocTick && Objects.equals(base, lastLocBase)) {
+            return;
+        }
+        Map<Long, Loc> now = new HashMap<>();
+        for (Loc loc : scene.getAllLocs()) {
+            now.put(locKey(loc), loc);
+        }
+        boolean baseline = lastLocs == null || !Objects.equals(base, lastLocBase);
+        Map<Long, Loc> before = lastLocs;
+        lastLocs = now;
+        lastLocTick = tick;
+        lastLocBase = base;
+        if (baseline) {
+            return;
+        }
+        for (Map.Entry<Long, Loc> entry : before.entrySet()) {
+            Loc current = now.get(entry.getKey());
+            if (current == null || current.id() != entry.getValue().id()) {
+                fireLoc(Events.ON_LOC_UNLOAD, entry.getValue());
+            }
+        }
+        for (Map.Entry<Long, Loc> entry : now.entrySet()) {
+            Loc was = before.get(entry.getKey());
+            if (was == null || was.id() != entry.getValue().id()) {
+                fireLoc(Events.ON_LOC_LOAD, entry.getValue());
+            }
+        }
+    }
+
+    private void fireLoc(Event<LocLoadUnloadCallback> event, Loc loc) {
+        LocType type = client.configs().loc(loc.id());
+        String name = type == null ? "" : type.getName();
+        client.activateLoc(loc);
+        events.fire(event, cb -> cb.onLocLoadUnload(loc.id(), name, loc.layer()));
+    }
+
+    /**
+     * A loc's slot: its tile and layer. A tile holds one loc per layer, plus game objects, which can share a tile;
+     * those are told apart by their id.
+     *
+     * @param loc the loc
+     * @return a key unique to the slot (and, for game objects, the id)
+     */
+    private static long locKey(Loc loc) {
+        MapCoord at = loc.coord();
+        long key = (long) at.level() << 60 | (long) (at.x() & 0xfff) << 48 | (long) (at.z() & 0xfff) << 36
+                | (long) loc.layer() << 32;
+        return loc.layer() == Loc.GAME_OBJECT ? key | (loc.id() & 0xffffffffL) : key;
     }
 
     private void pollGameState() {

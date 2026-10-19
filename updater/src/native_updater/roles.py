@@ -5,6 +5,7 @@
   sp_result              the object inside a jag::shared_ptr returned by a call: Deref(Ret|Out, 8)
   {sp_result: "@F"}      same, restricted to calls of fingerprint F
   {ret: "@F"}            the raw return value of a call of F
+  {ret_indirect: "@F"}   the return value of an indirect call (through a vtable or a pointer) made inside F
   node_value             the value slot of a hash-map node: Deref(any, 0x10)
   {field: {of: ROLE, key: K}}   Deref(ROLE, value(K)); or {field: {of: ROLE, offset: N}}
   (the YAML key is `offset`, never `off`: YAML 1.1 reads a bare `off` as the boolean false)
@@ -42,6 +43,9 @@ def match(session, role, value):
     if "ret" in role:
         target = session.fn(role["ret"])
         return isinstance(value, Ret) and value.target == target
+    if "ret_indirect" in role:
+        target = session.fn(role["ret_indirect"])
+        return isinstance(value, Ret) and value.target is None and session.model.function_containing(value.rva) == target
     if "addr" in role:
         from .analysis.provenance import Add
         return isinstance(value, Add) and match(session, role["addr"], value.base)

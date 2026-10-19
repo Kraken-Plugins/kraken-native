@@ -33,14 +33,33 @@ abstract class GameReader {
         return mapping;
     }
 
-    /** The {@code Client} object, or 0 if the pointer can't be read (client still booting). */
+    /**
+     * The {@code Client} object.
+     *
+     * @return its address, or 0 if the pointer can't be read (client still booting)
+     */
     protected final long clientBase() {
         return safePointer(memory.moduleBase() + clientRva);
     }
 
-    /** A mapped struct field's offset, or -1 if this build's mapping doesn't have it. */
+    /**
+     * A mapped struct field's offset, for keys older mappings may lack.
+     *
+     * @param key the mapping key, e.g. {@code "Client.worldFlags"}
+     * @return the offset, or -1 if this build's mapping doesn't have it
+     */
     protected final int optionalOffset(String key) {
         return mapping.has(key) ? mapping.offset(key) : -1;
+    }
+
+    /**
+     * A mapped global's RVA, for keys older mappings may lack.
+     *
+     * @param key the global's name, e.g. {@code "cycle"}
+     * @return the RVA, or -1 if this build's mapping doesn't have it
+     */
+    protected final long optionalGlobal(String key) {
+        return mapping.hasGlobal(key) ? mapping.global(key) : -1;
     }
 
     protected final long safePointer(long address) {
@@ -75,7 +94,28 @@ abstract class GameReader {
         }
     }
 
-    /** {@code count} consecutive little-endian ints in one read, or null if they can't be read. */
+    /**
+     * A little-endian 32-bit float.
+     *
+     * @param address where to read
+     * @param fallback what to return if it can't be read
+     * @return the float, or {@code fallback}
+     */
+    protected final float safeFloat(long address, float fallback) {
+        try {
+            return Float.intBitsToFloat(memory.readInt(address));
+        } catch (MemoryException e) {
+            return fallback;
+        }
+    }
+
+    /**
+     * {@code count} consecutive little-endian ints in one read.
+     *
+     * @param address where the first int is
+     * @param count   how many to read
+     * @return the ints, an empty array for a count of 0, or null if they can't be read
+     */
     protected final int[] readInts(long address, int count) {
         if (address == 0 || count <= 0) {
             return count == 0 ? new int[0] : null;
@@ -90,7 +130,13 @@ abstract class GameReader {
         }
     }
 
-    /** {@code length} bytes as a little-endian buffer, or null if they can't be read. */
+    /**
+     * {@code length} bytes as a little-endian buffer.
+     *
+     * @param address where the bytes start
+     * @param length  how many to read
+     * @return the bytes, or null if they can't be read
+     */
     protected final ByteBuffer readBlock(long address, int length) {
         if (address == 0 || length <= 0) {
             return null;

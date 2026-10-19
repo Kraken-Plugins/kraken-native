@@ -6,8 +6,8 @@ from pathlib import Path, PurePath
 from types import SimpleNamespace
 from unittest import mock
 
-from native_updater import emit, identity, strategies, winpaths, x86, verify
-from native_updater.analysis.provenance import Arg, Const, Deref, Global, Provenance, Ret
+from native_updater import emit, extractors, identity, strategies, winpaths, x86, verify
+from native_updater.analysis.provenance import Add, Addr, Arg, Bin, Call, Cmp, Const, Deref, Facts, Global, Load, Mul, Provenance, Ret
 from native_updater.consensus import Result
 from native_updater.pe import file_version
 from native_updater.spec import KeySpec, lint, load as load_spec
@@ -102,6 +102,97 @@ class GetterSelectorTests(unittest.TestCase):
                                    "MOV EAX,dword ptr [RAX + RDX*0x4]", "MOV EAX,dword ptr [R10 + R8*0x4]", "RET"]})
         self.assertEqual(self.values(s, {"base": "arg0", "load": "ptr", "select": {"index_uses": {"arg": 1}}}), [0x3D0])
         self.assertEqual(self.values(s, {"base": "arg0", "load": "ptr", "select": {"index_uses": {"arg": 2}}}), [0x3E8])
+
+
+class RecipeTests(unittest.TestCase):
+    """New selectors, roles and extractors. Facts are built by hand (or read from a FakeModel) so no binary is needed."""
+
+    def values(self, session, params):
+        return sorted(c.value for c in strategies.getter(session, {"in": 0x1000, **params}, "key"))
+
+    def test_lowest_picks_the_base_of_a_float_run(self):
+        s = GetterSelectorTests.session({0x1000: ["MOV EAX,dword ptr [RCX + 0x420]", "MOV EAX,dword ptr [RCX + 0x424]",
+                                                  "MOV EAX,dword ptr [RCX + 0x418]", "MOV EAX,dword ptr [RCX + 0x41c]", "RET"]})
+        self.assertEqual(self.values(s, {"base": "arg0", "load": "f32", "select": {"lowest": True}}), [0x418])
+
+    def test_lowest_refuses_scattered_fields(self):
+        s = GetterSelectorTests.session({0x1000: ["MOV EAX,dword ptr [RCX + 0x418]", "MOV EAX,dword ptr [RCX + 0x420]",
+                                                  "MOV EAX,dword ptr [RCX + 0x424]", "RET"]})
+        self.assertEqual(self.values(s, {"base": "arg0", "load": "f32", "select": {"lowest": True}}), [])
+
+    def test_add_rebases_the_offset_onto_the_parent_struct(self):
+        s = GetterSelectorTests.session({0x1000: ["MOV EAX,dword ptr [RCX + 0x20]", "MOV EDX,dword ptr [RCX + 0x24]", "RET"]})
+        self.assertEqual(self.values(s, {"base": "arg0", "load": "i32", "add": 0x10,
+                                                              "select": {"min": 0x20, "max": 0x24, "nth": 1}}), [0x34])
+
+    def test_ret_indirect_matches_the_result_of_a_vtable_call(self):
+        s = GetterSelectorTests.session({0x1000: ["CALL qword ptr [RAX + 0x8]", "MOV ECX,dword ptr [RAX + 0x18]",
+                                                  "MOV EAX,dword ptr [RAX + 0x14]", "RET"]})
+        self.assertEqual(self.values(s, {"base": {"ret_indirect": 0x1000}, "load": "i32"}), [0x14, 0x18])
+
+    def test_ret_indirect_ignores_direct_calls(self):
+        s = GetterSelectorTests.session({0x2000: ["RET"], 0x1000: ["CALL 0x140002000", "MOV EAX,dword ptr [RAX + 0x14]", "RET"]})
+        self.assertEqual(self.values(s, {"base": {"ret_indirect": 0x1000}, "load": "i32"}), [])
+
+    @staticmethod
+    def walk_core_facts():
+        """The shape of the walk core: origin subtracted from x and z, bounds on x and z, and the flag column load."""
+        rec = Arg(0)
+        column = Bin("-", Arg(1), Deref(rec, 0, 4))
+        term = Mul(Mul(column, Const(3)), Const(8))
+        return Facts(fn=0x1000, addrs=[Addr(0x10, Bin("-", Arg(1), Deref(rec, 0, 4)), "EAX", 0x1000),
+                                       Addr(0x14, Bin("-", Arg(2), Deref(rec, 4, 4)), "EDX", 0x1000)],
+                     cmps=[Cmp(0x18, Bin("-", Arg(3), Deref(rec, 0, 4)), Deref(rec, 8, 4), 0x1000),
+                           Cmp(0x1C, Bin("-", Arg(4), Deref(rec, 4, 4)), Deref(rec, 0xC, 4), 0x1000)],
+                     loads=[Load(0x20, Deref(term, 0x10, 8, Deref(rec, 0x20, 8), 1), "RAX", 0x1000)])
+
+    def test_collision_record_reads_origins_bounds_and_columns(self):
+        fields = {k: v[0] for k, v in extractors.collision_record_fields(self.walk_core_facts()).items()}
+        self.assertEqual(fields, {"CollisionMapRecord.originX": 0, "CollisionMapRecord.originZ": 4,
+                                  "CollisionMapRecord.sizeX": 8, "CollisionMapRecord.sizeZ": 0xC,
+                                  "CollisionMapRecord.flags": 0x20, "CollisionMapRecord.columnData": 0x10,
+                                  "CollisionMapRecord.columnStride": 24})
+
+    def test_collision_column_with_the_flags_as_base(self):
+        """The accessor form: [[rec + 0x20] + x * 3 * 8 + 0x10] reads the same record fields, with scale 8 on the index."""
+        facts = Facts(fn=0x1000, loads=[Load(0x20, Deref(Deref(Arg(0), 0x20, 8), 0x10, 8, Mul(Arg(1), Const(3)), 8), "RAX", 0x1000)])
+        fields = extractors.collision_record_fields(facts)
+        self.assertEqual(fields["CollisionMapRecord.flags"], (0x20, 0x20))
+        self.assertEqual(fields["CollisionMapRecord.columnStride"], (24, 0x20))
+        self.assertEqual(fields["CollisionMapRecord.columnData"], (0x10, 0x20))
+
+    def test_renderer_layout_finds_the_viewport_beside_the_holder(self):
+        wts, proj, ctor = 0x21EB80, 0x6AA7C0, 0x61ADF0
+        renderer = Deref(Global(0xE98C18), 0x90, 8)
+        facts = {
+            wts: Facts(fn=wts, calls=[Call(0x21EC33, proj, None, (Arg(0), Add(renderer, 0x1B0), Arg(3)), wts)]),
+            ctor: Facts(fn=ctor, calls=[
+                Call(0x61AE70, 0x6577A0, None, (Add(Arg(0), 0xF8), Add(Arg(0), 0x40)), ctor),
+                Call(0x61AE83, 0x65B370, None, (Add(Arg(0), 0x1B0), Add(Arg(0), 0xF8)), ctor)]),
+        }
+        session = SimpleNamespace(
+            fn=lambda ref: {"@WorldToScreen": wts, "@ProjectionCore": proj}[ref],
+            prov=SimpleNamespace(facts=lambda fn: facts[fn]),
+            model=SimpleNamespace(insns_with_disp=lambda disp, mnem=None: [(0x61AE83, ctor)] if disp == 0x1B0 else []),
+            evidence=lambda rva, fn=None, slot="disp": {"insn": rva, "fn": fn, "text": "", "slot": slot})
+        out = extractors.renderer_layout(session, {})
+        self.assertEqual(out["Renderer.holder"][0], 0x1B0)
+        self.assertEqual(out["Renderer.viewport"][0], 0xF8)
+        self.assertEqual(out["RendererCtor"][0], ctor)
+
+    def test_loc_tag_kind_is_the_shift_of_the_decoder_compared_with_two(self):
+        tile, kind_check, kind_decoder, bitfield = 0x6A2B80, 0x652110, 0x652230, 0x63CBE0
+        facts = {
+            tile: Facts(fn=tile, calls=[Call(0x6A2C00, kind_check, None, (Deref(Arg(0), 0x38, 8),), tile)]),
+            kind_check: Facts(fn=kind_check, cmps=[Cmp(0x652119, Ret(0x652114, kind_decoder), Const(2), kind_check)]),
+            kind_decoder: Facts(fn=kind_decoder, calls=[Call(0x652236, bitfield, None, (Arg(0), Const(0x10), Arg(2)), kind_decoder)]),
+        }
+        session = SimpleNamespace(
+            fn=lambda ref: tile,
+            prov=SimpleNamespace(facts=lambda fn: facts[fn]),
+            evidence=lambda rva, fn=None, slot="disp": {"insn": rva, "fn": fn, "text": "", "slot": slot})
+        out = extractors.loc_tag_kind(session, {})
+        self.assertEqual(out["Loc.tagKindShift"][0], 0x10)
 
 
 class SpecTests(unittest.TestCase):

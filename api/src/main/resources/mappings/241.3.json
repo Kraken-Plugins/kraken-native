@@ -9,6 +9,8 @@
     "varpCount": "0xec3070",
     "varbitMaskTable": "0xb3d6c0",
     "configCache": "0xec30f8",
+    "cameraControlled": "0xe98c0e",
+    "cameraTarget": "0xcfb0c4",
     "inventories.buckets": "0x154fab8",
     "inventories.bucketCount": "0x154fac0"
   },
@@ -42,7 +44,8 @@
       "zoomA": "0x4830",
       "zoomB": "0x4814",
       "interfaces.buckets": "0x413cc0",
-      "interfaces.bucketCount": "0x413cc8"
+      "interfaces.bucketCount": "0x413cc8",
+      "mapLoader": "0x49a8"
     },
     "Varcs": {
       "entries": "0x48",
@@ -56,7 +59,16 @@
     },
     "Renderer": {
       "canvasWidth": "0x6c",
-      "canvasHeight": "0x70"
+      "canvasHeight": "0x70",
+      "screenWidth": "0x30",
+      "screenHeight": "0x34",
+      "viewport": "0xf8"
+    },
+    "Viewport": {
+      "offsetX": "0x58",
+      "centerX": "0x14",
+      "offsetY": "0x50",
+      "centerY": "0x18"
     },
     "World": {
       "scene": "0x10",
@@ -170,9 +182,11 @@
       "levels": "0x944",
       "heights": "0x3d0",
       "tileSettings": "0x400",
+      "cameraTrig": "0x418",
       "tileEntryStride": "0x10",
       "tileEntryPtrOffset": "0x8",
-      "collisionMaps": "0x2f8"
+      "collisionMaps": "0x2f8",
+      "collisionMapsEnd": "0x300"
     },
     "Tile": {
       "wall": "0x108",
@@ -184,7 +198,8 @@
     },
     "Loc": {
       "tag": "0x38",
-      "tagIdShift": "0x14"
+      "tagIdShift": "0x14",
+      "tagKindShift": "0x10"
     },
     "GameObject": {
       "tag": "0x1f0",
@@ -213,7 +228,18 @@
       "value": "0x4"
     },
     "CollisionMapRecord": {
-      "stride": "0x28"
+      "stride": "0x28",
+      "originX": "0x0",
+      "originZ": "0x4",
+      "sizeX": "0x8",
+      "sizeZ": "0xc",
+      "flags": "0x20",
+      "columnStride": "0x18",
+      "columnData": "0x10"
+    },
+    "MapLoader": {
+      "baseX": "0x54bc",
+      "baseZ": "0x54c0"
     },
     "Js5Archive": {
       "groupCount": "0x28",

@@ -3,9 +3,15 @@ package com.kraken.api;
 import com.kraken.api.config.ConfigTypes;
 import com.kraken.api.events.EventPoller;
 import com.kraken.api.events.Events;
+import com.kraken.api.game.Camera;
 import com.kraken.api.game.Client;
 import com.kraken.api.game.ClientState;
+import com.kraken.api.game.Collision;
 import com.kraken.api.game.Engine;
+import com.kraken.api.game.Graphics;
+import com.kraken.api.game.Scene;
+import com.kraken.api.game.Vector2;
+import com.kraken.api.game.World;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.api.memory.MemoryException;
 import com.kraken.api.memory.ProcessMemory;
@@ -20,9 +26,11 @@ import java.util.logging.Logger;
 /**
  * Entry point for the native API, the Java counterpart of the Lua {@code osrs} table. {@link #attach} opens the running
  * {@code osclient.exe} and selects the mapping for its client version ({@code mappings/<version>.json}); then
- * {@link #client()} mirrors {@code osrs.ClientOp}, {@link #clientState()} mirrors {@code osrs.ClientState} and
- * {@link #events()} mirrors {@code osrs.Events}. {@link #start()} runs a background poll loop that synthesises events
- * by diffing successive snapshots.
+ * {@link #client()} mirrors {@code osrs.ClientOp}, {@link #clientState()} mirrors {@code osrs.ClientState},
+ * {@link #events()} mirrors {@code osrs.Events}, and {@link #camera()}, {@link #graphics()}, {@link #world()} and
+ * {@link #collision()} mirror the getters of {@code Camera}, {@code Graphics}, {@code osrs.World} and
+ * {@code osrs.Collision}. {@link #start()} runs a background poll loop that synthesises events by diffing successive
+ * snapshots.
  *
  * <p>Read-only throughout: it never writes to or calls into the game.
  */
@@ -39,6 +47,11 @@ public final class KrakenApi implements AutoCloseable {
     private final Client client;
     private final ClientState clientState;
     private final Engine engine;
+    private final Camera camera;
+    private final Graphics graphics;
+    private final World world;
+    private final Collision collision;
+    private final Scene scene;
     private final Events events = new Events();
     private final EventPoller poller;
 
@@ -58,7 +71,12 @@ public final class KrakenApi implements AutoCloseable {
         this.client = new Client(memory, mapping, configs);
         this.clientState = new ClientState(memory, mapping, configs);
         this.engine = new Engine(client);
-        this.poller = new EventPoller(events, client, clientState);
+        this.camera = new Camera(memory, mapping);
+        this.graphics = new Graphics(memory, mapping);
+        this.world = new World(client);
+        this.collision = new Collision(client);
+        this.scene = new Scene(client);
+        this.poller = new EventPoller(events, client, clientState, graphics, scene);
         for (String problem : Events.verify(mapping)) {
             log.warning("Event enum mismatch: " + problem);
         }
@@ -142,6 +160,60 @@ public final class KrakenApi implements AutoCloseable {
      */
     public Engine engine() {
         return engine;
+    }
+
+    /**
+     * Mirrors the getters of Lua's {@code Camera}.
+     *
+     * @return the reader for the camera's position, look-at point and angles
+     */
+    public Camera camera() {
+        return camera;
+    }
+
+    /**
+     * Mirrors the getters of Lua's {@code Graphics}.
+     *
+     * @return the reader for the client's size and the world-to-screen projection
+     */
+    public Graphics graphics() {
+        return graphics;
+    }
+
+    /**
+     * Mirrors {@code osrs.World}.
+     *
+     * @return the reader for the scene's collision maps
+     */
+    public World world() {
+        return world;
+    }
+
+    /**
+     * Mirrors {@code osrs.Collision}.
+     *
+     * @return the live collision checks
+     */
+    public Collision collision() {
+        return collision;
+    }
+
+    /**
+     * The top-level scene's locs, ground items, base and ground heights. Not a Lua namespace.
+     *
+     * @return the scene reader
+     */
+    public Scene scene() {
+        return scene;
+    }
+
+    /**
+     * Mirrors {@code osrs.screenSize}: the game window's size in physical pixels.
+     *
+     * @return {@code x} = width, {@code y} = height; null if it can't be read
+     */
+    public Vector2 screenSize() {
+        return graphics.screenSize();
     }
 
     /**

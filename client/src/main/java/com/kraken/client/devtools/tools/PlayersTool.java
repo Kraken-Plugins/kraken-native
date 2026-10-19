@@ -6,18 +6,32 @@ import com.kraken.api.game.MapCoord;
 import com.kraken.api.game.Player;
 import com.kraken.client.devtools.Category;
 import com.kraken.client.devtools.DevTool;
+import com.kraken.client.devtools.ToolOption;
+import com.kraken.client.devtools.view.MappedView;
 import com.kraken.client.devtools.view.TableView;
 import com.kraken.client.devtools.view.ToolView;
+import com.kraken.client.overlay.OverlayContext;
+import com.kraken.client.ui.Theme;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignA;
 
+import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.StringJoiner;
 
 /**
- * Every player loaded around you, including yourself, in a live table.
+ * Every player loaded around you, including yourself, in a live table, and over the game their names above their
+ * heads and the tiles they stand on.
  */
-final class PlayersTool extends DevTool<List<PlayersTool.Row>> {
+final class PlayersTool extends DevTool<Listing<PlayersTool.Row>> {
+    private static final Color COLOR = new Color(0x5ac8f0);
+    private static final Color FILL = new Color(90, 200, 240, 30);
+    private static final Color SELF_FILL = new Color(118, 176, 65, 30);
+
+    private final ToolOption names = option("names", "Names", true);
+    private final ToolOption tiles = option("tiles", "Tiles", true);
+    private final ToolOption self = option("self", "Include yourself", true);
+
     record Row(int index, String name, boolean self, Integer x, Integer z, Integer level, Integer distance,
                Integer height, int route, String target, String health, String relation, String hidden) {
     }
@@ -30,7 +44,7 @@ final class PlayersTool extends DevTool<List<PlayersTool.Row>> {
 
     @Override
     public Support overlaySupport() {
-        return Support.PLANNED;
+        return Support.READY;
     }
 
     @Override
@@ -39,29 +53,53 @@ final class PlayersTool extends DevTool<List<PlayersTool.Row>> {
     }
 
     @Override
-    public String needs() {
-        return "world-to-screen projection, for labels above heads";
-    }
-
-    @Override
-    protected List<Row> read(KrakenApi api) {
+    protected Listing<Row> read(KrakenApi api) {
         Client client = api.client();
         MapCoord self = localTile(client);
         List<Row> rows = new ArrayList<>();
+        Projector projector = isOverlayOn() ? Projector.of(api) : null;
+        Marks.Builder marks = projector == null ? null : new Marks.Builder(projector);
         for (Player player : client.getPlayers()) {
             MapCoord at = player.getCoord();
             int index = player.index();
+            if (marks != null) {
+                mark(marks, projector, client, player, at);
+            }
             rows.add(new Row(index, player.getName(), player.isLocalPlayer(),
                     at == null ? null : at.x(), at == null ? null : at.z(), at == null ? null : at.level(),
                     NpcsTool.distance(self, at), Actors.height(client.playerCoordFine(index)),
                     client.playerRouteLength(index), Actors.target(client, player), Actors.health(player),
                     relation(player), Actors.hidden(player)));
         }
-        return rows;
+        return new Listing<>(rows, marks == null ? Marks.NONE : marks.build());
+    }
+
+    private void mark(Marks.Builder marks, Projector projector, Client client, Player player, MapCoord at) {
+        boolean local = player.isLocalPlayer();
+        if (at == null || (local && !self.isOn())) {
+            return;
+        }
+        Color color = local ? Theme.ACCENT : COLOR;
+        if (tiles.isOn()) {
+            marks.outline(projector.tile(at), color, local ? SELF_FILL : FILL);
+        }
+        if (names.isOn()) {
+            marks.label(player.getName(), projector.above(client.playerCoordFine(player.index()), Projector.LABEL_LIFT),
+                    color);
+        }
     }
 
     @Override
-    protected ToolView<List<Row>> createView() {
+    protected void paintOverlay(Listing<Row> snapshot, OverlayContext overlay) {
+        snapshot.marks().paint(overlay);
+    }
+
+    @Override
+    protected ToolView<Listing<Row>> createView() {
+        return new MappedView<>(table(), Listing::rows);
+    }
+
+    private static TableView<Row> table() {
         return TableView.<Row>builder("Players")
                 .column("Index", Integer.class, 56, Row::index)
                 .column("Name", String.class, 150, Row::name)

@@ -70,10 +70,37 @@ public final class Events {
     public static final Event<VarbitUpdateCallback> ON_VARBIT_UPDATE = new Event<>(46, "ON_VARBIT_UPDATE");
 
     /**
+     * Event id for the client being resized. Calls a {@link ScreenResizeCallback}.
+     */
+    public static final Event<ScreenResizeCallback> ON_SCREEN_RESIZE = new Event<>(45, "ON_SCREEN_RESIZE");
+
+    /**
+     * Event id for the map starting to load a new area. Calls a {@link MapRebuildCallback}.
+     */
+    public static final Event<MapRebuildCallback> ON_MAP_REBUILD_PRE = new Event<>(34, "ON_MAP_REBUILD_PRE");
+
+    /**
+     * Event id for the map having loaded a new area. Calls a {@link MapRebuildCallback}.
+     */
+    public static final Event<MapRebuildCallback> ON_MAP_REBUILD_POST = new Event<>(35, "ON_MAP_REBUILD_POST");
+
+    /**
+     * Event id for a loc appearing in the scene (a door opening, a tree growing back…). Calls a
+     * {@link LocLoadUnloadCallback}.
+     */
+    public static final Event<LocLoadUnloadCallback> ON_LOC_LOAD = new Event<>(40, "ON_LOC_LOAD");
+
+    /**
+     * Event id for a loc leaving the scene. Calls a {@link LocLoadUnloadCallback}.
+     */
+    public static final Event<LocLoadUnloadCallback> ON_LOC_UNLOAD = new Event<>(41, "ON_LOC_UNLOAD");
+
+    /**
      * Every event this API can deliver so far.
      */
     public static final List<Event<?>> SUPPORTED = List.of(ON_GAME_TICK, ON_NPC_LOAD, ON_NPC_UNLOAD, ON_VAR_TRANSMIT,
-            ON_INV_TRANSMIT, ON_STAT_TRANSMIT, ON_GAME_STATE_CHANGED, ON_VARBIT_UPDATE);
+            ON_INV_TRANSMIT, ON_STAT_TRANSMIT, ON_GAME_STATE_CHANGED, ON_VARBIT_UPDATE, ON_SCREEN_RESIZE,
+            ON_MAP_REBUILD_PRE, ON_MAP_REBUILD_POST, ON_LOC_LOAD, ON_LOC_UNLOAD);
 
     /**
      * Mirrors {@code osrs.Events.GameStateTrigger}: the transitions {@link #ON_GAME_STATE_CHANGED} reports.

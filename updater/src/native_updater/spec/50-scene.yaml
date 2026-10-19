@@ -46,6 +46,15 @@ keys:
     strategies:
       - getter: { in: "@TileBridgeCheck", base: arg1, load: ptr }
 
+  # Camera trig terms: four f32 (sin and cos of the camera angles) that ProjectionCore reads from the scene; the key is
+  # the array base, the lowest of the four offsets.
+  - key: Scene.cameraTrig
+    type: f32[4]
+    priority: P1
+    doc: Four f32 camera terms read by the projection; the key is the base of the array.
+    strategies:
+      - getter: { in: "@ProjectionCore", base: arg0, load: f32, select: { lowest: true } }
+
   - key: Scene.tileEntryStride
     type: const
     priority: P0
@@ -109,6 +118,13 @@ keys:
     live: scene
     strategies:
       - extractor: { name: scene_grid, field: Loc.tagIdShift, cls: A }
+  - key: Loc.tagKindShift
+    type: const
+    priority: P0
+    live: scene
+    doc: Object kind = tag >> Loc.tagKindShift; kind 2 is a loc.
+    strategies:
+      - extractor: { name: loc_tag_kind, field: Loc.tagKindShift, cls: A }
   - key: GameObject.tag
     type: i64
     priority: P0

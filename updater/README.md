@@ -142,6 +142,8 @@ therefore mostly ANCHORED.
 - IfType getter-style properties (`id`, `text`, `children`, `colour`, …) are registered through per-property
   functions without a visible lambda; only data members are mapped. Interface group record layout (`IfGroupNode.value`)
   is not decoded.
-- Collision flag bitmap, tile heights, player combat level/index, projectiles and graphics objects (P1) are not mapped yet.
-- Pose animation slot order, pitch vs yaw and the two varp arrays need the live probe.
+- Collision record layout and column addressing are mapped; the meaning of the flag bits (the masks lineOfWalk and
+  lineOfSight test) is not. Tile heights, player combat level/index, projectiles and graphics objects (P1) are not mapped yet.
+- Pose animation slot order, pitch vs yaw, the two varp arrays and the x/y pair order of the viewport offsets and centres
+  (ProjectionCore loads offsetX before centerX, offsetY before centerY) need the live probe.
 - The live probe has not been run against a logged-in client yet.

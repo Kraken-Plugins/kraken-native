@@ -252,8 +252,6 @@ final class ActorReader extends GameReader {
         }
     }
 
-    // ---- worlds and finding actors -----------------------------------------------------------------
-
     long topWorld() {
         long client = clientBase();
         return client == 0 ? 0 : safePointer(client + cTopWorld);
@@ -436,6 +434,25 @@ final class ActorReader extends GameReader {
      * triangles instead; this uses the corners for those too, so it can differ slightly inside them.
      */
     int height(long world, int fx, int fz, int plane) {
+        return height(world, fx, fz, plane, true);
+    }
+
+    /**
+     * The ground's own height at a fine position: bilinear between the tile's corner heights (one level up under a
+     * bridge), without the ground decoration's offset that {@link #height(long, int, int, int)} subtracts for actors.
+     * 0 off the scene.
+     *
+     * @param world the world whose scene to read
+     * @param fx    the fine x
+     * @param fz    the fine z
+     * @param plane the level
+     * @return the ground height (more negative is higher)
+     */
+    int groundHeight(long world, int fx, int fz, int plane) {
+        return height(world, fx, fz, plane, false);
+    }
+
+    private int height(long world, int fx, int fz, int plane, boolean withDecor) {
         int tx = fx >> 7;
         int tz = fz >> 7;
         if (tx < 0 || tz < 0 || wScene < 0 || scSizeX < 0 || scSizeZ < 0 || scHeights < 0) {
@@ -451,6 +468,9 @@ final class ActorReader extends GameReader {
             return 0;
         }
         int h = bilinearHeight(scene, sx, sz, tx, tz, fx, fz, plane);
+        if (!withDecor) {
+            return h;
+        }
         long tile = tile(scene, sx, sz, tx, tz, plane);
         if (tile != 0 && tileGroundDecor >= 0 && locTag >= 0 && locTagShift >= 0) {
             long decor = safePointer(tile + tileGroundDecor);
@@ -598,13 +618,25 @@ final class ActorReader extends GameReader {
         return out.toString();
     }
 
-    private interface NodeVisitor {
-        /** Returns true to stop. */
+    interface NodeVisitor {
+
+        /**
+         * Visits one hash map entry.
+         *
+         * @param key   the entry's key
+         * @param value the entry's value pointer
+         * @return true to stop walking
+         */
         boolean visit(int key, long value);
     }
 
-    /** Walks an eastl::hash_map (bucket order, then each chain) until the visitor says stop. */
-    private void forEachNode(long map, NodeVisitor visitor) {
+    /**
+     * Walks an eastl::hash_map (bucket order, then each chain) until the visitor says stop.
+     *
+     * @param map     address of the hash_map object
+     * @param visitor called for each entry
+     */
+    void forEachNode(long map, NodeVisitor visitor) {
         long buckets = safePointer(map + mapBuckets);
         long count = safeLong(map + mapBucketCount, 0);
         if (buckets == 0 || count <= 0 || count > MAX_BUCKETS) {
@@ -749,8 +781,6 @@ final class ActorReader extends GameReader {
         return expires > cycle ? update : 0;
     }
 
-    // ---- NPCs ------------------------------------------------------------------------------------------
-
     /** The NPC's base type struct (what {@code Npc.type} points at), or 0. */
     long npcTypeStruct(long npc) {
         return npc == 0 ? 0 : safePointer(npc + npcType);
@@ -865,8 +895,6 @@ final class ActorReader extends GameReader {
         return npc == 0 || npcSpawnCycle < 0 ? -1 : safeInt(npc + npcSpawnCycle, -1);
     }
 
-    // ---- players ----------------------------------------------------------------------------------
-
     /** The player's display name (the client cuts it at the first NUL), or "". */
     String playerName(long player) {
         if (player == 0) {
@@ -975,8 +1003,6 @@ final class ActorReader extends GameReader {
         }
         return 0;
     }
-
-    // ---- varps (the copy varbits read) -------------------------------------------------------------
 
     /**
      * Reads vars the way the client resolves conditional item ops: varps from the copy varbits read, varbits through
