@@ -1,6 +1,6 @@
 # A RuneLite-shaped Kraken API and plugin system
 
-Status: phases 1-4 implemented, 2026-10-19 (live checks pending, see §15). Covers `api/` and `client/`. The updater and
+Status: phases 1-6 implemented, 2026-10-20 (live checks pending, see §15). Covers `api/` and `client/`. The updater and
 the mapping format don't change.
 
 ## 1. Summary
@@ -392,6 +392,8 @@ deprecation for now: until sub-world views exist (§8.3), the top-level view is 
 most RuneLite plugins still make.
 
 Kraken extras on `Client`: `isLoggedIn()`, `getProfileType()`, `areProjectilesRendered()` and `getOpenWidgetGroups()`.
+Phase 6 added `getCameraProjection()`, which reads the camera once (Lua's `Graphics.projection()`) and is what
+`Perspective` projects with, since `Perspective` only sees the interfaces.
 
 ### 8.2 `Renderable`, `Actor`, `NPC`, `Player`
 
@@ -496,6 +498,9 @@ public interface IndexedObjectSet<T> extends Iterable<T> {
     Stream<T> stream();
 }
 ```
+
+`WorldView.getTileHeight(x, y, plane)` is a Kraken extra (phase 6) over the Java `Scene.getGroundHeight`; it backs
+`Perspective.getTileHeight`, where RuneLite reads the scene's tile heights array.
 
 Phase 2 ships the top-level view only, matching what the Lua `Npc`/`Player` handles resolve. Sub-world views come later
 (`ActorReader.worlds()` already lists them).
@@ -679,6 +684,11 @@ These are RuneLite's current names. It has deprecated the older `getInteracting`
   `getCanvasTileAreaPoly(client, lp, size)`, `getCanvasTextLocation(client, g, lp, text, zOffset)` and
   `getTileHeight(client, lp, plane)`. They return `null` behind the camera, as RuneLite's do. One call reads the camera
   once, like today's `Projector`.
+  *As built (phase 6):* `localToCanvas`, `getCanvasTilePoly`, `getCanvasTileAreaPoly`, `getCanvasTextLocation`,
+  `getCanvasImageLocation` and `getTileHeight`, over `Client.getCameraProjection()` and `WorldView.getTileHeight`. Each
+  call reads the camera once plus a height per corner; a tile outline is a few dozen reads. One small difference: each
+  corner checks the bridge flag of its own tile, where RuneLite checks the centre tile's for all four. `Actor` gained
+  `getCanvasTilePoly()`, `getCanvasTextLocation(...)` and `getCanvasImageLocation(...)` on top of them.
 - **`CollisionData`**: `getFlags()` returns `int[][]` indexed `[sceneX][sceneY]`, built from `CollisionMap` with the
   origin subtracted. `CollisionDataFlag` holds RuneLite's names over today's `CollisionFlag` values, which are already
   the same bits.
@@ -1167,6 +1177,15 @@ Annotations: `@ConfigGroup`, `@ConfigItem` (`keyName`, `name`, `description`, `p
 - Every change posts `ConfigChanged` on the thread that made it, usually the EDT. As in RuneLite, a plugin that needs
   game state in response uses `clientThread.invoke(...)`.
 
+*As built (phase 5):* as above, plus `float`. Colours are stored `#AARRGGBB` (RuneLite's decimal form still reads),
+`Dimension` as `WIDTHxHEIGHT`, a `Set` of an enum as comma-separated names. A stored value that doesn't convert gives
+the default, with one warning. Values aren't cached: a getter is a map lookup and a parse. `getConfigurationKeys(prefix)`
+and `objectToString`/`stringToObject` are there as in RuneLite. A `default` method without `@ConfigItem` runs as
+written. Package-private config interfaces work (their defaults go through a private lookup).
+`PluginManager.getPluginConfigProxy` finds a plugin's config among its injector's bindings, as RuneLite's does. Kraken's
+own settings are `KrakenConfig` (group `kraken`: always on top, grow window, overlay frame rate), which the Settings page
+is generated from, so those two window settings now persist.
+
 ## 12. UI
 
 ### 12.1 Plugins panel
@@ -1205,6 +1224,11 @@ The panel is built from the plugin's `ConfigDescriptor`: items in `position` ord
 | `Dimension` | Two spinners |
 
 There's a "Reset" button per plugin, and a `warning` shows a confirm dialog before the value changes.
+
+*As built (phase 5):* `ui.ConfigPanel`. Strings are a wrapping text area saved after a pause in typing or on focus
+loss; sections remember whether they're open while Kraken runs; changes made elsewhere (a plugin's setter) show while
+the page is open. Reset leaves hidden items alone, since plugins keep their state in them (RuneLite's resets those
+too).
 
 ### 12.3 Plugin sidebar panels
 
@@ -1291,6 +1315,24 @@ How it's drawn on Kraken's click-through window:
 - **Dev tools.** They keep their own painter (EDT, snapshots), composited in the same window. Plugin overlays and dev
   tool overlays can be on together.
 
+*As built (phase 6):* the overlay package moved to `client.ui.overlay`. `KrakenApi.setFrameListener` is the per-poll
+hook (step 5 of §9.6); `ApiConnection.addFrameListener` fans it out. `OverlayRenderer` owns the frame rate (the
+`KrakenConfig` setting, capped at the ~50 Hz poll rate, stepped so 30 fps on a 20 ms poll averages 30), the two images
+(each locked while drawn or painted), and the hand-off to `GameOverlay`, which now also tracks the game area's size and
+display scale. `OverlayCompositor` lays out and draws a frame and is tested headless. Differences from RuneLite:
+
+- Anchors are the canvas's corners; `TOP_RIGHT` and `CANVAS_TOP_RIGHT` share one stack. Overlays at one anchor stack
+  across layers (RuneLite restarts the corners per layer, so layers overlap there). An overlay that drew nothing for a
+  while is placed by its last real size when it comes back, rather than misplaced for a frame.
+- `DETACHED`, `TOOLTIP` and `ABOVE_CHATBOX_RIGHT` are left out, as are dragging, resizing, snapping and overlay menus;
+  `setPreferredLocation`/`setPreferredPosition` still work from code.
+- `PanelComponent` measures its children before drawing its background, so the background fits this frame's lines
+  (RuneLite's uses last frame's). Lines don't wrap; a long line widens the panel. `TextComponent` has no colour tags.
+- `OverlayUtil` has `renderPolygon`, `renderTextLocation`, `renderImageLocation` and the actor helpers; actor text goes
+  `OverlayUtil.ACTOR_OVERHEAD_OFFSET` (240) above the ground, since model heights aren't read. The tile-object helpers
+  come with phase 7.
+- The dev tools keep `OverlayContext.infoPanel`; plugins use `PanelComponent`.
+
 ### 12.5 Dev tools
 
 The dev tools stay on the Lua layer, because their job is showing what the Lua API reads. Two additions:
@@ -1346,11 +1388,12 @@ Each phase builds, passes both test suites and leaves the client usable.
 
 Phases 2 and 3 are the ones that change how the API feels. Phase 4 is where it starts feeling like RuneLite.
 
-Done so far (2026-10-19): phases 1-4. Live checks still to do: the Location tool's RuneLite view against the wiki's
+Done so far (2026-10-20): phases 1-6. Live checks still to do: the Location tool's RuneLite view against the wiki's
 world tiles (phase 2), and the Event log's RuneLite events, the Tick Counter plugin and the Plugins panel with the game
-running (phases 3 and 4). Phase 4 pulled forward the string store of `ConfigManager` (group/key get, set and unset in
-`settings.properties`) to keep the plugins' on/off state; phase 5 adds the typed config proxies, `ConfigChanged` and
-the settings panels on top. `ClientToolbar` (§12.3) isn't in any phase yet.
+running (phases 3 and 4). For phases 5 and 6: the NPC Highlight and Tick Counter settings pages and their overlays with
+the game running (outlines on the NPCs' tiles at 30 fps without stalling the EDT, the tick panel in the top-left corner,
+HiDPI sharpness), and settings surviving a restart. Phase 4 pulled forward the string store of `ConfigManager`; phase 5
+added the typed proxies, `ConfigChanged` and the settings pages on top. `ClientToolbar` (§12.3) isn't in any phase yet.
 
 ## 16. Decisions for you
 

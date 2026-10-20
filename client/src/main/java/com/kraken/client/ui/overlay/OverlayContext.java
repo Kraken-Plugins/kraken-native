@@ -1,4 +1,4 @@
-package com.kraken.client.overlay;
+package com.kraken.client.ui.overlay;
 
 import com.kraken.api.lua.Vector2;
 import com.kraken.client.ui.Theme;

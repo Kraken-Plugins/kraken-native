@@ -2,10 +2,14 @@ package com.kraken.client.ui;
 
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
+import com.kraken.api.eventbus.EventBus;
+import com.kraken.client.config.Config;
+import com.kraken.client.config.ConfigManager;
 import com.kraken.client.plugins.Plugin;
 import com.kraken.client.plugins.PluginDescriptor;
 import com.kraken.client.plugins.PluginManager;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignA;
+import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignM;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignP;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignT;
@@ -27,23 +31,35 @@ import static com.formdev.flatlaf.FlatClientProperties.*;
 /**
  * The "Plugins" sidebar page, as RuneLite's plugin list: every plugin that isn't hidden, sorted by name, with a search
  * over names, descriptions and tags, and a switch that turns each on or off through the {@link PluginManager}. A plugin
- * that failed to start shows "failed", with the error in its tooltip.
+ * that failed to start shows "failed", with the error in its tooltip. A plugin with settings has a cog, which swaps the
+ * page for its {@link ConfigPanel} until the back arrow is clicked.
  */
 @Singleton
 public final class PluginListPanel extends JPanel {
 
+    private static final String LIST = "list";
+    private static final String SETTINGS = "settings";
+
     private final PluginManager manager;
+    private final ConfigManager configManager;
+    private final EventBus eventBus;
+    private final CardLayout cards = new CardLayout();
+    private final JPanel listPage = new JPanel(new BorderLayout());
+    private ConfigPanel settingsPage;
     private final JTextField search = new JTextField();
     private final JPanel list = new JPanel();
     private final JLabel noMatches = new JLabel("", SwingConstants.CENTER);
     private final List<Row> rows = new ArrayList<>();
 
     @Inject
-    PluginListPanel(PluginManager manager) {
-        super(new BorderLayout());
+    PluginListPanel(PluginManager manager, ConfigManager configManager, EventBus eventBus) {
         this.manager = manager;
-        setBorder(new EmptyBorder(12, 12, 0, 12));
-        add(header(), BorderLayout.NORTH);
+        this.configManager = configManager;
+        this.eventBus = eventBus;
+        setLayout(cards);
+        listPage.setBorder(new EmptyBorder(12, 12, 0, 12));
+        listPage.add(header(), BorderLayout.NORTH);
+        add(listPage, LIST);
 
         list.setLayout(new BoxLayout(list, BoxLayout.Y_AXIS));
         noMatches.putClientProperty(STYLE_CLASS, "small");
@@ -51,10 +67,35 @@ public final class PluginListPanel extends JPanel {
         noMatches.setBorder(new EmptyBorder(24, 0, 0, 0));
         noMatches.setAlignmentX(LEFT_ALIGNMENT);
         noMatches.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
-        add(ScrollablePanel.scroll(list), BorderLayout.CENTER);
+        listPage.add(ScrollablePanel.scroll(list), BorderLayout.CENTER);
 
         manager.addChangeListener(this::refresh);
         refresh();
+    }
+
+    /**
+     * Swaps the list for a plugin's settings page.
+     *
+     * @param plugin the plugin
+     * @param config its settings
+     */
+    private void showSettings(Plugin plugin, Config config) {
+        closeSettings();
+        settingsPage = new ConfigPanel(configManager, eventBus, config, plugin.getName(), this::showList);
+        add(settingsPage, SETTINGS);
+        cards.show(this, SETTINGS);
+    }
+
+    private void showList() {
+        cards.show(this, LIST);
+        closeSettings();
+    }
+
+    private void closeSettings() {
+        if (settingsPage != null) {
+            remove(settingsPage);
+            settingsPage = null;
+        }
     }
 
     private JComponent header() {
@@ -140,6 +181,7 @@ public final class PluginListPanel extends JPanel {
                 Theme.ERROR), SwingConstants.LEFT);
         private final JToggleButton toggle = new JToggleButton(FontIcon.of(MaterialDesignT.TOGGLE_SWITCH_OFF_OUTLINE,
                 24, Theme.LIGHT));
+        private final JButton settings = new JButton(FontIcon.of(MaterialDesignC.COG_OUTLINE, 18, Theme.LIGHT));
 
         Row(Plugin plugin) {
             super(new BorderLayout(8, 0));
@@ -166,8 +208,23 @@ public final class PluginListPanel extends JPanel {
             toggle.setFocusable(false);
             toggle.addActionListener(e -> toggled());
 
+            settings.setRolloverIcon(FontIcon.of(MaterialDesignC.COG_OUTLINE, 18, Theme.TEXT));
+            settings.putClientProperty(BUTTON_TYPE, BUTTON_TYPE_TOOLBAR_BUTTON);
+            settings.setToolTipText("Settings");
+            settings.setFocusable(false);
+            settings.addActionListener(e -> {
+                Config config = manager.getPluginConfigProxy(plugin);
+                if (config != null) {
+                    showSettings(plugin, config);
+                }
+            });
+            settings.setVisible(manager.getPluginConfigProxy(plugin) != null);
+
+            Box buttons = Box.createHorizontalBox();
+            buttons.add(settings);
+            buttons.add(toggle);
             add(labels, BorderLayout.CENTER);
-            add(toggle, BorderLayout.EAST);
+            add(buttons, BorderLayout.EAST);
         }
 
         @Override

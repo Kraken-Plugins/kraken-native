@@ -4,6 +4,10 @@ import com.kraken.api.coords.LocalPoint;
 import com.kraken.api.coords.WorldArea;
 import com.kraken.api.coords.WorldPoint;
 
+import java.awt.Graphics2D;
+import java.awt.Polygon;
+import java.awt.image.BufferedImage;
+
 /**
  * An NPC or player, as RuneLite's {@code Actor}.
  *
@@ -108,6 +112,34 @@ public interface Actor extends Renderable {
      * @return the top-level world view (handles resolve only there, like Lua's)
      */
     WorldView getWorldView();
+
+    /**
+     * The outline of the tiles the actor stands on, on the canvas, as {@link Perspective#getCanvasTileAreaPoly} draws
+     * it for the actor's {@link #getLocalLocation()} and {@link #getFootprintSize()}.
+     *
+     * @return the outline in canvas pixels; null if the location is unknown, outside the scene or behind the camera
+     */
+    Polygon getCanvasTilePoly();
+
+    /**
+     * Where to draw text centred over the actor, as {@link Perspective#getCanvasTextLocation} places it.
+     *
+     * @param graphics the graphics the text will be drawn with (its font sets the width)
+     * @param text     the text
+     * @param zOffset  how far above the ground, in local units. RuneLite callers pass {@code getLogicalHeight() + 40};
+     *                 Kraken doesn't read the actor's height, so pass a fixed lift (about 240 clears a player's head)
+     * @return the baseline's left end in canvas pixels; null if the location is unknown or behind the camera
+     */
+    Point getCanvasTextLocation(Graphics2D graphics, String text, int zOffset);
+
+    /**
+     * Where to draw an image centred over the actor, as {@link Perspective#getCanvasImageLocation} places it.
+     *
+     * @param image   the image
+     * @param zOffset how far above the ground, in local units
+     * @return the image's top-left corner in canvas pixels; null if the location is unknown or behind the camera
+     */
+    Point getCanvasImageLocation(BufferedImage image, int zOffset);
 
     /**
      * Whether the actor is dead: it shows a health bar and that bar is empty, as Lua's {@code isDead}.

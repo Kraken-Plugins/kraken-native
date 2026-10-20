@@ -68,6 +68,7 @@ public final class ApiConnection {
     private final List<Runnable> stateListeners = new CopyOnWriteArrayList<>();
     private final List<Consumer<KrakenApi>> attachListeners = new CopyOnWriteArrayList<>();
     private final List<Consumer<KrakenApi>> pollListeners = new CopyOnWriteArrayList<>();
+    private final List<Consumer<KrakenApi>> frameListeners = new CopyOnWriteArrayList<>();
     private volatile KrakenApi api;
 
     /**
@@ -146,6 +147,17 @@ public final class ApiConnection {
         pollListeners.add(listener);
     }
 
+    /**
+     * Runs a listener on the API poll thread at the end of every poll (about every 20 ms) once attached, after the
+     * poll's events and tasks and before the poll listeners. The plugin overlay renderer draws its frames from here.
+     * The listener should catch its own errors: one that throws is logged on every poll.
+     *
+     * @param listener takes the attached API
+     */
+    public void addFrameListener(Consumer<KrakenApi> listener) {
+        frameListeners.add(listener);
+    }
+
     private void attach(long pid) {
         // The API's bundled mappings, unless -Dkraken.mappings=<dir> points at another folder of <version>.json files
         String override = System.getProperty("kraken.mappings");
@@ -158,6 +170,7 @@ public final class ApiConnection {
                         ? KrakenApi.attach(pid, exe.toPath(), Path.of(override), eventBus)
                         : KrakenApi.attach(pid, exe.toPath(), eventBus);
                 attached.setPollListener(() -> poll(attached));
+                attached.setFrameListener(() -> notify(frameListeners, attached, "API frame listener failed"));
                 api = attached;
                 for (Consumer<KrakenApi> listener : attachListeners) {
                     try {
@@ -190,11 +203,15 @@ public final class ApiConnection {
     }
 
     private void poll(KrakenApi attached) {
-        for (Consumer<KrakenApi> listener : pollListeners) {
+        notify(pollListeners, attached, "API poll listener failed");
+    }
+
+    private static void notify(List<Consumer<KrakenApi>> listeners, KrakenApi attached, String failure) {
+        for (Consumer<KrakenApi> listener : listeners) {
             try {
                 listener.accept(attached);
             } catch (RuntimeException e) {
-                log.log(Level.WARNING, "API poll listener failed", e);
+                log.log(Level.WARNING, failure, e);
             }
         }
     }

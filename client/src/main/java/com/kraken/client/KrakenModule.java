@@ -8,6 +8,8 @@ import com.kraken.api.Client;
 import com.kraken.api.GameState;
 import com.kraken.api.KrakenApi;
 import com.kraken.api.eventbus.EventBus;
+import com.kraken.client.config.ConfigManager;
+import com.kraken.client.config.KrakenConfig;
 import lombok.AllArgsConstructor;
 
 import javax.swing.*;
@@ -22,7 +24,8 @@ import java.util.concurrent.ScheduledExecutorService;
  * {@link Singleton}s that Guice creates on first use, so request the frame on the EDT before anything else.
  *
  * <p>Plugins can inject: {@link Client} (a stand-in until the API attaches), {@link EventBus},
- * {@code ClientThread}, {@code ConfigManager}, {@code PluginManager} and a shared {@link ScheduledExecutorService}.
+ * {@code ClientThread}, {@code ConfigManager}, {@link KrakenConfig}, {@code OverlayManager}, {@code PluginManager} and a
+ * shared {@link ScheduledExecutorService}.
  */
 @AllArgsConstructor
 public final class KrakenModule extends AbstractModule {
@@ -56,6 +59,18 @@ public final class KrakenModule extends AbstractModule {
             case UNSUPPORTED, FAILED -> GameState.UNKNOWN;
             default -> GameState.STARTING;
         });
+    }
+
+    /**
+     * Kraken's own settings, which the Settings page edits.
+     *
+     * @param configManager the settings store
+     * @return the settings
+     */
+    @Provides
+    @Singleton
+    KrakenConfig provideKrakenConfig(ConfigManager configManager) {
+        return configManager.getConfig(KrakenConfig.class);
     }
 
     /**

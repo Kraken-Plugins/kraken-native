@@ -6,7 +6,7 @@ import com.kraken.api.lua.MapCoord;
 import com.kraken.client.devtools.Category;
 import com.kraken.client.devtools.DevTool;
 import com.kraken.client.devtools.ToolOption;
-import com.kraken.client.overlay.OverlayContext;
+import com.kraken.client.ui.overlay.OverlayContext;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignW;
 
 import java.awt.*;

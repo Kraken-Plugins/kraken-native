@@ -8,9 +8,9 @@ import com.kraken.client.GameView;
 import com.kraken.client.devtools.DevTool.Support;
 import com.kraken.client.devtools.tools.DevToolCatalog;
 import com.kraken.client.devtools.view.ToolWindow;
-import com.kraken.client.overlay.GameOverlay;
-import com.kraken.client.overlay.OverlayContext;
-import com.kraken.client.overlay.OverlayPainter;
+import com.kraken.client.ui.overlay.GameOverlay;
+import com.kraken.client.ui.overlay.OverlayContext;
+import com.kraken.client.ui.overlay.OverlayPainter;
 import lombok.Getter;
 import lombok.extern.java.Log;
 

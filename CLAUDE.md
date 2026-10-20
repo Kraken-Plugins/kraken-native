@@ -23,7 +23,7 @@ Java, from the repo root (the Gradle toolchain auto-provisions JDK 21):
 ./gradlew :api:test
 ./gradlew :api:test --tests 'com.kraken.api.lua.ClientReadTest'                        # one class
 ./gradlew :api:test --tests 'com.kraken.api.lua.ClientReadTest.readsLocalPlayerIndex'  # one method
-./gradlew :client:test                                    # plugin manager, stand-in client, settings (headless)
+./gradlew :client:test                                    # plugins, config, settings pages, overlay layout (headless)
 ./gradlew :client:run --args="D:/path/to/osclient.exe"   # Windows only; arg optional (defaults to the Jagex Launcher install)
 ./gradlew :client:run --args="--plugin com.example.MyPlugin --developer-mode"   # extra plugin; load developer plugins
 ```
@@ -108,7 +108,11 @@ rounds (keys can depend on other keys) → consensus verdicts (PROVEN/ANCHORED/I
   silent baseline. The bus also matches supertypes and interfaces of an event, unlike RuneLite's.
 - The `kraken-api-poll` thread is the "client thread". Each poll: `KrakenApi.invoke*` tasks (`TaskQueue`), Lua events,
   RuneLite events with `GameTick` after the tick's other events, `ClientTick`, `invokeAtTickEnd` tasks if a tick
-  happened, then the 150 ms poll listener. Event handlers and tasks all run there.
+  happened, the frame listener (where the client draws plugin overlays), then the 150 ms poll listener. Event handlers,
+  tasks and overlay rendering all run there.
+- `Perspective` (canvas helpers, RuneLite's names) only calls the interfaces: `Client.getCameraProjection()` (the camera,
+  read once) and `WorldView.getTileHeight`, both Kraken extras. Canvas positions are the client's own pixels
+  (`Client.getCanvasWidth/Height`).
 - Adding a Lua mirror follows the worked example in `docs/lua-api-coverage.md`: take the handler RVA from
   `analysis.json` bindings, map each constant it uses to a mapping key (adding a spec recipe if needed), and replay the
   same steps in Java. Javadoc states any deliberate divergence from the native handler. Update the coverage tables in
@@ -134,7 +138,16 @@ rounds (keys can depend on other keys) → consensus verdicts (PROVEN/ANCHORED/I
   `Runnable::run`). On/off state is `ConfigManager` group `kraken`, key = class simple name lower-cased; a plugin whose
   `startUp` throws is switched off and keeps its error (`getFailure`). Plugins get a `StandInClient` proxy that answers
   "logged out" until the API attaches. `ExitHandler` posts `ClientShutdown`, stops plugins and flushes settings on exit.
-  `ConfigManager` is the string store only so far (typed `@ConfigGroup` proxies are phase 5 of the design doc).
+- Config (`client.config`) follows RuneLite's: `ConfigManager.getConfig` implements a `@ConfigGroup` interface (getters
+  annotated `@ConfigItem`, defaults in `default` bodies) as a proxy, usually from the plugin's `@Provides` method; every
+  change posts `events.ConfigChanged`. `PluginManager.getPluginConfigProxy` finds a plugin's config among its injector's
+  bindings, and `ui.ConfigPanel` generates the settings page (the Plugins panel's cog; the Settings tab is
+  `KrakenConfig`'s). Supported types are listed on `ConfigManager`.
+- Overlays (`client.ui.overlay`) follow RuneLite's: plugins add `Overlay`s to `OverlayManager`. `OverlayRenderer` draws
+  them on the poll thread (the API's frame listener) at the `KrakenConfig` frame rate into a device-pixel image, scaled
+  so overlays draw in canvas pixels, and hands finished frames to `GameOverlay`, the click-through window over the game,
+  which the EDT paints. `OverlayCompositor` does the layout (tested headless). Differences from RuneLite are in the
+  Javadoc and design doc §12.4. `plugins.npchighlight` and `plugins.tickcounter` are the worked examples.
 - Dev tools: subclass `DevTool<S>` and list it in `DevToolCatalog.create()`. `read(api)` runs on the poll thread and
   returns an immutable snapshot; `paintOverlay`/`createView` run on the EDT. A tool reads only while its overlay or
   window is showing. `PlannedTool` entries hold sidebar spots for features the API can't read yet; replace the entry

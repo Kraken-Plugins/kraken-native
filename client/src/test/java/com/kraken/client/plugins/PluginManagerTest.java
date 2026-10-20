@@ -11,6 +11,9 @@ import com.kraken.api.GameState;
 import com.kraken.api.eventbus.EventBus;
 import com.kraken.api.eventbus.Subscribe;
 import com.kraken.client.StandInClient;
+import com.kraken.client.config.Config;
+import com.kraken.client.config.ConfigGroup;
+import com.kraken.client.config.ConfigItem;
 import com.kraken.client.config.ConfigManager;
 import com.kraken.client.events.PluginChanged;
 import org.junit.jupiter.api.AfterEach;
@@ -69,7 +72,7 @@ class PluginManagerTest {
      * @return the manager, with no plugins loaded
      */
     private PluginManager newManager(boolean developerMode) {
-        config = new ConfigManager(dir.resolve("settings.properties"), scheduler);
+        config = new ConfigManager(dir.resolve("settings.properties"), scheduler, bus);
         Injector parent = Guice.createInjector(binder -> {
             binder.bind(EventBus.class).toInstance(bus);
             binder.bind(ConfigManager.class).toInstance(config);
@@ -204,6 +207,52 @@ class PluginManagerTest {
         }
     }
 
+    // Package-private, as a plugin's config may be: its default bodies still run
+    @ConfigGroup("configured")
+    interface ConfiguredConfig extends Config {
+        @ConfigItem(keyName = "word", name = "Word", description = "")
+        default String word() {
+            return "default";
+        }
+    }
+
+    @PluginDescriptor(name = "Configured")
+    static class ConfiguredPlugin extends Plugin {
+        @Inject
+        ConfiguredConfig config;
+
+        @Provides
+        ConfiguredConfig provideConfig(ConfigManager configManager) {
+            return configManager.getConfig(ConfiguredConfig.class);
+        }
+
+        @Override
+        protected void startUp() {
+            events.add("start Configured, " + config.word());
+        }
+    }
+
+    @PluginDescriptor(name = "Config service")
+    static class ConfigServicePlugin extends Plugin {
+        @Override
+        protected Module getPublicModule() {
+            return binder -> binder.bind(ConfiguredConfig.class).toProvider(() -> null);
+        }
+    }
+
+    @PluginDependency(ConfigServicePlugin.class)
+    @PluginDescriptor(name = "Config user")
+    static class ConfigUserPlugin extends Plugin {
+    }
+
+    @PluginDescriptor(name = "Broken config")
+    static class BrokenConfigPlugin extends Plugin {
+        @Provides
+        ConfiguredConfig provideConfig() {
+            throw new IllegalStateException("no config today");
+        }
+    }
+
     @Test
     void startsEnabledPluginsWithTheirInjectionsAndSubscribers() {
         List<String> changes = new ArrayList<>();
@@ -323,6 +372,26 @@ class PluginManagerTest {
     }
 
     @Test
+    void aPluginsConfigIsFoundThroughItsInjector() {
+        manager.loadPlugins(List.of(ConfiguredPlugin.class, GoodPlugin.class));
+        manager.startPlugins();
+        assertEquals(List.of("start Configured, default", "start Good, bus true, STARTING"), events);
+
+        Config found = manager.getPluginConfigProxy(plugin(ConfiguredPlugin.class));
+        assertTrue(found instanceof ConfiguredConfig, String.valueOf(found));
+        config.setConfiguration("configured", "word", "stored");
+        assertEquals("stored", ((ConfiguredConfig) found).word());
+        assertNull(manager.getPluginConfigProxy(plugin(GoodPlugin.class)), "provides no config");
+    }
+
+    @Test
+    void aConfigFromADependencyOrOneThatCantBeCreatedIsNotTheirs() {
+        manager.loadPlugins(List.of(ConfigServicePlugin.class, ConfigUserPlugin.class, BrokenConfigPlugin.class));
+        assertNull(manager.getPluginConfigProxy(plugin(ConfigUserPlugin.class)), "the dependency's, not its own");
+        assertNull(manager.getPluginConfigProxy(plugin(BrokenConfigPlugin.class)), "its provider throws");
+    }
+
+    @Test
     void loadingAClassTwiceLoadsItOnce() {
         manager.loadPlugins(List.of(GoodPlugin.class));
         manager.loadPlugins(List.of(GoodPlugin.class));
@@ -334,7 +403,11 @@ class PluginManagerTest {
         manager.loadCorePlugins();
         List<String> names = manager.getPlugins().stream().map(Plugin::getName).toList();
         assertTrue(names.contains("Tick Counter"), names.toString());
+        assertTrue(names.contains("NPC Highlight"), names.toString());
         assertFalse(names.contains("Good"), names.toString());
-        assertNotNull(plugin(com.kraken.client.plugins.tickcounter.TickCounterPlugin.class).getInjector());
+        for (Plugin plugin : manager.getPlugins()) {
+            assertNotNull(plugin.getInjector(), plugin.getName() + " loads");
+            assertNotNull(manager.getPluginConfigProxy(plugin), plugin.getName() + " has settings");
+        }
     }
 }

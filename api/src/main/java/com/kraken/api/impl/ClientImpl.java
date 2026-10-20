@@ -1,5 +1,6 @@
 package com.kraken.api.impl;
 
+import com.kraken.api.CameraProjection;
 import com.kraken.api.Client;
 import com.kraken.api.GameState;
 import com.kraken.api.ItemComposition;
@@ -8,6 +9,7 @@ import com.kraken.api.NPC;
 import com.kraken.api.NPCComposition;
 import com.kraken.api.ObjectComposition;
 import com.kraken.api.Player;
+import com.kraken.api.Point;
 import com.kraken.api.ProfileType;
 import com.kraken.api.Skill;
 import com.kraken.api.WorldType;
@@ -15,10 +17,12 @@ import com.kraken.api.WorldView;
 import com.kraken.api.coords.WorldPoint;
 import com.kraken.api.lua.ClientOp;
 import com.kraken.api.lua.ClientState;
+import com.kraken.api.lua.Graphics;
 import com.kraken.api.lua.Inventory;
 import com.kraken.api.lua.LuaApi;
 import com.kraken.api.lua.MapCoord;
 import com.kraken.api.lua.Npc;
+import com.kraken.api.lua.Vector2;
 import com.kraken.api.lua.types.LocType;
 import com.kraken.api.lua.types.NpcType;
 import com.kraken.api.lua.types.ObjType;
@@ -234,6 +238,35 @@ final class ClientImpl implements Client {
     public ObjectComposition getObjectDefinition(int objectId) {
         LocType type = lua.engine().decodeLocType(objectId);
         return type == null ? null : new ObjectCompositionImpl(type, op.vars());
+    }
+
+    @Override
+    public int getCanvasWidth() {
+        Vector2 size = lua.graphics().clientDimensions();
+        return size == null ? -1 : (int) size.x();
+    }
+
+    @Override
+    public int getCanvasHeight() {
+        Vector2 size = lua.graphics().clientDimensions();
+        return size == null ? -1 : (int) size.y();
+    }
+
+    /**
+     * Lua's projection with RuneLite's axes: Lua takes the height second and north third.
+     *
+     * @return the projection, or null if it can't be read
+     */
+    @Override
+    public CameraProjection getCameraProjection() {
+        Graphics.Projection projection = lua.graphics().projection();
+        if (projection == null) {
+            return null;
+        }
+        return (x, y, z) -> {
+            Vector2 canvas = projection.project(x, z, y);
+            return canvas == null ? null : new Point((int) canvas.x(), (int) canvas.y());
+        };
     }
 
     /**

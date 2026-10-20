@@ -241,4 +241,28 @@ public interface Client {
      * @return the definition (the client's default type for an id without one), or null if config types can't be read
      */
     ObjectComposition getObjectDefinition(int objectId);
+
+    /**
+     * The game canvas's width in the client's own (DPI-scaled) pixels, the units {@link Perspective} returns. Mirrors
+     * Lua {@code Graphics.clientDimensions}.
+     *
+     * @return the width, or -1 if it can't be read
+     */
+    int getCanvasWidth();
+
+    /**
+     * The game canvas's height in the client's own pixels.
+     *
+     * @return the height, or -1 if it can't be read
+     */
+    int getCanvasHeight();
+
+    /**
+     * The camera as it is now, for projecting points of the top-level scene onto the canvas. Kraken extra, what
+     * {@link Perspective} is built on; RuneLite's {@code Perspective} reads the camera getters instead. Mirrors the
+     * reads of Lua {@code Graphics.worldToScreenCoord}, done once.
+     *
+     * @return the projection, or null if the camera or the canvas can't be read
+     */
+    CameraProjection getCameraProjection();
 }

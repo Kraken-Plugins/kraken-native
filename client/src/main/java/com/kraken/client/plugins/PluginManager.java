@@ -1,12 +1,18 @@
 package com.kraken.client.plugins;
 
 import com.google.inject.Inject;
+import com.google.inject.Binding;
 import com.google.inject.Injector;
+import com.google.inject.Key;
 import com.google.inject.Module;
 import com.google.inject.Singleton;
 import com.google.inject.name.Named;
+import com.google.inject.spi.Element;
+import com.google.inject.spi.Elements;
 import com.kraken.api.eventbus.EventBus;
+import com.kraken.client.config.Config;
 import com.kraken.client.config.ConfigManager;
+import com.kraken.client.config.KrakenConfig;
 import com.kraken.client.events.PluginChanged;
 import io.github.classgraph.ClassGraph;
 import io.github.classgraph.ClassInfo;
@@ -62,7 +68,7 @@ public class PluginManager {
     /**
      * The config group plugins' on/off state is kept in.
      */
-    public static final String CONFIG_GROUP = "kraken";
+    public static final String CONFIG_GROUP = KrakenConfig.GROUP;
 
     private static final String PLUGIN_PACKAGE = "com.kraken.client.plugins";
 
@@ -242,6 +248,58 @@ public class PluginManager {
      */
     public Throwable getFailure(Plugin plugin) {
         return failures.get(plugin);
+    }
+
+    /**
+     * The plugin's settings, as RuneLite's {@code getPluginConfigProxy}: the {@link Config} its injector provides,
+     * usually through a {@code @Provides} method calling {@code ConfigManager.getConfig}. A config that a dependency's
+     * public module provides belongs to the dependency, so it doesn't count. The Plugins panel shows a settings button
+     * for plugins that have one.
+     *
+     * @param plugin a loaded plugin
+     * @return the config, or null if the plugin provides none, couldn't be loaded, or its config can't be created
+     *         (logged)
+     */
+    public Config getPluginConfigProxy(Plugin plugin) {
+        Injector injector = plugin.getInjector();
+        if (injector == null) {
+            return null;
+        }
+        Set<Key<?>> fromDependencies = dependencyKeys(plugin);
+        for (Key<?> key : injector.getBindings().keySet()) {
+            if (Config.class.isAssignableFrom(key.getTypeLiteral().getRawType()) && !fromDependencies.contains(key)) {
+                try {
+                    return (Config) injector.getInstance(key);
+                } catch (RuntimeException | LinkageError e) {
+                    log.log(Level.WARNING, "Can't create " + plugin.getName() + "'s config", e);
+                    return null;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The keys the public modules of a plugin's dependencies bind into its injector.
+     *
+     * @param plugin a loaded plugin
+     * @return the keys
+     */
+    private Set<Key<?>> dependencyKeys(Plugin plugin) {
+        Set<Key<?>> keys = new HashSet<>();
+        for (PluginDependency dependency : plugin.getClass().getAnnotationsByType(PluginDependency.class)) {
+            for (Plugin loaded : plugins) {
+                Module module = dependency.value().isInstance(loaded) ? loaded.getPublicModule() : null;
+                if (module != null) {
+                    for (Element element : Elements.getElements(module)) {
+                        if (element instanceof Binding<?> binding) {
+                            keys.add(binding.getKey());
+                        }
+                    }
+                }
+            }
+        }
+        return keys;
     }
 
     /**

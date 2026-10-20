@@ -10,7 +10,7 @@ import com.kraken.client.devtools.DevTool;
 import com.kraken.client.devtools.ToolOption;
 import com.kraken.client.devtools.view.FactsView;
 import com.kraken.client.devtools.view.ToolView;
-import com.kraken.client.overlay.OverlayContext;
+import com.kraken.client.ui.overlay.OverlayContext;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 
 import java.util.LinkedHashMap;

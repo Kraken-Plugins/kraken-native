@@ -6,6 +6,7 @@ import com.kraken.client.plugins.Plugin;
 import com.kraken.client.plugins.PluginManager;
 import com.kraken.client.ui.KrakenFrame;
 import com.kraken.client.ui.Theme;
+import com.kraken.client.ui.overlay.OverlayRenderer;
 import lombok.extern.java.Log;
 
 import javax.swing.*;
@@ -65,6 +66,9 @@ public class KrakenClient {
         });
         log.info("Kraken starting on Java " + Runtime.version());
         options.problems().forEach(log::warning);
+
+        // Draws the plugins' overlays once the API attaches
+        injector.getInstance(OverlayRenderer.class);
 
         // Plugins start now, before the game: until the API attaches they see a logged-out client
         PluginManager pluginManager = injector.getInstance(PluginManager.class);

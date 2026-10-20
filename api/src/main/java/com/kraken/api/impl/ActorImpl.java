@@ -1,6 +1,8 @@
 package com.kraken.api.impl;
 
 import com.kraken.api.Actor;
+import com.kraken.api.Perspective;
+import com.kraken.api.Point;
 import com.kraken.api.WorldView;
 import com.kraken.api.coords.LocalPoint;
 import com.kraken.api.coords.WorldArea;
@@ -8,6 +10,10 @@ import com.kraken.api.coords.WorldPoint;
 import com.kraken.api.lua.Entity;
 import com.kraken.api.lua.FineCoord;
 import com.kraken.api.lua.MapCoord;
+
+import java.awt.Graphics2D;
+import java.awt.Polygon;
+import java.awt.image.BufferedImage;
 
 /**
  * What {@link NpcImpl} and {@link PlayerImpl} share: an {@link Actor} over a pinned Lua handle
@@ -97,6 +103,24 @@ abstract class ActorImpl implements Actor {
         }
         int size = getFootprintSize();
         return new WorldArea(at, size, size);
+    }
+
+    @Override
+    public Polygon getCanvasTilePoly() {
+        LocalPoint local = getLocalLocation();
+        return local == null ? null : Perspective.getCanvasTileAreaPoly(client, local, getFootprintSize());
+    }
+
+    @Override
+    public Point getCanvasTextLocation(Graphics2D graphics, String text, int zOffset) {
+        LocalPoint local = getLocalLocation();
+        return local == null ? null : Perspective.getCanvasTextLocation(client, graphics, local, text, zOffset);
+    }
+
+    @Override
+    public Point getCanvasImageLocation(BufferedImage image, int zOffset) {
+        LocalPoint local = getLocalLocation();
+        return local == null ? null : Perspective.getCanvasImageLocation(client, local, image, zOffset);
     }
 
     @Override

@@ -1,14 +1,14 @@
 package com.kraken.client.devtools.tools;
 
 import com.kraken.api.KrakenApi;
-import com.kraken.api.lua.ClientState;
 import com.kraken.api.lua.ClientState.ProfileType;
+import com.kraken.api.lua.ClientState;
 import com.kraken.client.devtools.Category;
 import com.kraken.client.devtools.DevTool;
 import com.kraken.client.devtools.ToolOption;
 import com.kraken.client.devtools.view.FactsView;
 import com.kraken.client.devtools.view.ToolView;
-import com.kraken.client.overlay.OverlayContext;
+import com.kraken.client.ui.overlay.OverlayContext;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignG;
 
 import java.util.LinkedHashMap;

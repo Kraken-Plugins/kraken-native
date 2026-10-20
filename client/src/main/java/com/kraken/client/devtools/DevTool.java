@@ -4,7 +4,7 @@ import com.kraken.api.KrakenApi;
 import com.kraken.api.lua.ClientOp;
 import com.kraken.api.lua.MapCoord;
 import com.kraken.client.devtools.view.ToolView;
-import com.kraken.client.overlay.OverlayContext;
+import com.kraken.client.ui.overlay.OverlayContext;
 import lombok.Getter;
 import org.kordamp.ikonli.Ikon;
 

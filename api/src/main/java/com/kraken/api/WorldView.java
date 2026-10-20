@@ -97,6 +97,19 @@ public interface WorldView {
     boolean contains(LocalPoint point);
 
     /**
+     * The ground's height at a point of this view's scene: bilinear between the tile's corner heights, taken from the
+     * level above under a bridge, as RuneLite's {@code Perspective.getTileHeight} works it out from the scene's tile
+     * heights. Kraken extra, mirrors the Java {@code Scene.getGroundHeight}; {@link Perspective#getTileHeight} calls
+     * it.
+     *
+     * @param x     the local x
+     * @param y     the local y
+     * @param plane the plane
+     * @return the height (more negative is higher); 0 outside the scene or if it can't be read
+     */
+    int getTileHeight(int x, int y, int plane);
+
+    /**
      * Whether the end tile can be seen from the start tile, by the client's own line-of-sight test. Kraken extra,
      * mirrors Lua {@code Collision.lineOfSight}.
      *

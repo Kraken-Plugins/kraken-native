@@ -13,7 +13,7 @@ import com.kraken.client.devtools.DevTool;
 import com.kraken.client.devtools.view.MappedView;
 import com.kraken.client.devtools.view.TableView;
 import com.kraken.client.devtools.view.ToolView;
-import com.kraken.client.overlay.OverlayContext;
+import com.kraken.client.ui.overlay.OverlayContext;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignT;
 
 import java.awt.*;

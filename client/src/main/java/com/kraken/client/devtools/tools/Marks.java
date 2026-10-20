@@ -1,7 +1,7 @@
 package com.kraken.client.devtools.tools;
 
 import com.kraken.api.lua.Vector2;
-import com.kraken.client.overlay.OverlayContext;
+import com.kraken.client.ui.overlay.OverlayContext;
 
 import java.awt.*;
 import java.util.ArrayList;

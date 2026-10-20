@@ -14,7 +14,7 @@ import com.kraken.api.lua.Vector2;
 
 /**
  * The top-level {@link WorldView}: the client's top-level {@code World}, read through the Java {@code Scene} (base,
- * size, plane) and Lua's {@code Collision} (line tests).
+ * size, plane, ground heights) and Lua's {@code Collision} (line tests).
  */
 final class TopLevelWorldView implements WorldView {
 
@@ -89,6 +89,11 @@ final class TopLevelWorldView implements WorldView {
     public boolean contains(LocalPoint point) {
         return point.getWorldView() == TOPLEVEL && point.getX() >= 0 && point.getY() >= 0
                 && inScene(point.getSceneX(), point.getSceneY());
+    }
+
+    @Override
+    public int getTileHeight(int x, int y, int plane) {
+        return scene.getGroundHeight(plane, x, y);
     }
 
     @Override

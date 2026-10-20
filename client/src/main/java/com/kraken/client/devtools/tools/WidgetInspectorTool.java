@@ -11,8 +11,8 @@ import com.kraken.client.devtools.DevTool;
 import com.kraken.client.devtools.ToolOption;
 import com.kraken.client.devtools.view.TableView;
 import com.kraken.client.devtools.view.ToolView;
-import com.kraken.client.overlay.OverlayContext;
 import com.kraken.client.ui.Theme;
+import com.kraken.client.ui.overlay.OverlayContext;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignW;
 
 import javax.swing.*;

@@ -31,6 +31,7 @@ import java.util.logging.Logger;
  *   <li>synthesises the Lua events ({@code lua().events()}), then the RuneLite-shaped events on {@link #eventBus()},
  *       with {@code GameTick} after the tick's other events, then {@code ClientTick};
  *   <li>runs the {@link #invokeAtTickEnd} tasks if a game tick happened;
+ *   <li>calls the {@link #setFrameListener frame listener}, where the client renders plugin overlays;
  *   <li>calls the {@link #setPollListener poll listener}, at most every 150 ms.
  * </ol>
  * Both kinds of events are only synthesised while something subscribes to them.
@@ -60,6 +61,12 @@ public final class KrakenApi implements AutoCloseable {
      */
     @Setter
     private volatile Runnable pollListener;
+    /**
+     * A callback run on the poll thread at the end of every poll (about every 20 ms), after the tick-end tasks and
+     * before the poll listener. The client renders plugin overlays from it, deciding itself whether a frame is due.
+     */
+    @Setter
+    private volatile Runnable frameListener;
     private Thread thread;
 
     private KrakenApi(ProcessMemory memory, Mapping mapping, EventBus eventBus) {
@@ -301,6 +308,10 @@ public final class KrakenApi implements AutoCloseable {
             }
             if (ticked[0]) {
                 tasks.runTickEnd();
+            }
+            Runnable frame = frameListener;
+            if (frame != null && !step("Frame listener", frame)) {
+                break;
             }
 
             long now = System.currentTimeMillis();
