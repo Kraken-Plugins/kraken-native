@@ -73,7 +73,7 @@ public class KrakenClient {
         // Plugins read the game, so they load and start only once the API attaches, giving them the real client;
         // if it never attaches (unsupported build or a failed attach), none load.
         PluginManager pluginManager = injector.getInstance(PluginManager.class);
-        injector.getInstance(ApiConnection.class).addAttachListener(api -> {
+        injector.getInstance(ProcessAttacher.class).addAttachListener(api -> {
             pluginManager.loadCorePlugins();
             pluginManager.loadPlugins(options.plugins());
             pluginManager.startPlugins();

@@ -4,7 +4,7 @@ import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import com.kraken.api.KrakenApi;
 import com.kraken.api.lua.Vector2;
-import com.kraken.client.ApiConnection;
+import com.kraken.client.ProcessAttacher;
 import com.kraken.client.KrakenConfig;
 import lombok.extern.java.Log;
 
@@ -53,7 +53,7 @@ public final class OverlayRenderer {
     private boolean failing;
 
     @Inject
-    OverlayRenderer(OverlayManager manager, GameOverlay window, ApiConnection connection, KrakenConfig config) {
+    OverlayRenderer(OverlayManager manager, GameOverlay window, ProcessAttacher attacher, KrakenConfig config) {
         this.manager = manager;
         this.window = window;
         this.config = config;
@@ -62,8 +62,8 @@ public final class OverlayRenderer {
         window.addPainter(new OverlayPainter() {
             @Override
             public boolean isActive() {
-                // Not just the connection's state: once the game exits, the poll loop stops and the last frame stays
-                KrakenApi api = connection.api();
+                // Not just the attacher's state: once the game exits, the poll loop stops and the last frame stays
+                KrakenApi api = attacher.attached();
                 return front != null && api != null && api.isAttached();
             }
 
@@ -78,7 +78,7 @@ public final class OverlayRenderer {
                 }
             }
         });
-        connection.addFrameListener(this::frame);
+        attacher.addFrameListener(this::frame);
     }
 
     /**

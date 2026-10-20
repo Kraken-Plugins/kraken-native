@@ -3,7 +3,7 @@ package com.kraken.client.ui.devtools;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import com.kraken.api.KrakenApi;
-import com.kraken.client.ApiConnection;
+import com.kraken.client.ProcessAttacher;
 import com.kraken.client.GameView;
 import com.kraken.client.ui.devtools.DevTool.Support;
 import com.kraken.client.ui.devtools.tools.DevToolCatalog;
@@ -32,7 +32,7 @@ import java.util.prefs.Preferences;
 @Log(topic = "kraken")
 @Singleton
 public final class DevToolManager {
-    private final ApiConnection connection;
+    private final ProcessAttacher attacher;
     private final GameOverlay overlay;
     private final GameView view;
     @Getter
@@ -44,8 +44,8 @@ public final class DevToolManager {
     private final Set<DevTool<?>> failing = ConcurrentHashMap.newKeySet();
 
     @Inject
-    DevToolManager(ApiConnection connection, GameOverlay overlay, GameView view) {
-        this.connection = connection;
+    DevToolManager(ProcessAttacher attacher, GameOverlay overlay, GameView view) {
+        this.attacher = attacher;
         this.overlay = overlay;
         this.view = view;
         for (DevTool<?> tool : tools) {
@@ -57,7 +57,7 @@ public final class DevToolManager {
         overlay.addPainter(new OverlayPainter() {
             @Override
             public boolean isActive() {
-                return connection.isAttached() && tools.stream().anyMatch(t -> t.isOverlayOn() && t.overlaySupport() == Support.READY);
+                return attacher.isAttached() && tools.stream().anyMatch(t -> t.isOverlayOn() && t.overlaySupport() == Support.READY);
             }
 
             @Override
@@ -65,8 +65,8 @@ public final class DevToolManager {
                 paintOverlays(context);
             }
         });
-        connection.addPollListener(this::poll);
-        connection.addStateListener(this::connectionChanged);
+        attacher.addPollListener(this::poll);
+        attacher.addStateListener(this::attachStateChanged);
     }
 
     /** Runs {@code listener} on the EDT after any tool's overlay, window or option changes. */
@@ -131,14 +131,14 @@ public final class DevToolManager {
         listeners.forEach(Runnable::run);
     }
 
-    private void connectionChanged() {
+    private void attachStateChanged() {
         tools.forEach(this::updateLifecycle);
         overlay.refresh();
     }
 
     /** Starts a tool when it begins showing with the API attached, and stops it otherwise. */
     private void updateLifecycle(DevTool<?> tool) {
-        KrakenApi api = connection.api();
+        KrakenApi api = attacher.attached();
         if (tool.isActive() && api != null) {
             tool.start(api);
         } else {

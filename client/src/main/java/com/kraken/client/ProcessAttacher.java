@@ -19,18 +19,18 @@ import java.util.function.Consumer;
 import java.util.logging.Level;
 
 /**
- * The client's link to the native API. {@link #start} attaches a {@link KrakenApi} to the running osclient.exe in the
- * background (retrying while the client boots), posting the game events on the client's {@link EventBus}, then hands
- * each API poll to every listener. Anything in the client that reads the game (dev tools, plugins) goes through here.
+ * Attaches a {@link KrakenApi} to the running osclient.exe. {@link #start} attaches in the background (retrying while
+ * the client boots), posting the game events on the client's {@link EventBus}, then hands each API poll to every
+ * listener. Anything in the client that reads the game (dev tools, plugins) goes through here.
  *
  * <p>Each state change is posted on the bus as an {@link ApiStateChanged}.
  */
 @Log(topic = "kraken")
 @Singleton
-public final class ApiConnection {
+public final class ProcessAttacher {
 
     /**
-     * Where the connection is.
+     * Where attaching has got to.
      */
     public enum State {
 
@@ -72,7 +72,7 @@ public final class ApiConnection {
     private volatile KrakenApi api;
 
     /**
-     * The connection's state.
+     * The attach state.
      */
     @Getter
     private volatile State state = State.WAITING;
@@ -84,7 +84,7 @@ public final class ApiConnection {
     private volatile String detail = "Waiting for the client to start…";
 
     @Inject
-    ApiConnection(@Named("exe") File exe, EventBus eventBus) {
+    ProcessAttacher(@Named("exe") File exe, EventBus eventBus) {
         this.exe = exe;
         this.eventBus = eventBus;
     }
@@ -105,7 +105,7 @@ public final class ApiConnection {
      *
      * @return the API, or null until {@link State#ATTACHED}
      */
-    public KrakenApi api() {
+    public KrakenApi attached() {
         return api;
     }
 

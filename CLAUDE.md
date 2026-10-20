@@ -30,7 +30,7 @@ Java, from the repo root (the Gradle toolchain auto-provisions JDK 21):
 ```
 
 The client reads bundled mappings unless the system property `kraken.mappings=<dir>` points at a folder of
-`<version>.json` files (see `ApiConnection`). Settings (plugin on/off state) live in
+`<version>.json` files (see `ProcessAttacher`). Settings (plugin on/off state) live in
 `~/.kraken-native/settings.properties` unless `kraken.settings=<file>` says otherwise.
 
 Updater, from `updater/`:
@@ -137,7 +137,7 @@ rounds (keys can depend on other keys) → consensus verdicts (PROVEN/ANCHORED/I
   after `Theme.install()`. Logging is `java.util.logging` via Lombok `@Log(topic = "kraken")`, and shows in the in-app
   console. `lombok.config` copies `@Named` onto Lombok-generated constructors, so `@AllArgsConstructor(onConstructor_ =
   @Inject)` with `@Named` fields works.
-- `ApiConnection` attaches the API in the background (retrying while the client boots) with the client's one `EventBus`,
+- `ProcessAttacher` attaches the API in the background (retrying while the client boots) with the client's one `EventBus`,
   posts `events.ApiStateChanged` on each state change, and fans each poll out to listeners on the poll thread, about
   every 150 ms. `callback.ClientThread` (RuneLite's) forwards to `KrakenApi.invoke*`, holding tasks until the API
   attaches.
@@ -148,7 +148,7 @@ rounds (keys can depend on other keys) → consensus verdicts (PROVEN/ANCHORED/I
   `Runnable::run`). On/off state is `ConfigManager` group `kraken`, key = class simple name lower-cased; a plugin whose
   `startUp` throws is switched off and keeps its error (`getFailure`). Plugins load and start only once the API
   attaches, so they always inject the real `Client`; if it never attaches, none load (`KrakenClient` registers the
-  loader as an `ApiConnection` attach listener). `ExitHandler` posts `ClientShutdown`, stops plugins and flushes
+  loader as a `ProcessAttacher` attach listener). `ExitHandler` posts `ClientShutdown`, stops plugins and flushes
   settings on exit.
 - Config (`client.plugins.config`; Kraken's own `KrakenConfig` sits in the root package) follows RuneLite's: `ConfigManager.getConfig` implements a `@ConfigGroup` interface (getters
   annotated `@ConfigItem`, defaults in `default` bodies) as a proxy, usually from the plugin's `@Provides` method; every

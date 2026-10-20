@@ -30,7 +30,7 @@ public final class GameLauncher {
     private final File exe;
     private final GameView view;
     private final HomePanel home;
-    private final ApiConnection api;
+    private final ProcessAttacher attacher;
     private final GameTickCallback tickCallback;
     private final ExitHandler exitHandler;
 
@@ -68,7 +68,7 @@ public final class GameLauncher {
         view.embed(hwnd);
 
         // Attach the native API to the running client (read-only; safe if it isn't logged in yet)
-        api.start(process.pid());
+        attacher.start(process.pid());
 
         // Opt-in (-Dkraken.hook=true): inject a hook that pushes ON_GAME_TICK instead of polling for it
         tickCallback.onTick(() -> log.info("onGameTick (push) #" + tickCallback.tickCount()));

@@ -58,7 +58,7 @@ Today the Java API mirrors Jagex's Lua plugin API name for name: `ClientOp`, `Cl
 Java-only `scene()`. `Npc` and `Player` are live handles on an index. Events are callback interfaces keyed by Lua id.
 `EventPoller` makes them up by diffing reads every 20 ms, only for events that have subscribers.
 
-**`client/`.** Launches and embeds the game. `ApiConnection` attaches in the background and hands each poll (about
+**`client/`.** Launches and embeds the game. `ProcessAttacher` attaches in the background and hands each poll (about
 every 150 ms) to listeners. Dev tools (`DevTool<S>`) read snapshots on the poll thread and paint them on the EDT into a
 click-through transparent window (`GameOverlay`). The Plugins sidebar tab is an empty placeholder. Settings are two
 checkboxes, and dev tool state is kept in `java.util.prefs`.
@@ -859,7 +859,7 @@ Client events start with:
 |---|---|
 | `PluginChanged(plugin, loaded)` | after a plugin starts or stops. This also covers "plugin disabled" |
 | `ConfigChanged(group, key, oldValue, newValue)` | after a config value is set or unset. RuneLite's also has a `profile`, which Kraken leaves null because it has no profiles |
-| `ApiStateChanged(state, detail)` | `ApiConnection` changes state (waiting, attached, unsupported build, failed). Kraken-specific |
+| `ApiStateChanged(state, detail)` | `ProcessAttacher` changes state (waiting, attached, unsupported build, failed). Kraken-specific |
 | `ClientShutdown` | the frame is closing. As in RuneLite, it carries a task queue: plugins add a `Future` to it and the client waits briefly for each |
 
 `ScreenshotTaken`, `NotificationFired`, `OverlayMenuClicked`, `ProfileChanged` and the like can be added later without
@@ -1192,7 +1192,7 @@ outside the scene.
 RuneLite plugins can assume a `Client` exists. In Kraken the API attaches after the game boots, or never (unsupported
 build), so plugins load and start only once the API has attached, never against a fake client:
 
-- At client launch nothing plugin-related runs yet; `KrakenClient` registers an attach listener on `ApiConnection`
+- At client launch nothing plugin-related runs yet; `KrakenClient` registers an attach listener on `ProcessAttacher`
   that loads the core (and developer-launcher) plugins and starts the enabled ones. The injected `Client` is therefore
   always the attached `Client`. If the API never attaches (unsupported build or a failed attach), no plugins load and
   the Plugins panel stays empty.
@@ -1391,7 +1391,7 @@ How it's drawn on Kraken's click-through window:
   tool overlays can be on together.
 
 *As built (phase 6):* the overlay package moved to `client.ui.overlay`. `KrakenApi.setFrameListener` is the per-poll
-hook (step 5 of §9.6); `ApiConnection.addFrameListener` fans it out. `OverlayRenderer` owns the frame rate (the
+hook (step 5 of §9.6); `ProcessAttacher.addFrameListener` fans it out. `OverlayRenderer` owns the frame rate (the
 `KrakenConfig` setting, capped at the ~50 Hz poll rate, stepped so 30 fps on a 20 ms poll averages 30), the two images
 (each locked while drawn or painted), and the hand-off to `GameOverlay`, which now also tracks the game area's size and
 display scale. `OverlayCompositor` lays out and draws a frame and is tested headless. Differences from RuneLite:

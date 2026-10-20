@@ -1,5 +1,7 @@
 package com.kraken.api.eventbus;
 
+import lombok.Getter;
+
 import java.util.function.Consumer;
 
 /**
@@ -9,7 +11,21 @@ import java.util.function.Consumer;
  */
 public final class Subscriber {
 
+    /**
+     * -- GETTER --
+     *  The event type this subscriber takes. It receives events of this type and of its subtypes.
+     *
+     * @return the subscribed type
+     */
+    @Getter
     private final Class<?> type;
+    /**
+     * -- GETTER --
+     *  The subscriber's priority: higher runs first.
+     *
+     * @return the priority
+     */
+    @Getter
     private final float priority;
     private final Object owner;
     private final Consumer<Object> invoker;
@@ -25,24 +41,6 @@ public final class Subscriber {
         this.invoker = invoker;
         this.sequence = sequence;
         this.description = description;
-    }
-
-    /**
-     * The event type this subscriber takes. It receives events of this type and of its subtypes.
-     *
-     * @return the subscribed type
-     */
-    public Class<?> getType() {
-        return type;
-    }
-
-    /**
-     * The subscriber's priority: higher runs first.
-     *
-     * @return the priority
-     */
-    public float getPriority() {
-        return priority;
     }
 
     /**

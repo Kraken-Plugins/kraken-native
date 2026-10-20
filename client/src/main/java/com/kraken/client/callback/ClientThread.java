@@ -3,7 +3,7 @@ package com.kraken.client.callback;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import com.kraken.api.KrakenApi;
-import com.kraken.client.ApiConnection;
+import com.kraken.client.ProcessAttacher;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -25,9 +25,9 @@ public class ClientThread {
     private KrakenApi api;
 
     @Inject
-    ClientThread(ApiConnection connection) {
-        connection.addAttachListener(this::attached);
-        KrakenApi attached = connection.api();
+    ClientThread(ProcessAttacher attacher) {
+        attacher.addAttachListener(this::attached);
+        KrakenApi attached = attacher.attached();
         if (attached != null) {
             attached(attached);
         }

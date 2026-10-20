@@ -2,7 +2,7 @@ package com.kraken.client.ui;
 
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
-import com.kraken.client.ApiConnection;
+import com.kraken.client.ProcessAttacher;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -14,7 +14,7 @@ import static com.formdev.flatlaf.FlatClientProperties.STYLE;
 import static com.formdev.flatlaf.FlatClientProperties.STYLE_CLASS;
 
 /**
- * Sidebar landing page: a card of live facts about the embedded client, with the API connection status beneath it.
+ * Sidebar landing page: a card of live facts about the embedded client, with the API attacher status beneath it.
  * {@link #set} is thread-safe.
  */
 @Singleton
@@ -22,12 +22,12 @@ public final class HomePanel extends JPanel {
     private final JPanel facts = new JPanel();
     private final Map<String, JLabel> values = new HashMap<>();
     private final WrapLabel status = new WrapLabel("");
-    private final ApiConnection connection;
+    private final ProcessAttacher attacher;
 
     @Inject
-    HomePanel(ApiConnection connection) {
+    HomePanel(ProcessAttacher attacher) {
         super(new BorderLayout());
-        this.connection = connection;
+        this.attacher = attacher;
         setBorder(new EmptyBorder(12, 12, 12, 12));
         facts.setLayout(new BoxLayout(facts, BoxLayout.Y_AXIS));
         facts.setBorder(new EmptyBorder(8, 12, 8, 12));
@@ -47,7 +47,7 @@ public final class HomePanel extends JPanel {
         }
         add(north, BorderLayout.NORTH);
 
-        connection.addStateListener(this::showStatus);
+        attacher.addStateListener(this::showStatus);
         showStatus();
     }
 
@@ -74,14 +74,14 @@ public final class HomePanel extends JPanel {
     }
 
     private void showStatus() {
-        Color dot = switch (connection.getState()) {
+        Color dot = switch (attacher.getState()) {
             case ATTACHED -> Theme.ACCENT;
             case ATTACHING -> Theme.WARNING;
             case UNSUPPORTED, FAILED -> Theme.ERROR;
             case WAITING -> Theme.MEDIUM;
         };
         status.setIcon(new Dot(dot));
-        status.setPlainText(connection.getDetail());
+        status.setPlainText(attacher.getDetail());
     }
 
     /**

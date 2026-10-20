@@ -3,7 +3,7 @@ package com.kraken.client.callback;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import com.kraken.api.mapping.Mapping;
-import com.kraken.client.ApiConnection;
+import com.kraken.client.ProcessAttacher;
 import lombok.extern.java.Log;
 
 import java.io.DataOutputStream;
@@ -49,14 +49,14 @@ public final class GameTickCallback {
     private static final String DEFAULT_DLL = "src/main/native/kraken_hook/kraken_hook.dll";
     private static final String DISPATCH_FN = "dispatchEvent";
 
-    private final ApiConnection api;
+    private final ProcessAttacher attacher;
     private final AtomicBoolean armed = new AtomicBoolean();
     private final List<Runnable> listeners = new CopyOnWriteArrayList<>();
     private volatile long ticks;
 
     @Inject
-    GameTickCallback(ApiConnection api) {
-        this.api = api;
+    GameTickCallback(ProcessAttacher attacher) {
+        this.attacher = attacher;
     }
 
     /**
@@ -80,7 +80,7 @@ public final class GameTickCallback {
 
     /**
      * Arms the hook for the given client process: injects once the API reaches
-     * {@link ApiConnection.State#ATTACHED}. A no-op unless {@code -Dkraken.hook=true}. Safe to call
+     * {@link ProcessAttacher.State#ATTACHED}. A no-op unless {@code -Dkraken.hook=true}. Safe to call
      * once per launch.
      *
      * @param pid the {@code osclient.exe} process id
@@ -90,12 +90,12 @@ public final class GameTickCallback {
 //            log.info("Tick hook disabled.");
 //            return;
 //        }
-        api.addStateListener(() -> maybeInstall(pid));
-        maybeInstall(pid); // in case it attached between api.start() and here
+        attacher.addStateListener(() -> maybeInstall(pid));
+        maybeInstall(pid); // in case it attached between attacher.start() and here
     }
 
     private void maybeInstall(long pid) {
-        if (api.getState() == ApiConnection.State.ATTACHED && armed.compareAndSet(false, true)) {
+        if (attacher.getState() == ProcessAttacher.State.ATTACHED && armed.compareAndSet(false, true)) {
             Thread thread = new Thread(() -> install(pid), "kraken-hook-install");
             thread.setDaemon(true);
             thread.start();
@@ -109,7 +109,7 @@ public final class GameTickCallback {
                     + " (build it with client/src/main/native/kraken_hook/build.ps1). Continuing without it.");
             return;
         }
-        Mapping mapping = api.api().mapping();
+        Mapping mapping = attacher.attached().mapping();
         if (!mapping.hasFunction(DISPATCH_FN)) {
             log.warning("Mapping " + mapping.version() + " has no functions." + DISPATCH_FN
                     + "; cannot install the game-tick hook.");

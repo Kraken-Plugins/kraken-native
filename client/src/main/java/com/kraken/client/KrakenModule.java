@@ -45,13 +45,13 @@ public final class KrakenModule extends AbstractModule {
      * The client plugins see: the attached API's client. Plugins are loaded only once the API has attached (see
      * {@link KrakenClient}), so there is always an attached client by the time this is resolved.
      *
-     * @param connection the client's link to the game
+     * @param attacher the client's link to the game
      * @return the attached client
      */
     @Provides
     @Singleton
-    Client provideClient(ApiConnection connection) {
-        KrakenApi api = connection.api();
+    Client provideClient(ProcessAttacher attacher) {
+        KrakenApi api = attacher.attached();
         if (api == null) {
             throw new IllegalStateException("No client to inject: the API hasn't attached yet");
         }
