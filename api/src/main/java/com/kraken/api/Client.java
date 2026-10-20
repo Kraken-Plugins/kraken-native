@@ -38,12 +38,12 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * The game client, as RuneLite's {@code Client}: the root of the API. Get it from {@code KrakenApi.client()}.
+ * The game client: the root of the API. Get it from {@code GameSession.client()}.
  *
  * <p>Every getter follows the mapped offset chains in the live process, replaying what the client's own Lua handlers
- * read (Kraken extras say which). RuneLite methods Kraken can't back (menus, input, models, setters) are left out.
- * Reads are tolerant: an unreadable or logged-out state gives -1, false, "", null or an empty list rather than an
- * exception.
+ * read; a getter's Javadoc names the Lua function it mirrors. The API only reads, so menus, input, models and setters
+ * are not exposed. Reads are tolerant: an unreadable or logged-out state gives -1, false, "", null or an empty list
+ * rather than an exception.
  *
  * <p>It keeps one handle per actor ({@link #npc}, {@link #player}), so asking twice for the same actor gives the same
  * object, and a handle's identity holds as long as the actor does. A handle is replaced when another actor takes its
@@ -153,8 +153,8 @@ public final class Client extends GameReader {
     private final boolean canProject;
 
     /**
-     * Builds the client over a process image, resolving every offset it needs once. {@code KrakenApi.attach} makes the
-     * one for the attached process; making another is for tests and tools that read a memory image of their own.
+     * Builds the client over a process image, resolving every offset it needs once. {@code GameSession.attach} makes
+     * the one for the attached process; making another is for tests and tools that read a memory image of their own.
      *
      * @param memory  the client process's memory
      * @param mapping the client build's mapping
@@ -265,8 +265,7 @@ public final class Client extends GameReader {
     }
 
     /**
-     * Whether the client has a login session and is in the world. Kraken extra, mirrors Lua
-     * {@code ClientState.isLoggedIn}.
+     * Whether the client has a login session and is in the world. Mirrors Lua {@code ClientState.isLoggedIn}.
      *
      * @return true when logged in
      */
@@ -280,7 +279,7 @@ public final class Client extends GameReader {
 
     /**
      * The kind of world, as the client decodes its world flags for Lua: beta, then deadman, PvP arena, quest
-     * speedrunning and seasonal, the later ones winning. Kraken extra, mirrors Lua {@code ClientState.getProfileType}.
+     * speedrunning and seasonal, the later ones winning. Mirrors Lua {@code ClientState.getProfileType}.
      *
      * @return the profile type; {@link ProfileType#STANDARD} if the flags can't be read
      */
@@ -356,9 +355,9 @@ public final class Client extends GameReader {
 
     /**
      * The index of the first NPC whose name is exactly {@code name}, walking each loaded world's NPC table (sub-worlds
-     * such as boats included). Kraken extra, mirrors Lua {@code ClientOp.getNpcIdByName}, which differs on purpose:
-     * the native handler looks its match up again by uid instead of index, so in Lua it returns -1 for almost every
-     * NPC. {@code getTopLevelWorldView().npcs().byIndex(index)} gives the handle of a top-level NPC.
+     * such as boats included). Mirrors Lua {@code ClientOp.getNpcIdByName}, which differs on purpose: the native
+     * handler looks its match up again by uid instead of index, so in Lua it returns -1 for almost every NPC.
+     * {@code getTopLevelWorldView().npcs().byIndex(index)} gives the handle of a top-level NPC.
      *
      * @param name the exact name to match (case-sensitive)
      * @return the NPC's index, or -1 if none matches
@@ -368,8 +367,8 @@ public final class Client extends GameReader {
     }
 
     /**
-     * The index of every NPC in each loaded world's active list whose name is exactly {@code name}. Kraken extra,
-     * mirrors Lua {@code ClientOp.getNpcIdByNameAll}.
+     * The index of every NPC in each loaded world's active list whose name is exactly {@code name}. Mirrors Lua
+     * {@code ClientOp.getNpcIdByNameAll}.
      *
      * @param name the exact name to match (case-sensitive)
      * @return the NPCs' indices, empty if none matches
@@ -380,7 +379,7 @@ public final class Client extends GameReader {
 
     /**
      * The index of the first player whose normalised name equals {@code name} lower-cased (ASCII letters only, as the
-     * client's {@code tolower} does), walking each loaded world's player table. Kraken extra, mirrors Lua
+     * client's {@code tolower} does), walking each loaded world's player table. Mirrors Lua
      * {@code ClientOp.getPlayerIdByName}.
      *
      * @param name the player's name
@@ -513,7 +512,7 @@ public final class Client extends GameReader {
 
     /**
      * A varp's value as the client holds it, including any change the client has made locally (the array varbits are
-     * read from), as RuneLite's.
+     * read from).
      *
      * @param varpId the varp id
      * @return its value, or -1 for an id outside the varp array or if it can't be read
@@ -527,7 +526,7 @@ public final class Client extends GameReader {
     }
 
     /**
-     * A varp's value as the server last sent it (Lua's {@code ClientState.getVarp}). Kraken extra.
+     * A varp's value as the server last sent it (Lua's {@code ClientState.getVarp}).
      *
      * @param varpId the varp id
      * @return its value, or -1 for an id outside the varp array or if it can't be read
@@ -553,7 +552,7 @@ public final class Client extends GameReader {
     }
 
     /**
-     * Every varp as the server last sent it, in one read. Kraken extra.
+     * Every varp as the server last sent it, in one read.
      *
      * @return the values indexed by varp id; empty if they can't be read
      */
@@ -568,7 +567,7 @@ public final class Client extends GameReader {
      * An integer varc's value (Lua's {@code ClientState.getIntegerVarc}, which gives -1 for an unset varc).
      *
      * @param varcId the varc id
-     * @return its value, or 0 if it isn't set (as RuneLite)
+     * @return its value, or 0 if it isn't set
      */
     public int getVarcIntValue(int varcId) {
         long entry = findVarc(varcId);
@@ -593,7 +592,7 @@ public final class Client extends GameReader {
     }
 
     /**
-     * Every varc the client holds, as RuneLite's.
+     * Every varc the client holds.
      *
      * @return varc id to its value (an {@code Integer} or a {@code String}), in id order; empty if the varcs can't be
      *         read
@@ -629,7 +628,7 @@ public final class Client extends GameReader {
     }
 
     /**
-     * Every inventory the client holds now (backpack, worn equipment, bank once opened, shops…), as RuneLite's.
+     * Every inventory the client holds now (backpack, worn equipment, bank once opened, shops…).
      *
      * @return snapshots in no particular order; empty if the inventory table can't be read
      */
@@ -669,7 +668,7 @@ public final class Client extends GameReader {
 
     /**
      * A widget (interface component) by its packed id, as the client holds it now (a snapshot; see {@link Widget}).
-     * The client loads a group's components the first time it is asked for one; Kraken can't ask, so a group the
+     * The client loads a group's components the first time it is asked for one. The API only reads, so a group the
      * client hasn't loaded gives null. Lua's {@code IfType.retrieveIfType}.
      *
      * @param componentId {@code group << 16 | child}, e.g. from {@code gameval.InterfaceID}
@@ -691,8 +690,8 @@ public final class Client extends GameReader {
     }
 
     /**
-     * Every static widget of an interface group, in one read of the group. Kraken extra, mirrors Lua
-     * {@code IfType.retrieveIfGroup}. As {@link #getWidget(int)}, a group the client hasn't loaded gives null.
+     * Every static widget of an interface group, in one read of the group. Mirrors Lua {@code IfType.retrieveIfGroup}.
+     * As {@link #getWidget(int)}, a group the client hasn't loaded gives null.
      *
      * @param groupId the interface (group) id
      * @return the group's widgets by child id, null where the client holds none; null if it holds none for the group
@@ -702,7 +701,7 @@ public final class Client extends GameReader {
     }
 
     /**
-     * The interface groups the client has open (on screen). Kraken extra, from the client's open-interface map.
+     * The interface groups the client has open (on screen), from its open-interface map.
      *
      * @return the group ids, sorted; empty if they can't be read
      */
@@ -713,15 +712,15 @@ public final class Client extends GameReader {
     /**
      * The projectiles in flight, as one read of the client's list (snapshots; see {@link Projectile}).
      *
-     * @return the projectiles in the client's list order, as RuneLite's deque; empty if none or if it can't be read
+     * @return the projectiles in the client's list order; empty if none or if it can't be read
      */
     public Deque<Projectile> getProjectiles() {
         return new ArrayDeque<>(projectiles.projectiles());
     }
 
     /**
-     * Whether any projectile in flight is drawn. Kraken extra, mirrors Lua {@code ClientOp.areProjectilesRendered}
-     * (the docs say all of them; the client's handler checks for any).
+     * Whether any projectile in flight is drawn. Mirrors Lua {@code ClientOp.areProjectilesRendered} (the docs say all
+     * of them; the client's handler checks for any).
      *
      * @return true if a projectile in flight isn't hidden
      */
@@ -760,7 +759,7 @@ public final class Client extends GameReader {
     }
 
     /**
-     * The x of the point the camera looks at, in local units, as RuneLite's. Lua's {@code Camera.getLookAt}.
+     * The x of the point the camera looks at, in local units. Lua's {@code Camera.getLookAt}.
      *
      * @return the focal point's x, or -1 if it can't be read or the mapping doesn't have it
      */
@@ -770,8 +769,7 @@ public final class Client extends GameReader {
     }
 
     /**
-     * The y (north) of the point the camera looks at, in local units, as RuneLite's. Lua's {@code Camera.getLookAt}'s
-     * {@code z}.
+     * The y (north) of the point the camera looks at, in local units. Lua's {@code Camera.getLookAt}'s {@code z}.
      *
      * @return the focal point's y, or -1 if it can't be read or the mapping doesn't have it
      */
@@ -781,8 +779,8 @@ public final class Client extends GameReader {
     }
 
     /**
-     * The height of the point the camera looks at (more negative is higher), as RuneLite's. Lua's
-     * {@code Camera.getLookAt}'s {@code y}.
+     * The height of the point the camera looks at (more negative is higher). Lua's {@code Camera.getLookAt}'s
+     * {@code y}.
      *
      * @return the focal point's height, or -1 if it can't be read or the mapping doesn't have it
      */
@@ -792,8 +790,8 @@ public final class Client extends GameReader {
     }
 
     /**
-     * The camera's pitch, in JAU14 (16384 per turn), as RuneLite's: the client's own value. Lua's
-     * {@code Camera.getLookAtAngles} gives it in degrees ({@code pitch × 360 / 16384}).
+     * The camera's pitch, in JAU14 (16384 per turn): the client's own value. Lua's {@code Camera.getLookAtAngles} gives
+     * it in degrees ({@code pitch × 360 / 16384}).
      *
      * @return the pitch, or -1 if it can't be read
      */
@@ -803,8 +801,8 @@ public final class Client extends GameReader {
     }
 
     /**
-     * The camera's yaw, in JAU14 (16384 per turn), as RuneLite's: the client's own value. Lua's
-     * {@code Camera.getLookAtAngles} gives it in degrees.
+     * The camera's yaw, in JAU14 (16384 per turn): the client's own value. Lua's {@code Camera.getLookAtAngles} gives
+     * it in degrees.
      *
      * @return the yaw, or -1 if it can't be read
      */
@@ -825,7 +823,7 @@ public final class Client extends GameReader {
     }
 
     /**
-     * The zoom setting the client derives {@link #getScale()} from. Kraken extra.
+     * The zoom setting the client derives {@link #getScale()} from.
      *
      * @return the zoom, or -1 if it can't be read or the mapping doesn't have it
      */
@@ -835,7 +833,7 @@ public final class Client extends GameReader {
     }
 
     /**
-     * Whether a Lua plugin has taken control of the camera ({@code setControl(true)}). Kraken extra, mirrors Lua
+     * Whether a Lua plugin has taken control of the camera ({@code setControl(true)}). Mirrors Lua
      * {@code Camera.isControlled}.
      *
      * @return true if the camera is under plugin control; false otherwise or if it can't be read
@@ -845,8 +843,8 @@ public final class Client extends GameReader {
     }
 
     /**
-     * Whether a Lua plugin has pointed the camera at an NPC or player ({@code targetNpc}/{@code targetPlayer}). Kraken
-     * extra, mirrors Lua {@code Camera.hasTarget}.
+     * Whether a Lua plugin has pointed the camera at an NPC or player ({@code targetNpc}/{@code targetPlayer}). Mirrors
+     * Lua {@code Camera.hasTarget}.
      *
      * @return true if a camera target is set; false otherwise or if it can't be read
      */
@@ -877,7 +875,7 @@ public final class Client extends GameReader {
 
     /**
      * The game window's width in physical pixels: with display scaling above 100% it is larger than
-     * {@link #getCanvasWidth()}. Kraken extra, mirrors Lua {@code osrs.screenSize}.
+     * {@link #getCanvasWidth()}. Mirrors Lua {@code osrs.screenSize}.
      *
      * @return the width, or -1 if it can't be read or the mapping doesn't have it
      */
@@ -887,7 +885,7 @@ public final class Client extends GameReader {
     }
 
     /**
-     * The game window's height in physical pixels. Kraken extra, mirrors Lua {@code osrs.screenSize}.
+     * The game window's height in physical pixels. Mirrors Lua {@code osrs.screenSize}.
      *
      * @return the height, or -1 if it can't be read or the mapping doesn't have it
      */
@@ -897,9 +895,8 @@ public final class Client extends GameReader {
     }
 
     /**
-     * The camera as it is now, for projecting points of the top-level scene onto the canvas. Kraken extra, what
-     * {@link Perspective} is built on; RuneLite's {@code Perspective} reads the camera getters instead. Reads what
-     * Lua's {@code Graphics.worldToScreenCoord} reads, once.
+     * The camera as it is now, for projecting points of the top-level scene onto the canvas, which {@link Perspective}
+     * is built on. Reads what Lua's {@code Graphics.worldToScreenCoord} reads, once.
      *
      * @return the projection, or null if the camera or the canvas can't be read, or the mapping lacks a projection key
      */

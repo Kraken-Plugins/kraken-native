@@ -4,9 +4,8 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * An item stack lying on the ground, as RuneLite's {@code TileItem}. Kraken reads the whole pile on a tile
- * ({@link Tile#getGroundItems()}), so RuneLite's {@code ItemLayer} isn't needed. The despawn time, ownership and
- * privacy aren't read.
+ * An item stack lying on the ground. The whole pile on a tile is read at once ({@link Tile#getGroundItems()}). The
+ * despawn time, ownership and privacy aren't read.
  *
  * <p>A handle with identity: the item spawn events carry one handle per stack, the same in its spawn, quantity change
  * and despawn events, and its quantity follows {@code ItemQuantityChanged}. {@link Tile#getGroundItems()} and
@@ -27,7 +26,7 @@ public final class TileItem {
     private volatile int quantity;
 
     /**
-     * The tile the stack lies on. Kraken extra: RuneLite's event carries it next to the item.
+     * The tile the stack lies on.
      */
     private final Tile tile;
 
@@ -46,7 +45,7 @@ public final class TileItem {
     }
 
     /**
-     * Whether a Lua plugin has hidden the item. Kraken extra: no Lua function hides ground items, so this is false.
+     * Whether a Lua plugin has hidden the item. No Lua function hides ground items, so this is false.
      *
      * @return false
      */

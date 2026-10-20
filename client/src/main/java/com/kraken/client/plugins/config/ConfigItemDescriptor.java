@@ -5,8 +5,8 @@ import lombok.Value;
 import java.lang.reflect.Type;
 
 /**
- * One setting of a {@link ConfigDescriptor}, as RuneLite's {@code ConfigItemDescriptor}: its annotation, its value
- * type and the annotations that shape its control.
+ * One setting of a {@link ConfigDescriptor}: its annotation, its value type and the annotations that shape its
+ * control.
  */
 @Value
 public class ConfigItemDescriptor implements ConfigObject {

@@ -1,7 +1,7 @@
 package com.kraken.client.plugins.config;
 
 /**
- * Something on a settings page, an item or a section, as RuneLite's {@code ConfigObject}: what the page orders them by.
+ * Something on a settings page, an item or a section: what the page orders them by.
  */
 public interface ConfigObject {
 

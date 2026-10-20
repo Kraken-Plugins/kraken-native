@@ -1,7 +1,7 @@
 package com.kraken.client.ui.devtools.tools;
 
 import com.kraken.api.Client;
-import com.kraken.api.KrakenApi;
+import com.kraken.api.GameSession;
 import com.kraken.api.gameval.InventoryID;
 import com.kraken.api.item.EquipmentInventorySlot;
 import com.kraken.api.item.Item;
@@ -54,8 +54,8 @@ final class InventoryTool extends DevTool<List<InventoryTool.Row>> {
     }
 
     @Override
-    protected List<Row> read(KrakenApi api) {
-        Client client = api.client();
+    protected List<Row> read(GameSession session) {
+        Client client = session.client();
         List<ItemContainer> containers = new ArrayList<>(client.getItemContainers());
         containers.sort(Comparator.comparingInt(ItemContainer::getId));
         boolean showEmpty = empty.isOn();

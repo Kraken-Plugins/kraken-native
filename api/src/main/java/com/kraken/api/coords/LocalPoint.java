@@ -8,9 +8,8 @@ import static com.kraken.api.Perspective.LOCAL_COORD_BITS;
 import static com.kraken.api.Perspective.LOCAL_HALF_TILE_SIZE;
 
 /**
- * A position in a world view's scene in local units (128 per tile, from the scene's south-west corner), as RuneLite's
- * {@code LocalPoint}. Lua's {@code FineCoord} is the same space with the height added: {@code LocalPoint(fine.x,
- * fine.z)}.
+ * A position in a world view's scene in local units (128 per tile, from the scene's south-west corner). Lua's
+ * {@code FineCoord} is the same space with the height added: {@code LocalPoint(fine.x, fine.z)}.
  */
 @Value
 public class LocalPoint {

@@ -3,8 +3,8 @@ package com.kraken.api.item;
 import lombok.Getter;
 
 /**
- * A slot of the worn-equipment inventory ({@code InventoryID.WORN}), as RuneLite's {@code EquipmentInventorySlot}. The
- * slot numbers are the client's, the same as Lua's {@code ClientOp.WornSlots}.
+ * A slot of the worn-equipment inventory ({@code InventoryID.WORN}). The slot numbers are the client's, the same as
+ * Lua's {@code ClientOp.WornSlots}.
  */
 public enum EquipmentInventorySlot {
     HEAD(0),

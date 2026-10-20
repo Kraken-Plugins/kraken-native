@@ -8,8 +8,8 @@ import com.kraken.client.plugins.config.Range;
 import com.kraken.client.plugins.config.Units;
 
 /**
- * Kraken's own settings, as RuneLite's {@code RuneLiteConfig}: the Settings sidebar page is built from it. Group
- * {@value #GROUP}, which also holds the plugins' on/off switches, as RuneLite's group {@code runelite} does.
+ * Kraken's own settings: the Settings sidebar page is built from it. Group {@value #GROUP}, which also holds the
+ * plugins' on/off switches.
  */
 @ConfigGroup(KrakenConfig.GROUP)
 public interface KrakenConfig extends Config {

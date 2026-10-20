@@ -5,8 +5,8 @@ import com.kraken.api.actor.NPC;
 import lombok.Value;
 
 /**
- * An NPC was loaded into the top-level world, as RuneLite's {@code NpcSpawned}. When tracking starts as the API
- * attaches, every NPC already loaded is posted as spawned.
+ * An NPC was loaded into the top-level world. When tracking starts as the API attaches, every NPC already loaded is
+ * posted as spawned.
  */
 @Value
 public class NpcSpawned {

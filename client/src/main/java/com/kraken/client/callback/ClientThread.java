@@ -2,7 +2,7 @@ package com.kraken.client.callback;
 
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
-import com.kraken.api.KrakenApi;
+import com.kraken.api.GameSession;
 import com.kraken.client.ProcessAttacher;
 
 import java.util.ArrayList;
@@ -11,9 +11,9 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
 /**
- * Runs code on the client thread, as RuneLite's {@code ClientThread}. Kraken's client thread is the API's poll thread
- * ({@code kraken-api-poll}): game events are posted there and these tasks run there, so plugin state touched only from
- * events and tasks needs no locking.
+ * Runs code on the client thread. Kraken's client thread is the API's poll thread ({@code kraken-api-poll}): game
+ * events are posted there and these tasks run there, so plugin state touched only from events and tasks needs no
+ * locking.
  *
  * <p>Tasks handed over before the API attaches wait, and run from the API's first poll on.
  */
@@ -21,13 +21,13 @@ import java.util.function.Consumer;
 public class ClientThread {
 
     private final Object lock = new Object();
-    private final List<Consumer<KrakenApi>> waiting = new ArrayList<>();
-    private KrakenApi api;
+    private final List<Consumer<GameSession>> waiting = new ArrayList<>();
+    private GameSession session;
 
     @Inject
     ClientThread(ProcessAttacher attacher) {
         attacher.addAttachListener(this::attached);
-        KrakenApi attached = attacher.attached();
+        GameSession attached = attacher.attached();
         if (attached != null) {
             attached(attached);
         }
@@ -39,7 +39,7 @@ public class ClientThread {
      * @param task the task
      */
     public void invoke(Runnable task) {
-        submit(api -> api.invoke(task));
+        submit(session -> session.invoke(task));
     }
 
     /**
@@ -49,7 +49,7 @@ public class ClientThread {
      * @param task the task; false asks to run it again at the next poll
      */
     public void invoke(BooleanSupplier task) {
-        submit(api -> api.invoke(task));
+        submit(session -> session.invoke(task));
     }
 
     /**
@@ -58,7 +58,7 @@ public class ClientThread {
      * @param task the task
      */
     public void invokeLater(Runnable task) {
-        submit(api -> api.invokeLater(task));
+        submit(session -> session.invokeLater(task));
     }
 
     /**
@@ -67,7 +67,7 @@ public class ClientThread {
      * @param task the task; false asks to run it again at the next poll
      */
     public void invokeLater(BooleanSupplier task) {
-        submit(api -> api.invokeLater(task));
+        submit(session -> session.invokeLater(task));
     }
 
     /**
@@ -76,30 +76,30 @@ public class ClientThread {
      * @param task the task
      */
     public void invokeAtTickEnd(Runnable task) {
-        submit(api -> api.invokeAtTickEnd(task));
+        submit(session -> session.invokeAtTickEnd(task));
     }
 
     /**
-     * Whether the calling thread is the client thread. Kraken extra: RuneLite has this on {@code Client}.
+     * Whether the calling thread is the client thread.
      *
      * @return true on the API's poll thread
      */
     public boolean isClientThread() {
-        KrakenApi attached;
+        GameSession attached;
         synchronized (lock) {
-            attached = api;
+            attached = session;
         }
         return attached != null && attached.isClientThread();
     }
 
-    private void submit(Consumer<KrakenApi> handoff) {
-        KrakenApi attached;
+    private void submit(Consumer<GameSession> handoff) {
+        GameSession attached;
         synchronized (lock) {
-            if (api == null) {
+            if (session == null) {
                 waiting.add(handoff);
                 return;
             }
-            attached = api;
+            attached = session;
         }
         handoff.accept(attached);
     }
@@ -109,12 +109,12 @@ public class ClientThread {
      *
      * @param attached the API that just attached
      */
-    private void attached(KrakenApi attached) {
+    private void attached(GameSession attached) {
         synchronized (lock) {
-            if (api != null) {
+            if (session != null) {
                 return;
             }
-            api = attached;
+            session = attached;
             waiting.forEach(handoff -> handoff.accept(attached));
             waiting.clear();
         }

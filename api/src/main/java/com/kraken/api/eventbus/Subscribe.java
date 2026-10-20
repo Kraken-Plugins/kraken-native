@@ -7,9 +7,8 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Marks a method that {@link EventBus#register} subscribes to the event type it takes, as RuneLite's
- * {@code @Subscribe}. The method takes exactly one parameter (the event), returns {@code void}, isn't static, and can
- * have any visibility:
+ * Marks a method that {@link EventBus#register} subscribes to the event type it takes. The method takes exactly one
+ * parameter (the event), returns {@code void}, isn't static, and can have any visibility:
  *
  * <pre>{@code
  * @Subscribe
@@ -18,8 +17,8 @@ import java.lang.annotation.Target;
  * }
  * }</pre>
  *
- * <p>Unlike RuneLite's bus, the parameter can also be a supertype or an interface the event implements; the method
- * then receives every event of that type.
+ * <p>The parameter can also be a supertype or an interface the event implements; the method then receives every event
+ * of that type.
  */
 @Documented
 @Retention(RetentionPolicy.RUNTIME)

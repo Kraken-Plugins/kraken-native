@@ -1,12 +1,12 @@
 package com.kraken.api.collision;
 
 /**
- * The bits of a tile's collision flags ({@link CollisionData#getFlags()}), named as in RuneLite's
- * {@code CollisionDataFlag}. They are the client's own bits, the same as Lua's {@code CollisionFlag}.
+ * The bits of a tile's collision flags ({@link CollisionData#getFlags()}). They are the client's own bits, the same as
+ * Lua's {@code CollisionFlag}.
  *
- * <p>Kraken extras follow RuneLite's: the bits and masks only Lua's {@code CollisionFlag} names, under its names. The
- * {@code PL_WALK_*}, {@code NPC_WALK_*} and {@code VIS_*} values are the combined masks the client tests for a step or
- * a line in one direction. Test any of them with {@link #isSet}.
+ * <p>The bits and masks that only Lua's {@code CollisionFlag} names keep its names. The {@code PL_WALK_*},
+ * {@code NPC_WALK_*} and {@code VIS_*} values are the combined masks the client tests for a step or a line in one
+ * direction. Test any of them with {@link #isSet}.
  */
 public final class CollisionDataFlag {
 
@@ -97,67 +97,67 @@ public final class CollisionDataFlag {
     public static final int BLOCK_LINE_OF_SIGHT_FULL = 0x20000;
 
     /**
-     * Blocks line of sight across the tile's north-west corner. Kraken extra, Lua's {@code V_NW}.
+     * Blocks line of sight across the tile's north-west corner. Lua's {@code V_NW}.
      */
     public static final int BLOCK_LINE_OF_SIGHT_NORTH_WEST = 0x200;
 
     /**
-     * Blocks line of sight across the tile's north-east corner. Kraken extra, Lua's {@code V_NE}.
+     * Blocks line of sight across the tile's north-east corner. Lua's {@code V_NE}.
      */
     public static final int BLOCK_LINE_OF_SIGHT_NORTH_EAST = 0x800;
 
     /**
-     * Blocks line of sight across the tile's south-east corner. Kraken extra, Lua's {@code V_SE}.
+     * Blocks line of sight across the tile's south-east corner. Lua's {@code V_SE}.
      */
     public static final int BLOCK_LINE_OF_SIGHT_SOUTH_EAST = 0x2000;
 
     /**
-     * Blocks line of sight across the tile's south-west corner. Kraken extra, Lua's {@code V_SW}.
+     * Blocks line of sight across the tile's south-west corner. Lua's {@code V_SW}.
      */
     public static final int BLOCK_LINE_OF_SIGHT_SOUTH_WEST = 0x8000;
 
     /**
-     * NPCs and players can't stand on the tile. Kraken extra, Lua's {@code BLOCK_NPC_AND_PLAYERS}.
+     * NPCs and players can't stand on the tile. Lua's {@code BLOCK_NPC_AND_PLAYERS}.
      */
     public static final int BLOCK_NPCS_AND_PLAYERS = 0x80000;
 
     /**
-     * The tile has a roof. Kraken extra, Lua's {@code ROOF}.
+     * The tile has a roof. Lua's {@code ROOF}.
      */
     public static final int ROOF = 0x100000;
 
     /**
-     * The tile is in a multi-combat area. Kraken extra, Lua's {@code MULTIWAY}.
+     * The tile is in a multi-combat area. Lua's {@code MULTIWAY}.
      */
     public static final int MULTIWAY = 0x400000;
 
     /**
-     * Lua's {@code FREEMAP}. Kraken extra.
+     * Lua's {@code FREEMAP}.
      */
     public static final int FREEMAP = 0x800000;
 
     /**
-     * The tile isn't loaded (outside the scene, or the map is still loading). Kraken extra, Lua's {@code UNLOADED}.
+     * The tile isn't loaded (outside the scene, or the map is still loading). Lua's {@code UNLOADED}.
      */
     public static final int UNLOADED = 0x1000000;
 
     /**
-     * An NPC or player stands on the tile. Kraken extra, Lua's {@code NPCS_OR_PLAYERS}.
+     * An NPC or player stands on the tile. Lua's {@code NPCS_OR_PLAYERS}.
      */
     public static final int NPCS_OR_PLAYERS = 0x2000000;
 
     /**
-     * Every walk-blocking edge and corner bit. Kraken extra, Lua's {@code WALK_BLOCK_FLAGS}.
+     * Every walk-blocking edge and corner bit. Lua's {@code WALK_BLOCK_FLAGS}.
      */
     public static final int WALK_BLOCK_FLAGS = 255;
 
     /**
-     * Every sight-blocking bit. Kraken extra, Lua's {@code VIS_BLOCK_FLAGS}.
+     * Every sight-blocking bit. Lua's {@code VIS_BLOCK_FLAGS}.
      */
     public static final int VIS_BLOCK_FLAGS = 130560;
 
     /**
-     * Blocks movement onto the tile from any side. Kraken extra, Lua's {@code SQ_BLOCKED}.
+     * Blocks movement onto the tile from any side. Lua's {@code SQ_BLOCKED}.
      */
     public static final int SQ_BLOCKED = 19136768;
 
@@ -202,7 +202,7 @@ public final class CollisionDataFlag {
 
     /**
      * Whether any bit of a mask is set in a tile's flags: the test the client's walk and line of sight checks make
-     * with their masks. Kraken extra.
+     * with their masks.
      *
      * @param flags a tile's flags
      * @param mask  a flag or mask from this class

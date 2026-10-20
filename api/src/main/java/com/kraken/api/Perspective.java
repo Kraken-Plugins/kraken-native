@@ -10,12 +10,12 @@ import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 
 /**
- * Scene geometry, as RuneLite's {@code Perspective}: constants for local units (1/128 of a tile, relative to the
- * scene's south-west corner), and helpers that place scene points on the game canvas.
+ * Scene geometry: constants for local units (1/128 of a tile, relative to the scene's south-west corner), and helpers
+ * that place scene points on the game canvas.
  *
  * <p>Canvas positions are in the client's own (DPI-scaled) pixels, {@link Client#getCanvasWidth()} by
- * {@link Client#getCanvasHeight()}: the units an overlay's {@code render} draws in. Like RuneLite's, the helpers return
- * null for points behind the camera.
+ * {@link Client#getCanvasHeight()}: the units an overlay's {@code render} draws in. The helpers return null for points
+ * behind the camera.
  *
  * <p>Each call reads the camera once ({@link Client#getCameraProjection()}) plus a ground height per point, all from
  * the game process: a tile outline costs a few dozen reads. Code projecting many points for one frame can read the
@@ -152,9 +152,7 @@ public final class Perspective {
      * The outline of a rectangle of tiles centred on a point, following the ground.
      *
      * <p>Corners on or past the scene's far edges take the ground height just inside the scene, since the ground is
-     * only read for the scene's tiles. Differs from RuneLite's in one edge case: each corner's height checks the bridge
-     * flag of the tile the corner is on, where RuneLite checks the centre tile's for all four. They only differ along
-     * a bridge's edge.
+     * only read for the scene's tiles. Each corner's height checks the bridge flag of the tile the corner is on.
      *
      * @param client  the client
      * @param point   the rectangle's centre

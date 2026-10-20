@@ -925,7 +925,8 @@ public final class GameFixture {
 
     /**
      * Two buckets (plus the end sentinel): 94 alone in bucket 0, 93 then 95 chained in bucket 1. The backpack holds
-     * logs (1511) in slot 0, coins (995) in slots 1 and 3, slot 2 empty; worn has a weapon in slot 3; the bank is empty.
+     * logs (1511) in slot 0, coins (995) in slots 1 and 3, slot 2 empty; worn has a weapon in slot 3; the bank is
+     * empty.
      */
     private void buildInventories() {
         memory.alloc(MODULE_BASE + map.global("inventories.buckets"), 8);
@@ -1363,8 +1364,8 @@ public final class GameFixture {
     }
 
     /**
-     * The projectile list, sentinel → spell → arrow → sentinel. The spell flies from player 7 (actor reference -8) at
-     * NPC 5 (reference 6) between cycles 140 and 170 and has been placed; the arrow flies from tile (1, 1) to tile
+     * The projectile list, sentinel → spell → arrow → sentinel. The spell flies from player 7 (actor reference -8)
+     * at NPC 5 (reference 6) between cycles 140 and 170 and has been placed; the arrow flies from tile (1, 1) to tile
      * (6, 6) (world tiles: the base added) between cycles 160 and 200, so at cycle {@link #CYCLE} it hasn't set off.
      */
     private void buildProjectiles() {

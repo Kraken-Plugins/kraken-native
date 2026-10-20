@@ -16,13 +16,13 @@ import java.awt.Polygon;
 import java.awt.image.BufferedImage;
 
 /**
- * An NPC or player, as RuneLite's {@code Actor}.
+ * An NPC or player.
  *
- * <p>A handle stays on one actor, as RuneLite's objects are the actors themselves: it is pinned to the actor's address
- * in the top-level world when the client hands it out, and if the client gives the actor's index to another actor, this
- * handle doesn't follow. Getters read the game live while the actor is loaded. Once it is gone, {@link #getName()},
- * the locations and the NPC id return the last values read, so code handling a despawn can still ask what and where it
- * was; the other getters return their "nothing" values.
+ * <p>A handle stays on one actor: it is pinned to the actor's address in the top-level world when the client hands it
+ * out, and if the client gives the actor's index to another actor, this handle doesn't follow. Getters read the game
+ * live while the actor is loaded. Once it is gone, {@link #getName()}, the locations and the NPC id return the last
+ * values read, so code handling a despawn can still ask what and where it was; the other getters return their "nothing"
+ * values.
  */
 public abstract class Actor {
 
@@ -100,8 +100,8 @@ public abstract class Actor {
     }
 
     /**
-     * Whether the actor is interacting with something (RuneLite's meaning; Lua's {@code isInteracting} returns the
-     * target's index, which is {@link #getInteractingIndex()} here).
+     * Whether the actor is interacting with something. Lua's {@code isInteracting} returns the target's index, which is
+     * {@link #getInteractingIndex()} here.
      *
      * @return true if it has a target
      */
@@ -122,8 +122,7 @@ public abstract class Actor {
     }
 
     /**
-     * The index (or world entity id) of what the actor is interacting with. Kraken extra, mirrors Lua
-     * {@code Entity.isInteracting}.
+     * The index (or world entity id) of what the actor is interacting with. Mirrors Lua {@code Entity.isInteracting}.
      *
      * @return the target's index, or -1 for nothing
      */
@@ -132,7 +131,7 @@ public abstract class Actor {
     }
 
     /**
-     * What {@link #getInteractingIndex()} points at. Kraken extra.
+     * What {@link #getInteractingIndex()} points at.
      *
      * @return one of the {@code INTERACTING_*} constants
      */
@@ -217,8 +216,8 @@ public abstract class Actor {
      *
      * @param graphics the graphics the text will be drawn with (its font sets the width)
      * @param text     the text
-     * @param zOffset  how far above the ground, in local units. RuneLite callers pass {@code getLogicalHeight() + 40};
-     *                 Kraken doesn't read the actor's height, so pass a fixed lift (about 240 clears a player's head)
+     * @param zOffset  how far above the ground, in local units. Callers usually pass {@code getLogicalHeight() + 40};
+     *                 the API doesn't read the actor's height, so pass a fixed lift (about 240 clears a player's head)
      * @return the baseline's left end in canvas pixels; null if the location is unknown or behind the camera
      */
     public Point getCanvasTextLocation(Graphics2D graphics, String text, int zOffset) {
@@ -248,7 +247,7 @@ public abstract class Actor {
     }
 
     /**
-     * Whether the actor shows a health bar. Kraken extra, mirrors Lua {@code Entity.isHealthbarRendered}.
+     * Whether the actor shows a health bar. Mirrors Lua {@code Entity.isHealthbarRendered}.
      *
      * @return true if it has a health bar showing
      */
@@ -257,7 +256,7 @@ public abstract class Actor {
     }
 
     /**
-     * Whether one of the actor's head bars shows as empty. Kraken extra, mirrors Lua {@code Entity.isHeadbarEmpty}.
+     * Whether one of the actor's head bars shows as empty. Mirrors Lua {@code Entity.isHeadbarEmpty}.
      *
      * @return true if a head bar is empty
      */
@@ -266,7 +265,7 @@ public abstract class Actor {
     }
 
     /**
-     * Whether the actor's 2D elements (name, health bar, overhead text) are drawn. Kraken extra, mirrors Lua
+     * Whether the actor's 2D elements (name, health bar, overhead text) are drawn. Mirrors Lua
      * {@code Entity.isRendered2D}, reading the flag on the actor rather than a Lua object's own copy.
      *
      * @return true if they're drawn, or if the flag can't be read
@@ -277,7 +276,7 @@ public abstract class Actor {
 
     /**
      * Whether a Lua plugin has hidden the actor's model (Lua's {@code render3D(false)}): the opposite of Lua's
-     * {@code Entity.isRendered3D}, reading the flag on the actor, so it also sees what other plugins hid. Kraken extra.
+     * {@code Entity.isRendered3D}, reading the flag on the actor, so it also sees what other plugins hid.
      *
      * @return true if the client won't draw its model; false once the actor is gone
      */
@@ -286,8 +285,8 @@ public abstract class Actor {
     }
 
     /**
-     * How many steps the actor has queued on its path. Kraken extra, mirrors Lua {@code ClientOp.playerRouteLength}
-     * (which the client binds for players only): as the Lua docs warn, it isn't the length of the whole route.
+     * How many steps the actor has queued on its path. Mirrors Lua {@code ClientOp.playerRouteLength} (which the client
+     * binds for players only): as the Lua docs warn, it isn't the length of the whole route.
      *
      * @return the queued steps; 0 when standing still or once the actor is gone
      */

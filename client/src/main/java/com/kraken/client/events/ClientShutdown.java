@@ -12,9 +12,9 @@ import java.util.concurrent.TimeoutException;
 import java.util.logging.Level;
 
 /**
- * Kraken is closing, as RuneLite's {@code ClientShutdown}. A subscriber with work to finish (saving a file, say) hands
- * it over with {@link #waitFor}, and the client waits for it, a few seconds at most for all of them, before it stops
- * the plugins and exits. Posted on the thread that started the shutdown, usually the EDT.
+ * Kraken is closing. A subscriber with work to finish (saving a file, say) hands it over with {@link #waitFor}, and the
+ * client waits for it, a few seconds at most for all of them, before it stops the plugins and exits. Posted on the
+ * thread that started the shutdown, usually the EDT.
  */
 @Value
 @Log(topic = "kraken")

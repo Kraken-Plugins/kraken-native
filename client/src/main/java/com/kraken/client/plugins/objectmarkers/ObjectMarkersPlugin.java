@@ -32,9 +32,8 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * The scene example plugin: a lite RuneLite Object Markers. RuneLite's marks objects you pick from their right-click
- * menu; Kraken has no menus, so this marks the objects whose names or ids are listed in its settings. The rest is
- * RuneLite plugin code with Kraken imports:
+ * The scene example plugin: marks the objects whose names or ids are listed in its settings. Kraken has no right-click
+ * menus, so the settings choose the objects instead. Its state and threading:
  *
  * <ul>
  *   <li>objects are learnt from the spawn events, which also fire for every object of a newly loaded scene, and
@@ -44,9 +43,9 @@ import java.util.Set;
  *       run on the EDT and hand their changes to the client thread.
  * </ul>
  *
- * <p>Started mid-session, it reads the scene once with the Kraken extra {@link Scene#getTileObjects()}, since the
- * spawn events only replay the scene when the API attaches or the scene loads. One handler taking the Kraken extra
- * {@code TileObjectSpawned} could replace the four spawn handlers; they're spelt out here as in RuneLite.
+ * <p>Started mid-session, it reads the scene once with {@link Scene#getTileObjects()}, since the spawn events only
+ * replay the scene when the API attaches or the scene loads. One handler taking {@code TileObjectSpawned} could replace
+ * the four spawn handlers; they're spelt out here.
  */
 @PluginDescriptor(
         name = "Object Markers",

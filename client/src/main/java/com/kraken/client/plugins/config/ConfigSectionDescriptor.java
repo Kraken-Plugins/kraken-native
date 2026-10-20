@@ -3,7 +3,7 @@ package com.kraken.client.plugins.config;
 import lombok.Value;
 
 /**
- * One section of a {@link ConfigDescriptor}, as RuneLite's {@code ConfigSectionDescriptor}.
+ * One section of a {@link ConfigDescriptor}.
  */
 @Value
 public class ConfigSectionDescriptor implements ConfigObject {

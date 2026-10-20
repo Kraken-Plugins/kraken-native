@@ -7,9 +7,9 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * One setting of a {@link Config} interface, as RuneLite's {@code @ConfigItem}. On a method with no parameters it is
- * the getter: it returns the stored value, or the method's {@code default} body when nothing is stored. On a
- * {@code void} method with one parameter it is a setter for the same key.
+ * One setting of a {@link Config} interface. On a method with no parameters it is the getter: it returns the stored
+ * value, or the method's {@code default} body when nothing is stored. On a {@code void} method with one parameter it
+ * is a setter for the same key.
  */
 @Documented
 @Retention(RetentionPolicy.RUNTIME)

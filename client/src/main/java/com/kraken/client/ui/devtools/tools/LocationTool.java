@@ -1,7 +1,7 @@
 package com.kraken.client.ui.devtools.tools;
 
 import com.kraken.api.Client;
-import com.kraken.api.KrakenApi;
+import com.kraken.api.GameSession;
 import com.kraken.api.actor.Player;
 import com.kraken.api.coords.LocalPoint;
 import com.kraken.api.coords.WorldPoint;
@@ -56,8 +56,8 @@ final class LocationTool extends DevTool<LocationTool.Where> {
     }
 
     @Override
-    protected Where read(KrakenApi api) {
-        Client client = api.client();
+    protected Where read(GameSession session) {
+        Client client = session.client();
         Player self = client.getLocalPlayer();
         if (self == null) {
             return null;

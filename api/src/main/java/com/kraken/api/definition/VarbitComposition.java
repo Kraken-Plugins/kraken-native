@@ -4,9 +4,9 @@ import com.kraken.api.Client;
 import lombok.Value;
 
 /**
- * A varbit's definition (config group 14), as RuneLite's {@code VarbitComposition}: which varp it lives in and which
- * bits of it. Its value is {@code (varp >> leastSignificantBit) & mask(mostSignificantBit - leastSignificantBit)}. Get
- * one from {@link Client#getVarbit}.
+ * A varbit's definition (config group 14): which varp it lives in and which bits of it. Its value is
+ * {@code (varp >> leastSignificantBit) & mask(mostSignificantBit - leastSignificantBit)}. Get one from
+ * {@link Client#getVarbit}.
  */
 @Value
 public class VarbitComposition {
@@ -34,7 +34,7 @@ public class VarbitComposition {
     /**
      * This varbit's value within a value of its varp: {@code (varp >> lsb) & mask[msb - lsb]}, where the client's mask
      * table holds {@code 2^(n+1) - 1} for n = 0..31. A definition whose bit range falls outside that table (none in the
-     * game's data) would make the client read past the table; here it yields 0. Kraken extra.
+     * game's data) would make the client read past the table; here it yields 0.
      *
      * @param varpValue the value of varp {@link #getIndex()}
      * @return the varbit's bits shifted down to bit 0, or 0 for a bit range outside the mask table

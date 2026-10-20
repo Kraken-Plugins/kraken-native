@@ -29,10 +29,10 @@ import javax.swing.event.DocumentListener;
 import static com.formdev.flatlaf.FlatClientProperties.*;
 
 /**
- * The "Plugins" sidebar page, as RuneLite's plugin list: every plugin that isn't hidden, sorted by name, with a search
- * over names, descriptions and tags, and a switch that turns each on or off through the {@link PluginManager}. A plugin
- * that failed to start shows "failed", with the error in its tooltip. A plugin with settings has a cog, which swaps the
- * page for its {@link ConfigPanel} until the back arrow is clicked.
+ * The "Plugins" sidebar page: every plugin that isn't hidden, sorted by name, with a search over names, descriptions
+ * and tags, and a switch that turns each on or off through the {@link PluginManager}. A plugin that failed to start
+ * shows "failed", with the error in its tooltip. A plugin with settings has a cog, which swaps the page for its
+ * {@link ConfigPanel} until the back arrow is clicked.
  */
 @Singleton
 public final class PluginListPanel extends JPanel {

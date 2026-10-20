@@ -38,7 +38,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The RuneLite-shaped events over the {@link GameFixture}: what each tracker posts when the game changes between
+ * The events over the {@link GameFixture}: what each tracker posts when the game changes between
  * polls, the replay of the current state when tracking starts as the API attaches, and the order within a poll.
  */
 class EventSourceTest {

@@ -103,7 +103,7 @@ class ConfigTypesTest {
 
     @Test
     void itemGroundOpsAreOneBasedInTheClient() {
-        // Ground op n is index n - 1 of the RuneLite array; empty ops read as null
+        // Ground op n is index n - 1 of the ground actions array; empty ops read as null
         assertEquals("Take", client.getItemDefinition(COINS).getGroundActions()[2], "the default ground op 3");
         assertEquals("Light", client.getItemDefinition(LOGS).getGroundActions()[2], "Logs' opcode 32 sets ground op 3");
         assertNull(client.getItemDefinition(COINS).getGroundActions()[0]);

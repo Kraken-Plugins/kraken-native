@@ -25,15 +25,14 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Delivers events to subscribers, as RuneLite's {@code EventBus}. Objects {@link #register} their {@link Subscribe}
- * methods; anything can {@link #post} an event, and every subscriber to its type runs on the posting thread, highest
- * priority first.
+ * Delivers events to subscribers. Objects {@link #register} their {@link Subscribe} methods; anything can {@link #post}
+ * an event, and every subscriber to its type runs on the posting thread, highest priority first.
  *
  * <p>The API posts the game events in {@code com.kraken.api.events} on its poll thread (the "client thread"), and only
- * tracks a kind of event while something subscribes to it. The Kraken client posts its own events (plugins changing,
+ * tracks a kind of event while something subscribes to it. The client module posts its own events (plugins changing,
  * shutdown…) on the same bus.
  *
- * <p>Differences from RuneLite's bus:
+ * <p>In detail:
  * <ul>
  *   <li>An event also reaches subscribers to its supertypes and to the interfaces it implements, so one handler can
  *       take several related events.

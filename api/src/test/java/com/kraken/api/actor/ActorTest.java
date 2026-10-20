@@ -149,7 +149,7 @@ class ActorTest {
     }
 
     @Test
-    void interactingIsRuneLitesBooleanAndAHandleOnTheTarget() {
+    void interactingIsABooleanAndAHandleOnTheTarget() {
         NPC goblin = npc(5);
         assertTrue(goblin.isInteracting());
         assertEquals(7, goblin.getInteractingIndex());

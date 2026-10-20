@@ -5,7 +5,7 @@ import com.kraken.api.scene.TileObject;
 
 /**
  * Any of the four object despawn events ({@link GameObjectDespawned}, {@link WallObjectDespawned},
- * {@link DecorativeObjectDespawned}, {@link GroundObjectDespawned}). Kraken extra, as {@link TileObjectSpawned}.
+ * {@link DecorativeObjectDespawned}, {@link GroundObjectDespawned}). The counterpart of {@link TileObjectSpawned}.
  */
 public interface TileObjectDespawned {
 

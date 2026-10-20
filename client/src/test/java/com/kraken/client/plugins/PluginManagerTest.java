@@ -349,7 +349,7 @@ class PluginManagerTest {
         assertFalse(manager.isPluginActive(failing));
         assertEquals("no luck", manager.getFailure(failing).getMessage());
         assertFalse(manager.isPluginEnabled(failing), "switched off");
-        assertEquals(List.of("stop Failing"), events, "shutDown runs after a failed startUp, as in RuneLite");
+        assertEquals(List.of("stop Failing"), events, "shutDown runs after a failed startUp");
 
         config.flush();
         manager = newManager(false);

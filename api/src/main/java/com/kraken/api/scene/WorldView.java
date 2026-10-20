@@ -14,9 +14,9 @@ import com.kraken.api.internal.SceneReader;
 import lombok.Getter;
 
 /**
- * One loaded world, as RuneLite's {@code WorldView}: the client's {@code World} struct, with its actors, its plane and
- * where its scene sits in the world. The top-level world is the main map; sub-worlds (such as boats) aren't wrapped
- * yet, so {@link Client#getTopLevelWorldView()} is the only view.
+ * One loaded world: the client's {@code World} struct, with its actors, its plane and where its scene sits in the
+ * world. The top-level world is the main map; sub-worlds (such as boats) aren't wrapped yet, so
+ * {@link Client#getTopLevelWorldView()} is the only view.
  */
 public final class WorldView {
 
@@ -158,8 +158,7 @@ public final class WorldView {
 
     /**
      * The ground's height at a point of this view's scene: bilinear between the tile's corner heights, taken from the
-     * level above under a bridge, as RuneLite's {@code Perspective.getTileHeight} works it out from the scene's tile
-     * heights. Kraken extra; {@link Perspective#getTileHeight} calls it.
+     * level above under a bridge. {@link Perspective#getTileHeight} calls it.
      *
      * @param x     the local x
      * @param y     the local y
@@ -172,8 +171,8 @@ public final class WorldView {
     }
 
     /**
-     * Every plane's collision flags, as RuneLite's. Lua's {@code World.getCollisionMaps}: a copy taken now, so it
-     * doesn't follow later changes (see {@link CollisionData}).
+     * Every plane's collision flags. Lua's {@code World.getCollisionMaps}: a copy taken now, so it doesn't follow
+     * later changes (see {@link CollisionData}).
      *
      * @return the flags by plane (index = plane), each covering the scene; null if they can't be read
      */
@@ -196,8 +195,8 @@ public final class WorldView {
     }
 
     /**
-     * Whether the end tile can be seen from the start tile, by the client's own line-of-sight test, read live (only the
-     * tiles the line crosses). Kraken extra, mirrors Lua {@code Collision.lineOfSight}.
+     * Whether the end tile can be seen from the start tile, by the client's own line-of-sight test, read live (only
+     * the tiles the line crosses). Mirrors Lua {@code Collision.lineOfSight}.
      *
      * @param from the start tile
      * @param to   the end tile
@@ -212,8 +211,8 @@ public final class WorldView {
     }
 
     /**
-     * Whether one can walk in a straight line from the start tile to the end tile, by the client's own test, read live.
-     * Kraken extra, mirrors Lua {@code Collision.lineOfWalk}.
+     * Whether one can walk in a straight line from the start tile to the end tile, by the client's own test, read
+     * live. Mirrors Lua {@code Collision.lineOfWalk}.
      *
      * @param from the start tile
      * @param to   the end tile
@@ -228,8 +227,8 @@ public final class WorldView {
     }
 
     /**
-     * One tile's collision flags, read live from the client. Kraken extra, mirrors Lua {@code Collision.getBitFlags}
-     * (without its off-by-one: the native function reads the tile one south-west of the one asked for).
+     * One tile's collision flags, read live from the client. Mirrors Lua {@code Collision.getBitFlags}, without its
+     * off-by-one: the native function reads the tile one south-west of the one asked for.
      *
      * @param point the world tile
      * @return the tile's flags ({@link CollisionDataFlag}), or {@link CollisionDataFlag#UNLOADED} outside the grid, for

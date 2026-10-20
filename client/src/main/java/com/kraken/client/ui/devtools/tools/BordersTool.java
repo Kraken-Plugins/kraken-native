@@ -1,7 +1,7 @@
 package com.kraken.client.ui.devtools.tools;
 
 import com.kraken.api.Client;
-import com.kraken.api.KrakenApi;
+import com.kraken.api.GameSession;
 import com.kraken.api.Perspective;
 import com.kraken.api.Point;
 import com.kraken.api.coords.WorldPoint;
@@ -60,11 +60,11 @@ final class BordersTool extends DevTool<Marks> {
     }
 
     @Override
-    protected Marks read(KrakenApi api) {
-        Client client = api.client();
+    protected Marks read(GameSession session) {
+        Client client = session.client();
         WorldPoint self = localTile(client);
         Scene scene = client.getScene();
-        Projector projector = self == null || scene.getBaseX() < 0 ? null : Projector.of(api);
+        Projector projector = self == null || scene.getBaseX() < 0 ? null : Projector.of(session);
         if (projector == null) {
             return null;
         }

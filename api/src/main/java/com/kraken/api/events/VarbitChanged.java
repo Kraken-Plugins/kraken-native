@@ -3,13 +3,11 @@ package com.kraken.api.events;
 import lombok.Data;
 
 /**
- * A varp or varbit changed, as RuneLite's {@code VarbitChanged}. Kraken posts one event per changed varp
- * ({@code varbitId} -1, {@code value} the varp's value), preceded by one per varbit on that varp whose value changed
- * (both ids set, {@code value} the varbit's value).
+ * A varp or varbit changed. The API posts one event per changed varp ({@code varbitId} -1, {@code value} the varp's
+ * value), preceded by one per varbit on that varp whose value changed (both ids set, {@code value} the varbit's value).
  *
- * <p>Like RuneLite's, it follows the varps as the client holds them ({@code Client.getVarpValue}), which includes
- * changes the client makes locally. Lua's {@code ON_VAR_TRANSMIT} and {@code ON_VARBIT_UPDATE} follow the server's copy
- * instead.
+ * <p>It follows the varps as the client holds them ({@code Client.getVarpValue}), which includes changes the client
+ * makes locally. Lua's {@code ON_VAR_TRANSMIT} and {@code ON_VARBIT_UPDATE} follow the server's copy instead.
  */
 @Data
 public class VarbitChanged {
@@ -30,7 +28,7 @@ public class VarbitChanged {
     private long value;
 
     /**
-     * The new value, as RuneLite's {@code getValue}.
+     * The new value as an int.
      *
      * @return the varp's or varbit's value
      */
@@ -48,7 +46,7 @@ public class VarbitChanged {
     }
 
     /**
-     * The new value as a long, as RuneLite's {@code getLongValue}.
+     * The new value as a long.
      *
      * @return the varp's or varbit's value
      */

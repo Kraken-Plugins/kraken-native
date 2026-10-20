@@ -2,7 +2,7 @@ package com.kraken.client.ui.devtools.tools;
 
 import com.kraken.api.CameraProjection;
 import com.kraken.api.Client;
-import com.kraken.api.KrakenApi;
+import com.kraken.api.GameSession;
 import com.kraken.api.Perspective;
 import com.kraken.api.Point;
 import com.kraken.api.coords.LocalPoint;
@@ -39,11 +39,11 @@ final class Projector {
     /**
      * Reads this frame's camera and the top-level world.
      *
-     * @param api the attached API
+     * @param session the attached API
      * @return a projector, or null if the camera or the client's size can't be read
      */
-    static Projector of(KrakenApi api) {
-        Client client = api.client();
+    static Projector of(GameSession session) {
+        Client client = session.client();
         CameraProjection projection = client.getCameraProjection();
         WorldView view = client.getTopLevelWorldView();
         Dimension size = new Dimension(client.getCanvasWidth(), client.getCanvasHeight());

@@ -3,8 +3,8 @@ package com.kraken.api.actor;
 import com.kraken.api.Client;
 
 /**
- * A player, as RuneLite's {@code Player}. {@link Client} hands out one handle per player, so identity equality is
- * player equality; see {@link Actor} for how a handle behaves once the player is gone.
+ * A player. {@link Client} hands out one handle per player, so identity equality is player equality; see {@link Actor}
+ * for how a handle behaves once the player is gone.
  *
  * <p>There's no {@code isFriend()}: the client's friend check is "on the friend list and online", and the reader can't
  * tell an offline friend from a stranger, so {@link #isOnlineFriend()} says what it means instead.
@@ -54,7 +54,7 @@ public final class Player extends Actor {
     }
 
     /**
-     * The player's index, as RuneLite's {@code getId()}.
+     * The player's index, which is its id.
      *
      * @return the index
      */
@@ -73,9 +73,9 @@ public final class Player extends Actor {
     }
 
     /**
-     * Whether the player is on the local player's friend list and online. Kraken extra, mirrors Lua
-     * {@code Player.isOnlineFriend}: reads the answer the client caches on the player, or looks the name up in the
-     * friend list when the client hasn't yet.
+     * Whether the player is on the local player's friend list and online. Mirrors Lua {@code Player.isOnlineFriend}:
+     * reads the answer the client caches on the player, or looks the name up in the friend list when the client hasn't
+     * yet.
      *
      * @return true for an online friend; false once the player is gone
      */
@@ -103,7 +103,7 @@ public final class Player extends Actor {
     }
 
     /**
-     * Whether the player's name (current or previous) is on the local player's ignore list. Kraken extra, mirrors Lua
+     * Whether the player's name (current or previous) is on the local player's ignore list. Mirrors Lua
      * {@code Player.isIgnored}.
      *
      * @return true if ignored

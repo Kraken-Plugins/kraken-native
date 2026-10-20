@@ -4,8 +4,7 @@ import com.kraken.client.ProcessAttacher;
 import lombok.Value;
 
 /**
- * The client's link to the game changed state: attaching, attached, an unsupported build, or a failure. Kraken
- * specific; RuneLite's API is always attached.
+ * The client's link to the game changed state: attaching, attached, an unsupported build, or a failure.
  *
  * <p>Posted on the {@code kraken-api-attach} thread. {@link ProcessAttacher.State#ATTACHED} is posted before the API's
  * first poll, so it comes before the replayed game state and spawns.

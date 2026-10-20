@@ -4,8 +4,8 @@ import com.kraken.api.Skill;
 import lombok.Value;
 
 /**
- * A skill's XP, level or boosted level changed, as RuneLite's {@code StatChanged}. One event per changed skill. Every
- * skill fires when the stats arrive after login.
+ * A skill's XP, level or boosted level changed. One event per changed skill. Every skill fires when the stats arrive
+ * after login.
  */
 @Value
 public class StatChanged {

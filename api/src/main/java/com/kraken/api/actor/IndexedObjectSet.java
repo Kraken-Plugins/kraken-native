@@ -1,5 +1,7 @@
 package com.kraken.api.actor;
 
+import lombok.NonNull;
+
 import java.util.Iterator;
 import java.util.List;
 import java.util.function.IntFunction;
@@ -7,8 +9,7 @@ import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 /**
- * The actors of one kind in a world view, by index, as RuneLite's {@code IndexedObjectSet}. Iterating reads the
- * current list each time.
+ * The actors of one kind in a world view, by index. Iterating reads the current list each time.
  *
  * @param <T> the actor type
  */
@@ -48,6 +49,7 @@ public final class IndexedObjectSet<T> implements Iterable<T> {
         return loaded.get().stream();
     }
 
+    @NonNull
     @Override
     public Iterator<T> iterator() {
         return loaded.get().iterator();

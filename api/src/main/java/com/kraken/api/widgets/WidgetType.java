@@ -1,9 +1,8 @@
 package com.kraken.api.widgets;
 
 /**
- * Widget types, as RuneLite's {@code WidgetType}: the values {@link Widget#getType()} returns. They are the cache's own
- * values, the same in the native client (Lua's {@code IfTypes}), which has three RuneLite doesn't name: Kraken extras
- * {@link #INPUT_BOX}, {@link #CIRCLE} and {@link #CRM_VIEW}.
+ * Widget types: the values {@link Widget#getType()} returns. They are the cache's own values, the same in the native
+ * client (Lua's {@code IfTypes}), which also names {@link #INPUT_BOX}, {@link #CIRCLE} and {@link #CRM_VIEW}.
  */
 public final class WidgetType {
 
@@ -13,7 +12,7 @@ public final class WidgetType {
     public static final int LAYER = 0;
 
     /**
-     * An input box. Kraken extra, Lua's {@code IfTypes.INPUTBOX}.
+     * An input box. Lua's {@code IfTypes.INPUTBOX}.
      */
     public static final int INPUT_BOX = 1;
 
@@ -53,12 +52,12 @@ public final class WidgetType {
     public static final int LINE = 9;
 
     /**
-     * A circle. Kraken extra, Lua's {@code IfTypes.CIRCLE}.
+     * A circle. Lua's {@code IfTypes.CIRCLE}.
      */
     public static final int CIRCLE = 10;
 
     /**
-     * Lua's {@code IfTypes.CRMVIEW}. Kraken extra.
+     * Lua's {@code IfTypes.CRMVIEW}.
      */
     public static final int CRM_VIEW = 11;
 
@@ -71,7 +70,7 @@ public final class WidgetType {
     }
 
     /**
-     * A type's name, as Lua's {@code IfTypes} names it. Kraken extra.
+     * A type's name, as Lua's {@code IfTypes} names it.
      *
      * @param type the type, e.g. {@link Widget#getType()}
      * @return its Lua name, e.g. "LAYER", or "TYPE_n" for a value Lua doesn't name

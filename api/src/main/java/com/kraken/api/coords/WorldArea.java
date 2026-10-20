@@ -8,12 +8,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * A rectangle of world tiles on one plane, as RuneLite's {@code WorldArea}: an actor's footprint, or any area a plugin
- * wants to test against.
+ * A rectangle of world tiles on one plane: an actor's footprint, or any area a plugin wants to test against.
  *
  * <p>{@link #hasLineOfSightTo} and {@link #canTravelInDirection} ask the client's own line tests (Lua's
- * {@code Collision.lineOfSight}/{@code lineOfWalk}). RuneLite computes them in Java from the collision flags, so
- * results can differ at edge cases.
+ * {@code Collision.lineOfSight}/{@code lineOfWalk}).
  */
 @Value
 @AllArgsConstructor

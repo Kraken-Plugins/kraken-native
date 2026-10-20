@@ -16,12 +16,12 @@ import java.util.logging.Logger;
 
 /**
  * Entry point for the native API. {@link #attach} opens the running {@code osclient.exe} and selects the mapping for
- * its client version ({@code mappings/<version>.json}). Then {@link #client()} is the API, shaped as RuneLite's
- * ({@link Client}, {@code NPC}, {@code WorldPoint}…): each getter follows the mapped offset chains in the live process,
- * replaying what the client's own Lua handlers read.
+ * its client version ({@code mappings/<version>.json}). Then {@link #client()} is the API ({@link Client},
+ * {@code NPC}, {@code WorldPoint}…): each getter follows the mapped offset chains in the live process, replaying what
+ * the client's own Lua handlers read.
  *
- * <p>{@link #start()} runs the poll loop on the {@code kraken-api-poll} thread, which plays the part of RuneLite's
- * client thread. About every 20 ms it:
+ * <p>{@link #start()} runs the poll loop on the {@code kraken-api-poll} thread, which acts as the client thread. About
+ * every 20 ms it:
  * <ol>
  *   <li>runs the tasks handed to {@link #invoke(Runnable)} and friends;
  *   <li>synthesises the game events on {@link #eventBus()}, with {@code GameTick} after the tick's other events, then
@@ -34,7 +34,7 @@ import java.util.logging.Logger;
  *
  * <p>Read-only throughout: it never writes to or calls into the game.
  */
-public final class KrakenApi implements AutoCloseable {
+public final class GameSession implements AutoCloseable {
 
     private static final Logger log = Logger.getLogger("kraken.api");
     private static final String MODULE = "osclient.exe";
@@ -63,7 +63,7 @@ public final class KrakenApi implements AutoCloseable {
     private volatile Runnable frameListener;
     private Thread thread;
 
-    private KrakenApi(ProcessMemory memory, Mapping mapping, EventBus eventBus) {
+    private GameSession(ProcessMemory memory, Mapping mapping, EventBus eventBus) {
         this.memory = memory;
         this.mapping = mapping;
         this.eventBus = eventBus;
@@ -82,7 +82,7 @@ public final class KrakenApi implements AutoCloseable {
      * @throws UnsupportedBuildException if there is no mapping for the version, or it was made from another binary
      * @throws MemoryException           if the process cannot be opened
      */
-    public static KrakenApi attach(long pid, Path exe) throws IOException {
+    public static GameSession attach(long pid, Path exe) throws IOException {
         return attach(pid, exe, new EventBus());
     }
 
@@ -98,7 +98,7 @@ public final class KrakenApi implements AutoCloseable {
      * @throws UnsupportedBuildException if there is no mapping for the version, or it was made from another binary
      * @throws MemoryException           if the process cannot be opened
      */
-    public static KrakenApi attach(long pid, Path exe, EventBus eventBus) throws IOException {
+    public static GameSession attach(long pid, Path exe, EventBus eventBus) throws IOException {
         ClientBuild build = ClientBuild.of(exe);
         String name = build.version() + ".json";
         Mapping mapping = Mapping.bundled(build.version());
@@ -117,10 +117,10 @@ public final class KrakenApi implements AutoCloseable {
      * @param mappingsDir folder holding {@code <version>.json} mappings
      * @return the attached API, posting on a bus of its own; {@link #start} its poll loop to get events
      * @throws IOException               if the exe or the mapping can't be read
-     * @throws UnsupportedBuildException if the folder has no mapping for the version, or it was made from another binary
+     * @throws UnsupportedBuildException if the folder has no mapping for the version or it was made from another binary
      * @throws MemoryException           if the process cannot be opened
      */
-    public static KrakenApi attach(long pid, Path exe, Path mappingsDir) throws IOException {
+    public static GameSession attach(long pid, Path exe, Path mappingsDir) throws IOException {
         return attach(pid, exe, mappingsDir, new EventBus());
     }
 
@@ -133,10 +133,10 @@ public final class KrakenApi implements AutoCloseable {
      * @param eventBus    the bus to post the game events on
      * @return the attached API; {@link #start} its poll loop to get events
      * @throws IOException               if the exe or the mapping can't be read
-     * @throws UnsupportedBuildException if the folder has no mapping for the version, or it was made from another binary
+     * @throws UnsupportedBuildException if the folder has no mapping for the version or it was made from another binary
      * @throws MemoryException           if the process cannot be opened
      */
-    public static KrakenApi attach(long pid, Path exe, Path mappingsDir, EventBus eventBus) throws IOException {
+    public static GameSession attach(long pid, Path exe, Path mappingsDir, EventBus eventBus) throws IOException {
         ClientBuild build = ClientBuild.of(exe);
         Path file = mappingsDir.resolve(build.version() + ".json");
         if (!Files.isRegularFile(file)) {
@@ -145,7 +145,7 @@ public final class KrakenApi implements AutoCloseable {
         return attach(pid, build, Mapping.load(file), file.getFileName().toString(), eventBus);
     }
 
-    private static KrakenApi attach(long pid, ClientBuild build, Mapping mapping, String name, EventBus eventBus) {
+    private static GameSession attach(long pid, ClientBuild build, Mapping mapping, String name, EventBus eventBus) {
         if (!mapping.sha256().equalsIgnoreCase(build.sha256())) {
             throw new UnsupportedBuildException(build, name + " was made from a different binary (sha256 "
                     + mapping.sha256().substring(0, 16) + "); re-run the updater for this one");
@@ -153,11 +153,11 @@ public final class KrakenApi implements AutoCloseable {
         ProcessMemory memory = ProcessMemory.attach((int) pid, MODULE);
         log.info("Attached to " + MODULE + " pid " + pid + " (client " + build.version() + ", base 0x"
                 + Long.toHexString(memory.moduleBase()) + ")");
-        return new KrakenApi(memory, mapping, eventBus);
+        return new GameSession(memory, mapping, eventBus);
     }
 
     /**
-     * The game client, as RuneLite's {@code Client} presents it.
+     * The game client.
      *
      * @return the client for this process
      */
@@ -189,7 +189,7 @@ public final class KrakenApi implements AutoCloseable {
 
     /**
      * Runs a task on the client thread, now if called on it, else at the next poll, and again at each poll until it
-     * returns true, as RuneLite's {@code ClientThread.invoke(BooleanSupplier)}.
+     * returns true.
      *
      * @param task the task; false asks to run it again at the next poll
      */

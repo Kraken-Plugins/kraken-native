@@ -3,9 +3,8 @@ package com.kraken.api;
 import lombok.Getter;
 
 /**
- * A skill, with RuneLite's names and order. The ordinal is the client's stat id, the index the skill arrays on
- * {@link Client} use (Lua's {@code ClientState.Stats}, with Lua's {@code SKILL_RUNECRAFTING} named {@link #RUNECRAFT}
- * as in RuneLite).
+ * A skill. The ordinal is the client's stat id, the index the skill arrays on {@link Client} use (Lua's
+ * {@code ClientState.Stats}, with Lua's {@code SKILL_RUNECRAFTING} named {@link #RUNECRAFT}).
  */
 public enum Skill {
     ATTACK("Attack"),

@@ -16,16 +16,14 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
 /**
- * Lays out and draws one frame of overlays into a graphics in canvas pixels, the part of RuneLite's
- * {@code OverlayRenderer} that doesn't depend on where the frame goes. Layers draw in order; within a layer, overlays
- * draw in {@link OverlayManager#OVERLAY_COMPARATOR} order. Dynamic overlays draw over the whole canvas; anchored ones are
- * placed at their corner by the size they last drew at and move the corner on for the next, as RuneLite places them.
- * Unlike RuneLite, an overlay that skipped frames (drew nothing) is placed by its last real size when it comes back,
- * rather than for one frame as if it had no size.
+ * Lays out and draws one frame of overlays into a graphics in canvas pixels. Layers draw in order; within a layer,
+ * overlays draw in {@link OverlayManager#OVERLAY_COMPARATOR} order. Dynamic overlays draw over the whole canvas;
+ * anchored ones are placed at their corner by the size they last drew at, and move the corner on for the next. An
+ * overlay that skipped frames (drew nothing) is placed by its last real size when it comes back, rather than for one
+ * frame as if it had no size.
  *
- * <p>Differs from RuneLite: the anchors stack across layers (RuneLite starts each layer from bare corners, so two
- * layers' overlays at one corner overlap). Kraken draws every layer over the interfaces, where overlapping would hide
- * one of them.
+ * <p>Anchors stack across layers: overlays from different layers at one corner are stacked, not overlapped. Every
+ * layer is drawn over the game's interfaces, where overlapping would hide one of them.
  *
  * <p>Each overlay draws on its own copy of the graphics, clipped to the canvas, so one can't leave a transform or
  * colour behind for the next. An overlay that throws is logged once (until it draws again) and skipped.

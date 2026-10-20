@@ -1,7 +1,7 @@
 package com.kraken.api.widgets;
 
 /**
- * Packing and unpacking component ids, as RuneLite's {@code WidgetUtil}. A component id is
+ * Packing and unpacking component ids. A component id is
  * {@code interface << 16 | child}, the same packing the native client keys its components with.
  */
 public final class WidgetUtil {

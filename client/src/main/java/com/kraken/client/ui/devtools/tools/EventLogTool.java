@@ -1,7 +1,7 @@
 package com.kraken.client.ui.devtools.tools;
 
 import com.kraken.api.Client;
-import com.kraken.api.KrakenApi;
+import com.kraken.api.GameSession;
 import com.kraken.api.actor.Actor;
 import com.kraken.api.actor.NPC;
 import com.kraken.api.actor.Player;
@@ -92,7 +92,7 @@ final class EventLogTool extends DevTool<List<String>> {
      * Each kind's subscriptions, by kind name. Written on the poll thread (and on stop, under the lock).
      */
     private final Map<String, List<Subscriber>> subscriptions = new HashMap<>();
-    private KrakenApi api;
+    private GameSession session;
 
     EventLogTool() {
         super("events", "Event log", Category.DIAGNOSTICS, MaterialDesignL.LIGHTNING_BOLT_OUTLINE,
@@ -106,24 +106,24 @@ final class EventLogTool extends DevTool<List<String>> {
     }
 
     @Override
-    protected synchronized void onStart(KrakenApi api) {
-        this.api = api;
+    protected synchronized void onStart(GameSession session) {
+        this.session = session;
     }
 
     @Override
     protected synchronized void onStop() {
-        if (api != null) {
+        if (session != null) {
             for (List<Subscriber> held : subscriptions.values()) {
                 drop(held);
             }
         }
         subscriptions.clear();
-        api = null;
+        session = null;
         pending.clear();
     }
 
     @Override
-    protected List<String> read(KrakenApi api) {
+    protected List<String> read(GameSession session) {
         syncSubscriptions();
         if (pending.isEmpty()) {
             return null;
@@ -144,7 +144,7 @@ final class EventLogTool extends DevTool<List<String>> {
      * Subscribes each kind of event while one of its options is on, and drops it once they're all off. Poll thread.
      */
     private synchronized void syncSubscriptions() {
-        if (api == null) {
+        if (session == null) {
             return;
         }
         keep(GAME_STATE, gameState.isOn(), this::subscribeGameState);
@@ -215,7 +215,7 @@ final class EventLogTool extends DevTool<List<String>> {
      * Subscribes to the four object spawn and despawn events, through the two interfaces they share.
      */
     private void subscribeObjects() {
-        Client client = api.client();
+        Client client = session.client();
         on(OBJECTS, TileObjectSpawned.class, e ->
                 add(e.getClass().getSimpleName() + "  " + object(client, e.getTileObject())));
         on(OBJECTS, TileObjectDespawned.class, e ->
@@ -279,7 +279,7 @@ final class EventLogTool extends DevTool<List<String>> {
     }
 
     private void subscribeTicks() {
-        Client client = api.client();
+        Client client = session.client();
         on(TICKS, GameTick.class, e -> {
             if (ticks.isOn()) {
                 add("GameTick  " + client.getTickCount());
@@ -288,7 +288,7 @@ final class EventLogTool extends DevTool<List<String>> {
     }
 
     private void subscribeResize() {
-        Client client = api.client();
+        Client client = session.client();
         on(RESIZE, CanvasSizeChanged.class, e -> {
             if (resize.isOn()) {
                 add("CanvasSizeChanged  client " + client.getCanvasWidth() + " x " + client.getCanvasHeight()
@@ -306,7 +306,7 @@ final class EventLogTool extends DevTool<List<String>> {
      * @param <T>     the event type
      */
     private <T> void on(String kind, Class<T> type, Consumer<T> handler) {
-        subscriptions.get(kind).add(api.eventBus().register(type, handler, 0f));
+        subscriptions.get(kind).add(session.eventBus().register(type, handler, 0f));
     }
 
     /**
@@ -315,7 +315,7 @@ final class EventLogTool extends DevTool<List<String>> {
      * @param held the subscriptions; emptied
      */
     private void drop(List<Subscriber> held) {
-        held.forEach(api.eventBus()::unregister);
+        held.forEach(session.eventBus()::unregister);
         held.clear();
     }
 

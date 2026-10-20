@@ -5,12 +5,11 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 
 /**
- * An inventory (backpack, worn equipment, bank, a shop…), as RuneLite's {@code ItemContainer}. Get one from
- * {@link Client#getItemContainer}.
+ * An inventory (backpack, worn equipment, bank, a shop…). Get one from {@link Client#getItemContainer}.
  *
- * <p>Unlike RuneLite's, this is a snapshot: the slots as they were when the client's inventory table was read. It
- * doesn't change afterwards, so fetch the container again (each tick, say) to see changes. Two snapshots with the same
- * slots are equal.
+ * <p>This is a snapshot: the slots as they were when the client's inventory table was read. It doesn't change
+ * afterwards, so fetch the container again (each tick, say) to see changes. Two snapshots with the same slots are
+ * equal.
  */
 @EqualsAndHashCode
 public final class ItemContainer {

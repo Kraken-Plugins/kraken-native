@@ -1,9 +1,9 @@
 package com.kraken.api.widgets;
 
 /**
- * How a widget's x or y is measured, as RuneLite's {@code WidgetPositionMode}: the values
- * {@link Widget#getXPositionMode()} and {@link Widget#getYPositionMode()} return. They are the cache's own values,
- * the same in the native client (Lua's {@code AlignMode}).
+ * How a widget's x or y is measured: the values {@link Widget#getXPositionMode()} and
+ * {@link Widget#getYPositionMode()} return. They are the cache's own values, the same in the native client (Lua's
+ * {@code AlignMode}).
  */
 public final class WidgetPositionMode {
 

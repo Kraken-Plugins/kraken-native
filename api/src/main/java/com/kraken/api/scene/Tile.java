@@ -17,7 +17,7 @@ import static com.kraken.api.Perspective.LOCAL_COORD_BITS;
 import static com.kraken.api.Perspective.LOCAL_HALF_TILE_SIZE;
 
 /**
- * One tile of a scene, as RuneLite's {@code Tile}: what stands on it, and where it is.
+ * One tile of a scene: what stands on it, and where it is.
  *
  * <p>A handle on a scene position, made for the scene as it was when the handle was made (its map base). The object
  * and item getters read the game each call, listing the one tile, after checking the map base is still the one the
@@ -33,7 +33,7 @@ public final class Tile {
 
     /**
      * The plane (scene level) the tile is on. Under a bridge, the client draws the tile one level lower
-     * ({@link #getRenderLevel()}); this is the tile's own level, as RuneLite's.
+     * ({@link #getRenderLevel()}); this is the tile's own level.
      */
     @Getter
     @EqualsAndHashCode.Include
@@ -114,7 +114,7 @@ public final class Tile {
 
     /**
      * The level the client draws the tile on: one lower than {@link #getPlane()} under a bridge (the level-1 tile's
-     * bridge setting is set), as RuneLite's. Lua's {@code ClientOp.locCoord} reports this level. Read now.
+     * bridge setting is set). Lua's {@code ClientOp.locCoord} reports this level. Read now.
      *
      * @return the render level, 0-3; {@link #getPlane()} if the scene has reloaded or the settings can't be read
      */
@@ -154,9 +154,8 @@ public final class Tile {
     }
 
     /**
-     * The game objects whose south-west tile this is. Differs from RuneLite's in two ways: an object bigger than a
-     * tile is only listed on its south-west tile (RuneLite lists it on every tile it covers), and the array holds just
-     * the objects, without RuneLite's empty (null) slots.
+     * The game objects whose south-west tile this is. An object bigger than a tile is only listed on its south-west
+     * tile, and the array holds just the objects, with no empty (null) slots.
      *
      * @return the game objects, empty if there are none
      */
@@ -173,7 +172,7 @@ public final class Tile {
     /**
      * The items lying on the tile, as new handles each call (they aren't the handles the item spawn events carry).
      *
-     * @return the items in pile order; empty rather than RuneLite's null when there are none
+     * @return the items in pile order; empty if there are none
      */
     public List<TileItem> getGroundItems() {
         if (!sameScene()) {

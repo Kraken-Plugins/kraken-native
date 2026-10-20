@@ -1,7 +1,7 @@
 package com.kraken.client.ui.devtools.tools;
 
 import com.kraken.api.Client;
-import com.kraken.api.KrakenApi;
+import com.kraken.api.GameSession;
 import com.kraken.api.definition.VarbitComposition;
 import com.kraken.api.eventbus.EventBus;
 import com.kraken.api.eventbus.Subscriber;
@@ -26,10 +26,10 @@ import java.util.TreeSet;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
- * A log of var changes as they happen, like RuneLite's var inspector. Varps and varbits come from {@link VarbitChanged}
- * events on the bus (a varp's own event after the varbits on it, each with the varbit's new value; the varp's old
- * value is kept from its last event). Varcs have no event, so they're compared each refresh. Flip a setting in game
- * (run, auto-retaliate...) to see its varp and varbits change.
+ * A log of var changes as they happen. Varps and varbits come from {@link VarbitChanged} events on the bus (a varp's
+ * own event after the varbits on it, each with the varbit's new value; the varp's old value is kept from its last
+ * event). Varcs have no event, so they're compared each refresh. Flip a setting in game (run, auto-retaliate...) to
+ * see its varp and varbits change.
  */
 final class VarInspectorTool extends DevTool<List<String>> {
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
@@ -68,13 +68,13 @@ final class VarInspectorTool extends DevTool<List<String>> {
     }
 
     @Override
-    protected void onStart(KrakenApi api) {
-        client = api.client();
-        bus = api.eventBus();
+    protected void onStart(GameSession session) {
+        client = session.client();
+        bus = session.eventBus();
         lastVarps = client.getVarps();
         lastIntVarcs = null;
         lastStringVarcs = null;
-        // The client posts a varp's varbits before the varp itself, so lastVarps still holds the old varp values for them
+        // The client posts a varp's varbits before the varp, so lastVarps still holds the old varp values for them
         subscription = bus.register(VarbitChanged.class, this::varChanged, 0f);
         boolean hasVarcs = !client.getVarcMap().isEmpty();
         add(hasVarcs ? "Watching " + lastVarps.length + " varps, their varbits and the varcs"
@@ -91,8 +91,8 @@ final class VarInspectorTool extends DevTool<List<String>> {
     }
 
     @Override
-    protected List<String> read(KrakenApi api) {
-        diffVarcs(api.client());
+    protected List<String> read(GameSession session) {
+        diffVarcs(session.client());
         if (pending.isEmpty()) {
             return null;
         }

@@ -1,7 +1,7 @@
 package com.kraken.client.ui.overlay.components;
 
 /**
- * Which way a {@link PanelComponent} lays its children out, as RuneLite's {@code ComponentOrientation}.
+ * Which way a {@link PanelComponent} lays its children out.
  */
 public enum ComponentOrientation {
 

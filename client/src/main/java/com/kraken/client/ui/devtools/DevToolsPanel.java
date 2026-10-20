@@ -23,8 +23,8 @@ import javax.swing.event.DocumentListener;
 import static com.formdev.flatlaf.FlatClientProperties.*;
 
 /**
- * The "Dev Tools" sidebar page: every dev tool grouped into collapsible sections with a filter. Each tool has an eye toggle (draw it over the game) and a window button (open its popout);
- * the {@link DevToolManager} does the work.
+ * The "Dev Tools" sidebar page: every dev tool grouped into collapsible sections with a filter. Each tool has an eye
+ * toggle (draw it over the game) and a window button (open its popout); the {@link DevToolManager} does the work.
  */
 @Singleton
 public final class DevToolsPanel extends JPanel {

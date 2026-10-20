@@ -7,8 +7,8 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * The unit shown after a numeric {@link ConfigItem}'s value on the settings page, as RuneLite's {@code @Units}. Use
- * one of the constants, or any suffix.
+ * The unit shown after a numeric {@link ConfigItem}'s value on the settings page. Use one of the constants, or any
+ * suffix.
  */
 @Documented
 @Retention(RetentionPolicy.RUNTIME)

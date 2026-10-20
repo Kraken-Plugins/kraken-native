@@ -167,6 +167,13 @@ The API is built in sections you can test live with the dev tools. The milestone
 * **A3** Orientation, hitsplats, overhead text, appearance, chat and other remaining surface.
 * **A4** An in-process backend, injected into the client, for tick hooks, native events and actions.
 
+## Acknowledgements
+
+The API and client are modelled on [RuneLite](https://github.com/runelite/runelite). The API's classes, method names
+and events, and the client's plugin, config and overlay systems, follow RuneLite's so that writing a plugin feels the
+same. `com.kraken.api.gameval` is generated from RuneLite's gameval constants and keeps their BSD 2-Clause license
+notice. Thanks to the RuneLite developers.
+
 ## License
 
 Kraken Native is licensed under the [GNU General Public License v3.0](LICENSE).

@@ -1,8 +1,8 @@
 package com.kraken.api.internal;
 
 /**
- * A scene tile as the readers return it: {@code level} is the plane (0-3) and {@code x}/{@code z} are tile coordinates
- * ({@code z} points north; RuneLite calls this axis y).
+ * A scene tile as the readers return it: {@code level} is the plane (0-3) and {@code x}/{@code z} are tile coordinates,
+ * with {@code z} pointing north.
  *
  * <p>Like the client's, these are <em>scene</em> tiles: relative to the loaded map's base, which the client subtracts
  * from the server's world coordinates when it places an actor (a normal scene is 104×104 tiles). The public API turns

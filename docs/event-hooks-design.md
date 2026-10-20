@@ -158,7 +158,7 @@ scene rebuild replaying the zone; hooking the functions catches both paths.
  osclient.exe (game thread)                      kraken_hook.dll                     Kraken client (JVM)
  ───────────────────────────                     ───────────────                     ───────────────────
  raiser entry ─► detour[k] ──capture plan──► ring buffer ──► writer thread ──socket──► NativeEventServer (reader thread)
-   (id, RCX..R9, derefs)       ~1 µs                                                      │ KrakenApi.invoke(...)
+   (id, RCX..R9, derefs)       ~1 µs                                                      │ GameSession.invoke(...)
                                                                                           ▼
                                                                           EventSource.onNative(event)  (poll thread)
                                                                             drives the trackers ─► EventBus ─► plugins
@@ -198,16 +198,18 @@ In `client/.../callback`, the server socket, injection and reader thread move fr
 - Builds the slot table from the mapping: every event in `NativeEvents` (below) that the mapping has hooks for, plus
   `clientCycle` and `setGameState`. Logs each event it could not hook (older mapping, no raise site) and goes on.
 - The reader thread parses messages into a `NativeEvent(name, id, long[] regs, Map<Integer, Object> values, seq)`
-  and hands each one to the API on the client thread with `KrakenApi.invoke`, which runs it at the start of the
-  next poll iteration (≤ 20 ms away, before `EventSource.poll()`), or to a new `KrakenApi.pushNative` that wakes the
+  and hands each one to the API on the client thread with `GameSession.invoke`, which runs it at the start of the
+  next poll iteration (≤ 20 ms away, before `EventSource.poll()`), or to a new `GameSession.pushNative` that wakes the
   poll loop immediately (§4.4). Nothing is posted from the hook thread.
 - `NativeEvents` is the Java-side catalogue of payload shapes by event name: for `ON_NPC_LOAD`
   `{R8: I32}`, for `ON_LOC_LOAD` `{RDX: I32, R8: CSTR, R9: I32}`, for `ON_VARBIT_UPDATE` `{RDX: I32x2, R8: I32}`,
   for `ON_GAME_STATE_CHANGED` `{RDX: I32}`, for `setGameState` `{RDX: RAW}` and `{RCX: RAW}`, none for the rest.
   This is the one place the Lua event contract is written down in code.
 
-The old `onTick` listeners survive as `NativeEventServer.onEvent(String name, Consumer<NativeEvent>)` for dev
-tools; the `GameLauncher` log line becomes an `ON_GAME_TICK` subscription.
+The proof of concept's `onTick` listener and the `GameLauncher` log line go away. `NativeEventServer` keeps one
+read-only tap, `onEvent(String name, Consumer<NativeEvent>)`, so the Event log dev tool can show raw native messages;
+it is diagnostic and nothing is delivered through it. Plugins only ever see `com.kraken.api.events` classes on the
+`EventBus`, posted by `EventSource` (§4.3, §4.6).
 
 ### 4.3 The API seam: hooks drive `EventSource`, they do not replace it
 
@@ -248,9 +250,9 @@ usual order with the queued triggers applied, so a tick arriving together with N
 - The detour runs on the game thread for about a microsecond (capture + ring push). The socket write is on the
   DLL's writer thread.
 - The Java reader thread does nothing but parse and enqueue.
-- Dispatch is on `kraken-api-poll`, the client thread. With `KrakenApi.invoke` the worst case is one 20 ms sleep.
+- Dispatch is on `kraken-api-poll`, the client thread. With `GameSession.invoke` the worst case is one 20 ms sleep.
   To get rid of that, the poll loop's `Thread.sleep` becomes a wait on a condition the native queue signals
-  (`pushNative`), bounded by the poll interval. That is a small change to `KrakenApi.pollLoop` and is the second
+  (`pushNative`), bounded by the poll interval. That is a small change to `GameSession.pollLoop` and is the second
   step, not the first.
 - Everything else (handlers, overlays, tasks) already runs on the client thread and does not change.
 
@@ -263,6 +265,50 @@ usual order with the queued triggers applied, so a tick arriving together with N
   and forwards to the trampoline unconditionally.
 - If any hook fails to install, the DLL reports which (a status message after the handshake) and Java falls back to
   polling for those events.
+
+### 4.6 From a raise to a plugin: who knows what
+
+The DLL cannot build a Java object and should not try: the object model (pinned actor handles, compositions,
+coordinate conversion) lives in the API. So the split is **the DLL sends "which", the API builds "what"**. The DLL
+captures an identifier at the moment of the raise; the API turns it into the same object a poll would hand out, by
+reading memory with the readers it already has.
+
+The path is the same for every event:
+
+1. The client calls a raiser. The detour captures the argument registers, runs the event's capture plan (dereferencing
+   stack arguments now, before they die) and queues a message.
+2. The DLL's writer thread sends it over the socket.
+3. `NativeEventServer`'s reader thread parses a `NativeEvent` and hands it to the client thread with
+   `GameSession.invoke`.
+4. `EventSource.onNative` routes it to the tracker for that event. The tracker reads the game object from memory and
+   posts the RuneLite event with it on the `EventBus`.
+5. Plugins receive it through `@Subscribe`, as they do from the poll path today.
+
+Worked example, `NpcSpawned`: the client adds an NPC and calls the NPC raiser with `ECX = ON_NPC_LOAD`, `RDX` at the
+NPC's name and `R8` at an int on the stack (type id high 16 bits, slot low 16, to confirm). The detour reads that int
+now and sends `{id 42, [int]}`. On the client thread the NPC tracker takes the slot from the low bits, calls
+`client.npc(slot)`, gets the pinned `NPC` handle, and posts `NpcSpawned` carrying it. If the live check shows the slot
+is elsewhere, the fallback is the same tracker doing a targeted diff of the NPC array at that moment: still the full
+object, at the same time, with a slightly bigger read. That is why the trackers stay: the hook decides *when* and
+narrows *where*; the tracker still produces the object.
+
+| Event | Identifier from the DLL | What the API reads to build the payload |
+|---|---|---|
+| `NpcSpawned` / `NpcDespawned` | slot (int behind R8) | `client.npc(slot)`; a despawn posts the handle the tracker already holds |
+| `PlayerSpawned` / `PlayerDespawned` | index (R8D); after `playerAdd` returns, the `Player*` is in the out pair | `client.player(index)`; a despawn posts the held handle |
+| `GameObjectSpawned` and the other loc events | packed coord behind RDX, loc name behind R8 | the `Tile` at that coord, diffed against the tracker's last read |
+| `ItemSpawned` / `ItemDespawned` / `ItemQuantityChanged` | tile x, z (R8D, R9D) | that tile's pile; the tracker's remembered `TileItem`s give the despawn and the old quantity |
+| `ProjectileSpawned` / `ProjectileMoved` | the `Projectile*` (RCX of the constructor, post-hook) | the projectile at that address |
+| `GameStateChanged` | new state (EDX of `setGameState`), or the trigger behind RDX | the state, plus the tracker's previous state |
+| `VarbitChanged`, `StatChanged`, `ItemContainerChanged` | none (the transmit raisers carry no arguments) | vars, stats or containers re-read now and diffed; the diff supplies old and new values |
+| `InteractingChanged` | none (post-hook on the info decoders) | targets diffed right after the packet was applied |
+| `GameTick`, `ClientTick`, `CanvasSizeChanged` | none | the tick poll, the cycle, a size compare |
+
+Two timing rules make the reads safe. Spawn-type hooks are post-hooks, so the object is fully written before Java
+reads it. Despawn-type hooks are pre-hooks, and although Java reads a few milliseconds later it never has to: the
+tracker posts the handle or `TileItem` it already holds, which keeps its last known values once the client drops the
+object. The DLL never copies whole objects: its job is a dozen bytes per event, and the readers in
+`com.kraken.api.internal` already know every offset from the mapping.
 
 ## 5. Milestones
 

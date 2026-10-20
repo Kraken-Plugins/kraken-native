@@ -1,8 +1,8 @@
 package com.kraken.api;
 
 /**
- * The XP table, as RuneLite's {@code Experience}. Lua's {@code ClientState.getStatRemainingXPUntilLevel(stat, level)}
- * is {@code getXpForLevel(level) - client.getSkillExperience(skill)}.
+ * The XP table. Lua's {@code ClientState.getStatRemainingXPUntilLevel(stat, level)} is
+ * {@code getXpForLevel(level) - client.getSkillExperience(skill)}.
  */
 public final class Experience {
 

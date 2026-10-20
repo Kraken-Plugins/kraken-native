@@ -6,8 +6,8 @@ import com.kraken.api.scene.TileObject;
 import lombok.Data;
 
 /**
- * A floor decoration went from a tile, as RuneLite's {@code GroundObjectDespawned}. Not posted for the objects of a
- * scene the client unloads: plugins clear on {@code GameStateChanged(LOADING)}.
+ * A floor decoration went from a tile. Not posted for the objects of a scene the client unloads: plugins clear on
+ * {@code GameStateChanged(LOADING)}.
  */
 @Data
 public class GroundObjectDespawned implements TileObjectDespawned {

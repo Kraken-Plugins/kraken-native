@@ -9,11 +9,11 @@ import java.awt.Point;
 import java.awt.Rectangle;
 
 /**
- * Something a plugin draws over the game, as RuneLite's {@code Overlay}. Subclass it, implement {@link #render}, and
- * add it to the {@link OverlayManager} (usually in {@code startUp}; remove it in {@code shutDown}).
+ * Something a plugin draws over the game. Subclass it, implement {@link #render}, and add it to the
+ * {@link OverlayManager} (usually in {@code startUp}; remove it in {@code shutDown}).
  *
  * <p>{@link #render} runs on the client thread, the thread game events and {@code ClientThread} tasks run on, so
- * plugin state shared between them needs no locking, as in RuneLite. It draws in the client's canvas pixels, the units
+ * plugin state shared between them needs no locking. It draws in the client's canvas pixels, the units
  * {@code Perspective} and {@code Actor.getCanvasTilePoly} return, so their results draw as they are.
  *
  * <p>Left out, because the overlay window is click-through and the game owns the mouse: dragging, resizing, snapping,
@@ -66,8 +66,8 @@ public abstract class Overlay implements LayoutableRenderableEntity {
     private volatile OverlayPosition position = OverlayPosition.TOP_LEFT;
 
     /**
-     * An anchor to use instead of {@link #getPosition()}, or null. RuneLite sets it when the user snaps an overlay to
-     * another corner; in Kraken only code sets it.
+     * An anchor to use instead of {@link #getPosition()}, or null. Only code sets it; overlays can't be snapped to a
+     * corner by the user.
      */
     @Getter
     @Setter
@@ -75,7 +75,7 @@ public abstract class Overlay implements LayoutableRenderableEntity {
 
     /**
      * Where to draw a non-{@link OverlayPosition#DYNAMIC} overlay instead of at its anchor (its top-left corner in
-     * canvas pixels), or null. Used unless {@link #getPreferredPosition()} is set, as in RuneLite.
+     * canvas pixels), or null. Used unless {@link #getPreferredPosition()} is set.
      */
     @Getter
     @Setter

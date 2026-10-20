@@ -23,9 +23,9 @@ import javax.swing.*;
 import static com.formdev.flatlaf.FlatClientProperties.TITLE_BAR_SHOW_TITLE;
 
 /**
- * RuneLite-style main window: the game with the sidebar on its right, and the log console docked underneath. Closing
- * it closes Kraken through the {@link ExitHandler}. The Settings page is built from {@link KrakenConfig}, and the
- * window follows its settings as they change.
+ * The main window: the game with the sidebar on its right, and the log console docked underneath. Closing it closes
+ * Kraken through the {@link ExitHandler}. The Settings page is built from {@link KrakenConfig}, and the window follows
+ * its settings as they change.
  */
 @Singleton
 public final class KrakenFrame extends JFrame {

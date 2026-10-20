@@ -129,7 +129,7 @@ class SceneTest {
     }
 
     @Test
-    void objectsAreValuesWithRuneLitesHashLayout() {
+    void objectsAreValuesWithAPackedHashLayout() {
         WallObject door = scene.getTile(0, 1, 1).getWallObject();
         assertEquals(door, scene.getTile(0, 1, 1).getWallObject());
         Set<TileObject> seen = new HashSet<>(List.of(door));

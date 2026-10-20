@@ -11,19 +11,18 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * An interface component, as RuneLite's {@code Widget}. Get one from {@link Client#getWidget(int)}. A static widget is
- * designed in the cache and has a fixed id ({@link WidgetUtil#packComponentId}); a dynamic one is made by a script at
- * run time under a static widget (its root), and is told apart by its {@link #getIndex() index}.
+ * An interface component. Get one from {@link Client#getWidget(int)}. A static widget is designed in the cache and has
+ * a fixed id ({@link WidgetUtil#packComponentId}); a dynamic one is made by a script at run time under a static widget
+ * (its root), and is told apart by its {@link #getIndex() index}.
  *
- * <p>Unlike RuneLite's, a widget is a snapshot: its fields are read once, in one block, when it is fetched, so ask the
- * client for it again for fresh values. The getters that follow links ({@link #getParent()}, the children,
- * {@link #isHidden()}, {@link #getCanvasLocation()}, {@link #getBounds()} and the group getters) read the game when
- * called. RuneLite plugins fetch widgets where they use them, so this rarely shows. A field this build's mapping lacks
- * reads -1, false or "".
+ * <p>A widget is a snapshot: its fields are read once, in one block, when it is fetched, so ask the client for it
+ * again for fresh values. The getters that follow links ({@link #getParent()}, the children, {@link #isHidden()},
+ * {@link #getCanvasLocation()}, {@link #getBounds()} and the group getters) read the game when called. A field this
+ * build's mapping lacks reads -1, false or "".
  *
- * <p>Positions and sizes are in canvas pixels, the units of {@link Client#getCanvasWidth()}. The setters, listeners
- * and script hooks of RuneLite's widget aren't there: the API only reads. Kraken extras expose the rest of the native
- * component's fields, which Lua's {@code IfType} names.
+ * <p>Positions and sizes are in canvas pixels, the units of {@link Client#getCanvasWidth()}. The API only reads, so
+ * there are no setters, listeners or script hooks. The rest of the native component's fields, which Lua's
+ * {@code IfType} names, have getters too.
  *
  * <p>Two widgets over the same native component are equal.
  */
@@ -60,7 +59,7 @@ public final class Widget {
     }
 
     /**
-     * The widget's id: {@code group << 16 | component}. A dynamic widget has its static parent's id, as in RuneLite.
+     * The widget's id: {@code group << 16 | component}. A dynamic widget has its static parent's id.
      *
      * @return the packed component id
      */
@@ -78,8 +77,8 @@ public final class Widget {
     }
 
     /**
-     * The widget's parent, read now. A group's top-level widgets have none: Kraken doesn't read which component a
-     * group is opened in, where RuneLite returns that component.
+     * The widget's parent, read now. A group's top-level widgets have none, since the API doesn't read which component
+     * a group is opened in.
      *
      * @return the parent, or null for a group's top-level widget
      */
@@ -90,15 +89,14 @@ public final class Widget {
     /**
      * The id of the widget's parent.
      *
-     * @return the parent's packed id (a dynamic widget's static parent's); -1 for a group's top-level widget, where
-     *         RuneLite returns the id of the component the group is opened in
+     * @return the parent's packed id (a dynamic widget's static parent's); -1 for a group's top-level widget
      */
     public int getParentId() {
         return getLayerId();
     }
 
     /**
-     * The static root of a dynamic widget, read now. Kraken extra, mirrors Lua {@code IfType.staticParent}.
+     * The static root of a dynamic widget, read now. Mirrors Lua {@code IfType.staticParent}.
      *
      * @return the static root; a fresh read of this widget if it is static; null if it can't be read
      */
@@ -119,10 +117,10 @@ public final class Widget {
 
     /**
      * The dynamic children, read now: the widgets a script created directly under this one. Each is at its
-     * {@link #getIndex()}, with null where there is no child, as in RuneLite. Reads every child, so on a big container
-     * (the bank) prefer {@link #getChild(int)} for a few.
+     * {@link #getIndex()}, with null where there is no child. Reads every child, so on a big container (the bank)
+     * prefer {@link #getChild(int)} for a few.
      *
-     * @return the children by index; empty rather than RuneLite's null when there are none
+     * @return the children by index; empty when there are none
      */
     public Widget[] getChildren() {
         List<Widget> children = reader.children(this);
@@ -182,7 +180,7 @@ public final class Widget {
     }
 
     /**
-     * Whether this is a static widget, designed in the cache. Kraken extra, mirrors Lua {@code IfType.isStatic}.
+     * Whether this is a static widget, designed in the cache. Mirrors Lua {@code IfType.isStatic}.
      *
      * @return true if {@link #getIndex()} is negative
      */
@@ -191,8 +189,8 @@ public final class Widget {
     }
 
     /**
-     * Whether the widget is hidden: by its own flag or a parent's, or because its group isn't open, as RuneLite works
-     * it out. Reads up the parent chain.
+     * Whether the widget is hidden: by its own flag or a parent's, or because its group isn't open. Reads up the parent
+     * chain.
      *
      * @return true if the client won't draw it
      */
@@ -231,7 +229,7 @@ public final class Widget {
     }
 
     /**
-     * The widget's secondary text. Kraken extra, mirrors Lua {@code IfType.text2}.
+     * The widget's secondary text. Mirrors Lua {@code IfType.text2}.
      *
      * @return the text, with markup; "" if none
      */
@@ -259,7 +257,7 @@ public final class Widget {
     }
 
     /**
-     * The widget's secondary colour. Kraken extra, mirrors Lua {@code IfType.colour2}.
+     * The widget's secondary colour. Mirrors Lua {@code IfType.colour2}.
      *
      * @return the colour as {@code 0xRRGGBB}; -1 if this build's mapping lacks it
      */
@@ -268,7 +266,7 @@ public final class Widget {
     }
 
     /**
-     * The widget's colour while the mouse is over it. Kraken extra, mirrors Lua {@code IfType.colourOver}.
+     * The widget's colour while the mouse is over it. Mirrors Lua {@code IfType.colourOver}.
      *
      * @return the colour as {@code 0xRRGGBB}; -1 if this build's mapping lacks it
      */
@@ -277,7 +275,7 @@ public final class Widget {
     }
 
     /**
-     * The colour of the text's shadow. Kraken extra, mirrors Lua {@code IfType.shadowColour}.
+     * The colour of the text's shadow. Mirrors Lua {@code IfType.shadowColour}.
      *
      * @return the colour as {@code 0xRRGGBB}; -1 if this build's mapping lacks it
      */
@@ -304,7 +302,7 @@ public final class Widget {
     }
 
     /**
-     * How a shape blends with what is under it. Kraken extra, mirrors Lua {@code IfType.blendMode}.
+     * How a shape blends with what is under it. Mirrors Lua {@code IfType.blendMode}.
      *
      * @return the blend mode
      */
@@ -322,7 +320,7 @@ public final class Widget {
     }
 
     /**
-     * Whether a line runs from the bottom corner. Kraken extra, mirrors Lua {@code IfType.diagonalStartAtBottom}.
+     * Whether a line runs from the bottom corner. Mirrors Lua {@code IfType.diagonalStartAtBottom}.
      *
      * @return true if it does
      */
@@ -331,7 +329,7 @@ public final class Widget {
     }
 
     /**
-     * The start angle of an arc. Kraken extra, mirrors Lua {@code IfType.startAngle}.
+     * The start angle of an arc. Mirrors Lua {@code IfType.startAngle}.
      *
      * @return the angle
      */
@@ -340,7 +338,7 @@ public final class Widget {
     }
 
     /**
-     * The stop angle of an arc. Kraken extra, mirrors Lua {@code IfType.stopAngle}.
+     * The stop angle of an arc. Mirrors Lua {@code IfType.stopAngle}.
      *
      * @return the angle
      */
@@ -358,7 +356,7 @@ public final class Widget {
     }
 
     /**
-     * The widget's secondary sprite. Kraken extra, mirrors Lua {@code IfType.graphic2}.
+     * The widget's secondary sprite. Mirrors Lua {@code IfType.graphic2}.
      *
      * @return the sprite id, or -1 for none
      */
@@ -367,7 +365,7 @@ public final class Widget {
     }
 
     /**
-     * The URL the widget's sprite is loaded from. Kraken extra, mirrors Lua {@code IfType.graphicURL}.
+     * The URL the widget's sprite is loaded from. Mirrors Lua {@code IfType.graphicURL}.
      *
      * @return the URL, usually ""
      */
@@ -376,7 +374,7 @@ public final class Widget {
     }
 
     /**
-     * How far the sprite is turned. Kraken extra, mirrors Lua {@code IfType.rotate}.
+     * How far the sprite is turned. Mirrors Lua {@code IfType.rotate}.
      *
      * @return the rotation
      */
@@ -439,7 +437,7 @@ public final class Widget {
     }
 
     /**
-     * The widget's second model. Kraken extra, mirrors Lua {@code IfType.model2Id}.
+     * The widget's second model. Mirrors Lua {@code IfType.model2Id}.
      *
      * @return the model id, or -1 for none
      */
@@ -448,7 +446,7 @@ public final class Widget {
     }
 
     /**
-     * What {@link #getModelId2()} names. Kraken extra, mirrors Lua {@code IfType.model2Type}.
+     * What {@link #getModelId2()} names. Mirrors Lua {@code IfType.model2Type}.
      *
      * @return the model type
      */
@@ -466,7 +464,7 @@ public final class Widget {
     }
 
     /**
-     * The second model's animation. Kraken extra, mirrors Lua {@code IfType.modelAnim2}.
+     * The second model's animation. Mirrors Lua {@code IfType.modelAnim2}.
      *
      * @return the animation id, or -1
      */
@@ -475,7 +473,7 @@ public final class Widget {
     }
 
     /**
-     * The model's x offset. Kraken extra, mirrors Lua {@code IfType.modelXOf}.
+     * The model's x offset. Mirrors Lua {@code IfType.modelXOf}.
      *
      * @return the offset
      */
@@ -484,7 +482,7 @@ public final class Widget {
     }
 
     /**
-     * The model's y offset. Kraken extra, mirrors Lua {@code IfType.modelYOf}.
+     * The model's y offset. Mirrors Lua {@code IfType.modelYOf}.
      *
      * @return the offset
      */
@@ -529,7 +527,7 @@ public final class Widget {
     }
 
     /**
-     * The model's width. Kraken extra, mirrors Lua {@code IfType.modelWid}.
+     * The model's width. Mirrors Lua {@code IfType.modelWid}.
      *
      * @return the width
      */
@@ -538,7 +536,7 @@ public final class Widget {
     }
 
     /**
-     * The model's height. Kraken extra, mirrors Lua {@code IfType.modelHei}.
+     * The model's height. Mirrors Lua {@code IfType.modelHei}.
      *
      * @return the height
      */
@@ -547,7 +545,7 @@ public final class Widget {
     }
 
     /**
-     * How fast the model spins. Kraken extra, mirrors Lua {@code IfType.modelSpin}.
+     * How fast the model spins. Mirrors Lua {@code IfType.modelSpin}.
      *
      * @return the spin
      */
@@ -556,7 +554,7 @@ public final class Widget {
     }
 
     /**
-     * Whether the model is drawn orthographically. Kraken extra, mirrors Lua {@code IfType.orthog}.
+     * Whether the model is drawn orthographically. Mirrors Lua {@code IfType.orthog}.
      *
      * @return true if it is
      */
@@ -585,7 +583,7 @@ public final class Widget {
     /**
      * The widget's right-click actions (Lua's {@code IfType.opNames}).
      *
-     * @return the actions by slot, null for an empty slot; null if the widget has none, as in RuneLite
+     * @return the actions by slot, null for an empty slot; null if the widget has none
      */
     public String[] getActions() {
         List<String> ops = reader.opNames(i32("opCount"), i64("opNames"));
@@ -709,7 +707,7 @@ public final class Widget {
     }
 
     /**
-     * The widget's aspect ratio pair. Kraken extra, mirrors Lua {@code IfType.aspectRatio}.
+     * The widget's aspect ratio pair. Mirrors Lua {@code IfType.aspectRatio}.
      *
      * @return the pair as x and y, or null if this build's mapping lacks it
      */
@@ -791,7 +789,7 @@ public final class Widget {
 
     /**
      * Whether the client drew the widget in its latest frame when the widget was read: its draw stamp equals the
-     * client's frame counter. Kraken extra, mirrors Lua {@code IfType.isRendering}.
+     * client's frame counter. Mirrors Lua {@code IfType.isRendering}.
      *
      * @return true if it was drawn
      */
@@ -800,7 +798,7 @@ public final class Widget {
     }
 
     /**
-     * The label the widget's descriptor carries. Kraken extra, mirrors Lua {@code IfType.sourceName}.
+     * The label the widget's descriptor carries. Mirrors Lua {@code IfType.sourceName}.
      *
      * @return the label, usually ""
      */
@@ -809,8 +807,8 @@ public final class Widget {
     }
 
     /**
-     * The first index (or, for a static layer, component index) that may belong to this layer. Kraken extra, mirrors
-     * Lua {@code IfType.layerIdXMin}.
+     * The first index (or, for a static layer, component index) that may belong to this layer. Mirrors Lua
+     * {@code IfType.layerIdXMin}.
      *
      * @return the lowest child index
      */
@@ -819,7 +817,7 @@ public final class Widget {
     }
 
     /**
-     * The last index (or component index) that may belong to this layer. Kraken extra, mirrors Lua
+     * The last index (or component index) that may belong to this layer. Mirrors Lua
      * {@code IfType.layerIdXMax}.
      *
      * @return the highest child index
@@ -829,7 +827,7 @@ public final class Widget {
     }
 
     /**
-     * The widget's event field. Kraken extra, mirrors Lua {@code IfType.event}.
+     * The widget's event field. Mirrors Lua {@code IfType.event}.
      *
      * @return the event
      */
@@ -838,7 +836,7 @@ public final class Widget {
     }
 
     /**
-     * The widget's event code. Kraken extra, mirrors Lua {@code IfType.eventCode}.
+     * The widget's event code. Mirrors Lua {@code IfType.eventCode}.
      *
      * @return the event code
      */
@@ -847,7 +845,7 @@ public final class Widget {
     }
 
     /**
-     * Whether the widget belongs to the entity overlay system. Kraken extra, mirrors Lua
+     * Whether the widget belongs to the entity overlay system. Mirrors Lua
      * {@code IfType.isEntityOverlay}.
      *
      * @return true if it does
@@ -857,7 +855,7 @@ public final class Widget {
     }
 
     /**
-     * The last cycle the client processed the widget. Kraken extra, mirrors Lua {@code IfType.lastProcess}.
+     * The last cycle the client processed the widget. Mirrors Lua {@code IfType.lastProcess}.
      *
      * @return the cycle
      */
@@ -866,7 +864,7 @@ public final class Widget {
     }
 
     /**
-     * The widget's overlay type. Kraken extra, mirrors Lua {@code IfType.overlayType}.
+     * The widget's overlay type. Mirrors Lua {@code IfType.overlayType}.
      *
      * @return the overlay type
      */
@@ -875,7 +873,7 @@ public final class Widget {
     }
 
     /**
-     * The widget's overlay id. Kraken extra, mirrors Lua {@code IfType.overlayId}.
+     * The widget's overlay id. Mirrors Lua {@code IfType.overlayId}.
      *
      * @return the overlay id
      */
@@ -885,7 +883,7 @@ public final class Widget {
 
     /**
      * The clipping rectangle of the widget's group, as the client draws the group: nothing of the group shows outside
-     * it. Kraken extra, from Lua's {@code InterfaceCoordinates}, read now.
+     * it. Reads Lua's {@code InterfaceCoordinates} now.
      *
      * @return the rectangle in canvas pixels, or null if the group isn't open
      */
@@ -896,8 +894,7 @@ public final class Widget {
     }
 
     /**
-     * The offset the client draws every widget of this one's group at. Kraken extra, from Lua's
-     * {@code InterfaceCoordinates}, read now.
+     * The offset the client draws every widget of this one's group at. Reads Lua's {@code InterfaceCoordinates} now.
      *
      * @return the offset in canvas pixels, or null if the group isn't open
      */
@@ -907,8 +904,8 @@ public final class Widget {
     }
 
     /**
-     * The extra offset a Lua plugin gave this widget's group ({@code setRenderOffset}). Kraken extra, from Lua's
-     * {@code InterfaceCoordinates}, read now.
+     * The extra offset a Lua plugin gave this widget's group ({@code setRenderOffset}). Reads Lua's
+     * {@code InterfaceCoordinates} now.
      *
      * @return the offset in canvas pixels, or null if the group isn't open
      */
@@ -927,7 +924,7 @@ public final class Widget {
     }
 
     /**
-     * Where the component lives in the client. Kraken extra.
+     * Where the component lives in the client.
      *
      * @return the native component's address
      */
@@ -987,7 +984,7 @@ public final class Widget {
     }
 
     /**
-     * The id as RuneLite writes it.
+     * The id, as the string form writes it.
      *
      * @return {@code Widget[group:component]} for a static widget, {@code Widget[group:component[index]]} for a
      *         dynamic one

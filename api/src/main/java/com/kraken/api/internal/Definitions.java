@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Conversions the compositions share: RuneLite's action arrays and param lookups over the decoded params.
+ * Conversions the compositions share: action arrays and param lookups over the decoded params.
  */
 public final class Definitions {
 
@@ -12,7 +12,7 @@ public final class Definitions {
     }
 
     /**
-     * Op texts as RuneLite's action arrays hold them.
+     * Op texts as an action array holds them.
      *
      * @param ops the decoded op texts, "" for an empty slot
      * @return the same texts with null for each empty slot

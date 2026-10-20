@@ -16,16 +16,15 @@ import java.awt.Stroke;
 import java.awt.image.BufferedImage;
 
 /**
- * Drawing helpers for overlays, as RuneLite's {@code OverlayUtil}, in canvas pixels. Reduced: the minimap helpers
- * ({@code renderMinimapLocation} and the minimap half of {@code renderTileOverlay}) wait for the minimap's position,
- * and the hover and clickbox helpers for the mouse and models, which Kraken doesn't read.
+ * Drawing helpers for overlays, in canvas pixels. The minimap helpers ({@code renderMinimapLocation} and the minimap
+ * half of {@code renderTileOverlay}) wait for the minimap's position, and the hover and clickbox helpers for the mouse
+ * and models, which Kraken doesn't read.
  */
 public final class OverlayUtil {
 
     /**
-     * How high text and images go above an actor. RuneLite places them by the actor's model height
-     * ({@code getLogicalHeight() + 40}); Kraken doesn't read model heights, so every actor gets a little over a
-     * player's.
+     * How high text and images go above an actor. Model heights aren't read, so every actor gets the same offset, a
+     * little over a player's.
      */
     public static final int ACTOR_OVERHEAD_OFFSET = 240;
 

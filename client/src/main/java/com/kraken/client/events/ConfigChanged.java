@@ -5,11 +5,11 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * A setting was set or unset, as RuneLite's {@code ConfigChanged}. Posted on the thread that made the change, usually
- * the EDT (the settings page); a plugin that needs the game in response hands the work to {@code ClientThread}.
+ * A setting was set or unset. Posted on the thread that made the change, usually the EDT (the settings page); a plugin
+ * that needs the game in response hands the work to {@code ClientThread}.
  *
  * <p>Plugins' on/off switches are settings too (group {@code kraken}, see {@code PluginManager}), so turning a plugin
- * on or off posts one, as in RuneLite.
+ * on or off posts one.
  */
 @Data
 @NoArgsConstructor
@@ -22,7 +22,7 @@ public class ConfigChanged {
     private String group;
 
     /**
-     * The profile the setting belongs to. Always null: Kraken has no profiles. Kept so RuneLite code compiles.
+     * The profile the setting belongs to. Always null: Kraken has no profiles.
      */
     private String profile;
 

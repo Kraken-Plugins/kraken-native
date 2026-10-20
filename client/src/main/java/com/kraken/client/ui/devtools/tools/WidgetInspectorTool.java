@@ -1,7 +1,7 @@
 package com.kraken.client.ui.devtools.tools;
 
 import com.kraken.api.Client;
-import com.kraken.api.KrakenApi;
+import com.kraken.api.GameSession;
 import com.kraken.api.Point;
 import com.kraken.api.widgets.Widget;
 import com.kraken.api.widgets.WidgetType;
@@ -98,8 +98,8 @@ final class WidgetInspectorTool extends DevTool<WidgetInspectorTool.Snapshot> {
     }
 
     @Override
-    protected Snapshot read(KrakenApi api) {
-        Client client = api.client();
+    protected Snapshot read(GameSession session) {
+        Client client = session.client();
         List<Integer> open = client.getOpenWidgetGroups();
         if (open.isEmpty()) {
             return null;

@@ -16,7 +16,9 @@ import java.util.Objects;
 import javax.imageio.ImageIO;
 import javax.swing.*;
 
-/** RuneLite's ColorScheme greys with an accent taken from the Kraken logo, plus logo scaling. */
+/**
+ * Dark greys with an accent taken from the Kraken logo, plus logo scaling.
+ */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class Theme {
     public static final Color DARKEST = new Color(0x141414);

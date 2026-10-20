@@ -14,21 +14,20 @@ import java.util.Map;
 import java.util.function.IntUnaryOperator;
 
 /**
- * An item's definition, as RuneLite's {@code ItemComposition}: the client's obj type (config group 10), decoded by
- * {@link ItemDecoder} as the client's loader builds it (noted, bought and placeholder items merged with the items they
- * stand for, members items rewritten on a free world). Get one from {@link Client#getItemDefinition}.
+ * An item's definition: the client's obj type (config group 10), decoded by {@link ItemDecoder} as the client's loader
+ * builds it (noted, bought and placeholder items merged with the items they stand for, members items rewritten on a
+ * free world). Get one from {@link Client#getItemDefinition}.
  *
  * <p>An id without a config file gets the client's default type: empty name, price 1, not stackable, ground action 3
  * "Take" and inventory action 5 "Drop".
  *
- * <p>RuneLite's {@code ParamHolder} methods are here directly; an unset param reads -1 or "" (Kraken doesn't decode
- * the param definitions that hold RuneLite's defaults).
+ * <p>An unset param reads -1 or "" (the API doesn't decode the param definitions that hold the defaults).
  */
 @Getter
 public final class ItemComposition {
 
     /**
-     * The fraction of an item's value high alchemy pays, as in RuneLite.
+     * The fraction of an item's value high alchemy pays.
      */
     public static final float HIGH_ALCHEMY_MULTIPLIER = 0.6f;
 
@@ -50,7 +49,6 @@ public final class ItemComposition {
 
     /**
      * The examine text: noted items have the client's note text, members items on a free world a members notice.
-     * Kraken extra.
      */
     private final String examine;
 
@@ -65,8 +63,8 @@ public final class ItemComposition {
     private final int linkedNoteId;
 
     /**
-     * The note template this item is drawn with (config opcode 98), as RuneLite reports whether an item is noted: the
-     * template's id (799) if this is a noted item, else -1.
+     * The note template this item is drawn with (config opcode 98): the template's id (799) if this is a noted item,
+     * else -1.
      */
     private final int note;
 
@@ -83,13 +81,12 @@ public final class ItemComposition {
     /**
      * The plain item behind a noted item or placeholder, as the client resolves it: the linked item's id if this is
      * noted, else the linked item's id if this is a placeholder, else this item's own id. -1 for a link to an id
-     * without a file, or for an id that has no file itself. Kraken extra.
+     * without a file, or for an id that has no file itself.
      */
     private final int canonicalId;
 
     /**
-     * The item's params: param id to {@code Integer}, {@code Long} or {@code String} value; empty if none. Kraken
-     * extra.
+     * The item's params: param id to {@code Integer}, {@code Long} or {@code String} value; empty if none.
      */
     private final Map<Integer, Object> params;
 
@@ -209,7 +206,7 @@ public final class ItemComposition {
      * The item's inventory actions ("Wield", "Eat", …, usually "Drop" last), which the client binds to Lua's
      * {@code ObjType.getOps}.
      *
-     * @return five entries, index 0 being the first action; null for an empty slot, as in RuneLite
+     * @return five entries, index 0 being the first action; null for an empty slot
      */
     public String[] getInventoryActions() {
         return Definitions.actions(inventoryOps);
@@ -217,7 +214,7 @@ public final class ItemComposition {
 
     /**
      * The item's ground actions ("Take", …), with conditional actions resolved against the current vars, as the
-     * client binds them to Lua's {@code ObjType.getIOps}. Kraken extra.
+     * client binds them to Lua's {@code ObjType.getIOps}.
      *
      * @return five entries, index 0 being the first action; null for an empty slot
      */
@@ -227,7 +224,7 @@ public final class ItemComposition {
     }
 
     /**
-     * Whether the item can be worn. Kraken extra.
+     * Whether the item can be worn.
      *
      * @return true if the item has a worn slot
      */
@@ -236,7 +233,7 @@ public final class ItemComposition {
     }
 
     /**
-     * Whether the item is a two-handed weapon. Kraken extra.
+     * Whether the item is a two-handed weapon.
      *
      * @return true if it's worn in the weapon slot (3) and also takes the shield slot (5)
      */
@@ -245,7 +242,7 @@ public final class ItemComposition {
     }
 
     /**
-     * The worn slot ({@link EquipmentInventorySlot}). Kraken extra.
+     * The worn slot ({@link EquipmentInventorySlot}).
      *
      * @return the slot index, or -1 if the item can't be worn
      */
@@ -254,7 +251,7 @@ public final class ItemComposition {
     }
 
     /**
-     * An integer param, as RuneLite's {@code ParamHolder.getIntValue}.
+     * An integer param.
      *
      * @param paramId the param id
      * @return the param's value, or -1 if the definition doesn't set it (or sets a string)
@@ -264,7 +261,7 @@ public final class ItemComposition {
     }
 
     /**
-     * A string param, as RuneLite's {@code ParamHolder.getStringValue}.
+     * A string param.
      *
      * @param paramId the param id
      * @return the param's value, or "" if the definition doesn't set it (or sets an integer)

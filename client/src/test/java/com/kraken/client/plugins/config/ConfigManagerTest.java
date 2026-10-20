@@ -221,7 +221,7 @@ class ConfigManagerTest {
         manager.setConfiguration("example", "colour", "#00FF00");
         assertEquals(new Color(0, 255, 0), config.colour(), "#RRGGBB is opaque");
         manager.setConfiguration("example", "colour", String.valueOf(new Color(1, 2, 3, 4).getRGB()));
-        assertEquals(new Color(1, 2, 3, 4), config.colour(), "RuneLite's decimal form");
+        assertEquals(new Color(1, 2, 3, 4), config.colour(), "decimal form");
         manager.setConfiguration("example", "shapes", "");
         assertEquals(EnumSet.noneOf(Shape.class), config.shapes());
     }

@@ -22,9 +22,9 @@ import java.util.function.IntUnaryOperator;
  * </ol>
  * Templates and linked items are themselves loaded the same way. An id without a file gets the client's default type.
  *
- * <p>This client's format differs from the older one RuneLite documents: model ids are 32-bit (opcodes 44-54 instead
- * of 1, 23-26, 78-79, 90-93), and ground ops can have sub-ops (200, 202) and var-conditional texts (201). Sub-ops
- * (200, 202, and inventory sub-ops 43) are read but not kept: nothing returns them.
+ * <p>In this client's format, model ids are 32-bit (opcodes 44-54 instead of 1, 23-26, 78-79, 90-93), and ground ops
+ * can have sub-ops (200, 202) and var-conditional texts (201). Sub-ops (200, 202, and inventory sub-ops 43) are read
+ * but not kept: nothing returns them.
  */
 public final class ItemDecoder {
 

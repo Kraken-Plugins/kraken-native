@@ -1,7 +1,7 @@
 package com.kraken.client.ui.devtools.tools;
 
 import com.kraken.api.Client;
-import com.kraken.api.KrakenApi;
+import com.kraken.api.GameSession;
 import com.kraken.api.Point;
 import com.kraken.api.scene.Tile;
 import com.kraken.api.scene.TileObject;
@@ -34,9 +34,9 @@ final class WallsTool extends DevTool<Marks> {
     }
 
     @Override
-    protected Marks read(KrakenApi api) {
-        Client client = api.client();
-        Projector projector = Projector.of(api);
+    protected Marks read(GameSession session) {
+        Client client = session.client();
+        Projector projector = Projector.of(session);
         if (projector == null) {
             return null;
         }

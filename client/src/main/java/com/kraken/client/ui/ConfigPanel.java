@@ -52,8 +52,8 @@ import javax.swing.text.JTextComponent;
 import static com.formdev.flatlaf.FlatClientProperties.*;
 
 /**
- * A settings page built from a {@link Config}'s {@link ConfigDescriptor}, as RuneLite's config panel: items and
- * collapsible sections in position order, one control per item by its type, and a Reset button.
+ * A settings page built from a {@link Config}'s {@link ConfigDescriptor}: items and collapsible sections in position
+ * order, one control per item by its type, and a Reset button.
  *
  * <table>
  *   <caption>Controls</caption>
@@ -69,8 +69,8 @@ import static com.formdev.flatlaf.FlatClientProperties.*;
  * </table>
  *
  * <p>An item with a {@code warning} asks before its value changes. Hidden items aren't shown, and Reset leaves them
- * alone (plugins keep their own state in them); RuneLite's Reset resets those too. Changes made elsewhere (a plugin's
- * setter) show up while the page is open. EDT only.
+ * alone (plugins keep their own state in them). Changes made elsewhere (a plugin's setter) show up while the page is
+ * open. EDT only.
  */
 public final class ConfigPanel extends JPanel {
 

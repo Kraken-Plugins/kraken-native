@@ -1,7 +1,7 @@
 package com.kraken.client.ui.devtools;
 
 import com.kraken.api.Client;
-import com.kraken.api.KrakenApi;
+import com.kraken.api.GameSession;
 import com.kraken.api.actor.Player;
 import com.kraken.api.coords.WorldPoint;
 import com.kraken.client.ui.devtools.view.ToolView;
@@ -105,12 +105,13 @@ public abstract class DevTool<S> {
     }
 
     /**
-     * Poll thread: reads what this tool shows, through {@code api.client()}. Return null when there's nothing to show.
+     * Poll thread: reads what this tool shows, through {@code session.client()}. Return null when there's nothing to
+     * show.
      *
-     * @param api the attached API
+     * @param session the attached API
      * @return the snapshot, or null
      */
-    protected abstract S read(KrakenApi api);
+    protected abstract S read(GameSession session);
 
     /** EDT: draws the latest snapshot over the game. */
     protected void paintOverlay(S snapshot, OverlayContext overlay) {
@@ -122,7 +123,7 @@ public abstract class DevTool<S> {
     }
 
     /** EDT: the tool started showing while the API is attached. Subscribe to events here. */
-    protected void onStart(KrakenApi api) {
+    protected void onStart(GameSession session) {
     }
 
     /** EDT: undo {@link #onStart}. */
@@ -159,8 +160,8 @@ public abstract class DevTool<S> {
     }
 
     /** Poll thread: reads a fresh snapshot, returning the EDT work that shows it in the open window (or null). */
-    final Runnable refresh(KrakenApi api) {
-        S snapshot = read(api);
+    final Runnable refresh(GameSession session) {
+        S snapshot = read(session);
         latest = snapshot;
         ToolView<S> v = view;
         if (snapshot == null || v == null) {
@@ -180,10 +181,10 @@ public abstract class DevTool<S> {
         }
     }
 
-    final void start(KrakenApi api) {
+    final void start(GameSession session) {
         if (!running) {
             running = true;
-            onStart(api);
+            onStart(session);
         }
     }
 

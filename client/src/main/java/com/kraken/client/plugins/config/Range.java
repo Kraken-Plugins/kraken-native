@@ -7,8 +7,8 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * The bounds of a numeric {@link ConfigItem}, as RuneLite's {@code @Range}. The settings page's spinner stays within
- * them; values set through the config interface aren't checked.
+ * The bounds of a numeric {@link ConfigItem}. The settings page's spinner stays within them; values set through the
+ * config interface aren't checked.
  */
 @Documented
 @Retention(RetentionPolicy.RUNTIME)

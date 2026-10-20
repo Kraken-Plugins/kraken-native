@@ -5,8 +5,8 @@ import com.kraken.api.actor.NPC;
 import lombok.Value;
 
 /**
- * An NPC left the top-level world, as RuneLite's {@code NpcDespawned}. The handle still answers its id, name and
- * location with the last values read (refreshed every game tick while it was tracked).
+ * An NPC left the top-level world. The handle still answers its id, name and location with the last values read
+ * (refreshed every game tick while it was tracked).
  */
 @Value
 public class NpcDespawned {

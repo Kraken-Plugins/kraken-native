@@ -9,8 +9,8 @@ import java.awt.Dimension;
 import java.awt.Graphics2D;
 
 /**
- * An overlay that is one {@link PanelComponent}, as RuneLite's {@code OverlayPanel}. A subclass adds this frame's
- * lines to {@link #panelComponent} and returns {@code super.render(graphics)}:
+ * An overlay that is one {@link PanelComponent}. A subclass adds this frame's lines to {@link #panelComponent} and
+ * returns {@code super.render(graphics)}:
  *
  * <pre>{@code
  * @Override

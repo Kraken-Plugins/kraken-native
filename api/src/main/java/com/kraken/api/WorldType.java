@@ -6,8 +6,8 @@ import java.util.Collection;
 import java.util.EnumSet;
 
 /**
- * A kind of world, as RuneLite's {@code WorldType}: each is one bit of the client's world flags
- * ({@code Client.worldFlags}), the same bits in the native client.
+ * A kind of world: each is one bit of the client's world flags ({@code Client.worldFlags}), the same bits in the
+ * native client.
  */
 public enum WorldType {
 
@@ -124,7 +124,7 @@ public enum WorldType {
     }
 
     /**
-     * Whether players can attack each other anywhere on a world with these types, as RuneLite decides it.
+     * Whether players can attack each other anywhere on a world with these types.
      *
      * @param types the world's types
      * @return true for a PvP or Deadman world

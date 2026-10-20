@@ -16,7 +16,7 @@ import java.util.logging.Level;
 import javax.swing.*;
 
 /**
- * Launches osclient.exe, re-parents its window into a RuneLite-style Swing frame, and runs the plugins.
+ * Launches osclient.exe, re-parents its window into a Swing frame, and runs the plugins.
  *
  * <p>Usage: {@code KrakenClient [path\to\osclient.exe] [--plugin <class>]... [--developer-mode]}
  * <ul>
@@ -40,8 +40,8 @@ public class KrakenClient {
     }
 
     /**
-     * Launches Kraken with extra plugins besides the built-in ones: the developer loop, as RuneLite's
-     * {@code ExternalPluginManager.loadBuiltin}. Call it from a {@code main} next to the plugin under development:
+     * Launches Kraken with extra plugins besides the built-in ones, for running a plugin under development. Call it
+     * from a {@code main} next to the plugin under development:
      *
      * <pre>{@code
      * public static void main(String[] args) throws Exception {

@@ -9,9 +9,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Predicate;
 
 /**
- * The overlays being drawn, as RuneLite's {@code OverlayManager}. Plugins add theirs in {@code startUp} and remove them
- * in {@code shutDown}; the client draws every added overlay at the overlay frame rate while the game is attached, and
- * draws nothing (and reads nothing) while none is added.
+ * The overlays being drawn. Plugins add theirs in {@code startUp} and remove them in {@code shutDown}; the client draws
+ * every added overlay at the overlay frame rate while the game is attached, and draws nothing (and reads nothing) while
+ * none is added.
  *
  * <p>Thread-safe: add and remove on any thread.
  */
@@ -19,8 +19,8 @@ import java.util.function.Predicate;
 public class OverlayManager {
 
     /**
-     * The order overlays draw in within a layer, as RuneLite's: by position, then by priority. Higher priority draws
-     * first among anchored overlays (so it sits nearest the corner) and last among dynamic ones (so it's on top).
+     * The order overlays draw in within a layer: by position, then by priority. Higher priority draws first among
+     * anchored overlays (so it sits nearest the corner) and last among dynamic ones (so it's on top).
      */
     static final Comparator<Overlay> OVERLAY_COMPARATOR = (a, b) -> Key.ORDER.compare(
             new Key(a, effectivePosition(a), a.getPriority()), new Key(b, effectivePosition(b), b.getPriority()));

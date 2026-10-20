@@ -7,8 +7,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Describes a {@link Plugin}, as RuneLite's {@code @PluginDescriptor}. A class with it under
- * {@code com.kraken.client.plugins} is found and loaded at launch.
+ * Describes a {@link Plugin}. A class with it under {@code com.kraken.client.plugins} is found and loaded at launch.
  */
 @Documented
 @Retention(RetentionPolicy.RUNTIME)

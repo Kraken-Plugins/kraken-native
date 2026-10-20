@@ -7,8 +7,8 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Names the group a {@link Config} interface's settings are stored under, as RuneLite's {@code @ConfigGroup}. The
- * settings file keys them {@code group.key}.
+ * Names the group a {@link Config} interface's settings are stored under. The settings file keys them
+ * {@code group.key}.
  */
 @Documented
 @Retention(RetentionPolicy.RUNTIME)

@@ -3,7 +3,7 @@ package com.kraken.client.ui.overlay.components;
 import java.awt.Color;
 
 /**
- * Shared sizes and colours of the panel components, as RuneLite's {@code ComponentConstants}.
+ * Shared sizes and colours of the panel components.
  */
 public final class ComponentConstants {
 
@@ -18,7 +18,7 @@ public final class ComponentConstants {
     public static final int STANDARD_BORDER = 4;
 
     /**
-     * A panel's usual background, RuneLite's translucent brown.
+     * A panel's usual background: a translucent brown.
      */
     public static final Color STANDARD_BACKGROUND_COLOR = new Color(70, 61, 50, 156);
 

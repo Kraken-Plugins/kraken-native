@@ -4,8 +4,7 @@ import com.kraken.api.Client;
 import com.kraken.api.internal.Loc;
 
 /**
- * A decoration hung on a wall, such as a painting or a torch, as RuneLite's {@code DecorativeObject}. Its offsets and
- * config bits aren't read, so RuneLite's {@code getXOffset}, {@code getYOffset} and {@code getConfig} are left out.
+ * A decoration hung on a wall, such as a painting or a torch. Its offsets and config bits aren't read.
  */
 public final class DecorativeObject extends TileObject {
 

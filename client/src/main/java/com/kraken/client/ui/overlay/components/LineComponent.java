@@ -14,10 +14,10 @@ import java.awt.Point;
 import java.awt.Rectangle;
 
 /**
- * A panel line: text on the left and text on the right, as RuneLite's {@code LineComponent}. Build it with
+ * A panel line: text on the left and text on the right. Build it with
  * {@code LineComponent.builder().left("Ticks:").right("120").build()}.
  *
- * <p>Reduced from RuneLite's: a line too long for the panel doesn't wrap; it widens the panel instead.
+ * <p>A line too long for the panel doesn't wrap; it widens the panel instead.
  */
 @Setter
 @Builder

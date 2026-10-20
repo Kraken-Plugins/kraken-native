@@ -5,8 +5,7 @@ import java.awt.Point;
 import java.awt.Rectangle;
 
 /**
- * A {@link RenderableEntity} its container places and sizes, as RuneLite's {@code LayoutableRenderableEntity}: a
- * panel's lines and titles, or an overlay.
+ * A {@link RenderableEntity} its container places and sizes: a panel's lines and titles, or an overlay.
  */
 public interface LayoutableRenderableEntity extends RenderableEntity {
 

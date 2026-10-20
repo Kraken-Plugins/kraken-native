@@ -2,7 +2,7 @@ package com.kraken.client.ui.overlay;
 
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
-import com.kraken.api.KrakenApi;
+import com.kraken.api.GameSession;
 import com.kraken.client.KrakenConfig;
 import com.kraken.client.ProcessAttacher;
 import lombok.extern.java.Log;
@@ -19,8 +19,8 @@ import javax.swing.*;
  * <ul>
  *   <li><b>On the client thread.</b> At the end of each API poll, if overlays are added and a frame is due (the
  *       {@linkplain KrakenConfig#overlayFrameRate frame rate}, 30 a second by default), the poll thread clears an
- *       image, draws every overlay into it ({@link OverlayCompositor}) and hands it to the EDT. Overlays' {@code render}
- *       thus runs where game events and {@code ClientThread} tasks do, as in RuneLite, and memory reads stay off the
+ *       image, draws every overlay into it ({@link OverlayCompositor}) and hands it to the EDT. Overlays'
+ *       {@code render} thus runs where game events and {@code ClientThread} tasks do, and memory reads stay off the
  *       EDT.
  *   <li><b>Two images.</b> The EDT paints the last finished frame while the next one is drawn into the other, so it
  *       never shows a half-drawn frame. Each image is locked while it's drawn or painted, for the rare frame where the
@@ -62,8 +62,8 @@ public final class OverlayRenderer {
             @Override
             public boolean isActive() {
                 // Not just the attacher's state: once the game exits, the poll loop stops and the last frame stays
-                KrakenApi api = attacher.attached();
-                return front != null && api != null && api.isAttached();
+                GameSession session = attacher.attached();
+                return front != null && session != null && session.isAttached();
             }
 
             @Override
@@ -83,11 +83,11 @@ public final class OverlayRenderer {
     /**
      * Draws a frame if one is due. Poll thread.
      *
-     * @param api the attached API
+     * @param session the attached API
      */
-    private void frame(KrakenApi api) {
+    private void frame(GameSession session) {
         try {
-            draw(api);
+            draw(session);
             failing = false;
         } catch (RuntimeException | LinkageError e) {
             if (!failing) {
@@ -97,7 +97,7 @@ public final class OverlayRenderer {
         }
     }
 
-    private void draw(KrakenApi api) {
+    private void draw(GameSession session) {
         List<Overlay> overlays = manager.getOverlays();
         GameOverlay.Surface surface = window.getSurface();
         if (overlays.isEmpty() || surface == null) {
@@ -112,8 +112,8 @@ public final class OverlayRenderer {
         // Step the schedule rather than restarting it, so 30 fps on a 20 ms poll averages 30, not 25
         nextFrame = now - nextFrame > interval ? now + interval : nextFrame + interval;
 
-        int canvasWidth = api.client().getCanvasWidth();
-        int canvasHeight = api.client().getCanvasHeight();
+        int canvasWidth = session.client().getCanvasWidth();
+        int canvasHeight = session.client().getCanvasHeight();
         if (canvasWidth < 1 || canvasHeight < 1) {
             clear();
             return;

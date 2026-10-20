@@ -2,7 +2,7 @@ package com.kraken.client.ui.devtools;
 
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
-import com.kraken.api.KrakenApi;
+import com.kraken.api.GameSession;
 import com.kraken.client.GameView;
 import com.kraken.client.ProcessAttacher;
 import com.kraken.client.ui.devtools.DevTool.Support;
@@ -138,16 +138,16 @@ public final class DevToolManager {
 
     /** Starts a tool when it begins showing with the API attached, and stops it otherwise. */
     private void updateLifecycle(DevTool<?> tool) {
-        KrakenApi api = attacher.attached();
-        if (tool.isActive() && api != null) {
-            tool.start(api);
+        GameSession session = attacher.attached();
+        if (tool.isActive() && session != null) {
+            tool.start(session);
         } else {
             tool.stop();
         }
     }
 
     /** Poll thread: refreshes every showing tool, then hands the results to the EDT in one go. */
-    private void poll(KrakenApi api) {
+    private void poll(GameSession session) {
         List<Runnable> updates = new ArrayList<>();
         boolean overlays = false;
         for (DevTool<?> tool : tools) {
@@ -155,7 +155,7 @@ public final class DevToolManager {
                 continue;
             }
             try {
-                Runnable update = tool.refresh(api);
+                Runnable update = tool.refresh(session);
                 if (update != null) {
                     updates.add(update);
                 }

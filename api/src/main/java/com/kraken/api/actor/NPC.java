@@ -4,8 +4,8 @@ import com.kraken.api.Client;
 import com.kraken.api.definition.NPCComposition;
 
 /**
- * A non-player character, as RuneLite's {@code NPC}. {@link Client} hands out one handle per NPC, so identity equality
- * is NPC equality; see {@link Actor} for how a handle behaves once the NPC is gone.
+ * A non-player character. {@link Client} hands out one handle per NPC, so identity equality is NPC equality; see
+ * {@link Actor} for how a handle behaves once the NPC is gone.
  */
 public final class NPC extends Actor {
 
@@ -55,7 +55,7 @@ public final class NPC extends Actor {
     }
 
     /**
-     * The NPC's base type id (Lua's {@code npcTypeId}), as RuneLite's.
+     * The NPC's base type id (Lua's {@code npcTypeId}).
      *
      * @return the type id (the wiki id); the last one read once the NPC is gone; -1 if it was never read
      */
@@ -102,7 +102,7 @@ public final class NPC extends Actor {
     }
 
     /**
-     * Whether the NPC is a follower (such as a pet) of any player. Kraken extra, mirrors Lua {@code Npc.isFollower}.
+     * Whether the NPC is a follower (such as a pet) of any player. Mirrors Lua {@code Npc.isFollower}.
      *
      * @return true for a follower; false once the NPC is gone
      */
@@ -112,7 +112,7 @@ public final class NPC extends Actor {
 
     /**
      * Whether the NPC is the local player's follower: one of the varps the client tracks as follower slots holds its
-     * index. Kraken extra, mirrors Lua {@code Npc.isLocalFollower}.
+     * index. Mirrors Lua {@code Npc.isLocalFollower}.
      *
      * @return true if the NPC is loaded and is the local player's follower
      */
@@ -121,7 +121,7 @@ public final class NPC extends Actor {
     }
 
     /**
-     * The client cycle (20 ms units) the NPC was created on. Kraken extra, mirrors Lua {@code npcCreationCycle}.
+     * The client cycle (20 ms units) the NPC was created on. Mirrors Lua {@code npcCreationCycle}.
      *
      * @return the creation cycle; the last one read once the NPC is gone; -1 if it was never read
      */
@@ -136,8 +136,8 @@ public final class NPC extends Actor {
     }
 
     /**
-     * The category of the NPC's base type, read from the client's own type rather than decoded. Kraken extra, mirrors
-     * Lua {@code Npc.getType}.
+     * The category of the NPC's base type, read from the client's own type rather than decoded. Mirrors Lua
+     * {@code Npc.getType}.
      *
      * @return the category id, or -1 if it has none or the NPC is gone
      */
@@ -146,7 +146,7 @@ public final class NPC extends Actor {
     }
 
     /**
-     * The NPC's uid: its type id × 65536 + its index. Kraken extra, mirrors Lua {@code ClientOp.npcUid}.
+     * The NPC's uid: its type id × 65536 + its index. Mirrors Lua {@code ClientOp.npcUid}.
      *
      * @return the uid, or -1 once the NPC is gone
      */
@@ -155,7 +155,7 @@ public final class NPC extends Actor {
     }
 
     /**
-     * The base type's size, as RuneLite takes it from {@code getComposition()}.
+     * The base type's size, taken from {@code getComposition()}.
      *
      * @return the size in tiles; 1 if the definition can't be read
      */

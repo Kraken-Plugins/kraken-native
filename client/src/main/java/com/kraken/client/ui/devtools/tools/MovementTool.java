@@ -1,7 +1,7 @@
 package com.kraken.client.ui.devtools.tools;
 
 import com.kraken.api.Client;
-import com.kraken.api.KrakenApi;
+import com.kraken.api.GameSession;
 import com.kraken.api.actor.Player;
 import com.kraken.api.collision.CollisionData;
 import com.kraken.api.coords.LocalPoint;
@@ -59,12 +59,12 @@ final class MovementTool extends DevTool<Marks> {
     }
 
     @Override
-    protected Marks read(KrakenApi api) {
-        Client client = api.client();
+    protected Marks read(GameSession session) {
+        Client client = session.client();
         Player self = client.getLocalPlayer();
         LocalPoint local = self == null ? null : self.getLocalLocation();
         WorldPoint world = self == null ? null : self.getWorldLocation();
-        Projector projector = local == null ? null : Projector.of(api);
+        Projector projector = local == null ? null : Projector.of(session);
         CollisionData map = projector == null ? null : TileFlagsTool.collisionMap(client, world.getPlane());
         if (map == null) {
             return null;

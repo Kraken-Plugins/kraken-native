@@ -5,9 +5,8 @@ import lombok.Value;
 import java.util.List;
 
 /**
- * What a {@link Config} interface declares, as RuneLite's {@code ConfigDescriptor}: its group, sections and items, each
- * list in page order (position, then name). {@link ConfigManager#getConfigDescriptor} builds it; the settings page is
- * made from it.
+ * What a {@link Config} interface declares: its group, sections and items, each list in page order (position, then
+ * name). {@link ConfigManager#getConfigDescriptor} builds it; the settings page is made from it.
  */
 @Value
 public class ConfigDescriptor {

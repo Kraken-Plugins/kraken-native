@@ -6,8 +6,8 @@ import com.kraken.api.scene.WallObject;
 import lombok.Data;
 
 /**
- * A wall, fence or door went from a tile, as RuneLite's {@code WallObjectDespawned}. Not posted for the objects of a
- * scene the client unloads: plugins clear on {@code GameStateChanged(LOADING)}.
+ * A wall, fence or door went from a tile. Not posted for the objects of a scene the client unloads: plugins clear on
+ * {@code GameStateChanged(LOADING)}.
  */
 @Data
 public class WallObjectDespawned implements TileObjectDespawned {

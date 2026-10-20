@@ -7,9 +7,8 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * A collapsible group of settings on the settings page, as RuneLite's {@code @ConfigSection}. It goes on a
- * {@code String} field of the {@link Config} interface; the field's value is the key items name in
- * {@link ConfigItem#section()}:
+ * A collapsible group of settings on the settings page. It goes on a {@code String} field of the {@link Config}
+ * interface; the field's value is the key items name in {@link ConfigItem#section()}:
  *
  * <pre>{@code
  * @ConfigSection(name = "Display", description = "How highlights look", position = 1)

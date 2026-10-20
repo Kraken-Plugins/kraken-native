@@ -13,7 +13,7 @@ import java.awt.Point;
 import java.awt.Rectangle;
 
 /**
- * A panel's title: one line of text centred in the panel's width, as RuneLite's {@code TitleComponent}. Build it with
+ * A panel's title: one line of text centred in the panel's width. Build it with
  * {@code TitleComponent.builder().text("…").color(…).build()}.
  */
 @Setter

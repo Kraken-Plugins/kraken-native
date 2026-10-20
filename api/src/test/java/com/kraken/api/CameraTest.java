@@ -121,7 +121,7 @@ class CameraTest {
         assertEquals(1200, client.getCameraX());
         assertEquals(3400, client.getCameraY(), "north is the client's z");
         assertEquals(-900, client.getCameraZ(), "the height is the client's y");
-        assertEquals(4096, client.getCameraPitch(), "JAU14, as RuneLite's");
+        assertEquals(4096, client.getCameraPitch(), "a quarter turn in JAU14");
         assertEquals(8192, client.getCameraYaw());
         assertEquals(512, client.getScale());
     }

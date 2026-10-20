@@ -11,8 +11,7 @@ import java.awt.Graphics2D;
 import java.awt.Rectangle;
 
 /**
- * A panel's background, as RuneLite's {@code BackgroundComponent}: a fill with a dark outer edge and a light inner one,
- * both derived from the fill colour.
+ * A panel's background: a fill with a dark outer edge and a light inner one, both derived from the fill colour.
  */
 @Getter
 @Setter

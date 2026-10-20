@@ -3,8 +3,7 @@ package com.kraken.api;
 import lombok.Getter;
 
 /**
- * The client's game state, as RuneLite's {@code GameState}. The numbers are the client's raw {@code Client.gameState}
- * values, which are the same in the native client.
+ * The client's game state. The numbers are the raw {@code Client.gameState} values, the same in the native client.
  */
 public enum GameState {
 
@@ -24,8 +23,7 @@ public enum GameState {
     LOGIN_SCREEN(10),
 
     /**
-     * The authenticator step of the login screen. Kept for RuneLite parity; whether the native client sets it is
-     * untested.
+     * The authenticator step of the login screen. Whether the native client sets it is untested.
      */
     LOGIN_SCREEN_AUTHENTICATOR(11),
 

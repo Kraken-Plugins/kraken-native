@@ -3,7 +3,7 @@ package com.kraken.api.item;
 import lombok.Value;
 
 /**
- * One slot of an {@link ItemContainer}, as RuneLite's {@code Item}.
+ * One slot of an {@link ItemContainer}.
  */
 @Value
 public class Item {

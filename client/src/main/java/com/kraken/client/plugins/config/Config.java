@@ -1,9 +1,9 @@
 package com.kraken.client.plugins.config;
 
 /**
- * A plugin's settings, as RuneLite's {@code Config}: an interface extending this, annotated {@link ConfigGroup}, with
- * one {@link ConfigItem} method per setting whose {@code default} body gives the setting's default.
- * {@link ConfigManager#getConfig} implements it; the Plugins panel builds the plugin's settings page from it.
+ * A plugin's settings: an interface extending this, annotated {@link ConfigGroup}, with one {@link ConfigItem} method
+ * per setting whose {@code default} body gives the setting's default. {@link ConfigManager#getConfig} implements it;
+ * the Plugins panel builds the plugin's settings page from it.
  *
  * <pre>{@code
  * @ConfigGroup("example")

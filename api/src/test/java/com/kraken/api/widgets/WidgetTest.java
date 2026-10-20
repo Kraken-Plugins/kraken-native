@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The interfaces over the {@link GameFixture}: component lookups by packed id or group and child, the parent, static
- * and dynamic child links, RuneLite's hidden rule and the canvas bounds, the open groups' offsets, and widgets as
+ * and dynamic child links, the hidden rule and the canvas bounds, the open groups' offsets, and widgets as
  * snapshots of one read.
  */
 class WidgetTest {

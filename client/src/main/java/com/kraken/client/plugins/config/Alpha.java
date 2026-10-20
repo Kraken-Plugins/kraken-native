@@ -7,8 +7,8 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Lets the settings page's colour picker choose transparency for a {@code Color} {@link ConfigItem}, as RuneLite's
- * {@code @Alpha}. Without it the picker keeps colours opaque.
+ * Lets the settings page's colour picker choose transparency for a {@code Color} {@link ConfigItem}. Without it the
+ * picker keeps colours opaque.
  */
 @Documented
 @Retention(RetentionPolicy.RUNTIME)

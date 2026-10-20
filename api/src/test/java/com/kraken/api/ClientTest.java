@@ -203,7 +203,7 @@ class ClientTest {
     void varpsReadTheClientsCopyAndTheServersOnRequest() {
         assertEquals(100, client.getServerVarpValue(10));
         game.setVarpBits(10, 0xf);
-        assertEquals(0xf, client.getVarpValue(10), "a change the client made locally, as RuneLite's getVarpValue");
+        assertEquals(0xf, client.getVarpValue(10), "a change the client made locally, read by getVarpValue");
         assertEquals(100, client.getServerVarpValue(10));
         assertEquals(0xf, client.getVarps()[10]);
         assertEquals(100, client.getServerVarps()[10]);
@@ -225,7 +225,7 @@ class ClientTest {
     }
 
     @Test
-    void varcsReadZeroWhenUnsetAsInRuneLite() {
+    void varcsReadZeroWhenUnset() {
         assertEquals(42, client.getVarcIntValue(10));
         assertEquals(-5, client.getVarcIntValue(30));
         assertEquals(0, client.getVarcIntValue(11));
@@ -248,7 +248,7 @@ class ClientTest {
     }
 
     @Test
-    void itemDefinitionsUseRuneLitesShapes() {
+    void itemDefinitionsExposeTheirFields() {
         ItemComposition logs = client.getItemDefinition(1511);
         assertEquals(1511, logs.getId());
         assertEquals("Logs", logs.getName());
@@ -284,7 +284,7 @@ class ClientTest {
         assertEquals("text", cannonball.getStringValue(11));
         assertEquals(-1, cannonball.getIntValue(11), "a string param isn't an int");
         assertEquals("", cannonball.getStringValue(10));
-        assertEquals(-1, cannonball.getIntValue(12), "unset: Kraken doesn't decode param defaults");
+        assertEquals(-1, cannonball.getIntValue(12), "unset: the API doesn't decode param defaults");
     }
 
     @Test

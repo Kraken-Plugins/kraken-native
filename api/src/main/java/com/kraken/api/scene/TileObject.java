@@ -18,9 +18,8 @@ import static com.kraken.api.Perspective.LOCAL_COORD_BITS;
 import static com.kraken.api.Perspective.LOCAL_HALF_TILE_SIZE;
 
 /**
- * An object (scenery) on a tile, as RuneLite's {@code TileObject}: a {@link WallObject}, {@link DecorativeObject},
- * {@link GameObject} or {@link GroundObject}. Its name and actions come from {@link Client#getObjectDefinition} by
- * {@link #getId()}.
+ * An object (scenery) on a tile: a {@link WallObject}, {@link DecorativeObject}, {@link GameObject} or
+ * {@link GroundObject}. Its name and actions come from {@link Client#getObjectDefinition} by {@link #getId()}.
  *
  * <p>A value: it holds the object's id, slot and tile as one read of the scene found them, with the map base of that
  * scene. Two reads of the same object in the same scene give equal objects, so a {@code Set<TileObject>} filled from
@@ -34,7 +33,7 @@ public abstract sealed class TileObject permits WallObject, DecorativeObject, Ga
     public static final int HASH_PLANE_SHIFT = 14;
 
     /**
-     * RuneLite's tag type for an object, at bits 16-18 of {@link #getHash()} (the native tag uses the same layout).
+     * The tag type for an object, at bits 16-18 of {@link #getHash()} (the native tag uses the same layout).
      */
     private static final long HASH_TYPE_OBJECT = 2;
 
@@ -78,9 +77,9 @@ public abstract sealed class TileObject permits WallObject, DecorativeObject, Ga
     }
 
     /**
-     * A key for the object, in RuneLite's bit layout: scene x in bits 0-6, scene y in 7-13, plane in 14-15, the tag
-     * type (2, an object) in 16-18, the id in 20-51 and the world view (12 bits) in 52-63. Built from the object's
-     * fields rather than read: RuneLite's bit 19 (set for some walls) isn't read, so it is 0.
+     * A key for the object: scene x in bits 0-6, scene y in 7-13, plane in 14-15, the tag type (2, an object) in
+     * 16-18, the id in 20-51 and the world view (12 bits) in 52-63. Built from the object's fields rather than read:
+     * bit 19 (set for some walls) isn't read, so it is 0.
      *
      * @return the hash
      */
@@ -149,8 +148,8 @@ public abstract sealed class TileObject permits WallObject, DecorativeObject, Ga
     }
 
     /**
-     * The object's world location. For an object bigger than one tile, the tile nearest its centre, rounded to the
-     * south-west, as RuneLite's.
+     * The object's world location: the tile it was placed on. {@link GameObject} overrides this to report its
+     * footprint's centre.
      *
      * @return the world tile
      */
@@ -168,7 +167,7 @@ public abstract sealed class TileObject permits WallObject, DecorativeObject, Ga
     }
 
     /**
-     * The tile the object is on (a game object's south-west tile). Kraken extra.
+     * The tile the object is on (a game object's south-west tile).
      *
      * @return a handle on the tile in the scene the object was read from
      */

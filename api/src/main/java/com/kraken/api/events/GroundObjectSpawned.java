@@ -6,12 +6,12 @@ import com.kraken.api.scene.TileObject;
 import lombok.Data;
 
 /**
- * A floor decoration appeared on a tile, as RuneLite's {@code GroundObjectSpawned}.
+ * A floor decoration appeared on a tile.
  *
- * <p>As in RuneLite, it is also posted for every ground object of a scene the client has just loaded (no
- * despawns are posted for the old scene's), and when tracking starts as the API attaches, for every one
- * already there. Plugins clear what they keep on {@code GameStateChanged(LOADING)} and learn the new
- * scene from these. A server change (a door opening) is a despawn, then a spawn.
+ * <p>It is also posted for every ground object of a scene the client has just loaded (no despawns are posted for the
+ * old scene's), and when tracking starts as the API attaches, for every one already there. Plugins clear what they
+ * keep on {@code GameStateChanged(LOADING)} and learn the new scene from these. A server change (a door opening) is a
+ * despawn, then a spawn.
  */
 @Data
 public class GroundObjectSpawned implements TileObjectSpawned {

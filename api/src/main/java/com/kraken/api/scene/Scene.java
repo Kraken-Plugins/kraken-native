@@ -1,7 +1,6 @@
 package com.kraken.api.scene;
 
 import com.kraken.api.Client;
-import com.kraken.api.Perspective;
 import com.kraken.api.internal.GroundObj;
 import com.kraken.api.internal.Loc;
 import com.kraken.api.internal.SceneReader;
@@ -10,14 +9,14 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * A world view's scene, as RuneLite's {@code Scene}: its tiles, and where it sits in the world. Get the top-level one
- * from {@link Client#getScene()} or {@link WorldView#getScene()}.
+ * A world view's scene: its tiles, and where it sits in the world. Get the top-level one from
+ * {@link Client#getScene()} or {@link WorldView#getScene()}.
  *
  * <p>Tiles are lazy handles: making them is cheap, and each getter on a tile reads the game when called. Reading what
  * is on every tile of a scene (about 43,000 of them) is not cheap, so plugins that follow objects or ground items
- * should keep track of them with the spawn events ({@code GameObjectSpawned}, {@code ItemSpawned} and friends), as
- * RuneLite plugins do, rather than walk {@link #getTiles()}. To learn the scene's objects or items now, read them in
- * one pass with {@link #getTileObjects()} and {@link #getGroundItems()}, or an area with their overloads.
+ * should keep track of them with the spawn events ({@code GameObjectSpawned}, {@code ItemSpawned} and friends) rather
+ * than walk {@link #getTiles()}. To learn the scene's objects or items now, read them in one pass with
+ * {@link #getTileObjects()} and {@link #getGroundItems()}, or an area with their overloads.
  */
 public final class Scene {
 
@@ -60,7 +59,7 @@ public final class Scene {
     }
 
     /**
-     * One tile of the scene. Kraken extra: it saves building the whole {@link #getTiles()} array for one tile.
+     * One tile of the scene. It saves building the whole {@link #getTiles()} array for one tile.
      *
      * @param plane  the plane, 0-3
      * @param sceneX the scene x
@@ -78,10 +77,10 @@ public final class Scene {
     }
 
     /**
-     * Every object in the scene, on every plane, in one pass. Kraken extra: it is the read the object spawn events
-     * make once per tick (tens of thousands of reads, a few hundred milliseconds), for code that needs the scene's
-     * objects now, such as a plugin started mid-session. Walking {@link #getTiles()} for the same costs several reads
-     * per tile and getter.
+     * Every object in the scene, on every plane, in one pass. It is the read the object spawn events make once per
+     * tick (tens of thousands of reads, a few hundred milliseconds), for code that needs the scene's objects now, such
+     * as a plugin started mid-session. Walking {@link #getTiles()} for the same costs several reads per tile and
+     * getter.
      *
      * @return the walls, wall decorations, game objects and floor decorations, plane by plane and tile by tile; empty
      *         if the scene can't be read
@@ -92,8 +91,8 @@ public final class Scene {
     }
 
     /**
-     * Every object on the tiles of a rectangle of the scene, on one plane, in one pass. Kraken extra: far cheaper than
-     * the whole scene for an area around the player.
+     * Every object on the tiles of a rectangle of the scene, on one plane, in one pass. It is far cheaper than the
+     * whole scene for an area around the player.
      *
      * @param plane the plane
      * @param minX  the lowest scene x
@@ -109,8 +108,8 @@ public final class Scene {
     }
 
     /**
-     * Every item lying on the ground in the scene, on every plane. Kraken extra: it reads the pile grid a column at a
-     * time and walks only the piles that hold something, a few hundred reads plus a few per item.
+     * Every item lying on the ground in the scene, on every plane. It reads the pile grid a column at a time and walks
+     * only the piles that hold something, a few hundred reads plus a few per item.
      *
      * @return new handles on the items, plane by plane, tile by tile, then in pile order; empty if the scene can't be
      *         read
@@ -121,7 +120,7 @@ public final class Scene {
     }
 
     /**
-     * Every item lying on the tiles of a rectangle of the scene, on one plane. Kraken extra.
+     * Every item lying on the tiles of a rectangle of the scene, on one plane.
      *
      * @param plane the plane
      * @param minX  the lowest scene x
@@ -156,7 +155,7 @@ public final class Scene {
     }
 
     /**
-     * The scene's size along x. Kraken extra; RuneLite's scenes are always {@link Perspective#SCENE_SIZE} wide.
+     * The scene's size along x.
      *
      * @return the width in tiles; 0 if it can't be read
      */
@@ -166,7 +165,7 @@ public final class Scene {
     }
 
     /**
-     * The scene's size along y. Kraken extra.
+     * The scene's size along y.
      *
      * @return the length in tiles; 0 if it can't be read
      */

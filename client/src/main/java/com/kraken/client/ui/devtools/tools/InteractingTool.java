@@ -1,7 +1,7 @@
 package com.kraken.client.ui.devtools.tools;
 
 import com.kraken.api.Client;
-import com.kraken.api.KrakenApi;
+import com.kraken.api.GameSession;
 import com.kraken.api.Point;
 import com.kraken.api.actor.Actor;
 import com.kraken.api.actor.NPC;
@@ -54,9 +54,9 @@ final class InteractingTool extends DevTool<Listing<InteractingTool.Row>> {
     }
 
     @Override
-    protected Listing<Row> read(KrakenApi api) {
-        Client client = api.client();
-        Projector projector = isOverlayOn() ? Projector.of(api) : null;
+    protected Listing<Row> read(GameSession session) {
+        Client client = session.client();
+        Projector projector = isOverlayOn() ? Projector.of(session) : null;
         Marks.Builder marks = projector == null ? null : new Marks.Builder(projector);
         List<Row> rows = new ArrayList<>();
         for (Player player : client.getPlayers()) {

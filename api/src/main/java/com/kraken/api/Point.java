@@ -3,8 +3,8 @@ package com.kraken.api;
 import lombok.Value;
 
 /**
- * A two-dimensional integer point, as RuneLite's {@code Point}: a position on the game canvas in the client's pixels,
- * or a scene tile where an API says so.
+ * A two-dimensional integer point: a position on the game canvas in the client's pixels, or a scene tile where an
+ * API says so.
  */
 @Value
 public class Point {

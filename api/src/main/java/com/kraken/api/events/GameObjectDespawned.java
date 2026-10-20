@@ -6,8 +6,8 @@ import com.kraken.api.scene.TileObject;
 import lombok.Data;
 
 /**
- * A game object (a tree, rock, table…) went from a tile, as RuneLite's {@code GameObjectDespawned}. Not posted for the objects of a
- * scene the client unloads: plugins clear on {@code GameStateChanged(LOADING)}.
+ * A game object (a tree, rock, table…) went from a tile. Not posted for the objects of a scene the client unloads:
+ * plugins clear on {@code GameStateChanged(LOADING)}.
  */
 @Data
 public class GameObjectDespawned implements TileObjectDespawned {

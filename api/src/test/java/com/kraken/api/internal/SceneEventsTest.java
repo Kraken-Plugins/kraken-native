@@ -45,9 +45,9 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The phase 7 and 8 RuneLite events over the {@link GameFixture}: object and ground item spawns with RuneLite's
- * scene-load behaviour (the whole new scene spawns, the old one doesn't despawn, {@code LOGGED_IN} comes after the
- * spawns), loc and pile changes between ticks, {@link InteractingChanged} and {@link ProjectileMoved}.
+ * Object and ground item spawns over the {@link GameFixture}, with the scene-load behaviour (the whole new scene
+ * spawns, the old one doesn't despawn, {@code LOGGED_IN} comes after the spawns), loc and pile changes between ticks,
+ * {@link InteractingChanged} and {@link ProjectileMoved}.
  */
 class SceneEventsTest {
 

@@ -8,8 +8,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 
 /**
- * A projectile in flight (an arrow, a spell, a cannonball…), as RuneLite's {@code Projectile}. Get them from
- * {@link Client#getProjectiles()}.
+ * A projectile in flight (an arrow, a spell, a cannonball…). Get them from {@link Client#getProjectiles()}.
  *
  * <p>The server sends each projectile with its two ends, their heights, its timing and its spot anim. The client keeps
  * it until the cycle passes {@link #getEndCycle()}. From {@link #getStartCycle()} on it moves it every cycle towards
@@ -20,8 +19,8 @@ import lombok.Getter;
  * list again for fresh ones. {@link #getRemainingCycles()} and the actor getters read the game when called. Cycles are
  * client cycles (20 ms), {@link Client#getGameCycle()}'s clock.
  *
- * <p>RuneLite's deprecated getters ({@code getInteracting}, {@code getTarget}, {@code getX1}, {@code getY1},
- * {@code getFloor}, {@code getHeight}) are left out, as are the animation getters and {@code setEndCycle}.
+ * <p>Not provided: the getters {@code getInteracting}, {@code getTarget}, {@code getX1}, {@code getY1},
+ * {@code getFloor} and {@code getHeight}, the animation getters, and {@code setEndCycle}.
  */
 @Getter
 public final class Projectile {
@@ -66,7 +65,7 @@ public final class Projectile {
 
     /**
      * Whether the client had placed the projectile when it was read: it has a position from its first cycle at or
-     * after {@link #getStartCycle()}. Kraken extra.
+     * after {@link #getStartCycle()}.
      */
     private final boolean started;
 
@@ -91,23 +90,22 @@ public final class Projectile {
     private final int orientation;
 
     /**
-     * The projectile's climb angle as of the read, 0-2047. Kraken extra.
+     * The projectile's climb angle as of the read, 0-2047.
      */
     private final int pitch;
 
     /**
-     * Whether a Lua plugin hid the projectile ({@code renderProjectiles(false)}), so the client won't draw it. Kraken
-     * extra.
+     * Whether a Lua plugin hid the projectile ({@code renderProjectiles(false)}), so the client won't draw it.
      */
     private final boolean hidden;
 
     /**
-     * The client cycle when the projectile was read. Kraken extra.
+     * The client cycle when the projectile was read.
      */
     private final int readCycle;
 
     /**
-     * A snapshot of one projectile, with RuneLite's axes. Internal: {@code ProjectileReader} makes them.
+     * A snapshot of one projectile. Internal: {@code ProjectileReader} makes them.
      *
      * @param client      the client the actors are looked up in
      * @param id          the spot anim id

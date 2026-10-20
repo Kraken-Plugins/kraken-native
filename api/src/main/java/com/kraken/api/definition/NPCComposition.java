@@ -12,16 +12,14 @@ import java.util.Map;
 import java.util.function.IntUnaryOperator;
 
 /**
- * An NPC type's definition, as RuneLite's {@code NPCComposition}: config group 9, decoded by {@link NpcDecoder} from
- * the same bytes the client decodes, as the client's loader builds it. Get one from {@link Client#getNpcDefinition} or
- * {@link NPC#getComposition}.
+ * An NPC type's definition: config group 9, decoded by {@link NpcDecoder} from the same bytes the client decodes, as
+ * the client's loader builds it. Get one from {@link Client#getNpcDefinition} or {@link NPC#getComposition}.
  *
  * <p>A snapshot of the definition, which doesn't change while the client runs; only {@link #getActions()} depends on
  * live game state. An id the cache has no file for still gives a definition, with the defaults below and name "", as
  * in the client.
  *
- * <p>RuneLite's {@code ParamHolder} methods are here directly; an unset param reads -1 or "" (Kraken doesn't decode
- * the param definitions that hold RuneLite's defaults).
+ * <p>An unset param reads -1 or "" (the API doesn't decode the param definitions that hold the defaults).
  */
 @Getter
 public final class NPCComposition {
@@ -63,7 +61,7 @@ public final class NPCComposition {
 
     /**
      * The type's params (opcode 249): param id to {@code Integer}, {@code Long} or {@code String} value; empty if the
-     * type has none. Kraken extra.
+     * type has none.
      */
     private final Map<Integer, Object> params;
 
@@ -116,12 +114,12 @@ public final class NPCComposition {
     private final int heightScale;
 
     /**
-     * The lighting ambient adjustment (opcode 100), 0 by default. Kraken extra.
+     * The lighting ambient adjustment (opcode 100), 0 by default.
      */
     private final int ambient;
 
     /**
-     * The lighting contrast adjustment (opcode 101), stored times 5 as the client does; 0 by default. Kraken extra.
+     * The lighting contrast adjustment (opcode 101), stored times 5 as the client does; 0 by default.
      */
     private final int contrast;
 
@@ -160,7 +158,7 @@ public final class NPCComposition {
     private final boolean interactible;
 
     /**
-     * Whether the NPC turns to face what it interacts with (opcode 109 turns it off). Kraken extra.
+     * Whether the NPC turns to face what it interacts with (opcode 109 turns it off).
      */
     private final boolean rotationFlag;
 
@@ -170,12 +168,12 @@ public final class NPCComposition {
     private final boolean follower;
 
     /**
-     * Whether a follower's ops are pushed down the menu (opcode 123). Kraken extra.
+     * Whether a follower's ops are pushed down the menu (opcode 123).
      */
     private final boolean lowPriorityFollowerOps;
 
     /**
-     * The model height override (opcode 124), or -1 if none. Kraken extra.
+     * The model height override (opcode 124), or -1 if none.
      */
     private final int height;
 
@@ -186,7 +184,7 @@ public final class NPCComposition {
     private final int footprintSize;
 
     /**
-     * The draw-order class: 1 normally, 0 for types with opcode 99, 2 for opcode 111. Kraken extra.
+     * The draw-order class: 1 normally, 0 for types with opcode 99, 2 for opcode 111.
      */
     private final int renderPriority;
 
@@ -241,7 +239,7 @@ public final class NPCComposition {
      * The NPC's actions ("Talk-to", "Attack", …), with conditional actions resolved against the current vars as the
      * client resolves them (Lua's {@code NpcType.getOps}).
      *
-     * @return five entries, index 0 being the first action; null for an empty slot, as in RuneLite
+     * @return five entries, index 0 being the first action; null for an empty slot
      */
     public String[] getActions() {
         return client == null ? Definitions.actions(ops.base())
@@ -249,7 +247,7 @@ public final class NPCComposition {
     }
 
     /**
-     * Whether any action has var-dependent variants. Kraken extra.
+     * Whether any action has var-dependent variants.
      *
      * @return true if at least one action has a conditional variant (opcode 252)
      */
@@ -305,7 +303,7 @@ public final class NPCComposition {
     }
 
     /**
-     * The colours replaced on the model (opcode 40), paired with {@link #getRecolorTo()}. Kraken extra.
+     * The colours replaced on the model (opcode 40), paired with {@link #getRecolorTo()}.
      *
      * @return a copy of the original colours; empty if none
      */
@@ -314,7 +312,7 @@ public final class NPCComposition {
     }
 
     /**
-     * The colours {@link #getRecolorFrom()} are replaced with, by position (opcode 40). Kraken extra.
+     * The colours {@link #getRecolorFrom()} are replaced with, by position (opcode 40).
      *
      * @return a copy of the replacement colours; empty if none
      */
@@ -323,7 +321,7 @@ public final class NPCComposition {
     }
 
     /**
-     * The textures replaced on the model (opcode 41), paired with {@link #getRetextureTo()}. Kraken extra.
+     * The textures replaced on the model (opcode 41), paired with {@link #getRetextureTo()}.
      *
      * @return a copy of the original texture ids; empty if none
      */
@@ -332,7 +330,7 @@ public final class NPCComposition {
     }
 
     /**
-     * The textures {@link #getRetextureFrom()} are replaced with, by position (opcode 41). Kraken extra.
+     * The textures {@link #getRetextureFrom()} are replaced with, by position (opcode 41).
      *
      * @return a copy of the replacement texture ids; empty if none
      */
@@ -370,7 +368,7 @@ public final class NPCComposition {
     }
 
     /**
-     * An integer param, as RuneLite's {@code ParamHolder.getIntValue}.
+     * An integer param.
      *
      * @param paramId the param id
      * @return the param's value, or -1 if the definition doesn't set it (or sets a string)
@@ -380,7 +378,7 @@ public final class NPCComposition {
     }
 
     /**
-     * A string param, as RuneLite's {@code ParamHolder.getStringValue}.
+     * A string param.
      *
      * @param paramId the param id
      * @return the param's value, or "" if the definition doesn't set it (or sets an integer)

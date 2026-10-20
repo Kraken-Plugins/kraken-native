@@ -4,8 +4,7 @@ import com.kraken.api.Client;
 import com.kraken.api.internal.Loc;
 
 /**
- * A wall, fence or door on a tile's edge, as RuneLite's {@code WallObject}. Its orientation and config bits aren't
- * read, so RuneLite's {@code getOrientationA}, {@code getOrientationB} and {@code getConfig} are left out.
+ * A wall, fence or door on a tile's edge. Its orientation and config bits aren't read.
  */
 public final class WallObject extends TileObject {
 

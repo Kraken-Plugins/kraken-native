@@ -1,7 +1,7 @@
 package com.kraken.client.ui.devtools.tools;
 
 import com.kraken.api.Client;
-import com.kraken.api.KrakenApi;
+import com.kraken.api.GameSession;
 import com.kraken.api.actor.Player;
 import com.kraken.api.coords.WorldPoint;
 import com.kraken.client.ui.Theme;
@@ -70,11 +70,11 @@ final class PlayersTool extends DevTool<Listing<PlayersTool.Row>> {
     }
 
     @Override
-    protected Listing<Row> read(KrakenApi api) {
-        Client client = api.client();
+    protected Listing<Row> read(GameSession session) {
+        Client client = session.client();
         WorldPoint self = localTile(client);
         List<Row> rows = new ArrayList<>();
-        Projector projector = isOverlayOn() ? Projector.of(api) : null;
+        Projector projector = isOverlayOn() ? Projector.of(session) : null;
         Marks.Builder marks = projector == null ? null : new Marks.Builder(projector);
         Player local = client.getLocalPlayer();
         for (Player player : client.getPlayers()) {

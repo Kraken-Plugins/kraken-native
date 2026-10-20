@@ -4,7 +4,7 @@ import com.kraken.client.plugins.Plugin;
 import lombok.Data;
 
 /**
- * A plugin started or stopped, as RuneLite's {@code PluginChanged}. Posted on the EDT, after the plugin's
+ * A plugin started or stopped. Posted on the EDT, after the plugin's
  * {@code startUp} (and the registration of its subscribers) or after its {@code shutDown}.
  */
 @Data

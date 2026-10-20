@@ -13,13 +13,11 @@ import static com.kraken.api.Perspective.LOCAL_COORD_BITS;
 import static com.kraken.api.Perspective.LOCAL_HALF_TILE_SIZE;
 
 /**
- * A free-standing object, such as a tree, rock, anvil or table, as RuneLite's {@code GameObject}. It can cover more than
- * one tile.
+ * A free-standing object, such as a tree, rock, anvil or table. It can cover more than one tile.
  *
- * <p>Differs from RuneLite's in one way: its size is its definition's ({@link ObjectComposition#getSizeX()} and
- * {@link ObjectComposition#getSizeY()}), before rotation, since the object's rotation isn't read. RuneLite's sizes
- * follow the rotation, so for an object turned a quarter the two are swapped. The footprint, centre and outline follow
- * the same sizes. The definition is read once, when first needed.
+ * <p>Its size is its definition's ({@link ObjectComposition#getSizeX()} and {@link ObjectComposition#getSizeY()}),
+ * before rotation, since the object's rotation isn't read. The footprint, centre and outline follow the same sizes.
+ * The definition is read once, when first needed.
  */
 public final class GameObject extends TileObject {
 

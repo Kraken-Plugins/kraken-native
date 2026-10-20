@@ -3,7 +3,7 @@ package com.kraken.client;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import com.google.inject.name.Named;
-import com.kraken.api.KrakenApi;
+import com.kraken.api.GameSession;
 import com.kraken.api.UnsupportedBuildException;
 import com.kraken.api.eventbus.EventBus;
 import com.kraken.client.events.ApiStateChanged;
@@ -19,7 +19,7 @@ import java.util.logging.Level;
 import javax.swing.*;
 
 /**
- * Attaches a {@link KrakenApi} to the running osclient.exe. {@link #start} attaches in the background (retrying while
+ * Attaches a {@link GameSession} to the running osclient.exe. {@link #start} attaches in the background (retrying while
  * the client boots), posting the game events on the client's {@link EventBus}, then hands each API poll to every
  * listener. Anything in the client that reads the game (dev tools, plugins) goes through here.
  *
@@ -66,10 +66,10 @@ public final class ProcessAttacher {
     private final File exe;
     private final EventBus eventBus;
     private final List<Runnable> stateListeners = new CopyOnWriteArrayList<>();
-    private final List<Consumer<KrakenApi>> attachListeners = new CopyOnWriteArrayList<>();
-    private final List<Consumer<KrakenApi>> pollListeners = new CopyOnWriteArrayList<>();
-    private final List<Consumer<KrakenApi>> frameListeners = new CopyOnWriteArrayList<>();
-    private volatile KrakenApi api;
+    private final List<Consumer<GameSession>> attachListeners = new CopyOnWriteArrayList<>();
+    private final List<Consumer<GameSession>> pollListeners = new CopyOnWriteArrayList<>();
+    private final List<Consumer<GameSession>> frameListeners = new CopyOnWriteArrayList<>();
+    private volatile GameSession session;
 
     /**
      * The attach state.
@@ -105,8 +105,8 @@ public final class ProcessAttacher {
      *
      * @return the API, or null until {@link State#ATTACHED}
      */
-    public KrakenApi attached() {
-        return api;
+    public GameSession attached() {
+        return session;
     }
 
     /**
@@ -129,11 +129,11 @@ public final class ProcessAttacher {
 
     /**
      * Runs a listener once the API attaches, on the attach thread before the API's first poll. A listener added after
-     * that never runs; check {@link #api()} as well.
+     * that never runs; check {@link #attached()} as well.
      *
      * @param listener takes the attached API
      */
-    public void addAttachListener(Consumer<KrakenApi> listener) {
+    public void addAttachListener(Consumer<GameSession> listener) {
         attachListeners.add(listener);
     }
 
@@ -143,7 +143,7 @@ public final class ProcessAttacher {
      *
      * @param listener takes the attached API
      */
-    public void addPollListener(Consumer<KrakenApi> listener) {
+    public void addPollListener(Consumer<GameSession> listener) {
         pollListeners.add(listener);
     }
 
@@ -154,7 +154,7 @@ public final class ProcessAttacher {
      *
      * @param listener takes the attached API
      */
-    public void addFrameListener(Consumer<KrakenApi> listener) {
+    public void addFrameListener(Consumer<GameSession> listener) {
         frameListeners.add(listener);
     }
 
@@ -166,13 +166,13 @@ public final class ProcessAttacher {
         Exception last = null;
         for (int attempt = 0; attempt < ATTEMPTS; attempt++) {
             try {
-                KrakenApi attached = override != null
-                        ? KrakenApi.attach(pid, exe.toPath(), Path.of(override), eventBus)
-                        : KrakenApi.attach(pid, exe.toPath(), eventBus);
+                GameSession attached = override != null
+                        ? GameSession.attach(pid, exe.toPath(), Path.of(override), eventBus)
+                        : GameSession.attach(pid, exe.toPath(), eventBus);
                 attached.setPollListener(() -> poll(attached));
                 attached.setFrameListener(() -> notify(frameListeners, attached, "API frame listener failed"));
-                api = attached;
-                for (Consumer<KrakenApi> listener : attachListeners) {
+                session = attached;
+                for (Consumer<GameSession> listener : attachListeners) {
                     try {
                         listener.accept(attached);
                     } catch (RuntimeException e) {
@@ -202,12 +202,12 @@ public final class ProcessAttacher {
         setState(State.FAILED, "Could not attach to osclient.exe. See the console.");
     }
 
-    private void poll(KrakenApi attached) {
+    private void poll(GameSession attached) {
         notify(pollListeners, attached, "API poll listener failed");
     }
 
-    private static void notify(List<Consumer<KrakenApi>> listeners, KrakenApi attached, String failure) {
-        for (Consumer<KrakenApi> listener : listeners) {
+    private static void notify(List<Consumer<GameSession>> listeners, GameSession attached, String failure) {
+        for (Consumer<GameSession> listener : listeners) {
             try {
                 listener.accept(attached);
             } catch (RuntimeException e) {

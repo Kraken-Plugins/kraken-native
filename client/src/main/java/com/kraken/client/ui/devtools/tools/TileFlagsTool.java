@@ -1,7 +1,7 @@
 package com.kraken.client.ui.devtools.tools;
 
 import com.kraken.api.Client;
-import com.kraken.api.KrakenApi;
+import com.kraken.api.GameSession;
 import com.kraken.api.Point;
 import com.kraken.api.actor.Player;
 import com.kraken.api.collision.CollisionData;
@@ -16,8 +16,8 @@ import org.kordamp.ikonli.materialdesign2.MaterialDesignF;
 import java.awt.*;
 
 /**
- * Collision flags on the tiles around you ({@link com.kraken.api.scene.WorldView#getCollisionMaps}): blocked tiles filled,
- * walls drawn on the edges they block, and optionally each tile's flags in hex.
+ * Collision flags on the tiles around you ({@link com.kraken.api.scene.WorldView#getCollisionMaps}): blocked tiles
+ * filled, walls drawn on the edges they block, and optionally each tile's flags in hex.
  */
 final class TileFlagsTool extends DevTool<Marks> {
     static final int RADIUS = 10;
@@ -48,11 +48,11 @@ final class TileFlagsTool extends DevTool<Marks> {
     }
 
     @Override
-    protected Marks read(KrakenApi api) {
-        Client client = api.client();
+    protected Marks read(GameSession session) {
+        Client client = session.client();
         Player self = client.getLocalPlayer();
         LocalPoint local = self == null ? null : self.getLocalLocation();
-        Projector projector = local == null ? null : Projector.of(api);
+        Projector projector = local == null ? null : Projector.of(session);
         int plane = self == null || self.getWorldLocation() == null ? 0 : self.getWorldLocation().getPlane();
         CollisionData map = projector == null ? null : collisionMap(client, plane);
         if (map == null) {

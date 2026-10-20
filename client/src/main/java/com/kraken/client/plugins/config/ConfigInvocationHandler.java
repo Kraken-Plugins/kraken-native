@@ -9,10 +9,10 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Implements a {@link Config} interface over the {@link ConfigManager}, as RuneLite's {@code ConfigInvocationHandler}.
- * A getter returns the stored value converted to its return type, or the interface's {@code default} body when nothing
- * is stored (or the stored text doesn't convert); a one-argument {@code void} method sets the value, null unsetting
- * it. A {@code default} method without {@link ConfigItem} is a helper and runs as written.
+ * Implements a {@link Config} interface over the {@link ConfigManager}. A getter returns the stored value converted
+ * to its return type, or the interface's {@code default} body when nothing is stored (or the stored text doesn't
+ * convert); a one-argument {@code void} method sets the value, null unsetting it. A {@code default} method without
+ * {@link ConfigItem} is a helper and runs as written.
  *
  * <p>Values aren't cached: each call reads the settings, which is a map lookup and a parse.
  */

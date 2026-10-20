@@ -5,11 +5,11 @@ import com.google.inject.Injector;
 import com.google.inject.Module;
 
 /**
- * A Kraken plugin, as RuneLite's {@code Plugin}. Annotate the subclass with {@link PluginDescriptor}; the
- * {@link PluginManager} builds it with a no-argument constructor, injects its {@code @Inject} fields from a child of
- * the client's injector, and installs it as a Guice module, so its {@code @Provides} methods work.
+ * A Kraken plugin. Annotate the subclass with {@link PluginDescriptor}; the {@link PluginManager} builds it with a
+ * no-argument constructor, injects its {@code @Inject} fields from a child of the client's injector, and installs it as
+ * a Guice module, so its {@code @Provides} methods work.
  *
- * <p>Lifecycle, as in RuneLite: {@link #startUp()} runs on the EDT, then the plugin's {@code @Subscribe} methods are
+ * <p>Lifecycle: {@link #startUp()} runs on the EDT, then the plugin's {@code @Subscribe} methods are
  * registered on the event bus. Stopping unregisters them, then runs {@link #shutDown()} on the EDT. Game events and
  * {@code ClientThread} tasks run on the client thread, the API's poll thread.
  */
@@ -48,7 +48,7 @@ public abstract class Plugin implements Module {
     }
 
     /**
-     * Stops the plugin, on the EDT. Also runs after a {@link #startUp()} that threw, as in RuneLite.
+     * Stops the plugin, on the EDT. Also runs after a {@link #startUp()} that threw.
      *
      * @throws Exception if the plugin can't stop cleanly; it's logged and the plugin counts as stopped
      */
@@ -57,7 +57,7 @@ public abstract class Plugin implements Module {
 
     /**
      * The services this plugin offers the plugins that declare a {@link PluginDependency} on it: the module is
-     * installed into each dependent's injector, as in RuneLite.
+     * installed into each dependent's injector.
      *
      * @return the module, or null if the plugin offers none (then no plugin can depend on it)
      */

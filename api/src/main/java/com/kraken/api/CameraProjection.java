@@ -2,7 +2,7 @@ package com.kraken.api;
 
 /**
  * One frame's camera: turns points of the top-level scene into canvas positions, replaying the float arithmetic of the
- * client's Lua {@code Graphics.worldToScreenCoord} handler step by step. Kraken extra, from
+ * client's Lua {@code Graphics.worldToScreenCoord} handler step by step. It is read with
  * {@link Client#getCameraProjection()}. {@link Perspective} reads one per call; code that projects many points for the
  * same frame can read one and reuse it, saving the camera reads each {@code Perspective} call makes.
  *

@@ -5,15 +5,14 @@ import com.kraken.api.scene.WorldView;
 import lombok.Getter;
 
 /**
- * One plane's collision flags, as RuneLite's {@code CollisionData}. Get them from {@link WorldView#getCollisionMaps()}.
+ * One plane's collision flags. Get them from {@link WorldView#getCollisionMaps()}.
  *
- * <p>Unlike RuneLite's, which reads the client's live array, this is a copy taken when the maps were fetched (as Lua's
- * {@code CollisionMap} is), so it doesn't follow doors opening or the map reloading. Fetch the maps again for fresh
- * flags, or use {@link WorldView#lineOfSight}/{@link WorldView#lineOfWalk} for a live check.
+ * <p>This is a copy taken when the maps were fetched (as Lua's {@code CollisionMap} is), so it doesn't follow doors
+ * opening or the map reloading. Fetch the maps again for fresh flags, or use
+ * {@link WorldView#lineOfSight}/{@link WorldView#lineOfWalk} for a live check.
  *
- * <p>The client's grid reaches a little past the scene's edge (on the 241 client it starts one tile outside it). The
- * RuneLite view, {@link #getFlags()}, covers just the scene; the Kraken extras ({@link #getBitFlags}, the line tests)
- * see the whole grid.
+ * <p>The client's grid reaches a little past the scene's edge (on the 241 client it starts one tile outside it).
+ * {@link #getFlags()} covers just the scene; {@link #getBitFlags} and the line tests see the whole grid.
  */
 public final class CollisionData {
 
@@ -25,19 +24,19 @@ public final class CollisionData {
     private final int[][] flags;
 
     /**
-     * The plane these flags are for. Kraken extra.
+     * The plane these flags are for.
      */
     @Getter
     private final int plane;
 
     /**
-     * The scene x of the client's grid's first column. Kraken extra.
+     * The scene x of the client's grid's first column.
      */
     @Getter
     private final int originX;
 
     /**
-     * The scene y of the client's grid's first row. Kraken extra.
+     * The scene y of the client's grid's first row.
      */
     @Getter
     private final int originY;
@@ -98,7 +97,7 @@ public final class CollisionData {
     }
 
     /**
-     * One tile's flags, anywhere on the client's grid. Kraken extra, mirrors Lua {@code CollisionMap.getBitFlags}.
+     * One tile's flags, anywhere on the client's grid. Mirrors Lua {@code CollisionMap.getBitFlags}.
      *
      * <p>Differs from Lua on purpose: the native method indexes the grid with the coordinates as given, without
      * subtracting the grid's origin the way the client's own walk and sight checks do, so in Lua it returns the flags
@@ -114,7 +113,7 @@ public final class CollisionData {
 
     /**
      * Whether the end tile can be seen from the start tile (the client's check for ranged and magic attacks), over
-     * this copy. Kraken extra, mirrors Lua {@code CollisionMap.lineOfSight}.
+     * this copy. Mirrors Lua {@code CollisionMap.lineOfSight}.
      *
      * @param x1 the start scene x
      * @param y1 the start scene y
@@ -127,8 +126,8 @@ public final class CollisionData {
     }
 
     /**
-     * Whether one can walk in a straight line from the start tile to the end tile, over this copy. Kraken extra,
-     * mirrors Lua {@code CollisionMap.lineOfWalk}.
+     * Whether one can walk in a straight line from the start tile to the end tile, over this copy. Mirrors Lua
+     * {@code CollisionMap.lineOfWalk}.
      *
      * @param x1 the start scene x
      * @param y1 the start scene y

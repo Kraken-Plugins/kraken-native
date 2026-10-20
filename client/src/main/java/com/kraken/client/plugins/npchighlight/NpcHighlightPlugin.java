@@ -24,8 +24,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * The overlay example plugin: outlines the NPCs whose names are listed in its settings. It is RuneLite plugin code with
- * Kraken imports, and shows the threading RuneLite plugins assume:
+ * The overlay example plugin: outlines the NPCs whose names are listed in its settings. It shows the threading a plugin
+ * can rely on:
  *
  * <ul>
  *   <li>{@link #highlighted} is a plain set, because the spawn events, the {@link ClientThread} tasks and the overlay's

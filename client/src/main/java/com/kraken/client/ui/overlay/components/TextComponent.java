@@ -13,9 +13,9 @@ import java.awt.Graphics2D;
 import java.awt.Point;
 
 /**
- * One piece of text with a drop shadow, so it reads over the game, as RuneLite's {@code TextComponent}.
+ * One piece of text with a drop shadow, so it reads over the game.
  *
- * <p>Reduced from RuneLite's: no {@code <col=...>} colour tags and no outline.
+ * <p>The text is drawn as it is: {@code <col=...>} colour tags aren't parsed, and there is no outline, only the shadow.
  */
 @Getter
 @Setter

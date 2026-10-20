@@ -34,8 +34,8 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The projectiles over the {@link GameFixture}: the client's list, RuneLite's axes (x, north y, height z), the two
- * endpoints as tiles, actors and heights, the live remaining cycles, and the "any projectile drawn" check.
+ * The projectiles over the {@link GameFixture}: the client's list, the axes (x, north y, height z), the two endpoints
+ * as tiles, actors and heights, the live remaining cycles, and the "any projectile drawn" check.
  */
 class ProjectileTest {
 

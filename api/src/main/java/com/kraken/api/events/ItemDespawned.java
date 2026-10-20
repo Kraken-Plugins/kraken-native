@@ -5,8 +5,8 @@ import com.kraken.api.scene.TileItem;
 import lombok.Value;
 
 /**
- * An item stack went from the ground (picked up, or despawned), as RuneLite's {@code ItemDespawned}. Not posted for
- * the stacks of a scene the client unloads.
+ * An item stack went from the ground (picked up, or despawned). Not posted for the stacks of a scene the client
+ * unloads.
  */
 @Value
 public class ItemDespawned {

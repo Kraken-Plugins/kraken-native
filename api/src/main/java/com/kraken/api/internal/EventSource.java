@@ -66,7 +66,7 @@ import java.util.logging.Logger;
  * Posts the game events ({@code com.kraken.api.events}) on an {@code EventBus}, by comparing successive reads of the
  * {@link Client}: spawns carry pinned handles and notice a new actor taking an old one's index, vars follow the
  * client's working copy, game states are every raw change, and tracking that starts as the API attaches replays the
- * current state. {@code KrakenApi}'s poll loop calls {@link #poll()} about every 20 ms on the poll thread.
+ * current state. {@code GameSession}'s poll loop calls {@link #poll()} about every 20 ms on the poll thread.
  *
  * <p>Demand-driven: a tracker only reads while the bus has subscribers for its events, and forgets its baseline when
  * they all leave.
@@ -74,14 +74,13 @@ import java.util.logging.Logger;
  * <p><b>The replay rule.</b> A tracker that starts on the first poll (when the API attaches) posts the current state
  * as events: the game state, every object and ground item of the scene, every loaded NPC and player as spawned, every
  * actor's target, every skill's stats and every held inventory. From a plugin's point of view the client just logged
- * in. A tracker that starts later takes a silent baseline, as a RuneLite plugin enabled mid-session sees no spawns
- * until the next scene load. Vars, the canvas size and projectiles already in flight aren't replayed.
+ * in. A tracker that starts later takes a silent baseline and sees no spawns until the next scene load. Vars, the
+ * canvas size and projectiles already in flight aren't replayed.
  *
- * <p><b>Scene loads.</b> As in RuneLite, a newly loaded scene posts a spawn for every object and ground item in it,
- * and no despawns for the old scene's: plugins clear on {@code GameStateChanged(LOADING)}. A scene counts as new when
- * the client comes back to logged in from anything but a lost connection, or when the map base has moved. The
- * {@code LOGGED_IN} that ends a load is held back until those spawns are posted, so plugins see loading, spawns,
- * logged in, as in RuneLite.
+ * <p><b>Scene loads.</b> A newly loaded scene posts a spawn for every object and ground item in it, and no despawns
+ * for the old scene's: plugins clear on {@code GameStateChanged(LOADING)}. A scene counts as new when the client comes
+ * back to logged in from anything but a lost connection, or when the map base has moved. The {@code LOGGED_IN} that
+ * ends a load is held back until those spawns are posted, so plugins see loading, spawns, logged in.
  *
  * <p>Events in one poll are posted in this order: {@link GameStateChanged} (a {@code LOGGED_IN} after the scene's
  * events), object despawns then spawns, ground item despawns, quantity changes then spawns, {@link CanvasSizeChanged},
@@ -395,8 +394,8 @@ public final class EventSource {
     }
 
     /**
-     * {@link StatChanged} for each skill whose XP, level or boosted level changed. Every skill fires when the stats come
-     * back after a logout.
+     * {@link StatChanged} for each skill whose XP, level or boosted level changed. Every skill fires when the stats
+     * come back after a logout.
      */
     private final class StatTracker extends Tracker {
         private Client.Stats last;
@@ -920,9 +919,9 @@ public final class EventSource {
     }
 
     /**
-     * {@link ItemSpawned}, {@link ItemDespawned} and {@link ItemQuantityChanged}, from a read of every pile. Each tile's
-     * pile is matched against the last read: a stack with the same item and quantity is the same stack (it keeps its
-     * handle); one with the same item and another quantity changed size; what is left over went or came.
+     * {@link ItemSpawned}, {@link ItemDespawned} and {@link ItemQuantityChanged}, from a read of every pile. Each
+     * tile's pile is matched against the last read: a stack with the same item and quantity is the same stack (it keeps
+     * its handle); one with the same item and another quantity changed size; what is left over went or came.
      */
     private final class ItemTracker extends SceneTracker {
         private Map<MapCoord, List<TileItem>> last = Map.of();

@@ -15,9 +15,9 @@ import javax.swing.*;
 import static com.formdev.flatlaf.FlatClientProperties.*;
 
 /**
- * RuneLite-style sidebar: a strip of tabs on the far right that open one panel at a time. Drag the open panel's left
- * edge to resize it: the game gives up or gets back the width, and every panel shares the width, which is remembered
- * between launches. Double-click the edge to reset it.
+ * The sidebar is a strip of tabs on the far right that open one panel at a time. Drag the open panel's left edge to
+ * resize it: the game gives up or gets back the width, and every panel shares the width, which is remembered between
+ * launches. Double-click the edge to reset it.
  */
 @Singleton
 public final class Sidebar extends JPanel {
@@ -84,7 +84,7 @@ public final class Sidebar extends JPanel {
         }
         drawer.setVisible(open);
 
-        // Like RuneLite, grow the window for the panel instead of squashing the game, and give it back on close
+        // Grow the window for the panel instead of squashing the game, and give it back on close
         JFrame frame = (JFrame) SwingUtilities.getWindowAncestor(this);
         boolean normal = frame.getExtendedState() == Frame.NORMAL;
         if (open && !wasOpen && growWindow && normal) {

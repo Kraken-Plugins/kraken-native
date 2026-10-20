@@ -5,7 +5,7 @@ import com.google.inject.Provides;
 import com.google.inject.Singleton;
 import com.google.inject.name.Names;
 import com.kraken.api.Client;
-import com.kraken.api.KrakenApi;
+import com.kraken.api.GameSession;
 import com.kraken.api.eventbus.EventBus;
 import com.kraken.client.plugins.config.ConfigManager;
 import lombok.AllArgsConstructor;
@@ -22,8 +22,8 @@ import javax.swing.*;
  * {@link Singleton}s that Guice creates on first use, so request the frame on the EDT before anything else.
  *
  * <p>Plugins can inject: {@link Client} (the attached API's; plugins load only once it has attached), {@link EventBus},
- * {@code ClientThread}, {@code ConfigManager}, {@link KrakenConfig}, {@code OverlayManager}, {@code PluginManager} and a
- * shared {@link ScheduledExecutorService}.
+ * {@code ClientThread}, {@code ConfigManager}, {@link KrakenConfig}, {@code OverlayManager}, {@code PluginManager} and
+ * a shared {@link ScheduledExecutorService}.
  */
 @AllArgsConstructor
 public final class KrakenModule extends AbstractModule {
@@ -51,11 +51,11 @@ public final class KrakenModule extends AbstractModule {
     @Provides
     @Singleton
     Client provideClient(ProcessAttacher attacher) {
-        KrakenApi api = attacher.attached();
-        if (api == null) {
+        GameSession session = attacher.attached();
+        if (session == null) {
             throw new IllegalStateException("No client to inject: the API hasn't attached yet");
         }
-        return api.client();
+        return session.client();
     }
 
     /**

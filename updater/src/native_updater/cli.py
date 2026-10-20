@@ -23,7 +23,7 @@ from .winpaths import local
 
 # updater/src/native_updater/cli.py -> repo root. Valid because uv installs the project in editable mode.
 REPO = Path(__file__).resolve().parents[3]
-# The API consumes the mappings and bundles them as classpath resources (KrakenApi.attach loads mappings/<version>.json).
+# The API consumes the mappings and bundles them as classpath resources (GameSession.attach loads mappings/<version>.json).
 MAPPINGS = REPO / "api" / "src" / "main" / "resources" / "mappings"
 # Arguments that take a path; C:\... values are translated so they also work under WSL.
 PATH_ARGS = ("cache", "binary", "out", "previous", "spec", "export", "mapping", "ghidra", "java_home")

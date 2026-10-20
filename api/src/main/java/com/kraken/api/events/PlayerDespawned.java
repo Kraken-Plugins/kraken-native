@@ -5,8 +5,8 @@ import com.kraken.api.actor.Player;
 import lombok.Value;
 
 /**
- * A player left, as RuneLite's {@code PlayerDespawned}. The handle still answers its name and location with the last
- * values read (refreshed every game tick while it was tracked).
+ * A player left. The handle still answers its name and location with the last values read (refreshed every game tick
+ * while it was tracked).
  */
 @Value
 public class PlayerDespawned {

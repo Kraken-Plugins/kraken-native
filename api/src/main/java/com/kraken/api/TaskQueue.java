@@ -7,9 +7,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * The work {@link KrakenApi#invoke} and friends hand to the poll thread, which plays the part of RuneLite's client
- * thread. The poll loop runs the pending tasks at the start of each poll and the tick-end tasks after a game tick's
- * events, the same two queues RuneLite's {@code ClientThread} keeps.
+ * The work {@link GameSession#invoke} and friends hand to the poll thread. The poll loop runs the pending tasks at the
+ * start of each poll and the tick-end tasks after a game tick's events, from two queues.
  *
  * <p>A task that returns false runs again at the next poll. A task that throws is logged and dropped.
  */

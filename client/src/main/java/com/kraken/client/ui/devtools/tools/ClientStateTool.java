@@ -2,7 +2,7 @@ package com.kraken.client.ui.devtools.tools;
 
 import com.kraken.api.Client;
 import com.kraken.api.GameState;
-import com.kraken.api.KrakenApi;
+import com.kraken.api.GameSession;
 import com.kraken.api.ProfileType;
 import com.kraken.api.Skill;
 import com.kraken.api.WorldType;
@@ -62,8 +62,8 @@ final class ClientStateTool extends DevTool<ClientStateTool.Snapshot> {
     }
 
     @Override
-    protected Snapshot read(KrakenApi api) {
-        Client client = api.client();
+    protected Snapshot read(GameSession session) {
+        Client client = session.client();
         // Var counts are only read while the window (or that overlay row) shows them: a varp or varc read costs a read
         boolean count = isWindowOpen() || vars.isOn();
         int varps = -1;

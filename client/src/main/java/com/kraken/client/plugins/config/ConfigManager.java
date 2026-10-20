@@ -36,16 +36,16 @@ import java.util.logging.Level;
 import java.util.stream.Collectors;
 
 /**
- * Kraken's settings, as RuneLite's {@code ConfigManager}: string values under a group and a key, kept in one
+ * Kraken's settings: string values under a group and a key, kept in one
  * properties file ({@code ~/.kraken-native/settings.properties}, keys {@code group.key}).
  *
  * <ul>
  *   <li><b>Typed settings.</b> {@link #getConfig} implements a plugin's {@link Config} interface over the store;
  *       {@link #getConfigDescriptor} lists what it declares, for the settings page.
  *   <li><b>Types.</b> {@code boolean}, {@code int}, {@code long}, {@code float}, {@code double}, {@code String},
- *       enums (stored by name), {@code Color} ({@code #AARRGGBB}; RuneLite's decimal form also reads), {@code Dimension}
- *       ({@code WIDTHxHEIGHT}) and {@code Set} of an enum (names, comma-separated). Keybinds aren't supported: Kraken
- *       never sees the game's input.
+ *       enums (stored by name), {@code Color} ({@code #AARRGGBB}; a decimal ARGB integer also reads),
+ *       {@code Dimension} ({@code WIDTHxHEIGHT}) and {@code Set} of an enum (names, comma-separated). Keybinds aren't
+ *       supported: Kraken never sees the game's input.
  *   <li><b>Events.</b> Every change posts {@link ConfigChanged} on the bus, on the thread that made it.
  *   <li><b>Storage.</b> Changes are written shortly after they're made (several changes in a row are written once),
  *       atomically: to a temporary file that then replaces the settings file. {@link #flush} writes at once.
@@ -87,8 +87,8 @@ public class ConfigManager {
     }
 
     /**
-     * Implements a config interface over the stored settings, as RuneLite's: a getter returns the stored value, or the
-     * method's {@code default} body when there is none; a setter stores its argument. Plugins usually call this from a
+     * Implements a config interface over the stored settings: a getter returns the stored value, or the method's
+     * {@code default} body when there is none; a setter stores its argument. Plugins usually call this from a
      * {@code @Provides} method, so their config can be injected.
      *
      * @param type the config interface, annotated {@link ConfigGroup}
@@ -236,7 +236,7 @@ public class ConfigManager {
     }
 
     /**
-     * The settings whose full key ({@code group.key}) starts with a prefix, as RuneLite's.
+     * The settings whose full key ({@code group.key}) starts with a prefix.
      *
      * @param prefix the start, e.g. {@code "npchighlight."}
      * @return the full keys, sorted
@@ -404,7 +404,7 @@ public class ConfigManager {
     }
 
     /**
-     * Reads a stored colour: {@code #AARRGGBB}, {@code #RRGGBB} (opaque), or RuneLite's decimal ARGB.
+     * Reads a stored colour: {@code #AARRGGBB}, {@code #RRGGBB} (opaque), or decimal ARGB.
      *
      * @param text the stored text
      * @return the colour

@@ -4,7 +4,7 @@ import java.awt.Dimension;
 import java.awt.Graphics2D;
 
 /**
- * Something that draws itself, as RuneLite's {@code RenderableEntity}: an {@link Overlay}, or a panel component.
+ * Something that draws itself: an {@link Overlay}, or a panel component.
  */
 public interface RenderableEntity {
 

@@ -16,9 +16,9 @@ import lombok.extern.java.Log;
 
 /**
  * The example plugin: counts game ticks while logged in, shows the count in a panel over the game and logs it to the
- * console now and then. It shows the shape of every Kraken plugin, which is a RuneLite plugin's: an injected
- * {@link Client} and {@link ClientThread}, a {@code @Provides} config, an overlay, {@code startUp}/{@code shutDown}, and
- * {@link Subscribe} methods for game events.
+ * console now and then. It shows the shape of a Kraken plugin: an injected {@link Client} and {@link ClientThread}, a
+ * {@code @Provides} config, an overlay, {@code startUp}/{@code shutDown}, and {@link Subscribe} methods for game
+ * events.
  *
  * <p>The count is only touched on the client thread (in the event handlers, the {@code clientThread} task and the
  * overlay's {@code render}), so it needs no locking.

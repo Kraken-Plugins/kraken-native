@@ -13,12 +13,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * A box of components (titles, lines) on a translucent background, as RuneLite's {@code PanelComponent}. Add children
- * each frame and render it; {@code OverlayPanel} does both for an overlay.
+ * A box of components (titles, lines) on a translucent background. Add children each frame and render it;
+ * {@code OverlayPanel} does both for an overlay.
  *
- * <p>Reduced from RuneLite's: children don't wrap onto a new row or column. Unlike RuneLite's, the background fits
- * this frame's children rather than last frame's: the children are measured first (drawn with nothing visible), then
- * drawn.
+ * <p>Children don't wrap onto a new row or column. The background fits this frame's children rather than last frame's:
+ * the children are measured first (drawn with nothing visible), then drawn.
  */
 public class PanelComponent implements LayoutableRenderableEntity {
 

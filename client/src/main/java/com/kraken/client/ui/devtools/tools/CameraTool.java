@@ -1,7 +1,7 @@
 package com.kraken.client.ui.devtools.tools;
 
 import com.kraken.api.Client;
-import com.kraken.api.KrakenApi;
+import com.kraken.api.GameSession;
 import com.kraken.client.ui.devtools.Category;
 import com.kraken.client.ui.devtools.DevTool;
 import com.kraken.client.ui.devtools.ToolOption;
@@ -64,8 +64,8 @@ final class CameraTool extends DevTool<CameraTool.State> {
     }
 
     @Override
-    protected State read(KrakenApi api) {
-        Client client = api.client();
+    protected State read(GameSession session) {
+        Client client = session.client();
         if (client.getCameraX() < 0) {
             return null;
         }

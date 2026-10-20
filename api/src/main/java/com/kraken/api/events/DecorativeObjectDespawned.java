@@ -6,8 +6,8 @@ import com.kraken.api.scene.TileObject;
 import lombok.Data;
 
 /**
- * A wall decoration went from a tile, as RuneLite's {@code DecorativeObjectDespawned}. Not posted for the objects of a
- * scene the client unloads: plugins clear on {@code GameStateChanged(LOADING)}.
+ * A wall decoration went from a tile. Not posted for the objects of a scene the client unloads: plugins clear on
+ * {@code GameStateChanged(LOADING)}.
  */
 @Data
 public class DecorativeObjectDespawned implements TileObjectDespawned {

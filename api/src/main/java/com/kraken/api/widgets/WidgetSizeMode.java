@@ -1,9 +1,9 @@
 package com.kraken.api.widgets;
 
 /**
- * How a widget's width or height is measured, as RuneLite's {@code WidgetSizeMode}: the values
- * {@link Widget#getWidthMode()} and {@link Widget#getHeightMode()} return. They are the cache's own values, the same
- * in the native client (Lua's {@code SizeMode}).
+ * How a widget's width or height is measured: the values {@link Widget#getWidthMode()} and
+ * {@link Widget#getHeightMode()} return. They are the cache's own values, the same in the native client (Lua's
+ * {@code SizeMode}).
  */
 public final class WidgetSizeMode {
 

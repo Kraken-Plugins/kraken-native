@@ -42,7 +42,7 @@ import java.util.concurrent.FutureTask;
 import java.util.logging.Level;
 
 /**
- * Loads, starts and stops {@link Plugin}s, as RuneLite's {@code PluginManager}.
+ * Loads, starts and stops {@link Plugin}s.
  *
  * <ul>
  *   <li><b>Discovery.</b> {@link #loadCorePlugins} finds every top-level {@link PluginDescriptor} class under
@@ -52,10 +52,11 @@ import java.util.logging.Level;
  *       module, plus the {@link Plugin#getPublicModule() public module} of each plugin it depends on.
  *   <li><b>Order.</b> Plugins load and start in dependency order and stop in reverse.
  *   <li><b>Lifecycle.</b> Starting runs {@code startUp} on the EDT, registers the plugin on the event bus and posts
- *       {@link PluginChanged}; stopping unregisters it, runs {@code shutDown} on the EDT and posts {@link PluginChanged}.
+ *       {@link PluginChanged}; stopping unregisters it, runs {@code shutDown} on the EDT and posts
+ *       {@link PluginChanged}.
  *       A plugin whose {@code startUp} throws is logged, marked failed ({@link #getFailure}) and switched off.
  *   <li><b>Enabled state</b> is kept in config group {@value #CONFIG_GROUP}, under the plugin class's simple name
- *       lower-cased, as RuneLite keeps it under {@code runelite}.
+ *       lower-cased.
  *   <li><b>Conflicts.</b> Turning a plugin on turns off the plugins it {@linkplain #conflictsForPlugin conflicts} with.
  * </ul>
  *
@@ -241,7 +242,7 @@ public class PluginManager {
     }
 
     /**
-     * Why a plugin last failed to load or start. Kraken extra; the Plugins panel shows it.
+     * Why a plugin last failed to load or start. The Plugins panel shows it.
      *
      * @param plugin a loaded plugin
      * @return the error, or null if it hasn't failed since it last started
@@ -251,10 +252,9 @@ public class PluginManager {
     }
 
     /**
-     * The plugin's settings, as RuneLite's {@code getPluginConfigProxy}: the {@link Config} its injector provides,
-     * usually through a {@code @Provides} method calling {@code ConfigManager.getConfig}. A config that a dependency's
-     * public module provides belongs to the dependency, so it doesn't count. The Plugins panel shows a settings button
-     * for plugins that have one.
+     * The plugin's settings: the {@link Config} its injector provides, usually through a {@code @Provides} method
+     * calling {@code ConfigManager.getConfig}. A config that a dependency's public module provides belongs to the
+     * dependency, so it doesn't count. The Plugins panel shows a settings button for plugins that have one.
      *
      * @param plugin a loaded plugin
      * @return the config, or null if the plugin provides none, couldn't be loaded, or its config can't be created

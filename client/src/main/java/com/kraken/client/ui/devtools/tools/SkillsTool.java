@@ -2,7 +2,7 @@ package com.kraken.client.ui.devtools.tools;
 
 import com.kraken.api.Client;
 import com.kraken.api.Experience;
-import com.kraken.api.KrakenApi;
+import com.kraken.api.GameSession;
 import com.kraken.api.Skill;
 import com.kraken.client.ui.devtools.Category;
 import com.kraken.client.ui.devtools.DevTool;
@@ -43,8 +43,8 @@ final class SkillsTool extends DevTool<List<SkillsTool.Row>> {
     }
 
     @Override
-    protected List<Row> read(KrakenApi api) {
-        Client client = api.client();
+    protected List<Row> read(GameSession session) {
+        Client client = session.client();
         if (client.getRealSkillLevel(Skill.ATTACK) == -1) {
             return List.of();
         }

@@ -7,12 +7,12 @@ import lombok.Value;
 import static com.kraken.api.Perspective.LOCAL_COORD_BITS;
 
 /**
- * A world tile, as RuneLite's {@code WorldPoint}: the coordinates the wiki uses. Lua's {@code MapCoord} is a scene
- * tile instead (relative to the loaded map's base); a world tile is that plus the base ({@link #fromScene}).
+ * A world tile: the coordinates the wiki uses. Lua's {@code MapCoord} is a scene tile instead (relative to the loaded
+ * map's base); a world tile is that plus the base ({@link #fromScene}).
  *
- * <p>Inside an instance this is the instance's own tile, as RuneLite's {@link #fromLocal} gives it. RuneLite's
- * {@code fromLocalInstance} maps it back to the template's real-world tile using the instance chunk table, which
- * Kraken doesn't read, so it isn't offered.
+ * <p>Inside an instance this is the instance's own tile, as {@link #fromLocal} gives it. Mapping it back to the
+ * template's real-world tile needs the instance chunk table, which the API doesn't read, so no such conversion is
+ * offered.
  */
 @Value
 public class WorldPoint {
