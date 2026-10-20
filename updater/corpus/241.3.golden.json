@@ -1,7 +1,7 @@
 {
   "sha256": "166231c8f6bd05c7542b8f0d35eb64b0aad701a87ba6ba41f60c4706de946944",
   "version": "241.3",
-  "source": "docs/client-surface.md seed values (static analysis, 2026-10-11) plus registrations read directly from the binary on 2026-10-12; section 3/4 keys from static analysis of the handlers on 2026-10-19; section 7 (interfaces) keys from static analysis of the IfType getters, checked against the live client on 2026-10-19; projectile keys from static analysis of the list walker, step and constructor on 2026-10-19; events.* hook sites, functions.clientCycle/setGameState and Client.pluginGate from the event raiser recipe (events.py), checked against the hand analysis of the raise wrappers on 2026-10-20",
+  "source": "docs/client-surface.md seed values (static analysis, 2026-10-11) plus registrations read directly from the binary on 2026-10-12; section 3/4 keys from static analysis of the handlers on 2026-10-19; section 7 (interfaces) keys from static analysis of the IfType getters, checked against the live client on 2026-10-19; projectile keys from static analysis of the list walker, step and constructor on 2026-10-19; events.* hook sites, functions.clientCycle/setGameState and Client.pluginGate from the event raiser recipe (events.py), checked against the hand analysis of the raise wrappers on 2026-10-20; player/ground-item/projectile hook targets (hooks.py) from the hand analysis of the zone-update and player-info packet paths on 2026-10-20",
   "keys": {
     "global.client": "0xe98c18",
     "global.cycle": "0xe98c14",
@@ -518,7 +518,17 @@
         "idArg": 0,
         "args": 1
       }
-    ]
+    ],
+    "functions.npcInfoDecode": "0x97ff0",
+    "functions.playerInfoDecode": "0x1dd530",
+    "functions.playerAdd": "0x1dbc20",
+    "functions.playerRemove": "0x9ce60",
+    "functions.objAdd": "0x748c0",
+    "functions.objDel": "0x74be0",
+    "functions.objCount": "0x74e30",
+    "functions.projectileCtor": "0xa24a0",
+    "functions.projectileStep": "0xa2630",
+    "functions.projectileListUpdate": "0xc5e10"
   },
   "fingerprints": {
     "ScreenRescale": "0x61aa30",
@@ -570,7 +580,8 @@
     "ProjectileListUpdate": "0xc5e10",
     "ProjectileUpdate": "0xa2630",
     "ProjectileEndpoint": "0xa2b70",
-    "ProjectileCtor": "0xa24a0"
+    "ProjectileCtor": "0xa24a0",
+    "NpcInfoDecode": "0x97ff0"
   },
   "bindings": {
     "ClientOp.npcCoord": "0x3ae4b0",

@@ -47,6 +47,16 @@ class MappingTest {
     }
 
     @Test
+    void readsHookTargetsWithoutALuaEvent() throws IOException {
+        Mapping map = seedMapping();
+        for (String fn : List.of("clientCycle", "setGameState", "npcInfoDecode", "playerInfoDecode", "playerAdd",
+                "playerRemove", "objAdd", "objDel", "objCount", "projectileCtor", "projectileStep", "projectileListUpdate")) {
+            assertTrue(map.hasFunction(fn), fn);
+        }
+        assertEquals(0xa24a0L, map.function("projectileCtor"));
+    }
+
+    @Test
     void missingKeysThrowOrFallBack() throws IOException {
         Mapping map = seedMapping();
         assertThrows(Mapping.MissingMappingException.class, () -> map.offset("Actor.noSuchField"));

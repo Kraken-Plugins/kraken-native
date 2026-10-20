@@ -67,6 +67,9 @@ class FakeModel:
     def callers(self, fn):
         return sorted({entry for _, entry in self.call_sites(fn)})
 
+    def callees(self, fn):
+        return sorted({i.target for i in self.insns(fn) if i.is_call and i.target is not None})
+
     def insns_with_disp(self, disp, mnem=None):
         """(rva, fn) of memory operands with this displacement (an RVA for RIP-relative ones)."""
         return [(i.rva, entry) for entry, body in self._insns.items() for i in body

@@ -17,6 +17,7 @@ import com.kraken.api.events.ItemQuantityChanged;
 import com.kraken.api.events.ItemSpawned;
 import com.kraken.api.events.NpcSpawned;
 import com.kraken.api.events.ProjectileMoved;
+import com.kraken.api.events.ProjectileSpawned;
 import com.kraken.api.events.TileObjectDespawned;
 import com.kraken.api.events.TileObjectSpawned;
 import com.kraken.api.events.WallObjectDespawned;
@@ -39,6 +40,7 @@ import static com.kraken.api.GameFixture.TREE_LOC;
 import static com.kraken.api.GameFixture.WALL_LOC;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -293,6 +295,7 @@ class SceneEventsTest {
     @Test
     void projectilesMovePostOnceWhenTheyAppear() {
         game.setProjectilesInFlight();
+        record(ProjectileSpawned.class);
         record(ProjectileMoved.class);
         source.poll();
         game.setProjectilesInFlight(0);
@@ -302,6 +305,8 @@ class SceneEventsTest {
         assertEquals(1, moved.size());
         ProjectileMoved spell = moved.get(0);
         assertEquals(GameFixture.SPELL_PROJECTILE, spell.getProjectile().getId());
+        assertEquals(2, seen.size(), "a spawn, then the move");
+        assertSame(spell.getProjectile(), ((ProjectileSpawned) seen.get(0)).getProjectile());
         NPC goblin = client.getTopLevelWorldView().npcs().byIndex(5);
         assertEquals(goblin.getLocalLocation(), spell.getPosition(), "its target actor's location");
         LocalPoint at = spell.getPosition();

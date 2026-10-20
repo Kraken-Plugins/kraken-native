@@ -95,10 +95,41 @@ without the gate: they belong to the plugin UI input path). Nothing in the API d
 
 ### 2.4 Events with no native counterpart
 
-RuneLite events the client has no raise for, which stay diff-based (but tick-driven, §4.3): `PlayerSpawned` /
-`PlayerDespawned`, `ItemSpawned` / `ItemDespawned` / `ItemQuantityChanged`, `InteractingChanged`,
-`ProjectileMoved`. A future `ProjectileCtor` entry hook (fingerprint `ProjectileCtor`, `0xa24a0`) could push
-projectile spawns; the player add/remove path is not located.
+RuneLite events the client raises no Lua event for: `PlayerSpawned` / `PlayerDespawned`, `ItemSpawned` /
+`ItemDespawned` / `ItemQuantityChanged`, `InteractingChanged`, `ProjectileMoved` and Kraken's `ProjectileSpawned`.
+For these the mapping carries plain function hook targets (§2.5), found from the struct fields they write rather than
+from an event id.
+
+### 2.5 Function hook targets
+
+All under `functions` in the mapping (`hooks.py`, the `projectiles` extractor and two fingerprints). "Pre" means the
+detour reports before calling the original, "post" after it returns, which is when the written state is readable.
+
+| Function | 241.3 | Hook | Arguments at the entry | Serves |
+|---|---|---|---|---|
+| `playerAdd` | `0x1dbc20` | post | RCX player-state record, RDX → out `{ctrl, Player*}` pair, R8D index, R9 World* | `PlayerSpawned`: the new `Player*` is the pair's second slot; or re-read slot R8D |
+| `playerRemove` | `0x9ce60` | pre | RCX Client*, RDX World*, R8D index | `PlayerDespawned`: the player is still readable |
+| `playerInfoDecode` | `0x1dd530` | post | RCX → `Client.playerIndexCount` (count, then indices), RDX packet, R8 World* | `InteractingChanged` and any player change: the whole player info packet has been applied |
+| `npcInfoDecode` | `0x97ff0` | post | RCX NPC-update state, RDX World*, R8B large-packet flag, R9 packet | `InteractingChanged` and NPC changes: removal pass, add pass and update masks applied (ON_NPC_LOAD/UNLOAD fire inside it) |
+| `objAdd` | `0x748c0` | post | RCX Client*, RDX World*, R8D x, R9D z (zone-relative, to confirm), then id and count on the stack | `ItemSpawned`: re-read that tile's pile (or all piles) |
+| `objDel` | `0x74be0` | pre | same shape | `ItemDespawned`: the entry is still in the pile |
+| `objCount` | `0x74e30` | post | same shape, old and new count on the stack | `ItemQuantityChanged` |
+| `projectileCtor` | `0xa24a0` | post | RCX Projectile* (inside a fresh `make_shared` block), RDX parameters | `ProjectileSpawned`, then `ProjectileMoved`: read the projectile at RCX |
+| `projectileStep` | `0xa2630` | post | RCX Projectile* | a `ProjectileMoved` per cycle per projectile, RuneLite's actual cadence, if wanted |
+| `projectileListUpdate` | `0xc5e10` | post | RCX Client*, RDX the list | once per cycle after every projectile stepped: a cheaper single trigger for the projectile tracker |
+| `clientCycle` | `0x58b70` | pre | RCX Client* | `ClientTick` |
+| `setGameState` | `0x5b810` | pre | RCX Client*, EDX new state | `GameStateChanged` on every write |
+
+How they were found, so a new build can be checked by hand: `objAdd` is the one function that allocates, stores
+`GroundItem.id` and `GroundItem.count` and reads `Client.tickCount` (despawn timers); `objCount` and `objDel` are
+its siblings under the zone-update handler, telling them apart by the count store and the ObjType load before the
+list unlink. `playerAdd` is the Actor-constructor caller that stores `Player.index`; `playerRemove` is called next to
+it and reads `Player.index` and `Actor.worldId`; `playerInfoDecode` is the packet handler's callee that receives the
+same packet stack slot as `npcInfoDecode` (the caller of the NPC update decoder) and reaches `playerAdd`. The
+projectile functions come from the list walker the projectile extractor already follows.
+
+Note on the pile functions: the same six zone-update handlers also exist under a second caller (`0x95f10`), the
+scene rebuild replaying the zone; hooking the functions catches both paths.
 
 ## 3. The mapping contract
 
@@ -199,7 +230,11 @@ arrives instead of on the 20 ms timer, and reads only what the payload points at
 | `setGameState` hook, ON_GAME_STATE_CHANGED | `GameStateTracker` | take the new state from the payload; the holding of `LOGGED_IN` and the scene-load logic are unchanged |
 | ON_SCREEN_RESIZE | `CanvasTracker` | compare the canvas size now |
 | `clientCycle` hook | `ClientTick` | one `ClientTick` per real client cycle (about 50 a second) instead of one per poll |
-| none (players, ground items, targets, projectiles) | as today | items and targets ride on the tick trigger; projectiles stay per poll |
+| `playerAdd` / `playerRemove` hooks | player `ActorTracker` | re-read just that index (R8D) and post the spawn, or post the despawn with the pinned handle before the client drops it |
+| `npcInfoDecode` / `playerInfoDecode` hooks | `InteractingTracker`, both `ActorTracker`s | diff targets and actor sets right after the packet is applied, instead of on the next tick poll |
+| `objAdd` / `objDel` / `objCount` hooks | `ItemTracker` | re-read the pile at the given tile (to confirm the coordinate base live; until then, all piles) and post the spawn, despawn or quantity change |
+| `projectileCtor` hook | `ProjectileTracker` | read the projectile at RCX and post `ProjectileSpawned` then `ProjectileMoved`; the per-poll list diff becomes the fallback |
+| `projectileStep` hook (optional) | `ProjectileTracker` | one `ProjectileMoved` per cycle per projectile, matching RuneLite's cadence, at about 50 messages a second per projectile; off by default |
 
 The 20 ms poll keeps running as a safety net at a slower rate (say 250 ms) while the hook is connected, so a
 dropped message costs latency, not an event. When the hook disconnects the poll goes back to 20 ms.
@@ -238,7 +273,9 @@ usual order with the queued triggers applied, so a tick arriving together with N
    to 250 ms while connected. Measures `GameTick` latency against the poll path.
 3. **Payloads.** Capture plans; NPC slot and loc tile targeted updates; `LocTracker` stops the whole-scene read per
    tick.
-4. **`clientCycle` and `setGameState`.** `ClientTick` per cycle, every state write.
+4. **Function hook targets.** `clientCycle` and `setGameState` (`ClientTick` per cycle, every state write), then the
+   §2.5 set: players, ground items, the two info decoders, the projectile constructor. After this every event class
+   in `com.kraken.api.events` has a push trigger; only the 250 ms safety poll remains timer-driven.
 5. **Poll-loop wake-up** (`pushNative`) once the rest is stable.
 
 ## 6. Carry-forward
@@ -259,3 +296,11 @@ events shows up as a `new`/`gone` `events.*` key in the run's diff.
 - ON_SCREEN_RESIZE cadence (expected every 500 ms regardless of a change, so the tracker must still compare).
 - That hooks survive a logout/login and a world hop, and that `Client.pluginGate` is null on a non-BETA world while
   raises still reach the detours.
+- `objAdd` / `objDel` / `objCount`: the base of the x and z arguments (zone-relative, scene or world), one call per
+  dropped, picked-up or merged stack, and that the scene-rebuild path (`0x95f10`) fires them for every pile of a new
+  scene (then the trackers must treat those as the scene-load replay, not as fresh spawns).
+- `playerAdd` / `playerRemove`: one call per player entering and leaving the index list, the `Player*` in the out
+  pair after `playerAdd` returns, and that `playerRemove` really drops the slot (it is reached from the removed-index
+  list; its hash-map erase was not read to the end).
+- `projectileCtor`: that every projectile packet goes through it (the only caller is the `make_shared` site under the
+  packet handler), and that the fields are complete when it returns.

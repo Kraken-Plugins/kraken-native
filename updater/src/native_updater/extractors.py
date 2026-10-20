@@ -9,6 +9,7 @@ import struct
 
 from .analysis.provenance import Add, Arg, Bin, Const, Deref, Global, Mul, Ret, Out, contains, walk
 from .events import event_raisers
+from .hooks import obj_pile_ops, player_lifecycle
 from .session import Blocked
 
 _cache = {}
@@ -894,6 +895,7 @@ def game_state_setter(session, p):
 
 EXTRACTORS = {
     "event_raisers": event_raisers, "cycle_function": cycle_function, "game_state_setter": game_state_setter,
+    "obj_pile_ops": obj_pile_ops, "player_lifecycle": player_lifecycle,
     "projectiles": projectiles,
     "loc_tag_kind": loc_tag_kind, "collision_record": collision_record, "renderer_layout": renderer_layout,
     "config_loader_core": config_loader_core, "config_archive": config_archive, "packet_layout": packet_layout,

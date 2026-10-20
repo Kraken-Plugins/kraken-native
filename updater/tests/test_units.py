@@ -351,6 +351,49 @@ class EventRaiserTests(unittest.TestCase):
         self.assertEqual(extractors.run(s, "game_state_setter", {})["GameStateSetter"][0], 0x1000)
 
 
+class HookTargetTests(unittest.TestCase):
+    """The ground item and player lifecycle recipes (hooks.py) over miniature zone-update and player-info code."""
+
+    @staticmethod
+    def session(functions, values, fns):
+        s = GetterSelectorTests.session(functions, values)
+        s.fn = lambda ref: fns.get(ref, ref)
+        s.notes = []
+        return s
+
+    def test_obj_pile_ops(self):
+        s = self.session({
+            0x1000: ["MOV ECX,0x88", "CALL 0x140009000", "MOV dword ptr [RCX + 0x24],EAX", "MOV dword ptr [RCX + 0x20],R14D",
+                     "MOV EDX,dword ptr [RBX + 0x3198]", "RET"],                                            # add
+            0x2000: ["CMP dword ptr [RCX + 0x20],EDI", "CMP dword ptr [RCX + 0x24],EAX", "MOV dword ptr [RCX + 0x24],EAX", "RET"],  # count
+            0x3000: ["CMP dword ptr [RCX + 0x20],ESI", "CMP dword ptr [RCX + 0x24],EDX", "CALL 0x14000a000", "RET"],  # del
+            0x3100: ["CMP dword ptr [RCX + 0x20],R8D", "CMP dword ptr [RCX + 0x24],EDX", "RET"],           # no ObjType load
+            0x4000: ["CALL 0x140001000", "CALL 0x140002000", "CALL 0x140003000", "CALL 0x140003100", "RET"],
+            0x5000: ["CMP dword ptr [RCX + 0x20],EDI", "CMP dword ptr [RCX + 0x24],EAX", "MOV dword ptr [RCX + 0x24],EAX", "RET"],
+            0x6000: ["CALL 0x140005000", "RET"],                                                            # not a sibling
+            0x9000: ["RET"], 0xa000: ["RET"],
+        }, {"GroundItem.id": 0x20, "GroundItem.count": 0x24, "Client.tickCount": 0x3198},
+            {"@OperatorNew": 0x9000, "@ConfigLoader.10": 0xa000})
+        out = {k: v[0] for k, v in extractors.run(s, "obj_pile_ops", {}).items()}
+        self.assertEqual(out, {"ObjAdd": 0x1000, "ObjCount": 0x2000, "ObjDel": 0x3000})
+
+    def test_player_lifecycle(self):
+        s = self.session({
+            0x1000: ["RET"],                                                        # Actor ctor
+            0x1100: ["CALL 0x140001000", "RET"], 0x1200: ["CALL 0x140001000", "RET"],  # NPC ctor, Player ctor
+            0x2000: ["CALL 0x140001100", "RET"],                                    # NPC add
+            0x2100: ["MOV ECX,0x7d8", "CALL 0x140001200", "MOV dword ptr [R10 + 0x79c],R12D", "RET"],  # player add
+            0x2200: ["CALL 0x140002100", "CALL 0x140002300", "RET"],                # adds the index list
+            0x2300: ["MOV EDX,dword ptr [RSI + 0x4a0]", "MOV ECX,dword ptr [RSI + 0x79c]", "RET"],  # player remove
+            0x2400: ["CALL 0x140002200", "RET"],                                    # player info decode
+            0x2500: ["CALL 0x140002600", "RET"], 0x2600: ["RET"],                   # NPC info decode, update decoder
+            0x3000: ["LEA R9,[RSP + 0x78]", "CALL 0x140002500", "LEA RDX,[RSP + 0x78]", "CALL 0x140002400",
+                     "MOV RDX,RAX", "CALL 0x140002200", "RET"],                     # the packet handler
+        }, {"Player.index": 0x79c, "Actor.worldId": 0x4a0}, {"@ActorCtor": 0x1000, "@NpcInfoDecode": 0x2500})
+        out = {k: v[0] for k, v in extractors.run(s, "player_lifecycle", {}).items()}
+        self.assertEqual(out, {"PlayerCtor": 0x1200, "PlayerAdd": 0x2100, "PlayerRemove": 0x2300, "PlayerInfoDecode": 0x2400})
+
+
 class BindingParserTests(unittest.TestCase):
     def test_property_getter_is_followed_to_its_lambda(self):
         # LEA name; CALL setter. Each setter LEAs its own binding plus a helper all setters share; the binding calls a

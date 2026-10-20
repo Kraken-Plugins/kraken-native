@@ -21,6 +21,7 @@ import com.kraken.api.events.NpcSpawned;
 import com.kraken.api.events.PlayerDespawned;
 import com.kraken.api.events.PlayerSpawned;
 import com.kraken.api.events.ProjectileMoved;
+import com.kraken.api.events.ProjectileSpawned;
 import com.kraken.api.events.StatChanged;
 import com.kraken.api.events.TileObjectDespawned;
 import com.kraken.api.events.TileObjectSpawned;
@@ -237,6 +238,11 @@ final class EventLogTool extends DevTool<List<String>> {
     }
 
     private void subscribeProjectiles() {
+        on(PROJECTILES, ProjectileSpawned.class, e -> {
+            if (projectiles.isOn()) {
+                add("ProjectileSpawned  " + e.getProjectile().getId());
+            }
+        });
         on(PROJECTILES, ProjectileMoved.class, e -> {
             if (projectiles.isOn()) {
                 add("ProjectileMoved  " + e.getProjectile().getId() + " to " + local(e.getPosition()) + " z "

@@ -7,6 +7,13 @@
 #   { fn: <rva>, id: <event id>, args: N }   the raiser is specific to this event
 # The DLL detours fn, forwards N integer register arguments and reports (id, args) to the Java side; what the
 # arguments mean per event is the Lua event contract (docs/event-hooks-design.md).
+#
+# The functions.* hook targets after the events are for RuneLite events the client raises no Lua event for: player
+# and ground item add/remove, the actor info decoders (interacting), projectile creation and stepping (hooks.py and
+# the projectiles extractor).
+fingerprints:
+  NpcInfoDecode: { caller_of: "@NpcUpdateDecoder" }
+
 keys:
   - key: functions.dispatchEvent
     type: "bool(int eventId)"
@@ -216,3 +223,65 @@ keys:
     priority: P2
     strategies:
       - extractor: { name: event_raisers, field: events.ON_ACTIVE_OFFERS_TRANSMIT, cls: A }
+
+  # Hook targets without a Lua event (post-hooks unless noted; see docs/event-hooks-design.md §2.5).
+  - key: functions.npcInfoDecode
+    type: "void(NpcUpdateState*, World*, bool large, Packet*)"
+    priority: P1
+    doc: The NPC info packet decoder (removal pass, add pass, update masks). Post-hook, NPC targets and changes are applied.
+    strategies:
+      - fingerprint: { name: NpcInfoDecode }
+  - key: functions.playerInfoDecode
+    type: "void(int* playerIndices, Packet*, World*)"
+    priority: P1
+    doc: The player info packet decoder (updates, then removals and additions of players). Post-hook, player targets and spawns are applied.
+    strategies:
+      - extractor: { name: player_lifecycle, field: PlayerInfoDecode, cls: A }
+  - key: functions.playerAdd
+    type: "void(PlayerState*, shared_ptr<Player>* out, int index, World*)"
+    priority: P1
+    doc: Constructs a Player for an index that just entered the index list. Post-hook, the Player's address is in the out pair's second slot.
+    strategies:
+      - extractor: { name: player_lifecycle, field: PlayerAdd, cls: A }
+  - key: functions.playerRemove
+    type: "void(Client*, World*, int index)"
+    priority: P1
+    doc: Drops the player with that index from the world. Pre-hook, the Player is still readable.
+    strategies:
+      - extractor: { name: player_lifecycle, field: PlayerRemove, cls: A }
+  - key: functions.objAdd
+    type: "void(Client*, World*, int x, int z, ... id, count)"
+    priority: P1
+    doc: Zone update, ground item added to a tile's pile (allocates the GroundItem, sets its despawn timers from Client.tickCount). Post-hook.
+    strategies:
+      - extractor: { name: obj_pile_ops, field: ObjAdd, cls: A }
+  - key: functions.objDel
+    type: "void(Client*, World*, int x, int z, ... id, count)"
+    priority: P1
+    doc: Zone update, the pile entry with that id and count unlinked. Pre-hook, the entry is still in the pile.
+    strategies:
+      - extractor: { name: obj_pile_ops, field: ObjDel, cls: A }
+  - key: functions.objCount
+    type: "void(Client*, World*, int x, int z, ... id, oldCount, newCount)"
+    priority: P1
+    doc: Zone update, the count of the pile entry with that id and count rewritten. Post-hook.
+    strategies:
+      - extractor: { name: obj_pile_ops, field: ObjCount, cls: A }
+  - key: functions.projectileCtor
+    type: "Projectile*(Projectile* this, const ProjectileParams*)"
+    priority: P1
+    doc: The Projectile constructor; the client calls it on a fresh make_shared block when a projectile packet arrives. Post-hook, RCX is the readable Projectile.
+    strategies:
+      - fingerprint: { name: ProjectileCtor }
+  - key: functions.projectileStep
+    type: "void(Projectile*, ...)"
+    priority: P1
+    doc: Advances one projectile for the cycle (position, angles). Post-hook, once per projectile per cycle.
+    strategies:
+      - fingerprint: { name: ProjectileUpdate }
+  - key: functions.projectileListUpdate
+    type: "void(Client*, eastl::list* projectiles)"
+    priority: P1
+    doc: Walks Client.projectiles each cycle, stepping each and dropping the ones past their end cycle. Post-hook.
+    strategies:
+      - fingerprint: { name: ProjectileListUpdate }

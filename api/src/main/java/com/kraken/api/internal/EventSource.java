@@ -27,6 +27,7 @@ import com.kraken.api.events.NpcSpawned;
 import com.kraken.api.events.PlayerDespawned;
 import com.kraken.api.events.PlayerSpawned;
 import com.kraken.api.events.ProjectileMoved;
+import com.kraken.api.events.ProjectileSpawned;
 import com.kraken.api.events.StatChanged;
 import com.kraken.api.events.VarbitChanged;
 import com.kraken.api.events.WallObjectDespawned;
@@ -85,8 +86,8 @@ import java.util.logging.Logger;
  * <p>Events in one poll are posted in this order: {@link GameStateChanged} (a {@code LOGGED_IN} after the scene's
  * events), object despawns then spawns, ground item despawns, quantity changes then spawns, {@link CanvasSizeChanged},
  * {@link StatChanged}, {@link VarbitChanged}, {@link ItemContainerChanged}, NPC despawns then spawns, player despawns
- * then spawns, {@link InteractingChanged}, {@link ProjectileMoved}, {@link GameTick} (if the tick counter moved),
- * {@link ClientTick}.
+ * then spawns, {@link InteractingChanged}, {@link ProjectileSpawned} then {@link ProjectileMoved} per new projectile,
+ * {@link GameTick} (if the tick counter moved), {@link ClientTick}.
  *
  * <p>How often each looks: the scene's objects once per game tick (a whole-scene read, the costly one); ground items
  * and targets on the tick's poll and the one after it, in case the tick's updates land after the counter moves;
@@ -1105,7 +1106,7 @@ public final class EventSource {
         private Map<Flight, Integer> last = Map.of();
 
         ProjectileTracker() {
-            super(ProjectileMoved.class);
+            super(ProjectileSpawned.class, ProjectileMoved.class);
         }
 
         @Override
@@ -1145,12 +1146,15 @@ public final class EventSource {
         }
 
         /**
-         * Posts a projectile with where its target is now: the target actor's location if it is loaded, else the
-         * centre of the target tile.
+         * Posts a new projectile: {@link ProjectileSpawned}, then {@link ProjectileMoved} with where its target is
+         * now, the target actor's location if it is loaded, else the centre of the target tile.
          *
          * @param projectile the projectile
          */
         private void post(Projectile projectile) {
+            ProjectileSpawned spawned = new ProjectileSpawned();
+            spawned.setProjectile(projectile);
+            bus.post(spawned);
             ProjectileEndpoint target = projectile.getTarget();
             LocalPoint position = null;
             Actor actor = client.actor(target.actorType(), target.actorIndex());
