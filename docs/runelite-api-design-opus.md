@@ -1,6 +1,7 @@
 # A RuneLite-shaped Kraken API and plugin system
 
-Status: draft for review, 2026-10-19. Covers `api/` and `client/`. The updater and the mapping format don't change.
+Status: phases 1-4 implemented, 2026-10-19 (live checks pending, see §15). Covers `api/` and `client/`. The updater and
+the mapping format don't change.
 
 ## 1. Summary
 
@@ -852,6 +853,15 @@ Implementation in two steps:
 1. Phase 3 builds the RuneLite source on the Lua events where the semantics agree (tick, NPCs, stats, vars,
    inventories, resize). It adds its own small trackers where they don't (raw game state, players, locs on scene load,
    ground items).
+
+   *As built:* `RuneLiteEventSource` has its own tracker for every event, reusing the Lua poller's diff logic rather
+   than its callbacks. The Lua events turned out not to agree closely enough: the replay rule needs the tracker to see
+   the first state itself, a new NPC in an old one's index has to despawn the old pinned handle (Lua only sees the
+   index), and `VarbitChanged` follows the client's working copy of the varps as RuneLite's does (Lua's events follow
+   the server's copy). The replay posts the game state, NPC and player spawns, every skill's `StatChanged` and every
+   held inventory's `ItemContainerChanged`, which is what a RuneLite login posts; vars and the canvas size aren't
+   replayed. Pins are only checked when the index list changes or a tick passes, so a quiet poll costs one read of each
+   list. The Lua `EventPoller` is unchanged.
 2. If profiling shows double reads (say, the Lua loc scan and the RuneLite loc scan both running because the Event log
    dev tool is open), split `EventPoller` into shared *trackers* that produce diffs and two *emitters*, Lua and
    RuneLite, that turn diffs into events with their own semantics. The Lua emitter's behaviour stays byte-for-byte the
@@ -956,6 +966,9 @@ These are RuneLite's shapes, so a RuneLite plugin's class declaration ports by c
   - Sideloaded jars in `~/.kraken-native/plugins/` are scanned the same way through a `URLClassLoader` (phase 9). They
     run with full permissions, like RuneLite's developer-mode sideloading, and the Plugins panel says where they came
     from.
+- **Dependencies** work as in RuneLite: a dependency must offer `getPublicModule()` (added to `Plugin`), which is
+  installed into the dependent's injector. Starting a plugin doesn't start its dependencies; `startPlugins` starts
+  every enabled plugin in dependency order.
 - **Developer loop.** RuneLite developers run `ExternalPluginManager.loadBuiltin(MyPlugin.class)` from a test `main`.
   Kraken's equivalent is `KrakenClient.launch(args, MyPlugin.class)`, or `--plugin com.example.MyPlugin` on
   `:client:run`.
@@ -970,6 +983,9 @@ These are RuneLite's shapes, so a RuneLite plugin's class declaration ports by c
   - Start: `startUp()` on the EDT, then `eventBus.register(plugin)`, then post `PluginChanged(plugin, true)`.
   - Stop: unregister, `shutDown()` on the EDT, post `PluginChanged(plugin, false)`.
   - A plugin whose `startUp` throws is logged, marked failed and switched off. The Plugins panel shows the error.
+    As in RuneLite, its `shutDown` runs after the failed `startUp`.
+  - Turning a plugin on turns off the plugins it conflicts with (RuneLite's rule), so at launch the first of two
+    conflicting enabled plugins wins. The Plugins panel asks before turning others off.
 - **Enabled state** is stored in config group `kraken`, key = the plugin class's simple name lower-cased, as RuneLite
   stores it under `runelite`.
 
@@ -1330,6 +1346,12 @@ Each phase builds, passes both test suites and leaves the client usable.
 
 Phases 2 and 3 are the ones that change how the API feels. Phase 4 is where it starts feeling like RuneLite.
 
+Done so far (2026-10-19): phases 1-4. Live checks still to do: the Location tool's RuneLite view against the wiki's
+world tiles (phase 2), and the Event log's RuneLite events, the Tick Counter plugin and the Plugins panel with the game
+running (phases 3 and 4). Phase 4 pulled forward the string store of `ConfigManager` (group/key get, set and unset in
+`settings.properties`) to keep the plugins' on/off state; phase 5 adds the typed config proxies, `ConfigChanged` and
+the settings panels on top. `ClientToolbar` (§12.3) isn't in any phase yet.
+
 ## 16. Decisions for you
 
 1. **Package names.** `com.kraken.api` for the RuneLite shape and `com.kraken.api.lua` for the mirror. *Recommended.*
@@ -1341,9 +1363,10 @@ Phases 2 and 3 are the ones that change how the API feels. Phase 4 is where it s
    client, but RuneLite's API never runs without its client.
 4. **Overlay threading.** Render on the client thread into a back buffer. *Recommended.* Rendering directly on the EDT
    is simpler but makes every plugin deal with two threads.
-5. **Settings location.** `~/.kraken-native/settings.properties`, or a separate `~/.kraken` folder?
+5. **Settings location.** `~/.kraken-native/settings.properties`, or a separate `~/.kraken` folder? *Phase 4 uses
+   `~/.kraken-native/settings.properties`, as §11.2 describes.*
 6. **`gameval`.** Generate copies from RuneLite with its license notice (recommended), or depend on `runelite-api`.
 7. **Plugin discovery.** ClassGraph scanning (RuneLite's way, adds a dependency) or an explicit catalog like
-   `DevToolCatalog` (no dependency, one more line per plugin).
+   `DevToolCatalog` (no dependency, one more line per plugin). *Phase 4 uses ClassGraph, as §10.2 describes.*
 8. **`Player.isFriend()`.** Leave it out until the friend list can answer "friend but offline" (recommended), or offer
    it with Lua's "online friend" meaning and a loud Javadoc.

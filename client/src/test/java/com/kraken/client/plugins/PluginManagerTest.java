@@ -1,0 +1,340 @@
+package com.kraken.client.plugins;
+
+import com.google.inject.Guice;
+import com.google.inject.Inject;
+import com.google.inject.Injector;
+import com.google.inject.Module;
+import com.google.inject.Provides;
+import com.google.inject.name.Names;
+import com.kraken.api.Client;
+import com.kraken.api.GameState;
+import com.kraken.api.eventbus.EventBus;
+import com.kraken.api.eventbus.Subscribe;
+import com.kraken.client.StandInClient;
+import com.kraken.client.config.ConfigManager;
+import com.kraken.client.events.PluginChanged;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * The {@link PluginManager} with fake plugins and no Swing: "EDT" work runs on the calling thread. The fakes are
+ * nested classes, which the built-in plugin scan skips.
+ */
+class PluginManagerTest {
+
+    static final List<String> events = new ArrayList<>();
+
+    @TempDir
+    Path dir;
+
+    private ScheduledExecutorService scheduler;
+    private EventBus bus;
+    private ConfigManager config;
+    private PluginManager manager;
+
+    @BeforeEach
+    void setUp() {
+        events.clear();
+        scheduler = Executors.newSingleThreadScheduledExecutor();
+        bus = new EventBus();
+        manager = newManager(false);
+    }
+
+    @AfterEach
+    void tearDown() {
+        scheduler.shutdownNow();
+    }
+
+    /**
+     * A manager over the same settings file and bus, as the next launch would have.
+     *
+     * @param developerMode whether developer plugins load
+     * @return the manager, with no plugins loaded
+     */
+    private PluginManager newManager(boolean developerMode) {
+        config = new ConfigManager(dir.resolve("settings.properties"), scheduler);
+        Injector parent = Guice.createInjector(binder -> {
+            binder.bind(EventBus.class).toInstance(bus);
+            binder.bind(ConfigManager.class).toInstance(config);
+            binder.bind(Client.class).toInstance(StandInClient.create(() -> null, () -> GameState.STARTING));
+            binder.bind(File.class).annotatedWith(Names.named("exe")).toInstance(new File("osclient.exe"));
+        });
+        return new PluginManager(parent, bus, config, Runnable::run, developerMode);
+    }
+
+    private Plugin plugin(Class<? extends Plugin> type) {
+        return manager.getPlugins().stream().filter(type::isInstance).findFirst().orElseThrow();
+    }
+
+    record Ping(String text) {
+    }
+
+    interface Greeter {
+        String greet();
+    }
+
+    @PluginDescriptor(name = "Good", tags = {"example"})
+    static class GoodPlugin extends Plugin {
+        @Inject
+        EventBus bus;
+
+        @Inject
+        Client client;
+
+        @Override
+        protected void startUp() {
+            events.add("start Good, bus " + (bus != null) + ", " + client.getGameState());
+        }
+
+        @Override
+        protected void shutDown() {
+            events.add("stop Good");
+        }
+
+        @Subscribe
+        public void onPing(Ping ping) {
+            events.add("Good got " + ping.text());
+        }
+    }
+
+    @PluginDescriptor(name = "Failing")
+    static class FailingPlugin extends Plugin {
+        @Override
+        protected void startUp() {
+            throw new IllegalStateException("no luck");
+        }
+
+        @Override
+        protected void shutDown() {
+            events.add("stop Failing");
+        }
+    }
+
+    @PluginDescriptor(name = "Service")
+    static class ServicePlugin extends Plugin {
+        @Override
+        protected void startUp() {
+            events.add("start Service");
+        }
+
+        @Override
+        protected void shutDown() {
+            events.add("stop Service");
+        }
+
+        @Override
+        protected Module getPublicModule() {
+            return binder -> binder.bind(Greeter.class).toInstance(() -> "hello");
+        }
+    }
+
+    // Named to sort before "Service", so the order comes from the dependency
+    @PluginDependency(ServicePlugin.class)
+    @PluginDescriptor(name = "A dependent")
+    static class DependentPlugin extends Plugin {
+        @Inject
+        Greeter greeter;
+
+        @Override
+        protected void startUp() {
+            events.add("start Dependent, " + greeter.greet());
+        }
+
+        @Override
+        protected void shutDown() {
+            events.add("stop Dependent");
+        }
+    }
+
+    @PluginDependency(GoodPlugin.class)
+    @PluginDescriptor(name = "Needy")
+    static class NeedyPlugin extends Plugin {
+    }
+
+    @PluginDescriptor(name = "Left", conflicts = "sides")
+    static class LeftPlugin extends Plugin {
+    }
+
+    @PluginDescriptor(name = "Right", conflicts = "sides")
+    static class RightPlugin extends Plugin {
+    }
+
+    @PluginDescriptor(name = "Off", enabledByDefault = false)
+    static class OffPlugin extends Plugin {
+        @Override
+        protected void startUp() {
+            events.add("start Off");
+        }
+    }
+
+    @PluginDescriptor(name = "Dev", developerPlugin = true)
+    static class DevPlugin extends Plugin {
+    }
+
+    @PluginDescriptor(name = "Provider")
+    static class ProviderPlugin extends Plugin {
+        @Inject
+        String greeting;
+
+        @Provides
+        String provideGreeting() {
+            return "provided";
+        }
+
+        @Override
+        protected void startUp() {
+            events.add("start Provider, " + greeting);
+        }
+    }
+
+    @Test
+    void startsEnabledPluginsWithTheirInjectionsAndSubscribers() {
+        List<String> changes = new ArrayList<>();
+        bus.register(PluginChanged.class, e -> changes.add(e.getPlugin().getName() + " " + e.isLoaded()), 0);
+        manager.loadPlugins(List.of(GoodPlugin.class, OffPlugin.class));
+        bus.post(new Ping("before"));
+        manager.startPlugins();
+        bus.post(new Ping("running"));
+
+        Plugin good = plugin(GoodPlugin.class);
+        assertTrue(manager.isPluginActive(good));
+        assertFalse(manager.isPluginActive(plugin(OffPlugin.class)), "off by default");
+        assertEquals(List.of("start Good, bus true, STARTING", "Good got running"), events);
+        assertEquals(List.of("Good true"), changes);
+
+        events.clear();
+        assertTrue(manager.stopPlugin(good));
+        assertFalse(manager.stopPlugin(good), "already stopped");
+        bus.post(new Ping("stopped"));
+        assertEquals(List.of("stop Good"), events);
+        assertEquals(List.of("Good true", "Good false"), changes);
+        assertTrue(manager.isPluginEnabled(good), "stopping doesn't turn it off");
+    }
+
+    @Test
+    void dependenciesLoadAndStartFirstAndStopLast() {
+        manager.loadPlugins(List.of(DependentPlugin.class, ServicePlugin.class));
+        assertEquals(List.of("Service", "A dependent"), manager.getPlugins().stream().map(Plugin::getName).toList());
+        manager.startPlugins();
+        assertEquals(List.of("start Service", "start Dependent, hello"), events);
+        events.clear();
+        manager.stopPlugins();
+        assertEquals(List.of("stop Dependent", "stop Service"), events);
+    }
+
+    @Test
+    void aPluginWhoseDependencyIsMissingIsNotLoaded() {
+        manager.loadPlugins(List.of(DependentPlugin.class));
+        assertEquals(List.of(), manager.getPlugins());
+    }
+
+    @Test
+    void aPluginWhoseDependencyOffersNoServicesIsListedAsFailed() {
+        manager.loadPlugins(List.of(GoodPlugin.class, NeedyPlugin.class));
+        Plugin needy = plugin(NeedyPlugin.class);
+        assertNull(needy.getInjector());
+        assertNotNull(manager.getFailure(needy));
+        assertFalse(manager.startPlugin(needy));
+    }
+
+    @Test
+    void aFailingPluginIsSwitchedOffAndItsErrorKept() {
+        manager.loadPlugins(List.of(FailingPlugin.class));
+        Plugin failing = plugin(FailingPlugin.class);
+        manager.startPlugins();
+
+        assertFalse(manager.isPluginActive(failing));
+        assertEquals("no luck", manager.getFailure(failing).getMessage());
+        assertFalse(manager.isPluginEnabled(failing), "switched off");
+        assertEquals(List.of("stop Failing"), events, "shutDown runs after a failed startUp, as in RuneLite");
+
+        config.flush();
+        manager = newManager(false);
+        manager.loadPlugins(List.of(FailingPlugin.class));
+        assertFalse(manager.isPluginEnabled(plugin(FailingPlugin.class)), "still off on the next launch");
+    }
+
+    @Test
+    void enabledStatePersistsAcrossLaunches() throws IOException {
+        manager.loadPlugins(List.of(GoodPlugin.class, OffPlugin.class));
+        manager.setPluginEnabled(plugin(OffPlugin.class), true);
+        manager.setPluginEnabled(plugin(GoodPlugin.class), false);
+        config.flush();
+        assertTrue(Files.readString(dir.resolve("settings.properties")).contains("kraken.offplugin=true"));
+
+        manager = newManager(false);
+        manager.loadPlugins(List.of(GoodPlugin.class, OffPlugin.class));
+        manager.startPlugins();
+        assertTrue(manager.isPluginActive(plugin(OffPlugin.class)));
+        assertFalse(manager.isPluginActive(plugin(GoodPlugin.class)));
+        assertEquals(List.of("start Off"), events);
+    }
+
+    @Test
+    void turningOnAPluginTurnsOffTheOnesItConflictsWith() {
+        manager.loadPlugins(List.of(LeftPlugin.class, RightPlugin.class));
+        Plugin left = plugin(LeftPlugin.class);
+        Plugin right = plugin(RightPlugin.class);
+        assertEquals(List.of(right), manager.conflictsForPlugin(left));
+
+        manager.startPlugins();
+        assertTrue(manager.isPluginActive(left), "started first, which switched off the other");
+        assertFalse(manager.isPluginActive(right));
+        assertFalse(manager.isPluginEnabled(right));
+
+        manager.setPluginEnabled(right, true);
+        assertFalse(manager.isPluginEnabled(left));
+        assertTrue(manager.startPlugin(right));
+        assertTrue(manager.isPluginActive(right));
+        assertFalse(manager.isPluginActive(left), "turning one on stops the other");
+    }
+
+    @Test
+    void developerPluginsOnlyLoadInDeveloperMode() {
+        manager.loadPlugins(List.of(DevPlugin.class));
+        assertEquals(List.of(), manager.getPlugins());
+        manager = newManager(true);
+        manager.loadPlugins(List.of(DevPlugin.class));
+        assertEquals(1, manager.getPlugins().size());
+    }
+
+    @Test
+    void aPluginsProvidesMethodsAreInstalled() {
+        manager.loadPlugins(List.of(ProviderPlugin.class));
+        manager.startPlugins();
+        assertEquals(List.of("start Provider, provided"), events);
+    }
+
+    @Test
+    void loadingAClassTwiceLoadsItOnce() {
+        manager.loadPlugins(List.of(GoodPlugin.class));
+        manager.loadPlugins(List.of(GoodPlugin.class));
+        assertEquals(1, manager.getPlugins().size());
+    }
+
+    @Test
+    void theCoreScanFindsTheBuiltInPluginsAndNotTheseFakes() {
+        manager.loadCorePlugins();
+        List<String> names = manager.getPlugins().stream().map(Plugin::getName).toList();
+        assertTrue(names.contains("Tick Counter"), names.toString());
+        assertFalse(names.contains("Good"), names.toString());
+        assertNotNull(plugin(com.kraken.client.plugins.tickcounter.TickCounterPlugin.class).getInjector());
+    }
+}

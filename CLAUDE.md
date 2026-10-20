@@ -23,11 +23,14 @@ Java, from the repo root (the Gradle toolchain auto-provisions JDK 21):
 ./gradlew :api:test
 ./gradlew :api:test --tests 'com.kraken.api.lua.ClientReadTest'                        # one class
 ./gradlew :api:test --tests 'com.kraken.api.lua.ClientReadTest.readsLocalPlayerIndex'  # one method
+./gradlew :client:test                                    # plugin manager, stand-in client, settings (headless)
 ./gradlew :client:run --args="D:/path/to/osclient.exe"   # Windows only; arg optional (defaults to the Jagex Launcher install)
+./gradlew :client:run --args="--plugin com.example.MyPlugin --developer-mode"   # extra plugin; load developer plugins
 ```
 
 The client reads bundled mappings unless the system property `kraken.mappings=<dir>` points at a folder of
-`<version>.json` files (see `ApiConnection`).
+`<version>.json` files (see `ApiConnection`). Settings (plugin on/off state) live in
+`~/.kraken-native/settings.properties` unless `kraken.settings=<file>` says otherwise.
 
 Updater, from `updater/`:
 
@@ -45,7 +48,7 @@ but some key was left out (FAILED/NEEDS_REVIEW) or a P0 key is only INFERRED.
 
 ### Platform
 
-- Both test suites run on Linux/WSL (they use fakes). Anything that touches the live process (`:client:run`,
+- The test suites run on Linux/WSL (they use fakes; the client's run headless). Anything that touches the live process (`:client:run`,
   `KrakenApi.attach`, `native-updater probe`) needs Windows. Run Ghidra `export` from Windows too; WSL reuses it from the
   shared cache.
 - In WSL, `uv` is a shell function that sets `UV_PROJECT_ENVIRONMENT=.venv-linux` under `/mnt/*`, keeping Windows'
@@ -96,9 +99,16 @@ rounds (keys can depend on other keys) → consensus verdicts (PROVEN/ANCHORED/I
   `FineCoord(x, z)` without the height.
 - Read-only by design: the API only reads the game process. Lua functions that change the client (highlights, camera
   control, actions) belong to a future in-process backend and are out of scope.
-- Events are synthesised: `EventPoller` diffs snapshots every 20 ms on the `kraken-api-poll` thread, only for events
-  that have subscribers (the first poll after subscribing takes a silent baseline). Callbacks run on the poll thread.
-  Event ids are the Lua ids; `Events.verify` checks them against the mapping's `enums.events`.
+- Events are synthesised, only for events that have subscribers. Lua events: `EventPoller` diffs snapshots every 20 ms
+  (the first poll after subscribing takes a silent baseline); ids are the Lua ids, and `Events.verify` checks them
+  against the mapping's `enums.events`. RuneLite-shaped events (`com.kraken.api.events`, posted on the
+  `eventbus.EventBus` passed to `KrakenApi.attach`): `impl.RuneLiteEventSource` has its own trackers, because spawns
+  carry pinned handles, vars follow the client's working copy and every raw game state counts. Tracking that starts on
+  the API's first poll replays the current state (game state, NPC/player spawns, stats, inventories); later it takes a
+  silent baseline. The bus also matches supertypes and interfaces of an event, unlike RuneLite's.
+- The `kraken-api-poll` thread is the "client thread". Each poll: `KrakenApi.invoke*` tasks (`TaskQueue`), Lua events,
+  RuneLite events with `GameTick` after the tick's other events, `ClientTick`, `invokeAtTickEnd` tasks if a tick
+  happened, then the 150 ms poll listener. Event handlers and tasks all run there.
 - Adding a Lua mirror follows the worked example in `docs/lua-api-coverage.md`: take the handler RVA from
   `analysis.json` bindings, map each constant it uses to a mapping key (adding a spec recipe if needed), and replay the
   same steps in Java. Javadoc states any deliberate divergence from the native handler. Update the coverage tables in
@@ -113,8 +123,18 @@ rounds (keys can depend on other keys) → consensus verdicts (PROVEN/ANCHORED/I
   after `Theme.install()`. Logging is `java.util.logging` via Lombok `@Log(topic = "kraken")`, and shows in the in-app
   console. `lombok.config` copies `@Named` onto Lombok-generated constructors, so `@AllArgsConstructor(onConstructor_ =
   @Inject)` with `@Named` fields works.
-- `ApiConnection` attaches the API in the background (retrying while the client boots) and fans each poll out to
-  listeners on the poll thread, about every 150 ms.
+- `ApiConnection` attaches the API in the background (retrying while the client boots) with the client's one `EventBus`,
+  posts `events.ApiStateChanged` on each state change, and fans each poll out to listeners on the poll thread, about
+  every 150 ms. `callback.ClientThread` (RuneLite's) forwards to `KrakenApi.invoke*`, holding tasks until the API
+  attaches.
+- Plugins (`plugins.Plugin`, `@PluginDescriptor`, `@PluginDependency`) follow RuneLite's. `PluginManager` finds
+  top-level `@PluginDescriptor` classes under `com.kraken.client.plugins` with ClassGraph (one package per plugin, e.g.
+  `plugins.tickcounter`), gives each a child injector (plugin bound and installed as a module, plus each dependency's
+  `getPublicModule()`), and starts/stops them on the EDT through the `@Named("edt")` executor (tests pass
+  `Runnable::run`). On/off state is `ConfigManager` group `kraken`, key = class simple name lower-cased; a plugin whose
+  `startUp` throws is switched off and keeps its error (`getFailure`). Plugins get a `StandInClient` proxy that answers
+  "logged out" until the API attaches. `ExitHandler` posts `ClientShutdown`, stops plugins and flushes settings on exit.
+  `ConfigManager` is the string store only so far (typed `@ConfigGroup` proxies are phase 5 of the design doc).
 - Dev tools: subclass `DevTool<S>` and list it in `DevToolCatalog.create()`. `read(api)` runs on the poll thread and
   returns an immutable snapshot; `paintOverlay`/`createView` run on the EDT. A tool reads only while its overlay or
   window is showing. `PlannedTool` entries hold sidebar spots for features the API can't read yet; replace the entry

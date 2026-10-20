@@ -23,13 +23,25 @@ dependencies {
     implementation 'org.kordamp.ikonli:ikonli-materialdesign2-pack:12.3.1'
     // Dependency injection: the injector builds and wires the frame, its panels and the game launcher
     implementation 'com.google.inject:guice:7.0.0'
+    // Finds the built-in plugins (@PluginDescriptor classes under com.kraken.client.plugins)
+    implementation 'io.github.classgraph:classgraph:4.8.180'
 
     compileOnly 'org.projectlombok:lombok:1.18.30'
     annotationProcessor 'org.projectlombok:lombok:1.18.30'
+
+    testImplementation platform('org.junit:junit-bom:5.10.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+}
+
+test {
+    useJUnitPlatform()
+    // The plugin tests build no Swing components; keep AWT from looking for a display
+    systemProperty 'java.awt.headless', 'true'
 }
 
 application {

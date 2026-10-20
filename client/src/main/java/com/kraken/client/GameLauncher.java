@@ -17,7 +17,10 @@ import java.util.HexFormat;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-/** Starts osclient.exe, embeds its window in the {@link GameView} and keeps it fitted there until the client exits. */
+/**
+ * Starts osclient.exe, embeds its window in the {@link GameView} and keeps it fitted there until the client exits.
+ * When the game exits, Kraken closes through the {@link ExitHandler}.
+ */
 @Log(topic = "kraken")
 @Singleton
 @AllArgsConstructor(onConstructor_ = @Inject)
@@ -28,6 +31,7 @@ public final class GameLauncher {
     private final HomePanel home;
     private final ApiConnection api;
     private final GameTickHook tickHook;
+    private final ExitHandler exitHandler;
 
     /**
      * Blocks while the client runs. If it can't be started, logs why and says so on the game view.
@@ -48,7 +52,7 @@ public final class GameLauncher {
 
         Process process = new ProcessBuilder(exe.getPath()).directory(exe.getParentFile()).redirectErrorStream(true).start();
         Runtime.getRuntime().addShutdownHook(new Thread(process::destroy));
-        process.onExit().thenRun(() -> System.exit(0));
+        process.onExit().thenRun(exitHandler::exit);
         Logger clientLog = Logger.getLogger("osclient");
         Thread output = new Thread(() -> new BufferedReader(new InputStreamReader(process.getInputStream())).lines().forEach(clientLog::info), "osclient-output");
         output.setDaemon(true);

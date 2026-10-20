@@ -2,6 +2,7 @@ package com.kraken.client.devtools;
 
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
+import com.kraken.client.ui.ScrollablePanel;
 import com.kraken.client.ui.Theme;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignE;
@@ -123,13 +124,7 @@ public final class DevToolsPanel extends JPanel {
         noMatches.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
         content.add(noMatches);
 
-        ScrollablePanel view = new ScrollablePanel();
-        view.add(content, BorderLayout.NORTH);
-        JScrollPane scroll = new JScrollPane(view);
-        scroll.setBorder(BorderFactory.createEmptyBorder());
-        scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        scroll.getVerticalScrollBar().setUnitIncrement(16);
-        return scroll;
+        return ScrollablePanel.scroll(content);
     }
 
     private void applyFilter() {
@@ -147,39 +142,5 @@ public final class DevToolsPanel extends JPanel {
     private void refreshState() {
         sections.forEach(CategorySection::refreshState);
         allOff.setEnabled(manager.anyActive());
-    }
-
-    /**
-     * Scroll view that always fits the sidebar's width, so rows wrap instead of scrolling sideways.
-     */
-    private static final class ScrollablePanel extends JPanel implements Scrollable {
-        ScrollablePanel() {
-            super(new BorderLayout());
-        }
-
-        @Override
-        public Dimension getPreferredScrollableViewportSize() {
-            return getPreferredSize();
-        }
-
-        @Override
-        public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) {
-            return 16;
-        }
-
-        @Override
-        public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction) {
-            return Math.max(16, visible.height - 16);
-        }
-
-        @Override
-        public boolean getScrollableTracksViewportWidth() {
-            return true;
-        }
-
-        @Override
-        public boolean getScrollableTracksViewportHeight() {
-            return getParent() instanceof JViewport viewport && viewport.getHeight() > getPreferredSize().height;
-        }
     }
 }

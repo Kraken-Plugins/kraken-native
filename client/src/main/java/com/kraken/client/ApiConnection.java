@@ -5,6 +5,8 @@ import com.google.inject.Singleton;
 import com.google.inject.name.Named;
 import com.kraken.api.KrakenApi;
 import com.kraken.api.UnsupportedBuildException;
+import com.kraken.api.eventbus.EventBus;
+import com.kraken.client.events.ApiStateChanged;
 import lombok.Getter;
 import lombok.extern.java.Log;
 
@@ -18,56 +20,127 @@ import java.util.logging.Level;
 
 /**
  * The client's link to the native API. {@link #start} attaches a {@link KrakenApi} to the running osclient.exe in the
- * background (retrying while the client boots), then hands each API poll to every listener. Anything in the client
- * that reads the game (the dev tools today, plugins later) goes through here.
+ * background (retrying while the client boots), posting the game events on the client's {@link EventBus}, then hands
+ * each API poll to every listener. Anything in the client that reads the game (dev tools, plugins) goes through here.
+ *
+ * <p>Each state change is posted on the bus as an {@link ApiStateChanged}.
  */
 @Log(topic = "kraken")
 @Singleton
 public final class ApiConnection {
-    public enum State {WAITING, ATTACHING, ATTACHED, UNSUPPORTED, FAILED}
+
+    /**
+     * Where the connection is.
+     */
+    public enum State {
+
+        /**
+         * The game hasn't started yet.
+         */
+        WAITING,
+
+        /**
+         * Attaching to the running game.
+         */
+        ATTACHING,
+
+        /**
+         * Attached: the API reads the game.
+         */
+        ATTACHED,
+
+        /**
+         * There's no mapping for the game's build.
+         */
+        UNSUPPORTED,
+
+        /**
+         * Attaching failed; the console says why.
+         */
+        FAILED
+    }
 
     private static final int ATTEMPTS = 20;
     private static final long RETRY_MS = 500;
 
     private final File exe;
+    private final EventBus eventBus;
     private final List<Runnable> stateListeners = new CopyOnWriteArrayList<>();
+    private final List<Consumer<KrakenApi>> attachListeners = new CopyOnWriteArrayList<>();
     private final List<Consumer<KrakenApi>> pollListeners = new CopyOnWriteArrayList<>();
     private volatile KrakenApi api;
+
+    /**
+     * The connection's state.
+     */
     @Getter
     private volatile State state = State.WAITING;
-    /** One line describing {@link #getState()}, for status bars. */
+
+    /**
+     * One line describing {@link #getState()}, for status bars.
+     */
     @Getter
     private volatile String detail = "Waiting for the client to start…";
 
     @Inject
-    ApiConnection(@Named("exe") File exe) {
+    ApiConnection(@Named("exe") File exe, EventBus eventBus) {
         this.exe = exe;
+        this.eventBus = eventBus;
     }
 
-    /** Called by the launcher once osclient.exe is running. Attaches off the calling thread. */
+    /**
+     * Attaches to the game off the calling thread. Called by the launcher once osclient.exe is running.
+     *
+     * @param pid the game's process id
+     */
     public void start(long pid) {
         Thread attach = new Thread(() -> attach(pid), "kraken-api-attach");
         attach.setDaemon(true);
         attach.start();
     }
 
-    /** The attached API, or null until {@link State#ATTACHED}. */
+    /**
+     * The attached API.
+     *
+     * @return the API, or null until {@link State#ATTACHED}
+     */
     public KrakenApi api() {
         return api;
     }
 
+    /**
+     * Whether the API is attached.
+     *
+     * @return true in {@link State#ATTACHED}
+     */
     public boolean isAttached() {
         return state == State.ATTACHED;
     }
 
-    /** Runs {@code listener} on the EDT whenever the state changes. */
+    /**
+     * Runs a listener on the EDT whenever the state changes.
+     *
+     * @param listener the listener
+     */
     public void addStateListener(Runnable listener) {
         stateListeners.add(listener);
     }
 
     /**
-     * Runs {@code listener} on the API poll thread after every poll (about every 150 ms) once attached. It may read
-     * the game through the API, but must hand any UI work to the EDT.
+     * Runs a listener once the API attaches, on the attach thread before the API's first poll. A listener added after
+     * that never runs; check {@link #api()} as well.
+     *
+     * @param listener takes the attached API
+     */
+    public void addAttachListener(Consumer<KrakenApi> listener) {
+        attachListeners.add(listener);
+    }
+
+    /**
+     * Runs a listener on the API poll thread after every poll (about every 150 ms) once attached. It may read the game
+     * through the API, but must hand any UI work to the EDT.
+     *
+     * @param listener takes the attached API
      */
     public void addPollListener(Consumer<KrakenApi> listener) {
         pollListeners.add(listener);
@@ -82,13 +155,20 @@ public final class ApiConnection {
         for (int attempt = 0; attempt < ATTEMPTS; attempt++) {
             try {
                 KrakenApi attached = override != null
-                        ? KrakenApi.attach(pid, exe.toPath(), Path.of(override))
-                        : KrakenApi.attach(pid, exe.toPath());
+                        ? KrakenApi.attach(pid, exe.toPath(), Path.of(override), eventBus)
+                        : KrakenApi.attach(pid, exe.toPath(), eventBus);
                 attached.setPollListener(() -> poll(attached));
                 api = attached;
-                attached.start();
+                for (Consumer<KrakenApi> listener : attachListeners) {
+                    try {
+                        listener.accept(attached);
+                    } catch (RuntimeException e) {
+                        log.log(Level.WARNING, "API attach listener failed", e);
+                    }
+                }
                 log.info("Native API attached (client " + attached.mapping().version() + ", mappings " + source + ")");
                 setState(State.ATTACHED, "Attached · client " + attached.mapping().version());
+                attached.start();
                 return;
             } catch (UnsupportedBuildException e) {
                 // Retrying won't help: there is no mapping for this build
@@ -122,6 +202,7 @@ public final class ApiConnection {
     private void setState(State state, String detail) {
         this.state = state;
         this.detail = detail;
+        eventBus.post(new ApiStateChanged(state, detail));
         SwingUtilities.invokeLater(() -> stateListeners.forEach(Runnable::run));
     }
 }

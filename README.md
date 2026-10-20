@@ -32,7 +32,7 @@ Use at your own risk. The developers are not responsible for any consequences re
 
 | Module | Status | What it is |
 |---|---|---|
-| [`client/`](client) | Proof of concept | Java 17 Swing client that launches `osclient.exe` and embeds its window, with a RuneLite-style sidebar and log console |
+| [`client/`](client) | Proof of concept | Java 21 Swing client that launches `osclient.exe` and embeds its window, with a RuneLite-style sidebar, plugins and log console |
 | [`updater/`](updater) | Working | Python updater that maps a client build and writes the API's `mappings/<version>.json` |
 | [`api/src/main/resources/mappings/`](api/src/main/resources/mappings) | Seed build | One mapping per client version (e.g. `241.3.json`): the offsets the API reads, nothing else. Bundled on the API's classpath |
 | [`api/`](api) | In progress | Java mirror of the Lua plugin API (`ClientOp`, `ClientState`, `Events`, `Engine`, the entity objects and config types), read from outside the process, with a RuneLite-shaped API on top (`Client`, `NPC`, `WorldPoint`…); see [lua-api-coverage.md](docs/lua-api-coverage.md) and [runelite-api-design-opus.md](docs/runelite-api-design-opus.md) |
@@ -72,6 +72,23 @@ What you get:
   Opening a panel widens the window instead of shrinking the game; you can change this in Settings.
 * A collapsible log console at the bottom. Anything logged through `java.util.logging` appears there, as does the
   client's own output.
+* A Plugins tab, like RuneLite's plugin list: search, and a switch per plugin. Which plugins are on is saved in
+  `~/.kraken-native/settings.properties`. A plugin that fails to start is switched off and marked "failed".
+
+### Writing a Plugin
+
+Plugins are written as RuneLite plugins are: a `Plugin` subclass with `@PluginDescriptor`, injected `Client` and
+`ClientThread`, `startUp`/`shutDown`, and `@Subscribe` methods for events such as `GameTick`, `NpcSpawned` or
+`StatChanged` (see [runelite-api-design-opus.md](docs/runelite-api-design-opus.md) and the example
+`TickCounterPlugin`). A plugin package under `com.kraken.client.plugins` is found at launch. To run one from
+elsewhere, pass its class:
+
+```bash
+./gradlew :client:run --args="--plugin com.example.MyPlugin"
+```
+
+or start Kraken from your own `main` with `KrakenClient.launch(args, MyPlugin.class)`. `--developer-mode` also loads
+plugins marked `developerPlugin = true`.
 
 ### Logging In With a Jagex Account
 

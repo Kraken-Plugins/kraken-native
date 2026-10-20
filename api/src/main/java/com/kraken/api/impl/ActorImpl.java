@@ -128,4 +128,14 @@ abstract class ActorImpl implements Actor {
     public boolean isHidden() {
         return !lua.isRendered3D();
     }
+
+    /**
+     * Reads the values a handle keeps once its actor is gone (name and location), so they are fresh when it goes. The
+     * event source calls this when an actor spawns and once per game tick while it tracks the actor.
+     */
+    void remember() {
+        getName();
+        getWorldLocation();
+        getLocalLocation();
+    }
 }

@@ -452,6 +452,19 @@ public final class GameFixture {
     }
 
     /**
+     * Rewrites the client's player index list, as players loading or leaving do. The players' memory and the world's
+     * player table stay as they were.
+     *
+     * @param indices the loaded players' indices, from 7, 9 and 10
+     */
+    public void setPlayersLoaded(int... indices) {
+        memory.putInt(CLIENT + map.offset("Client.playerIndexCount"), indices.length);
+        for (int i = 0; i < indices.length; i++) {
+            memory.putInt(CLIENT + map.offset("Client.playerIndices") + i * 4L, indices[i]);
+        }
+    }
+
+    /**
      * Moves an actor to another scene tile.
      *
      * @param address the NPC's or player's address, e.g. {@link #NPC}

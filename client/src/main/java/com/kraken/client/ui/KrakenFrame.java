@@ -2,17 +2,18 @@ package com.kraken.client.ui;
 
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
+import com.kraken.client.ExitHandler;
 import com.kraken.client.GameView;
 import com.kraken.client.HomePanel;
 import com.kraken.client.devtools.DevToolsPanel;
-import org.kordamp.ikonli.Ikon;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignP;
-import org.kordamp.ikonli.swing.FontIcon;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.util.function.Consumer;
 import java.util.logging.Logger;
 import java.util.stream.Stream;
@@ -20,13 +21,24 @@ import java.util.stream.Stream;
 import static com.formdev.flatlaf.FlatClientProperties.STYLE_CLASS;
 import static com.formdev.flatlaf.FlatClientProperties.TITLE_BAR_SHOW_TITLE;
 
-/** RuneLite-style main window: the game with the sidebar on its right, and the log console docked underneath. */
+/**
+ * RuneLite-style main window: the game with the sidebar on its right, and the log console docked underneath. Closing
+ * it closes Kraken through the {@link ExitHandler}.
+ */
 @Singleton
 public final class KrakenFrame extends JFrame {
     @Inject
-    KrakenFrame(GameView view, HomePanel home, Sidebar sidebar, ConsolePanel console, DevToolsPanel devTools) {
+    KrakenFrame(GameView view, HomePanel home, Sidebar sidebar, ConsolePanel console, DevToolsPanel devTools,
+                PluginListPanel plugins, ExitHandler exitHandler) {
         super("Kraken");
-        setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+        setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                setVisible(false);
+                exitHandler.exit();
+            }
+        });
         setIconImages(Stream.of(16, 20, 24, 30, 32, 40, 48, 64, 128, 256).map(Theme::logo).toList());
         getRootPane().putClientProperty(TITLE_BAR_SHOW_TITLE, false);
 
@@ -42,8 +54,7 @@ public final class KrakenFrame extends JFrame {
 
         sidebar.addTab("Kraken", Theme.logoIcon(), Theme.logoIcon(), home);
         sidebar.addTab("Dev Tools", MaterialDesignC.CODE_TAGS, devTools);
-        sidebar.addTab("Plugins", MaterialDesignP.PUZZLE_OUTLINE, page("Plugins", emptyState(MaterialDesignP.PUZZLE_OUTLINE,
-                "No plugins yet", "Plugins built on the Kraken API will show up here.")));
+        sidebar.addTab("Plugins", MaterialDesignP.PUZZLE_OUTLINE, plugins);
         sidebar.addTab("Settings", MaterialDesignC.COG_OUTLINE, page("Settings", settings(sidebar)));
 
         JPanel main = new JPanel(new BorderLayout());
@@ -79,18 +90,13 @@ public final class KrakenFrame extends JFrame {
         return row;
     }
 
-    private static JComponent emptyState(Ikon ikon, String title, String text) {
-        WrapLabel label = new WrapLabel("", SwingConstants.CENTER);
-        label.setHtml("<b>" + Theme.escape(title) + "</b><br><br>" + Theme.escape(text));
-        label.setIcon(FontIcon.of(ikon, 48, Theme.MEDIUM));
-        label.setVerticalTextPosition(SwingConstants.BOTTOM);
-        label.setHorizontalTextPosition(SwingConstants.CENTER);
-        label.setIconTextGap(12);
-        label.setForeground(Theme.LIGHT);
-        return label;
-    }
-
-    /** A sidebar panel with a RuneLite-style title. */
+    /**
+     * A sidebar panel with a RuneLite-style title.
+     *
+     * @param title the panel's title
+     * @param body  what goes under it
+     * @return the panel
+     */
     private static JComponent page(String title, JComponent body) {
         JLabel header = new JLabel(title);
         header.putClientProperty(STYLE_CLASS, "h3");

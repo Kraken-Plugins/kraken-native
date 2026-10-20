@@ -96,6 +96,20 @@ final class NpcImpl extends ActorImpl implements NPC {
         return composition == null ? 1 : composition.getSize();
     }
 
+    /**
+     * Also keeps the NPC's base and transformed type ids.
+     */
+    @Override
+    void remember() {
+        super.remember();
+        getId();
+        getSpawnCycle();
+        int transformed = lua.getTransformedTypeId();
+        if (transformed != -1 || lua.exists()) {
+            transformedId = transformed;
+        }
+    }
+
     @Override
     public String toString() {
         return "NPC[" + getIndex() + "]";
