@@ -10,11 +10,10 @@ import com.kraken.api.Client;
 import com.kraken.api.GameState;
 import com.kraken.api.eventbus.EventBus;
 import com.kraken.api.eventbus.Subscribe;
-import com.kraken.client.StandInClient;
-import com.kraken.client.config.Config;
-import com.kraken.client.config.ConfigGroup;
-import com.kraken.client.config.ConfigItem;
-import com.kraken.client.config.ConfigManager;
+import com.kraken.client.plugins.config.Config;
+import com.kraken.client.plugins.config.ConfigGroup;
+import com.kraken.client.plugins.config.ConfigItem;
+import com.kraken.client.plugins.config.ConfigManager;
 import com.kraken.client.events.PluginChanged;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,6 +22,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -76,10 +76,20 @@ class PluginManagerTest {
         Injector parent = Guice.createInjector(binder -> {
             binder.bind(EventBus.class).toInstance(bus);
             binder.bind(ConfigManager.class).toInstance(config);
-            binder.bind(Client.class).toInstance(StandInClient.create(() -> null, () -> GameState.STARTING));
+            binder.bind(Client.class).toInstance(attachedClient());
             binder.bind(File.class).annotatedWith(Names.named("exe")).toInstance(new File("osclient.exe"));
         });
         return new PluginManager(parent, bus, config, Runnable::run, developerMode);
+    }
+
+    /**
+     * A stand-in for the attached client: plugins load only once the API has attached, so they always see a real one.
+     *
+     * @return a {@link Client} that reports {@link GameState#LOGGED_IN} and nothing else
+     */
+    private static Client attachedClient() {
+        return (Client) Proxy.newProxyInstance(Client.class.getClassLoader(), new Class<?>[]{Client.class},
+                (proxy, method, args) -> method.getName().equals("getGameState") ? GameState.LOGGED_IN : null);
     }
 
     private Plugin plugin(Class<? extends Plugin> type) {
@@ -265,7 +275,7 @@ class PluginManagerTest {
         Plugin good = plugin(GoodPlugin.class);
         assertTrue(manager.isPluginActive(good));
         assertFalse(manager.isPluginActive(plugin(OffPlugin.class)), "off by default");
-        assertEquals(List.of("start Good, bus true, STARTING", "Good got running"), events);
+        assertEquals(List.of("start Good, bus true, LOGGED_IN", "Good got running"), events);
         assertEquals(List.of("Good true"), changes);
 
         events.clear();
@@ -375,7 +385,7 @@ class PluginManagerTest {
     void aPluginsConfigIsFoundThroughItsInjector() {
         manager.loadPlugins(List.of(ConfiguredPlugin.class, GoodPlugin.class));
         manager.startPlugins();
-        assertEquals(List.of("start Configured, default", "start Good, bus true, STARTING"), events);
+        assertEquals(List.of("start Configured, default", "start Good, bus true, LOGGED_IN"), events);
 
         Config found = manager.getPluginConfigProxy(plugin(ConfiguredPlugin.class));
         assertTrue(found instanceof ConfiguredConfig, String.valueOf(found));

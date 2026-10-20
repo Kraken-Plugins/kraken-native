@@ -1,14 +1,14 @@
 package com.kraken.client.ui;
 
 import com.kraken.api.eventbus.EventBus;
-import com.kraken.client.config.Config;
-import com.kraken.client.config.ConfigGroup;
-import com.kraken.client.config.ConfigItem;
-import com.kraken.client.config.ConfigManager;
-import com.kraken.client.config.ConfigSection;
-import com.kraken.client.config.KrakenConfig;
-import com.kraken.client.config.Range;
-import com.kraken.client.config.Units;
+import com.kraken.client.plugins.config.Config;
+import com.kraken.client.plugins.config.ConfigGroup;
+import com.kraken.client.plugins.config.ConfigItem;
+import com.kraken.client.plugins.config.ConfigManager;
+import com.kraken.client.plugins.config.ConfigSection;
+import com.kraken.client.KrakenConfig;
+import com.kraken.client.plugins.config.Range;
+import com.kraken.client.plugins.config.Units;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

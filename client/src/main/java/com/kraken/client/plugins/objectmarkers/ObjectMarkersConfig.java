@@ -1,10 +1,10 @@
 package com.kraken.client.plugins.objectmarkers;
 
-import com.kraken.client.config.Alpha;
-import com.kraken.client.config.Config;
-import com.kraken.client.config.ConfigGroup;
-import com.kraken.client.config.ConfigItem;
-import com.kraken.client.config.ConfigSection;
+import com.kraken.client.plugins.config.Alpha;
+import com.kraken.client.plugins.config.Config;
+import com.kraken.client.plugins.config.ConfigGroup;
+import com.kraken.client.plugins.config.ConfigItem;
+import com.kraken.client.plugins.config.ConfigSection;
 
 import java.awt.Color;
 

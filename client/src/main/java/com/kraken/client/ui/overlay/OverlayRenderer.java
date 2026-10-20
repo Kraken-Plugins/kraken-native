@@ -5,7 +5,7 @@ import com.google.inject.Singleton;
 import com.kraken.api.KrakenApi;
 import com.kraken.api.lua.Vector2;
 import com.kraken.client.ApiConnection;
-import com.kraken.client.config.KrakenConfig;
+import com.kraken.client.KrakenConfig;
 import lombok.extern.java.Log;
 
 import javax.swing.*;

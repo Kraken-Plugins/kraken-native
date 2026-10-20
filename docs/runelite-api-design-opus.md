@@ -160,10 +160,10 @@ api/  com.kraken.api                 KrakenApi, Client, Actor, NPC, Player, Rend
 
 client/ com.kraken.client.plugins    Plugin, PluginDescriptor, PluginDependency, PluginManager
         com.kraken.client.plugins.*  built-in plugins, one package each
-        com.kraken.client.config     Config, ConfigGroup, ConfigItem, ConfigSection, Range, Units, Alpha,
-                                     ConfigManager, ConfigDescriptor
+        com.kraken.client.plugins.config  Config, ConfigGroup, ConfigItem, ConfigSection, Range, Units, Alpha,
+                                          ConfigManager, ConfigDescriptor
         com.kraken.client.events     PluginChanged, ConfigChanged, ApiStateChanged, ClientShutdown
-        com.kraken.client.callback   ClientThread
+        com.kraken.client.callback   ClientThread, GameTickCallback, CallbackInjector
         com.kraken.client.ui         ClientToolbar, NavigationButton, PluginPanel, ColorScheme (+ today's classes)
         com.kraken.client.ui.overlay Overlay, OverlayManager, OverlayLayer, OverlayPosition, OverlayPanel,
                                      OverlayUtil, components.* (+ today's GameOverlay, OverlayContext)
@@ -1190,14 +1190,15 @@ outside the scene.
 ### 10.4 Before the game is attached
 
 RuneLite plugins can assume a `Client` exists. In Kraken the API attaches after the game boots, or never (unsupported
-build). Plugins still start at client launch:
+build), so plugins load and start only once the API has attached, never against a fake client:
 
-- The injected `Client` is a stand-in that forwards to the attached `Client` once there is one. Until then it returns
-  the "logged out" values the readers already use: -1, `false`, `""`, `null`, empty lists, and `GameState.STARTING`
-  (`UNKNOWN` after an unsupported build or a failed attach). It's a `java.lang.reflect.Proxy` with per-return-type
-  defaults, so it keeps up as `Client` grows.
-- When the API attaches, `ApiStateChanged` is posted, then the replay rule (§9.5) brings plugins up to date with
-  `GameStateChanged` and spawns.
+- At client launch nothing plugin-related runs yet; `KrakenClient` registers an attach listener on `ApiConnection`
+  that loads the core (and developer-launcher) plugins and starts the enabled ones. The injected `Client` is therefore
+  always the attached `Client`. If the API never attaches (unsupported build or a failed attach), no plugins load and
+  the Plugins panel stays empty.
+- The listener runs on the attach thread before the first poll, so plugins are registered on the bus in time;
+  `ApiStateChanged` is posted, then the replay rule (§9.5) brings plugins up to date with `GameStateChanged` and spawns
+  on that first poll.
 
 ## 11. Configuration
 
@@ -1454,7 +1455,7 @@ Each phase builds, passes both test suites and leaves the client usable.
 | 1 | Make room | Packages move (`game` → `lua`, `events` → `lua.events`, `config` → `lua.types`), `Client` → `ClientOp`, `KrakenApi.lua()`; dev tools, tests, `CLAUDE.md` and the coverage doc updated | Every existing test passes unchanged except imports; dev tools behave the same |
 | 2 | Core types | `coords`, `Point`, `GameState`, `Skill`, `WorldType`, `EquipmentInventorySlot`, `Item`, `ItemContainer`, `InventoryID`; `Client`, `Actor`, `NPC`, `Player`, `Renderable`, top-level `WorldView`, compositions; pinned handles; `KrakenApi.client()` | Adapter tests; RuneLite view in the Location tool matches the wiki's world tiles live |
 | 3 | Events | `EventBus`, `@Subscribe`, `GameTick`, `ClientTick`, `GameStateChanged`, NPC and player spawns, `ItemContainerChanged`, `StatChanged`, `VarbitChanged`, `CanvasSizeChanged`; `RuneLiteEventSource` with the replay rule; `invoke`/`ClientThread` queue | Bus and source tests; Event log shows RuneLite events live |
-| 4 | Plugins | `Plugin`, `@PluginDescriptor`, `@PluginDependency`, `PluginManager`, the stand-in `Client`, `PluginChanged`, `ApiStateChanged`, `ClientShutdown`; Plugins panel with switches; developer launcher; one example plugin (tick counter) | Enabled state persists; a failing plugin is switched off and shown |
+| 4 | Plugins | `Plugin`, `@PluginDescriptor`, `@PluginDependency`, `PluginManager` (loaded once the API attaches), `PluginChanged`, `ApiStateChanged`, `ClientShutdown`; Plugins panel with switches; developer launcher; one example plugin (tick counter) | Enabled state persists; a failing plugin is switched off and shown |
 | 5 | Config | Annotations, `ConfigManager`, `ConfigChanged`, generated settings panels | Example plugin configurable; settings survive restart |
 | 6 | Overlays | `Overlay`, `OverlayManager`, positions and layers subset, back-buffer rendering on the client thread, `Perspective`, `OverlayUtil`, `PanelComponent` | NPC Highlight example works live at 30 fps without stalling the EDT |
 | 7 | Scene | `Scene`, `Tile`, `TileObject` family, `TileItem`, object and item spawn events with RuneLite's scene-load behaviour | Example "object markers lite" plugin; tests for scene-load spawns |

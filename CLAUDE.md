@@ -146,9 +146,11 @@ rounds (keys can depend on other keys) → consensus verdicts (PROVEN/ANCHORED/I
   `plugins.tickcounter`), gives each a child injector (plugin bound and installed as a module, plus each dependency's
   `getPublicModule()`), and starts/stops them on the EDT through the `@Named("edt")` executor (tests pass
   `Runnable::run`). On/off state is `ConfigManager` group `kraken`, key = class simple name lower-cased; a plugin whose
-  `startUp` throws is switched off and keeps its error (`getFailure`). Plugins get a `StandInClient` proxy that answers
-  "logged out" until the API attaches. `ExitHandler` posts `ClientShutdown`, stops plugins and flushes settings on exit.
-- Config (`client.config`) follows RuneLite's: `ConfigManager.getConfig` implements a `@ConfigGroup` interface (getters
+  `startUp` throws is switched off and keeps its error (`getFailure`). Plugins load and start only once the API
+  attaches, so they always inject the real `Client`; if it never attaches, none load (`KrakenClient` registers the
+  loader as an `ApiConnection` attach listener). `ExitHandler` posts `ClientShutdown`, stops plugins and flushes
+  settings on exit.
+- Config (`client.plugins.config`; Kraken's own `KrakenConfig` sits in the root package) follows RuneLite's: `ConfigManager.getConfig` implements a `@ConfigGroup` interface (getters
   annotated `@ConfigItem`, defaults in `default` bodies) as a proxy, usually from the plugin's `@Provides` method; every
   change posts `events.ConfigChanged`. `PluginManager.getPluginConfigProxy` finds a plugin's config among its injector's
   bindings, and `ui.ConfigPanel` generates the settings page (the Plugins panel's cog; the Settings tab is

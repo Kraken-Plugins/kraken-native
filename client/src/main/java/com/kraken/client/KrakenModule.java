@@ -5,11 +5,9 @@ import com.google.inject.Provides;
 import com.google.inject.Singleton;
 import com.google.inject.name.Names;
 import com.kraken.api.Client;
-import com.kraken.api.GameState;
 import com.kraken.api.KrakenApi;
 import com.kraken.api.eventbus.EventBus;
-import com.kraken.client.config.ConfigManager;
-import com.kraken.client.config.KrakenConfig;
+import com.kraken.client.plugins.config.ConfigManager;
 import lombok.AllArgsConstructor;
 
 import javax.swing.*;
@@ -23,7 +21,7 @@ import java.util.concurrent.ScheduledExecutorService;
  * Bindings for the client, and the parent of every plugin's injector. The frame, its panels and the launcher are
  * {@link Singleton}s that Guice creates on first use, so request the frame on the EDT before anything else.
  *
- * <p>Plugins can inject: {@link Client} (a stand-in until the API attaches), {@link EventBus},
+ * <p>Plugins can inject: {@link Client} (the attached API's; plugins load only once it has attached), {@link EventBus},
  * {@code ClientThread}, {@code ConfigManager}, {@link KrakenConfig}, {@code OverlayManager}, {@code PluginManager} and a
  * shared {@link ScheduledExecutorService}.
  */
@@ -44,21 +42,20 @@ public final class KrakenModule extends AbstractModule {
     }
 
     /**
-     * The client plugins see: the attached API's, or a stand-in answering "logged out" until the API attaches.
+     * The client plugins see: the attached API's client. Plugins are loaded only once the API has attached (see
+     * {@link KrakenClient}), so there is always an attached client by the time this is resolved.
      *
      * @param connection the client's link to the game
-     * @return the stand-in client
+     * @return the attached client
      */
     @Provides
     @Singleton
     Client provideClient(ApiConnection connection) {
-        return StandInClient.create(() -> {
-            KrakenApi api = connection.api();
-            return api == null ? null : api.client();
-        }, () -> switch (connection.getState()) {
-            case UNSUPPORTED, FAILED -> GameState.UNKNOWN;
-            default -> GameState.STARTING;
-        });
+        KrakenApi api = connection.api();
+        if (api == null) {
+            throw new IllegalStateException("No client to inject: the API hasn't attached yet");
+        }
+        return api.client();
     }
 
     /**

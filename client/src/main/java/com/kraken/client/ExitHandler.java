@@ -3,7 +3,7 @@ package com.kraken.client;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import com.kraken.api.eventbus.EventBus;
-import com.kraken.client.config.ConfigManager;
+import com.kraken.client.plugins.config.ConfigManager;
 import com.kraken.client.events.ClientShutdown;
 import com.kraken.client.plugins.PluginManager;
 import lombok.extern.java.Log;

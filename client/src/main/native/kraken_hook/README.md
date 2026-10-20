@@ -44,11 +44,11 @@ sent to the DLL in a short handshake, so nothing here is hard-coded per build.
   inject kraken_hook.dll  ──────────────────► DllMain -> init thread
      (CreateRemoteThread + LoadLibraryA)         connect() back to :42069
   send {dispatchRva, tickEventId}  ───────────► MinHook: hook base+rva
-  socket.read() -> GameTickHook.onTick() ◄───── detour(id): if id==tick, send 1 byte
+  socket.read() -> GameTickCallback.onTick() ◄───── detour(id): if id==tick, send 1 byte
 ```
 
-- `client/.../hook/HookInjector.java` — the injection (the only code that writes to the game).
-- `client/.../hook/GameTickHook.java` — the server, handshake, and tick listeners; wired into
+- `client/.../callback/CallbackInjector.java` — the injection (the only code that writes to the game).
+- `client/.../callback/GameTickCallback.java` — the server, handshake, and tick listeners; wired into
   `GameLauncher`.
 - `kraken_hook.cpp` — connects back, reads the handshake, installs the MinHook hook, signals ticks.
 
@@ -82,9 +82,6 @@ in the in-app console, one per server tick.
 
 ## Caveats
 
-- This injects into and modifies a live game client — almost certainly against its terms of service,
-  and anti-cheat/anti-tamper may detect it or crash the client. Use only against a build you control,
-  for your own research. Hence off by default.
 - The detour's `send()` runs on the client's thread. On loopback a 1-byte send is effectively
   instant; a production version would hand off to a queue so a slow reader can never stall the game.
 - x64 only.

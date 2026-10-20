@@ -21,7 +21,7 @@
 
 #pragma comment(lib, "ws2_32.lib")
 
-// Must match GameTickHook.PORT on the Java side.
+// Must match GameTickCallback.PORT on the Java side.
 static const unsigned short KRAKEN_PORT = 42069;
 
 static SOCKET g_sock = INVALID_SOCKET;

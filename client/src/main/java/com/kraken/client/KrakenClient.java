@@ -70,11 +70,14 @@ public class KrakenClient {
         // Draws the plugins' overlays once the API attaches
         injector.getInstance(OverlayRenderer.class);
 
-        // Plugins start now, before the game: until the API attaches they see a logged-out client
+        // Plugins read the game, so they load and start only once the API attaches, giving them the real client;
+        // if it never attaches (unsupported build or a failed attach), none load.
         PluginManager pluginManager = injector.getInstance(PluginManager.class);
-        pluginManager.loadCorePlugins();
-        pluginManager.loadPlugins(options.plugins());
-        pluginManager.startPlugins();
+        injector.getInstance(ApiConnection.class).addAttachListener(api -> {
+            pluginManager.loadCorePlugins();
+            pluginManager.loadPlugins(options.plugins());
+            pluginManager.startPlugins();
+        });
 
         injector.getInstance(GameLauncher.class).launch();
     }

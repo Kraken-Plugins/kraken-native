@@ -1,10 +1,10 @@
 package com.kraken.client.plugins.tickcounter;
 
-import com.kraken.client.config.Config;
-import com.kraken.client.config.ConfigGroup;
-import com.kraken.client.config.ConfigItem;
-import com.kraken.client.config.Range;
-import com.kraken.client.config.Units;
+import com.kraken.client.plugins.config.Config;
+import com.kraken.client.plugins.config.ConfigGroup;
+import com.kraken.client.plugins.config.ConfigItem;
+import com.kraken.client.plugins.config.Range;
+import com.kraken.client.plugins.config.Units;
 
 /**
  * The Tick Counter plugin's settings.

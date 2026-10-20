@@ -8,7 +8,7 @@ import com.kraken.api.eventbus.Subscribe;
 import com.kraken.api.events.GameStateChanged;
 import com.kraken.api.events.GameTick;
 import com.kraken.client.callback.ClientThread;
-import com.kraken.client.config.ConfigManager;
+import com.kraken.client.plugins.config.ConfigManager;
 import com.kraken.client.plugins.Plugin;
 import com.kraken.client.plugins.PluginDescriptor;
 import com.kraken.client.ui.overlay.OverlayManager;
