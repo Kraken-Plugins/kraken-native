@@ -1,0 +1,218 @@
+# Native event hook sites, for the client module's injected hook DLL (client/src/main/native/kraken_hook): the
+# functions the client calls to raise each `osrs.Events` id (`enums.events`), plus two plain hook targets. Hooking a
+# raiser's entry sees every raise, before the Lua-plugins gate. See events.py for the recipe.
+#
+# An events.<NAME> value is a list of hook sites, one per raiser of that event:
+#   { fn: <rva>, idArg: 0, args: N }   the raiser takes the event id in RCX (N register args in all, RCX included)
+#   { fn: <rva>, id: <event id>, args: N }   the raiser is specific to this event
+# The DLL detours fn, forwards N integer register arguments and reports (id, args) to the Java side; what the
+# arguments mean per event is the Lua event contract (docs/event-hooks-design.md).
+keys:
+  - key: functions.dispatchEvent
+    type: "bool(int eventId)"
+    priority: P1
+    doc: The no-payload raiser (`MOV ECX, id; CALL`), called at the server tick with ON_GAME_TICK. Kept for the game-tick hook; events.ON_GAME_TICK carries the same site.
+    strategies:
+      - extractor: { name: event_raisers, field: functions.dispatchEvent, cls: A }
+  - key: Client.pluginGate
+    type: ptr
+    priority: P2
+    doc: The optional plugin-manager slot every raiser tests before firing; null means Lua plugins are off and no event reaches Lua (hooks still see the raise).
+    strategies:
+      - extractor: { name: event_raisers, field: Client.pluginGate, cls: A }
+  - key: functions.clientCycle
+    type: "void(Client*)"
+    priority: P1
+    doc: The client cycle (Client vtable slot), the function incrementing global.cycle. Entry hook for ClientTick.
+    strategies:
+      - extractor: { name: cycle_function, field: CycleFunction, cls: A }
+  - key: functions.setGameState
+    type: "void(Client*, int state)"
+    priority: P1
+    doc: Writes Client.gameState (old state readable at entry, new in EDX). Entry hook for GameStateChanged on every change; the Lua event only fires for login-flow triggers.
+    strategies:
+      - extractor: { name: game_state_setter, field: GameStateSetter, cls: A }
+
+  # Immediate raises (sol2 call on the spot).
+  - key: events.ON_GAME_TICK
+    type: hook
+    priority: P1
+    doc: Server tick, right after Client.tickCount increments. No payload.
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_GAME_TICK, cls: A }
+    invariants:
+      - first_fn_equals: functions.dispatchEvent
+  - key: events.ON_SCREEN_RESIZE
+    type: hook
+    priority: P2
+    doc: Raised by the Client's periodic size check (vtable slot), not only on a change. No payload.
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_SCREEN_RESIZE, cls: A }
+  - key: events.ON_DIALOG_ABORT
+    type: hook
+    priority: P2
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_DIALOG_ABORT, cls: A }
+  - key: events.ON_MINIMENU_REBUILD
+    type: hook
+    priority: P2
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_MINIMENU_REBUILD, cls: A }
+  - key: events.ON_GAME_STATE_CHANGED
+    type: hook
+    priority: P1
+    doc: args RCX (unused), RDX -> int GameStateTrigger (enums.gameStateTrigger). Raised from the login packet path and the state setter for a few transitions only.
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_GAME_STATE_CHANGED, cls: A }
+  - key: events.ON_NPC_LOAD
+    type: hook
+    priority: P1
+    doc: NPC added to the scene. args RCX id, RDX -> char* NPC name, R8 -> int (NPC type id << 16 | slot).
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_NPC_LOAD, cls: A }
+  - key: events.ON_NPC_UNLOAD
+    type: hook
+    priority: P1
+    doc: NPC removed from the scene; same raiser and arguments as ON_NPC_LOAD.
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_NPC_UNLOAD, cls: A }
+  - key: events.ON_LOC_LOAD
+    type: hook
+    priority: P1
+    doc: Loc added to a tile. args RCX (unused), RDX -> packed coord, R8 -> char* LocType name, R9 -> byte.
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_LOC_LOAD, cls: A }
+  - key: events.ON_LOC_UNLOAD
+    type: hook
+    priority: P1
+    doc: Loc removed from a tile; same arguments as ON_LOC_LOAD.
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_LOC_UNLOAD, cls: A }
+  - key: events.ON_VARBIT_UPDATE
+    type: hook
+    priority: P1
+    doc: A varbit the client tracks changed. args RCX id, RDX -> {int varbitId, int oldValue}, R8 -> int newValue.
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_VARBIT_UPDATE, cls: A }
+  - key: events.ON_IF_LOAD
+    type: hook
+    priority: P2
+    doc: Interface group loaded. args RCX (unused), RDX -> int group id, R8 -> int.
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_IF_LOAD, cls: A }
+  - key: events.ON_CLIENTSCRIPT
+    type: hook
+    priority: P2
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_CLIENTSCRIPT, cls: A }
+  - key: events.ON_TARGET_ENTER
+    type: hook
+    priority: P2
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_TARGET_ENTER, cls: A }
+  - key: events.ON_TARGET_LEAVE
+    type: hook
+    priority: P2
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_TARGET_LEAVE, cls: A }
+  - key: events.ON_NPC_OP
+    type: hook
+    priority: P2
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_NPC_OP, cls: A }
+  - key: events.ON_LOC_OP
+    type: hook
+    priority: P2
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_LOC_OP, cls: A }
+  - key: events.ON_TILE_OP
+    type: hook
+    priority: P2
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_TILE_OP, cls: A }
+  - key: events.ON_PLAYER_OP
+    type: hook
+    priority: P2
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_PLAYER_OP, cls: A }
+  - key: events.ON_OBJ_OP
+    type: hook
+    priority: P2
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_OBJ_OP, cls: A }
+  - key: events.ON_COMPONENT_OP
+    type: hook
+    priority: P2
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_COMPONENT_OP, cls: A }
+
+  # Deferred raises: the transmit wrappers only mark the event pending; the client fires it to Lua later. The
+  # payload is in the client's transmit state, not in the arguments.
+  - key: events.ON_VAR_TRANSMIT
+    type: hook
+    priority: P1
+    doc: Varps arrived from the server (the var transmit ring holds which). Re-read vars on receipt.
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_VAR_TRANSMIT, cls: A }
+  - key: events.ON_INV_TRANSMIT
+    type: hook
+    priority: P1
+    doc: An inventory arrived from the server. Re-read item containers on receipt.
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_INV_TRANSMIT, cls: A }
+  - key: events.ON_STAT_TRANSMIT
+    type: hook
+    priority: P1
+    doc: A skill's stats arrived from the server. Re-read stats on receipt.
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_STAT_TRANSMIT, cls: A }
+  - key: events.ON_CHAT_TRANSMIT
+    type: hook
+    priority: P2
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_CHAT_TRANSMIT, cls: A }
+  - key: events.ON_RUN_ENERGY_TRANSMIT
+    type: hook
+    priority: P2
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_RUN_ENERGY_TRANSMIT, cls: A }
+  - key: events.ON_RUN_WEIGHT_TRANSMIT
+    type: hook
+    priority: P2
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_RUN_WEIGHT_TRANSMIT, cls: A }
+  - key: events.ON_REBOOT_TIMER_TRANSMIT
+    type: hook
+    priority: P2
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_REBOOT_TIMER_TRANSMIT, cls: A }
+  - key: events.ON_FRIEND_TRANSMIT
+    type: hook
+    priority: P2
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_FRIEND_TRANSMIT, cls: A }
+  - key: events.ON_FRIEND_CHANNEL_TRANSMIT
+    type: hook
+    priority: P2
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_FRIEND_CHANNEL_TRANSMIT, cls: A }
+  - key: events.ON_CLAN_RECORD_TRANSMIT
+    type: hook
+    priority: P2
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_CLAN_RECORD_TRANSMIT, cls: A }
+  - key: events.ON_CLAN_CHANNEL_TRANSMIT
+    type: hook
+    priority: P2
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_CLAN_CHANNEL_TRANSMIT, cls: A }
+  - key: events.ON_STOCK_TRANSMIT
+    type: hook
+    priority: P2
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_STOCK_TRANSMIT, cls: A }
+  - key: events.ON_ACTIVE_OFFERS_TRANSMIT
+    type: hook
+    priority: P2
+    strategies:
+      - extractor: { name: event_raisers, field: events.ON_ACTIVE_OFFERS_TRANSMIT, cls: A }

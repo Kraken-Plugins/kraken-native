@@ -37,6 +37,7 @@ keys:
     strategies:
       - extractor: { name: shared_layouts, field: container.shared_ptr.ptr, cls: A }
   - key: container.shared_ptr.ctrl.useCount
+    internal: true
     type: const
     priority: P1
     strategies:

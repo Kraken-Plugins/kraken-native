@@ -166,6 +166,7 @@ keys:
     strategies:
       - getter: { in: ClientOp.locTypeId, base: { field: { of: any, offset: 0x10 } }, load: i32, select: { nth: 0 } }
   - key: LocType.size
+    internal: true
     type: const
     priority: P1
     doc: Allocation size of a LocType record.

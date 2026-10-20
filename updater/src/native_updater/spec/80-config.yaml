@@ -72,6 +72,7 @@ keys:
     invariants:
       - equals: "Packet.length + 8"
   - key: Packet.pos
+    internal: true
     type: i64
     priority: P1
     strategies:

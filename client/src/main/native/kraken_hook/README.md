@@ -30,9 +30,11 @@ The hook forwards every dispatch untouched and signals Java only when the id is 
 (`enums.events.ON_GAME_TICK`). Both the dispatcher RVA and the tick id come from the mapping and are
 sent to the DLL in a short handshake, so nothing here is hard-coded per build.
 
-> The dispatcher RVA was added to the mapping by hand for this POC. To carry it forward across
-> builds like the other offsets, add a `functions.dispatchEvent` recipe to the updater spec that
-> anchors on the `INC [client+tickCount]` / `MOV ECX, <ON_GAME_TICK>` / `CALL` sequence above.
+The updater carries the dispatcher forward across builds (`functions.dispatchEvent`, anchored on the
+`INC [client+tickCount]` / `MOV ECX, <ON_GAME_TICK>` / `CALL` sequence above) and, from the same seed,
+maps every other native event's raise function into the mapping's `events` section
+(`updater/src/native_updater/events.py`). Extending this DLL from the game tick to all of them is
+designed in `docs/event-hooks-design.md`.
 
 ## Flow
 

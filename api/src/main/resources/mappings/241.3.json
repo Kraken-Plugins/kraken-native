@@ -48,7 +48,8 @@
       "interfaceStore": "0x413bd8",
       "renderCycle": "0x4133fc",
       "mapLoader": "0x49a8",
-      "projectiles": "0xcc70"
+      "projectiles": "0xcc70",
+      "pluginGate": "0x418690"
     },
     "Varcs": {
       "entries": "0x48",
@@ -102,16 +103,9 @@
       "headbarCount": "0x398",
       "anim": "0x4d8",
       "animSeqType": "0x4d0",
-      "animDelay": "0x4e8",
-      "animLoop": "0x4e0",
-      "animState": "0x4c8",
-      "orientationCandidate": "0x494",
       "pathLength": "0x3ec",
       "poseAnims": "0x280",
-      "poseAnimCount": "0xf",
-      "defaultHeight": "0x49c",
       "overheadTimer": "0x2f4",
-      "turnSpeed": "0x3e8",
       "name": "0x710"
     },
     "Headbar": {
@@ -128,10 +122,6 @@
       "health": "0x4",
       "health2": "0x8",
       "cycleOffset": "0xc"
-    },
-    "SeqType": {
-      "priority": "0xc8",
-      "restartMode": "0xe4"
     },
     "Npc": {
       "type": "0x730",
@@ -214,8 +204,7 @@
       "count": "0x24"
     },
     "LocType": {
-      "id": "0x8",
-      "size": "0x1e8"
+      "id": "0x8"
     },
     "Inventory": {
       "id": "0x0",
@@ -372,8 +361,7 @@
     },
     "Packet": {
       "length": "0x8",
-      "data": "0x10",
-      "pos": "0x18"
+      "data": "0x10"
     },
     "InterfaceCoordinates": {
       "offX": "0x10",
@@ -395,8 +383,7 @@
       "node.next": "0x18"
     },
     "shared_ptr": {
-      "ptr": "0x8",
-      "ctrl.useCount": "0x8"
+      "ptr": "0x8"
     },
     "list": {
       "node.next": "0x0",
@@ -506,6 +493,251 @@
     "npcTypeLoader": "0x5f18f0",
     "objTypeLoader": "0x5f5cd0",
     "varbitRead": "0x5ae330",
-    "dispatchEvent": "0xc44d0"
+    "dispatchEvent": "0xc44d0",
+    "clientCycle": "0x58b70",
+    "setGameState": "0x5b810"
+  },
+  "events": {
+    "ON_GAME_TICK": [
+      {
+        "fn": "0xc44d0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "ON_SCREEN_RESIZE": [
+      {
+        "fn": "0xc44d0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "ON_DIALOG_ABORT": [
+      {
+        "fn": "0xc44d0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "ON_MINIMENU_REBUILD": [
+      {
+        "fn": "0xc44d0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "ON_GAME_STATE_CHANGED": [
+      {
+        "fn": "0xc5550",
+        "id": 39,
+        "args": 2
+      }
+    ],
+    "ON_NPC_LOAD": [
+      {
+        "fn": "0xc7930",
+        "idArg": 0,
+        "args": 3
+      }
+    ],
+    "ON_NPC_UNLOAD": [
+      {
+        "fn": "0xc7930",
+        "idArg": 0,
+        "args": 3
+      }
+    ],
+    "ON_LOC_LOAD": [
+      {
+        "fn": "0xc7b20",
+        "id": 40,
+        "args": 4
+      }
+    ],
+    "ON_LOC_UNLOAD": [
+      {
+        "fn": "0xc7c80",
+        "id": 41,
+        "args": 4
+      }
+    ],
+    "ON_VARBIT_UPDATE": [
+      {
+        "fn": "0xc6ca0",
+        "id": 46,
+        "args": 3
+      }
+    ],
+    "ON_IF_LOAD": [
+      {
+        "fn": "0x1b2030",
+        "id": 47,
+        "args": 3
+      }
+    ],
+    "ON_CLIENTSCRIPT": [
+      {
+        "fn": "0xc69a0",
+        "id": 38,
+        "args": 3
+      }
+    ],
+    "ON_TARGET_ENTER": [
+      {
+        "fn": "0x3902b0",
+        "idArg": 0,
+        "args": 2
+      }
+    ],
+    "ON_TARGET_LEAVE": [
+      {
+        "fn": "0x3902b0",
+        "idArg": 0,
+        "args": 2
+      }
+    ],
+    "ON_NPC_OP": [
+      {
+        "fn": "0x3924f0",
+        "idArg": 0,
+        "args": 4
+      }
+    ],
+    "ON_LOC_OP": [
+      {
+        "fn": "0x3926e0",
+        "id": 24,
+        "args": 4
+      }
+    ],
+    "ON_TILE_OP": [
+      {
+        "fn": "0x3922f0",
+        "id": 25,
+        "args": 3
+      }
+    ],
+    "ON_PLAYER_OP": [
+      {
+        "fn": "0x3924f0",
+        "idArg": 0,
+        "args": 4
+      }
+    ],
+    "ON_OBJ_OP": [
+      {
+        "fn": "0x3928e0",
+        "id": 27,
+        "args": 4
+      }
+    ],
+    "ON_COMPONENT_OP": [
+      {
+        "fn": "0x3924f0",
+        "idArg": 0,
+        "args": 4
+      }
+    ],
+    "ON_VAR_TRANSMIT": [
+      {
+        "fn": "0x520b0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "ON_INV_TRANSMIT": [
+      {
+        "fn": "0x520b0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "ON_STAT_TRANSMIT": [
+      {
+        "fn": "0x520b0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "ON_CHAT_TRANSMIT": [
+      {
+        "fn": "0x63e70",
+        "id": 14,
+        "args": 1
+      }
+    ],
+    "ON_RUN_ENERGY_TRANSMIT": [
+      {
+        "fn": "0x520b0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "ON_RUN_WEIGHT_TRANSMIT": [
+      {
+        "fn": "0x520b0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "ON_REBOOT_TIMER_TRANSMIT": [
+      {
+        "fn": "0x520b0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "ON_FRIEND_TRANSMIT": [
+      {
+        "fn": "0x520b0",
+        "idArg": 0,
+        "args": 1
+      },
+      {
+        "fn": "0x64320",
+        "id": 15,
+        "args": 1
+      }
+    ],
+    "ON_FRIEND_CHANNEL_TRANSMIT": [
+      {
+        "fn": "0x64370",
+        "id": 20,
+        "args": 1
+      }
+    ],
+    "ON_CLAN_RECORD_TRANSMIT": [
+      {
+        "fn": "0x520b0",
+        "idArg": 0,
+        "args": 1
+      },
+      {
+        "fn": "0x643c0",
+        "id": 18,
+        "args": 1
+      }
+    ],
+    "ON_CLAN_CHANNEL_TRANSMIT": [
+      {
+        "fn": "0x520b0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "ON_STOCK_TRANSMIT": [
+      {
+        "fn": "0x520b0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "ON_ACTIVE_OFFERS_TRANSMIT": [
+      {
+        "fn": "0x520b0",
+        "idArg": 0,
+        "args": 1
+      }
+    ]
   }
 }

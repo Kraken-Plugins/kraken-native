@@ -1,7 +1,7 @@
 """The spec registry: YAML files describing binding tables, fingerprints and keys.
 
 A key entry:
-  - key: Actor.interacting          # Struct.field, global.name, functions.name, enums.name, container.x.y
+  - key: Actor.interacting          # Struct.field, global.name, functions.name, enums.name, container.x.y, events.NAME
     type: i32
     priority: P0                    # P0 | P1 | P2
     strategies:                     # one-entry mappings {kind: params}; see strategies.py
@@ -39,7 +39,7 @@ class KeySpec:
     @property
     def struct(self):
         head = self.key.split(".")[0]
-        return None if head in ("global", "functions", "enums", "container") else head
+        return None if head in ("global", "functions", "enums", "container", "events") else head
 
     @property
     def name(self):

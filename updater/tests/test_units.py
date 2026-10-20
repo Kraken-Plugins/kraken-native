@@ -279,6 +279,78 @@ class RecipeTests(unittest.TestCase):
         self.assertEqual(set(fields), {"Projectile.startCycle", "Projectile.endCycle"})
 
 
+class EventRaiserTests(unittest.TestCase):
+    """The event raiser recipe over a miniature of the client's raise wrappers (events.py)."""
+
+    CLIENT = "MOV RCX,qword ptr [0x140e98c18]"
+    GATE = ["ADD RCX,0x418690", "CALL 0x140003000", "TEST AL,AL"]
+    EVENTS = {"ON_GAME_TICK": 44, "ON_NPC_LOAD": 42, "ON_NPC_UNLOAD": 43, "ON_GAME_STATE_CHANGED": 39,
+              "ON_VARBIT_UPDATE": 46, "ON_STAT_TRANSMIT": 13, "ON_SCREEN_RESIZE": 45, "ON_MINIMENU_REBUILD": 36}
+
+    def program(self):
+        return {
+            0x1000: ["INC dword ptr [R13 + 0x3198]", "MOV ECX,0x2c", "CALL 0x140002000", "RET"],
+            # the no-payload dispatcher: id in ECX, passed through to fire0
+            0x2000: ["PUSH RBX", "MOV EBX,ECX", self.CLIENT, *self.GATE, "JZ 0x140002030", "MOV RCX,qword ptr [RCX]",
+                     "CALL 0x140004000", "MOV EDX,EBX", "MOV RCX,RAX", "JMP 0x140005000", "XOR AL,AL", "RET"],
+            0x3000: ["RET"],                                            # gate test
+            0x4000: ["MOV EDX,0x3", "JMP 0x140006000"],                 # runtime getter, immediate
+            0x4100: ["MOV EDX,0x4", "JMP 0x140006000"],                 # runtime getter, deferred
+            0x5000: ["RET"], 0x5100: ["RET"], 0x5200: ["RET"], 0x6000: ["RET"],
+            # id in ECX plus two payload args, inlined fire body
+            0x7000: ["PUSH RBX", "MOVSXD RBX,ECX", "MOV R14,R8", self.CLIENT, "MOV R15,RDX", *self.GATE, "JZ 0x140007040",
+                     "MOV RCX,qword ptr [RCX]", "CALL 0x140004000", "MOV dword ptr [RSP + 0xf8],EBX",
+                     "MOV qword ptr [RSP + 0x20],RBX", "CALL 0x140005100", "POP RBX", "RET", "XOR AL,AL", "RET"],
+            # fixed id, inlined fire body, one payload arg
+            0x7100: ["MOV dword ptr [RSP + 0x8],ECX", "PUSH R14", self.CLIENT, "MOV R14,RDX", *self.GATE, "JZ 0x140007134",
+                     "MOV RCX,qword ptr [RCX]", "CALL 0x140004000", "MOV dword ptr [RSP + 0xe0],0x27",
+                     "MOV qword ptr [RSP + 0x20],0x27", "CALL 0x140005100", "RET"],
+            # fixed id in EDX, tail call into fire2, two payload args and ECX ignored
+            0x7200: ["MOV RBX,R8", self.CLIENT, "MOV RDI,RDX", *self.GATE, "JZ 0x140007238", "MOV RCX,qword ptr [RCX]",
+                     "CALL 0x140004000", "MOV R9,RBX", "MOV R8,RDI", "MOV EDX,0x2e", "MOV RCX,RAX", "JMP 0x140005100", "RET"],
+            # deferred transmit: id in ECX, pending-flag setter through the other getter
+            0x7300: ["PUSH RBX", "MOV EBX,ECX", self.CLIENT, *self.GATE, "JZ 0x140007330", "MOV RCX,qword ptr [RCX]",
+                     "CALL 0x140004100", "MOV EDX,EBX", "MOV RCX,RAX", "JMP 0x140005200", "RET"],
+            # tests the gate on another slot: not a raiser
+            0x7400: [self.CLIENT, "ADD RCX,0x1234", "CALL 0x140003000", "RET"],
+            0x8000: ["MOV ECX,0x2a", "LEA RDX,[RSP + 0x20]", "CALL 0x140007000", "MOV ECX,0x2b", "CALL 0x140007000",
+                     "MOV ECX,0xd", "CALL 0x140007300", "MOV ECX,0x2d", "CALL 0x140002000", "MOV ECX,0x24", "JMP 0x140002000"],
+        }
+
+    def run_recipe(self):
+        s = GetterSelectorTests.session(self.program(), {"Client.tickCount": 0x3198, "enums.events": self.EVENTS})
+        s.notes = []
+        return {k: v[0] for k, v in extractors.run(s, "event_raisers", {}).items()}
+
+    def test_seed_and_gate(self):
+        out = self.run_recipe()
+        self.assertEqual(out["functions.dispatchEvent"], 0x2000)
+        self.assertEqual(out["Client.pluginGate"], 0x418690)
+
+    def test_ids_passed_in_ecx_come_from_the_call_and_jump_sites(self):
+        out = self.run_recipe()
+        self.assertEqual(out["events.ON_GAME_TICK"], [{"fn": 0x2000, "idArg": 0, "args": 1}])
+        self.assertEqual(out["events.ON_SCREEN_RESIZE"], [{"fn": 0x2000, "idArg": 0, "args": 1}])
+        self.assertEqual(out["events.ON_MINIMENU_REBUILD"], [{"fn": 0x2000, "idArg": 0, "args": 1}])
+        self.assertEqual(out["events.ON_NPC_LOAD"], [{"fn": 0x7000, "idArg": 0, "args": 3}])
+        self.assertEqual(out["events.ON_NPC_UNLOAD"], out["events.ON_NPC_LOAD"])
+        self.assertEqual(out["events.ON_STAT_TRANSMIT"], [{"fn": 0x7300, "idArg": 0, "args": 1}])
+
+    def test_fixed_ids_from_the_inlined_pair_or_edx(self):
+        out = self.run_recipe()
+        self.assertEqual(out["events.ON_GAME_STATE_CHANGED"], [{"fn": 0x7100, "id": 39, "args": 2}])
+        self.assertEqual(out["events.ON_VARBIT_UPDATE"], [{"fn": 0x7200, "id": 46, "args": 3}])
+        self.assertNotIn("events.ON_SUB_CHANGE", out)
+
+    def test_cycle_function_and_game_state_setter(self):
+        s = GetterSelectorTests.session({0x1000: ["INC dword ptr [0x140e98c14]", "RET"]}, {"global.cycle": 0xE98C14})
+        self.assertEqual(extractors.run(s, "cycle_function", {})["CycleFunction"][0], 0x1000)
+        s = GetterSelectorTests.session({
+            0x1000: ["MOV EBP,dword ptr [RCX + 0x2160]", "CMP EBP,EDX", "JZ 0x140001010", "MOV dword ptr [RCX + 0x2160],EDX", "RET"],
+            0x2000: ["MOV dword ptr [RDI + 0x2160],0x2", "RET"]}, {"Client.gameState": 0x2160})
+        self.assertEqual(extractors.run(s, "game_state_setter", {})["GameStateSetter"][0], 0x1000)
+
+
 class BindingParserTests(unittest.TestCase):
     def test_property_getter_is_followed_to_its_lambda(self):
         # LEA name; CALL setter. Each setter LEAs its own binding plus a helper all setters share; the binding calls a
@@ -324,6 +396,7 @@ class MappingTests(unittest.TestCase):
                    Result("Client.worlds.map", 0xC9D0, "INFERRED"), Result("container.hash_map.node.value", 0x10, "ANCHORED"),
                    Result("enums.gameState.LOGGED_IN", 30, "ANCHORED"), Result("enums.events", {"ON_GAME_TICK": 9}, "ANCHORED"),
                    Result("functions.worldToScreen", 0x21EB80, "ANCHORED"), Result("Actor.nameSsoFlag", 0x727, "ANCHORED"),
+                   Result("events.ON_GAME_TICK", [{"fn": 0xC44D0, "idArg": 0, "args": 1}], "ANCHORED"),
                    Result("Actor.anim", 0x4D8, "NEEDS_REVIEW"), Result("Npc.type", None, "FAILED")]
         return emit.build_mapping(identity.BuildIdentity("ab" * 32, "241.3", ""), results, spec)
 
@@ -335,6 +408,7 @@ class MappingTests(unittest.TestCase):
             "containers": {"hash_map": {"node.value": "0x10"}},
             "enums": {"gameState": {"LOGGED_IN": 30}, "events": {"ON_GAME_TICK": 9}},
             "functions": {"worldToScreen": "0x21eb80"},
+            "events": {"ON_GAME_TICK": [{"fn": "0xc44d0", "idArg": 0, "args": 1}]},
         })
 
     def test_flatten_uses_spec_keys(self):
@@ -342,6 +416,7 @@ class MappingTests(unittest.TestCase):
         self.assertEqual(flat["Client.worlds.map"], "0xc9d0")
         self.assertEqual(flat["container.hash_map.node.value"], "0x10")
         self.assertEqual(flat["enums.events.ON_GAME_TICK"], 9)
+        self.assertEqual(flat["events.ON_GAME_TICK"], [{"fn": "0xc44d0", "idArg": 0, "args": 1}])
         self.assertNotIn("Actor.anim", flat)
 
     def test_diff(self):

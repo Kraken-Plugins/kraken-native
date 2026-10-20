@@ -8,6 +8,7 @@ import math
 import struct
 
 from .analysis.provenance import Add, Arg, Bin, Const, Deref, Global, Mul, Ret, Out, contains, walk
+from .events import event_raisers
 from .session import Blocked
 
 _cache = {}
@@ -868,7 +869,31 @@ def projectile_step_fields(facts, cycles, endpoint, roles, scale):
     return out
 
 
+def cycle_function(session, p):
+    """The client cycle (RuneLite's client tick): the one function that increments global.cycle. A hook target."""
+    cycle = session.value("global.cycle")
+    sites = [(rva, fn) for rva, fn in session.model.insns_with_disp(cycle, "INC") if fn is not None]
+    fns = {fn for _, fn in sites}
+    if len(fns) != 1:
+        return {}
+    rva, fn = sites[0]
+    return {"CycleFunction": (fn, _ev(session, rva, fn, "rip"), "the function incrementing global.cycle")}
+
+
+def game_state_setter(session, p):
+    """The game state setter: the function storing its second argument into [client + Client.gameState]. A hook target
+    that sees every state change, which the Lua ON_GAME_STATE_CHANGED event does not."""
+    off = session.value("Client.gameState")
+    fns = {fn for _, fn in session.model.insns_with_disp(off, "MOV") if fn is not None}
+    for fn in sorted(fns):
+        for s in session.prov.facts(fn).stores:
+            if _is_field(s.target, Arg(0), 4) and s.target.off == off and s.value == Arg(1):
+                return {"GameStateSetter": (fn, _ev(session, s.rva, fn), "stores arg1 to [arg0 + Client.gameState]")}
+    return {}
+
+
 EXTRACTORS = {
+    "event_raisers": event_raisers, "cycle_function": cycle_function, "game_state_setter": game_state_setter,
     "projectiles": projectiles,
     "loc_tag_kind": loc_tag_kind, "collision_record": collision_record, "renderer_layout": renderer_layout,
     "config_loader_core": config_loader_core, "config_archive": config_archive, "packet_layout": packet_layout,

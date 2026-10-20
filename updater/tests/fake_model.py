@@ -64,8 +64,17 @@ class FakeModel:
     def call_sites(self, fn):
         return [(i.rva, entry) for entry, body in self._insns.items() for i in body if i.is_call and i.target == fn]
 
+    def callers(self, fn):
+        return sorted({entry for _, entry in self.call_sites(fn)})
+
+    def insns_with_disp(self, disp, mnem=None):
+        """(rva, fn) of memory operands with this displacement (an RVA for RIP-relative ones)."""
+        return [(i.rva, entry) for entry, body in self._insns.items() for i in body
+                if (mnem is None or i.mnem == mnem) and any(op.kind == "mem" and op.disp == disp for op in i.ops)]
+
     def xrefs_to(self, rva, kinds=None):
-        """LEA references only: (src, containing function, "lea")."""
+        """LEA and JMP references only: (src, containing function, "lea" | "jump")."""
         refs = [(i.rva, entry, "lea") for entry, body in self._insns.items() for i in body
                 if i.mnem == "LEA" and len(i.ops) == 2 and i.ops[1].base == "RIP" and i.ops[1].disp == rva]
+        refs += [(i.rva, entry, "jump") for entry, body in self._insns.items() for i in body if i.is_jump and i.target == rva]
         return [r for r in refs if kinds is None or r[2] in kinds]

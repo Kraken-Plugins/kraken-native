@@ -79,9 +79,14 @@ never applied to a different binary. It holds values only, keyed like the spec:
   "structs":    { "Actor": { "pathX": "0x3f0" }, "Client": { "camera.pos": "0x895c8" } },
   "containers": { "hash_map": { "node.value": "0x10" } },
   "enums":      { "gameState": { "LOGGED_IN": 30 } },
-  "functions":  { "worldToScreen": "0x21eb80" }
+  "functions":  { "worldToScreen": "0x21eb80" },
+  "events":     { "ON_NPC_LOAD": [ { "fn": "0xc7930", "idArg": 0, "args": 3 } ] }
 }
 ```
+
+`events` lists, per native event id (`enums.events`), the functions the client calls to raise it: hook `fn`,
+forward `args` integer register arguments, and take the event id from argument `idArg` (0 = RCX) or as the fixed
+`id`. These feed the client module's injected hook DLL (`docs/event-hooks-design.md`).
 
 Only PROVEN, ANCHORED and INFERRED keys are written; NEEDS_REVIEW and FAILED keys are left out, so the API fails
 loudly on a missing key rather than reading a doubtful one. Keys marked `internal: true` in the spec (inputs to other
@@ -105,7 +110,8 @@ reads it for carry-forward. Repair bundles (`repair/<key>.md`) go in the same fo
 | `src/native_updater/roles.py` | Names for pointer bases used by recipes: `client`, `sp_result`, `node_value`, `{field: …}` |
 | `src/native_updater/strategies.py` | Generic strategies: `getter`, `global-load`, `hash-map`, `const`, `member`, `binding`, `fingerprint`, `enum-table`, `derive`, `extractor` |
 | `src/native_updater/fingerprints.py` | Function locators: `callee_of`, `caller_of`, `common_callee_of`, `binding`, `extractor` |
-| `src/native_updater/extractors.py` | Custom recipes over provenance facts: config loaders, setSequence, Actor ctor, scene grid, obj piles, containers, projectiles |
+| `src/native_updater/extractors.py` | Custom recipes over provenance facts: config loaders, setSequence, Actor ctor, scene grid, obj piles, containers, projectiles, the cycle and game-state hook targets |
+| `src/native_updater/events.py` | The native event raisers: seeds on the server-tick dispatch, then classifies every wrapper that tests the plugin gate into `events.<NAME>` hook sites |
 | `src/native_updater/spec/*.yaml` | The contract: tables, fingerprints, one entry per key (strategies, invariants, live check) |
 | `src/native_updater/consensus.py`, `verify.py` | Verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED); type, relational and uniqueness checks |
 | `src/native_updater/carry.py` | Carry-forward (function matching + re-extraction), delta propagation, repair bundles |

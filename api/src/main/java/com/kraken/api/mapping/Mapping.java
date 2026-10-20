@@ -11,7 +11,9 @@ import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -27,7 +29,8 @@ import java.util.Map;
  *   "structs":    { "Actor": { "pathX": "0x3f0", … }, … },
  *   "containers": { "hash_map": { "node.value": "0x10", … }, … },
  *   "enums":      { "gameState": { "LOGGED_IN": 30 }, … },
- *   "functions":  { "worldToScreen": "0x21eb80", … }
+ *   "functions":  { "worldToScreen": "0x21eb80", … },
+ *   "events":     { "ON_NPC_LOAD": [ { "fn": "0xc7930", "idArg": 0, "args": 3 } ], … }
  * }</pre>
  *
  * <ul>
@@ -35,6 +38,7 @@ import java.util.Map;
  *   <li>{@link #global(String)}: a global's RVA, e.g. {@code "client"} → {@code globals.client}
  *   <li>{@link #function(String)}: a function's RVA, e.g. {@code "worldToScreen"} → {@code functions.worldToScreen}
  *   <li>{@link #container(String)}: a container layout value, e.g. {@code "hash_map.node.value"}
+ *   <li>{@link #eventHooks(String)}: where the client raises a native event, e.g. {@code "ON_NPC_LOAD"}
  * </ul>
  */
 public final class Mapping {
@@ -172,6 +176,63 @@ public final class Mapping {
             }
         }
         return out;
+    }
+
+    /**
+     * The hook sites of a native event ({@code events.<name>}): the functions the client calls to raise that
+     * {@code osrs.Events} id, which an in-process hook detours to be told of the raise. Most events have one site;
+     * a few are raised by both a generic and a dedicated wrapper and list both.
+     *
+     * @param name the event's name in {@code enums.events}, e.g. {@code "ON_NPC_LOAD"}
+     * @return the sites, in RVA order; empty if the mapping has none for that event
+     */
+    public List<EventHook> eventHooks(String name) {
+        JsonObject events = root.getAsJsonObject("events");
+        JsonElement sites = events == null ? null : events.get(name);
+        if (sites == null || !sites.isJsonArray()) {
+            return List.of();
+        }
+        List<EventHook> out = new ArrayList<>();
+        for (JsonElement site : sites.getAsJsonArray()) {
+            JsonObject o = site.getAsJsonObject();
+            out.add(new EventHook(parse(o, "fn", "events." + name + ".fn"),
+                    o.has("idArg") ? o.get("idArg").getAsInt() : -1,
+                    o.has("id") ? o.get("id").getAsInt() : -1,
+                    o.get("args").getAsInt()));
+        }
+        return List.copyOf(out);
+    }
+
+    /**
+     * Whether the mapping lists hook sites for a native event. Older mappings have no {@code events} section.
+     *
+     * @param name the event's name in {@code enums.events}
+     * @return true if {@link #eventHooks} would return at least one site
+     */
+    public boolean hasEventHooks(String name) {
+        return !eventHooks(name).isEmpty();
+    }
+
+    /**
+     * One function the client calls to raise a native event, as the hook DLL needs it: detour {@code fn}, forward
+     * {@code args} integer register arguments, and read the event id either from argument {@code idArg} or as the
+     * fixed {@code id}.
+     *
+     * @param fn    the raiser's RVA
+     * @param idArg index of the argument register (0 = RCX) carrying the event id, or -1 when the id is fixed
+     * @param id    the event id this raiser always fires, or -1 when it comes from {@code idArg}
+     * @param args  how many of RCX, RDX, R8, R9 the raiser takes
+     */
+    public record EventHook(long fn, int idArg, int id, int args) {
+
+        /**
+         * Whether the raiser is specific to one event.
+         *
+         * @return true if {@link #id()} is the event id, false if the id arrives in argument {@link #idArg()}
+         */
+        public boolean idFixed() {
+            return idArg < 0;
+        }
     }
 
     /** A container layout value, e.g. {@code "string.heapFlagByte"} or {@code "hash_map.node.value"}. */

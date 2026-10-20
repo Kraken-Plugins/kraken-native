@@ -167,31 +167,37 @@ keys:
     invariants:
       - equals: "Actor.anim - 8"
   - key: Actor.animDelay
+    internal: true
     type: i32
     priority: P1
     strategies:
       - extractor: { name: set_sequence, field: Actor.animDelay, cls: C }
   - key: Actor.animLoop
+    internal: true
     type: i16
     priority: P1
     strategies:
       - extractor: { name: set_sequence, field: Actor.animLoop, cls: C }
   - key: Actor.animState
+    internal: true
     type: AnimState
     priority: P1
     strategies:
       - extractor: { name: set_sequence, field: Actor.animState, cls: C }
   - key: SeqType.priority
+    internal: true
     type: i32
     priority: P1
     strategies:
       - extractor: { name: set_sequence, field: SeqType.priority, cls: C }
   - key: SeqType.restartMode
+    internal: true
     type: i32
     priority: P1
     strategies:
       - extractor: { name: set_sequence, field: SeqType.restartMode, cls: C }
   - key: Actor.orientationCandidate
+    internal: true
     type: i32
     priority: P2
     doc: Actor.pathLength as it was when the current animation started (setSequence copies it); what reads it is
@@ -213,11 +219,13 @@ keys:
     strategies:
       - extractor: { name: actor_ctor, field: Actor.poseAnims, cls: D }
   - key: Actor.poseAnimCount
+    internal: true
     type: const
     priority: P1
     strategies:
       - extractor: { name: actor_ctor, field: Actor.poseAnimCount, cls: D }
   - key: Actor.defaultHeight
+    internal: true
     type: i32
     priority: P1
     strategies:
@@ -228,6 +236,7 @@ keys:
     strategies:
       - extractor: { name: actor_ctor, field: Actor.overheadTimer, cls: D }
   - key: Actor.turnSpeed
+    internal: true
     type: i32
     priority: P2
     strategies:

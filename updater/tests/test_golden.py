@@ -68,7 +68,7 @@ class GoldenTests(unittest.TestCase):
                             self.assertEqual(flat[f"{key}.{name}"], v, f"{key}.{name}")
                     else:
                         self.assertEqual(flat[key], e["value"], key)
-                self.assertEqual(set(mapping), {"version", "sha256", "globals", "structs", "containers", "enums", "functions"})
+                self.assertEqual(set(mapping), {"version", "sha256", "globals", "structs", "containers", "enums", "functions", "events"})
 
     def test_carry_forward_reproduces_seed(self):
         """Build N -> N (same model) with anchor strategies disabled: carry-forward alone must reproduce the mapping."""

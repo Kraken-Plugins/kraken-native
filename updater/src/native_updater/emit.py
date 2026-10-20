@@ -21,8 +21,13 @@ def hx(v):
 
 
 def fmt(key, v):
-    """How a value is written: offsets and RVAs as hex strings, enum values as plain ints."""
-    return v if key.startswith("enums.") else hx(v)
+    """How a value is written: offsets and RVAs as hex strings, enum values as plain ints, event hook sites as
+    {fn: hex, id | idArg: int, args: int} records."""
+    if key.startswith("enums."):
+        return v
+    if key.startswith("events.") and isinstance(v, list):
+        return [{**site, "fn": hx(site["fn"])} for site in v]
+    return hx(v)
 
 
 def build_mapping(identity, results, spec):
@@ -30,11 +35,12 @@ def build_mapping(identity, results, spec):
       {"version": "241.3", "sha256": "...",
        "globals": {"client": "0xe98c18"}, "structs": {"Actor": {"pathX": "0x3f0"}},
        "containers": {"hash_map": {"buckets": "0x8"}}, "enums": {"gameState": {"LOGGED_IN": 30}},
-       "functions": {"worldToScreen": "0x21eb80"}}
+       "functions": {"worldToScreen": "0x21eb80"},
+       "events": {"ON_GAME_TICK": [{"fn": "0xc44d0", "idArg": 0, "args": 1}]}}
     Internal keys (spec `internal: true`) are resolved and verified but not written."""
     internal = {k.key for k in spec.keys if k.internal}
     out = {"version": identity.version, "sha256": identity.sha256,
-           "globals": {}, "structs": {}, "containers": {}, "enums": {}, "functions": {}}
+           "globals": {}, "structs": {}, "containers": {}, "enums": {}, "functions": {}, "events": {}}
     for r in results:
         if r.verdict not in TRUSTED or r.key in internal:
             continue
@@ -44,6 +50,8 @@ def build_mapping(identity, results, spec):
             out["globals"][rest] = value
         elif head == "functions":
             out["functions"][rest] = value
+        elif head == "events":
+            out["events"][rest] = value
         elif head == "container":
             group, _, name = rest.partition(".")
             out["containers"].setdefault(group, {})[name] = value
@@ -65,6 +73,8 @@ def flatten(mapping):
         out[f"global.{name}"] = v
     for name, v in mapping.get("functions", {}).items():
         out[f"functions.{name}"] = v
+    for name, v in mapping.get("events", {}).items():
+        out[f"events.{name}"] = v
     for struct, fields in mapping.get("structs", {}).items():
         for f, v in fields.items():
             out[f"{struct}.{f}"] = v

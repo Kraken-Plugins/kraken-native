@@ -66,7 +66,9 @@ rounds (keys can depend on other keys) → consensus verdicts (PROVEN/ANCHORED/I
 
 - `src/native_updater/spec/*.yaml` is the source of truth for what gets mapped: one entry per key with strategies,
   invariants and a `live` probe check. Key names map to mapping sections: `Struct.field` → `structs`, `global.x` →
-  `globals`, `functions.x` → `functions`, `enums.x` → `enums`, `container.x.y` → `containers`.
+  `globals`, `functions.x` → `functions`, `enums.x` → `enums`, `container.x.y` → `containers`, `events.ON_X` →
+  `events` (the hook sites where the client raises that native event; `events.py`, design in
+  `docs/event-hooks-design.md`).
 - The mapping JSON is updater output and holds only PROVEN/ANCHORED/INFERRED, non-`internal` keys. The evidence behind
   each value, plus every Lua binding's handler RVA, goes to `~/.kraken-native/cache/<sha256>/analysis.json`; read that
   when a value looks wrong.

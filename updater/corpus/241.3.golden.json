@@ -1,7 +1,7 @@
 {
   "sha256": "166231c8f6bd05c7542b8f0d35eb64b0aad701a87ba6ba41f60c4706de946944",
   "version": "241.3",
-  "source": "docs/client-surface.md seed values (static analysis, 2026-10-11) plus registrations read directly from the binary on 2026-10-12; section 3/4 keys from static analysis of the handlers on 2026-10-19; section 7 (interfaces) keys from static analysis of the IfType getters, checked against the live client on 2026-10-19; projectile keys from static analysis of the list walker, step and constructor on 2026-10-19",
+  "source": "docs/client-surface.md seed values (static analysis, 2026-10-11) plus registrations read directly from the binary on 2026-10-12; section 3/4 keys from static analysis of the handlers on 2026-10-19; section 7 (interfaces) keys from static analysis of the IfType getters, checked against the live client on 2026-10-19; projectile keys from static analysis of the list walker, step and constructor on 2026-10-19; events.* hook sites, functions.clientCycle/setGameState and Client.pluginGate from the event raiser recipe (events.py), checked against the hand analysis of the raise wrappers on 2026-10-20",
   "keys": {
     "global.client": "0xe98c18",
     "global.cycle": "0xe98c14",
@@ -273,7 +273,252 @@
     "Projectile.fineZ": "0x2b0",
     "Projectile.yaw": "0x2b8",
     "Projectile.pitch": "0x2bc",
-    "Projectile.started": "0x2c0"
+    "Projectile.started": "0x2c0",
+    "functions.dispatchEvent": "0xc44d0",
+    "Client.pluginGate": "0x418690",
+    "functions.clientCycle": "0x58b70",
+    "functions.setGameState": "0x5b810",
+    "events.ON_GAME_TICK": [
+      {
+        "fn": "0xc44d0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "events.ON_SCREEN_RESIZE": [
+      {
+        "fn": "0xc44d0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "events.ON_DIALOG_ABORT": [
+      {
+        "fn": "0xc44d0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "events.ON_MINIMENU_REBUILD": [
+      {
+        "fn": "0xc44d0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "events.ON_GAME_STATE_CHANGED": [
+      {
+        "fn": "0xc5550",
+        "id": 39,
+        "args": 2
+      }
+    ],
+    "events.ON_NPC_LOAD": [
+      {
+        "fn": "0xc7930",
+        "idArg": 0,
+        "args": 3
+      }
+    ],
+    "events.ON_NPC_UNLOAD": [
+      {
+        "fn": "0xc7930",
+        "idArg": 0,
+        "args": 3
+      }
+    ],
+    "events.ON_LOC_LOAD": [
+      {
+        "fn": "0xc7b20",
+        "id": 40,
+        "args": 4
+      }
+    ],
+    "events.ON_LOC_UNLOAD": [
+      {
+        "fn": "0xc7c80",
+        "id": 41,
+        "args": 4
+      }
+    ],
+    "events.ON_VARBIT_UPDATE": [
+      {
+        "fn": "0xc6ca0",
+        "id": 46,
+        "args": 3
+      }
+    ],
+    "events.ON_IF_LOAD": [
+      {
+        "fn": "0x1b2030",
+        "id": 47,
+        "args": 3
+      }
+    ],
+    "events.ON_CLIENTSCRIPT": [
+      {
+        "fn": "0xc69a0",
+        "id": 38,
+        "args": 3
+      }
+    ],
+    "events.ON_TARGET_ENTER": [
+      {
+        "fn": "0x3902b0",
+        "idArg": 0,
+        "args": 2
+      }
+    ],
+    "events.ON_TARGET_LEAVE": [
+      {
+        "fn": "0x3902b0",
+        "idArg": 0,
+        "args": 2
+      }
+    ],
+    "events.ON_NPC_OP": [
+      {
+        "fn": "0x3924f0",
+        "idArg": 0,
+        "args": 4
+      }
+    ],
+    "events.ON_LOC_OP": [
+      {
+        "fn": "0x3926e0",
+        "id": 24,
+        "args": 4
+      }
+    ],
+    "events.ON_TILE_OP": [
+      {
+        "fn": "0x3922f0",
+        "id": 25,
+        "args": 3
+      }
+    ],
+    "events.ON_PLAYER_OP": [
+      {
+        "fn": "0x3924f0",
+        "idArg": 0,
+        "args": 4
+      }
+    ],
+    "events.ON_OBJ_OP": [
+      {
+        "fn": "0x3928e0",
+        "id": 27,
+        "args": 4
+      }
+    ],
+    "events.ON_COMPONENT_OP": [
+      {
+        "fn": "0x3924f0",
+        "idArg": 0,
+        "args": 4
+      }
+    ],
+    "events.ON_VAR_TRANSMIT": [
+      {
+        "fn": "0x520b0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "events.ON_INV_TRANSMIT": [
+      {
+        "fn": "0x520b0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "events.ON_STAT_TRANSMIT": [
+      {
+        "fn": "0x520b0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "events.ON_CHAT_TRANSMIT": [
+      {
+        "fn": "0x63e70",
+        "id": 14,
+        "args": 1
+      }
+    ],
+    "events.ON_RUN_ENERGY_TRANSMIT": [
+      {
+        "fn": "0x520b0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "events.ON_RUN_WEIGHT_TRANSMIT": [
+      {
+        "fn": "0x520b0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "events.ON_REBOOT_TIMER_TRANSMIT": [
+      {
+        "fn": "0x520b0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "events.ON_FRIEND_TRANSMIT": [
+      {
+        "fn": "0x520b0",
+        "idArg": 0,
+        "args": 1
+      },
+      {
+        "fn": "0x64320",
+        "id": 15,
+        "args": 1
+      }
+    ],
+    "events.ON_FRIEND_CHANNEL_TRANSMIT": [
+      {
+        "fn": "0x64370",
+        "id": 20,
+        "args": 1
+      }
+    ],
+    "events.ON_CLAN_RECORD_TRANSMIT": [
+      {
+        "fn": "0x520b0",
+        "idArg": 0,
+        "args": 1
+      },
+      {
+        "fn": "0x643c0",
+        "id": 18,
+        "args": 1
+      }
+    ],
+    "events.ON_CLAN_CHANNEL_TRANSMIT": [
+      {
+        "fn": "0x520b0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "events.ON_STOCK_TRANSMIT": [
+      {
+        "fn": "0x520b0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "events.ON_ACTIVE_OFFERS_TRANSMIT": [
+      {
+        "fn": "0x520b0",
+        "idArg": 0,
+        "args": 1
+      }
+    ]
   },
   "fingerprints": {
     "ScreenRescale": "0x61aa30",

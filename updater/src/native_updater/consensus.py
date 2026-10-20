@@ -56,9 +56,9 @@ def grade(key, candidates, blocked_reason=None, invariant_failures=()):
 
 def _hashable(v):
     if isinstance(v, dict):
-        return tuple(sorted(v.items()))
+        return tuple(sorted((k, _hashable(x)) for k, x in v.items()))
     if isinstance(v, list):
-        return tuple(v)
+        return tuple(_hashable(x) for x in v)
     return v
 
 

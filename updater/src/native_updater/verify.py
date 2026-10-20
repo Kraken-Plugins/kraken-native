@@ -54,6 +54,11 @@ def check_all(spec, values):
                     members = values.get(arg)
                     if isinstance(members, list) and v not in members:
                         probs.append(f"{v:#x} not among {arg} {[hex(m) for m in members]}")
+                elif kind == "first_fn_equals":          # an events.* hook list whose first site is the named function
+                    want = values.get(arg)
+                    got = v[0].get("fn") if isinstance(v, list) and v and isinstance(v[0], dict) else None
+                    if want is not None and got != want:
+                        probs.append(f"first hook site is {got}, expected {arg} = {want:#x}")
             except (TypeError, KeyError) as e:
                 probs.append(f"invariant {inv} not evaluable: {e}")
         if probs:

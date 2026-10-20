@@ -321,10 +321,17 @@ Example of the mappings file (real seed-build values, trimmed):
     "hash_map": { "buckets": "0x8", "bucketCount": "0x10", "node.key": "0x0", "node.value": "0x10", "node.next": "0x18" },
     "string":   { "size": "0x18", "ssoCapacity": "0x17", "heapFlagByte": "0x17", "heapFlagMask": "0x80" }
   },
-  "enums":      { "gameState": { "LOGGED_IN": 30 }, "events": { "ON_GAME_TICK": 9 } },
-  "functions":  { "worldToScreen": "0x21eb80", "setSequence": "0x9fe50" }
+  "enums":      { "gameState": { "LOGGED_IN": 30 }, "events": { "ON_GAME_TICK": 44 } },
+  "functions":  { "worldToScreen": "0x21eb80", "setSequence": "0x9fe50", "dispatchEvent": "0xc44d0" },
+  "events":     { "ON_GAME_TICK": [ { "fn": "0xc44d0", "idArg": 0, "args": 1 } ],
+                  "ON_LOC_LOAD":  [ { "fn": "0xc7b20", "id": 40, "args": 4 } ] }
 }
 ```
+
+`events` is the hook contract for the client module's injected DLL: per native event, the functions the client
+calls to raise it (`fn`), how many integer register arguments each takes (`args`) and where the event id is (argument
+`idArg`, or the fixed `id`). The recipe (`events.py`) seeds on the server-tick raise and classifies every wrapper
+that tests the Lua plugin gate; `docs/event-hooks-design.md` covers what the hooks feed.
 
 ## 5. Representative recipes
 
