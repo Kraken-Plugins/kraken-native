@@ -1,11 +1,14 @@
 package com.kraken.client.devtools.tools;
 
+import com.kraken.api.Client;
 import com.kraken.api.KrakenApi;
 import com.kraken.api.lua.IfGroup;
 import com.kraken.api.lua.IfType;
 import com.kraken.api.lua.InterfaceCoordinates;
 import com.kraken.api.lua.InterfaceQuery;
 import com.kraken.api.lua.Vector2;
+import com.kraken.api.widgets.Widget;
+import com.kraken.api.widgets.WidgetUtil;
 import com.kraken.client.devtools.Category;
 import com.kraken.client.devtools.DevTool;
 import com.kraken.client.devtools.ToolOption;
@@ -19,6 +22,7 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -29,6 +33,11 @@ import java.util.Set;
  * Browses one open interface group as a tree: its static components (nested by {@code layerId}) with their dynamic
  * children ({@code IfType.children}) under them. The selected component is outlined over the game, and optionally
  * every component the client drew this frame.
+ *
+ * <p>The RuneLite view adds, for the selected component only, what the RuneLite-shaped API reads for it
+ * ({@code Client.getWidget}, then {@code Widget.getChild} down to a dynamic component): its id, index and parent id,
+ * RuneLite's hidden rule (own flag, parents, open group) beside the Lua column's own flag, its canvas bounds, item and
+ * actions.
  */
 final class WidgetInspectorTool extends DevTool<WidgetInspectorTool.Snapshot> {
     private static final int MAX_ROWS = 5_000;
@@ -52,9 +61,11 @@ final class WidgetInspectorTool extends DevTool<WidgetInspectorTool.Snapshot> {
      * @param item      the item an inventory slot shows ("id ×count"), or ""
      * @param ops       the non-empty op names
      * @param screen    the top-left corner on screen, in client pixels
+     * @param runelite  what the RuneLite-shaped API reads for the component; "" unless it is the selected one and the
+     *                  RuneLite view is on
      */
     record Row(String key, String tree, String type, int x, int y, int width, int height, boolean hidden,
-               boolean rendering, String text, String item, String ops, Vector2 screen) {
+               boolean rendering, String text, String item, String ops, Vector2 screen, String runelite) {
     }
 
     /**
@@ -69,6 +80,7 @@ final class WidgetInspectorTool extends DevTool<WidgetInspectorTool.Snapshot> {
     }
 
     private final ToolOption allDrawn = option("drawn", "Outline everything drawn", false);
+    private final ToolOption runelite = option("runelite", "RuneLite view", false);
     /**
      * Chosen in the window (EDT), read on the poll thread.
      */
@@ -78,7 +90,8 @@ final class WidgetInspectorTool extends DevTool<WidgetInspectorTool.Snapshot> {
     WidgetInspectorTool() {
         super("widgets", "Widget inspector", Category.INTERFACE, MaterialDesignW.WIDGETS_OUTLINE,
                 "Browse an open interface's components as a tree (retrieveIfGroup, IfType.children) with their type, "
-                        + "position, text, item and ops, and outline the selected one in game.");
+                        + "position, text, item and ops, and outline the selected one in game. The RuneLite view adds "
+                        + "what the RuneLite-shaped Widget reads for the selected one.");
     }
 
     @Override
@@ -107,27 +120,39 @@ final class WidgetInspectorTool extends DevTool<WidgetInspectorTool.Snapshot> {
         Vector2 clientSize = api.lua().graphics().clientDimensions();
         Marks.Builder marks = clientSize == null ? null : new Marks.Builder(clientSize);
         if (ifGroup != null) {
-            new Tree(ifGroup, rows, marks).walk();
+            new Tree(ifGroup, rows, marks, runelite.isOn() ? api.client() : null).walk();
         }
         return new Snapshot(open, shown, List.copyOf(rows), marks == null ? Marks.NONE : marks.build());
     }
 
     /**
      * Lays a group out in tree order. Screen positions are summed on the way down, which is what
-     * {@code IfType.getScreenCoords} does on the way up, without reading each parent again.
+     * {@code IfType.getScreenCoords} does on the way up, without reading each parent again. Each component carries the
+     * sub ids of the dynamic components from its static root down to it, which is how the RuneLite view finds the
+     * {@code Widget}.
      */
     private final class Tree {
         private final IfGroup group;
         private final List<Row> rows;
         private final Marks.Builder marks;
+        private final Client client;
         private final Map<Integer, List<IfType>> staticChildren = new HashMap<>();
         private final Set<String> seen = new HashSet<>();
         private final String selectedKey = selected;
 
-        Tree(IfGroup group, List<Row> rows, Marks.Builder marks) {
+        /**
+         * Prepares a walk.
+         *
+         * @param group  the group to lay out
+         * @param rows   where the rows go
+         * @param marks  where the outlines go, or null
+         * @param client the RuneLite-shaped client for the selected component's RuneLite view, or null when it's off
+         */
+        Tree(IfGroup group, List<Row> rows, Marks.Builder marks, Client client) {
             this.group = group;
             this.rows = rows;
             this.marks = marks;
+            this.client = client;
         }
 
         void walk() {
@@ -151,28 +176,76 @@ final class WidgetInspectorTool extends DevTool<WidgetInspectorTool.Snapshot> {
             InterfaceCoordinates at = group.coordinates();
             Vector2 origin = new Vector2(at.offX() + at.scriptOffX(), at.offY() + at.scriptOffY());
             for (IfType c : top) {
-                visit(c, 0, origin);
+                visit(c, 0, origin, List.of());
             }
         }
 
-        private void visit(IfType c, int depth, Vector2 parentScreen) {
+        /**
+         * Adds a component's row, then its children's.
+         *
+         * @param c            the component
+         * @param depth        how deep it is in the tree
+         * @param parentScreen its parent's top-left corner on screen
+         * @param path         the sub ids of the dynamic components from its static root down to it (empty for a
+         *                     static component)
+         */
+        private void visit(IfType c, int depth, Vector2 parentScreen, List<Integer> path) {
             String key = c.toString();
             if (rows.size() >= MAX_ROWS || !seen.add(key)) {
                 return;
             }
             Vector2 screen = new Vector2(parentScreen.x() + c.getX(), parentScreen.y() + c.getY());
             boolean rendering = c.isRendering();
+            String rl = client != null && key.equals(selectedKey) ? runeLite(c, path) : "";
             rows.add(new Row(key, "  ".repeat(depth) + key, IfType.typeName(c.getType()), c.getX(), c.getY(),
-                    c.getWidth(), c.getHeight(), c.isHidden(), rendering, c.getText(), item(c), ops(c), screen));
+                    c.getWidth(), c.getHeight(), c.isHidden(), rendering, c.getText(), item(c), ops(c), screen, rl));
             mark(c, key, screen, rendering);
             if (c.isStatic()) {
                 for (IfType child : staticChildren.getOrDefault(c.getPackedId(), List.of())) {
-                    visit(child, depth + 1, screen);
+                    visit(child, depth + 1, screen, List.of());
                 }
             }
             for (IfType child : c.getChildren()) {
-                visit(child, depth + 1, screen);
+                List<Integer> childPath = new ArrayList<>(path);
+                childPath.add(child.getSubId());
+                visit(child, depth + 1, screen, childPath);
             }
+        }
+
+        /**
+         * What the RuneLite-shaped API reads for a component: {@code getWidget} on its static root, then
+         * {@code getChild} down the dynamic components to it.
+         *
+         * @param c    the component
+         * @param path the sub ids from its static root down to it
+         * @return the RuneLite view's text, or "?" if the widget can't be found
+         */
+        private String runeLite(IfType c, List<Integer> path) {
+            Widget widget = client.getWidget(c.getPackedId());
+            for (int subId : path) {
+                widget = widget == null ? null : widget.getChild(subId);
+            }
+            if (widget == null) {
+                return "?";
+            }
+            int id = widget.getId();
+            StringBuilder text = new StringBuilder("id 0x").append(Integer.toHexString(id)).append(" (")
+                    .append(component(id)).append(")");
+            if (widget.getIndex() >= 0) {
+                text.append(" [").append(widget.getIndex()).append("]");
+            }
+            text.append("  parent ").append(widget.getParentId() == -1 ? "none" : component(widget.getParentId()));
+            text.append("  hidden ").append(widget.isHidden());
+            Rectangle bounds = widget.getBounds();
+            text.append("  bounds ").append(bounds == null ? "?"
+                    : bounds.x + "," + bounds.y + " " + bounds.width + "×" + bounds.height);
+            if (widget.getItemId() >= 0) {
+                text.append("  item ").append(widget.getItemId()).append(" ×").append(widget.getItemQuantity());
+            }
+            String[] actions = widget.getActions();
+            text.append("  actions ").append(actions == null ? "none" : String.join(", ",
+                    Arrays.stream(actions).filter(action -> action != null).toList()));
+            return text.toString();
         }
 
         private void mark(IfType c, String key, Vector2 screen, boolean rendering) {
@@ -192,6 +265,10 @@ final class WidgetInspectorTool extends DevTool<WidgetInspectorTool.Snapshot> {
                 marks.label(key, new Vector2(x + c.getWidth() / 2f, y - 6), SELECTED);
             }
         }
+    }
+
+    private static String component(int packedId) {
+        return WidgetUtil.componentToInterface(packedId) + ":" + WidgetUtil.componentToId(packedId);
     }
 
     private static String item(IfType c) {
@@ -235,6 +312,7 @@ final class WidgetInspectorTool extends DevTool<WidgetInspectorTool.Snapshot> {
                 .column("Text", String.class, 160, Row::text)
                 .column("Item", String.class, 90, Row::item)
                 .column("Ops", String.class, 160, Row::ops)
+                .column("RuneLite", String.class, 420, Row::runelite)
                 .key(Row::key)
                 .onSelect(row -> selected = row == null ? null : row.key())
                 .build();

@@ -142,4 +142,18 @@ class InterfaceReadTest {
         assertEquals(56, all.getWidth());
         assertEquals(99, interfaces.retrieveIfType(162, 1).getWidth());
     }
+
+    @Test
+    void getChildLooksUpOneDirectChildBySubId() {
+        IfType root = interfaces.retrieveIfType(149, 0);
+        assertEquals("149:0[0]", root.getChild(0).toString());
+        assertEquals("149:0[1]", root.getChild(1).toString());
+        assertNull(root.getChild(2), "[2] sits inside [1], not directly under the root");
+        assertNull(root.getChild(3), "past the last child");
+        assertNull(root.getChild(-1));
+        IfType layer = root.getChild(1);
+        assertEquals("Nested", layer.getChild(2).getText());
+        assertNull(layer.getChild(0), "outside the layer's range");
+        assertNull(interfaces.retrieveIfType(162, 1).getChild(0), "only a layer has children");
+    }
 }

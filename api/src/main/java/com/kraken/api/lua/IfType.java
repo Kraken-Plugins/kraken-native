@@ -225,6 +225,17 @@ public final class IfType {
     }
 
     /**
+     * One of {@link #getChildren()}, by sub id, looked up now. Not in Lua: it reads the one slot rather than every
+     * child.
+     *
+     * @param subId the child's sub id
+     * @return the dynamic child with that sub id whose direct parent is this component, or null if there is none
+     */
+    public IfType getChild(int subId) {
+        return query.child(this, subId);
+    }
+
+    /**
      * Mirrors {@code IfType.isRendering}: whether the client had drawn the component in its latest frame when the
      * snapshot was taken (its draw stamp equals the client's frame counter).
      *

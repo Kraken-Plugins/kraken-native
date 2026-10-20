@@ -30,6 +30,13 @@ public interface WorldView {
     boolean isTopLevel();
 
     /**
+     * This world's scene: its tiles and what stands on them.
+     *
+     * @return the scene, the same object from call to call
+     */
+    Scene getScene();
+
+    /**
      * The NPCs loaded in this world.
      *
      * @return the NPCs by index
@@ -108,6 +115,14 @@ public interface WorldView {
      * @return the height (more negative is higher); 0 outside the scene or if it can't be read
      */
     int getTileHeight(int x, int y, int plane);
+
+    /**
+     * Every plane's collision flags, as RuneLite's. Mirrors Lua {@code World.getCollisionMaps}: a copy taken now, so
+     * it doesn't follow later changes (see {@link CollisionData}).
+     *
+     * @return the flags by plane (index = plane), each covering the scene; null if they can't be read
+     */
+    CollisionData[] getCollisionMaps();
 
     /**
      * Whether the end tile can be seen from the start tile, by the client's own line-of-sight test. Kraken extra,

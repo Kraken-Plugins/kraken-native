@@ -10,9 +10,12 @@
 // Why a socket and not a JNI/JNA callback: this DLL runs inside osclient.exe, which has no JVM, so a
 // Java callback pointer means nothing in this address space. The socket is the bridge. See README.md.
 
-#include <windows.h>
+// winsock2.h must come before windows.h, and WIN32_LEAN_AND_MEAN stops windows.h from pulling in the
+// old Winsock 1 winsock.h, which would clash with winsock2.h.
+#define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <windows.h>
 #include <cstdint>
 #include "MinHook.h"
 

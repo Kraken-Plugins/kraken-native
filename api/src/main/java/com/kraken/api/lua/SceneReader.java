@@ -634,7 +634,16 @@ final class SceneReader extends GameReader {
      * @return the items' addresses, empty if none
      */
     long[] pileItems(long world, int level, int x, int z) {
-        long sentinel = pile(world, level, x, z);
+        return walkPile(pile(world, level, x, z));
+    }
+
+    /**
+     * The ground items on a pile list, in list order.
+     *
+     * @param sentinel the list's sentinel, or 0
+     * @return the items' addresses, empty if none
+     */
+    private long[] walkPile(long sentinel) {
         if (sentinel == 0) {
             return new long[0];
         }
@@ -695,15 +704,63 @@ final class SceneReader extends GameReader {
                 if (!inWorld(world, level, x, z)) {
                     continue;
                 }
-                for (long item : pileItems(world, level, x, z)) {
-                    int id = itemId(item);
-                    if (id >= 0) {
-                        out.add(new GroundObj(id, itemCount(item), new MapCoord(level, x, z)));
+                addPile(out, pileItems(world, level, x, z), new MapCoord(level, x, z));
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Every ground item in a world, on every level. The pile grid is read a column at a time (one read per column of
+     * list heads), and only the piles that hold something are walked, so a scan costs a few hundred reads plus a few
+     * per item. Used to find item changes between ticks; {@link #objs} is cheaper for a small area.
+     *
+     * @param world the world
+     * @return the items, level by level, tile by tile, then in pile order; empty if the grid can't be read
+     */
+    List<GroundObj> allObjs(long world) {
+        List<GroundObj> out = new ArrayList<>();
+        int[] size = worldSize(world);
+        if (world == 0 || !hasPiles() || size == null || size[0] <= 0 || size[1] <= 0 || size[0] > MAX_GRID
+                || size[1] > MAX_GRID) {
+            return out;
+        }
+        long levels = safePointer(world + wPiles);
+        ByteBuffer levelHeads = levels == 0 ? null : readBlock(levels, (MAX_LEVEL + 1) * pileStride);
+        if (levelHeads == null) {
+            return out;
+        }
+        for (int level = 0; level <= MAX_LEVEL; level++) {
+            long columns = levelHeads.getLong(level * pileStride + pileData);
+            ByteBuffer columnHeads = columns == 0 ? null : readBlock(columns, size[0] * pileStride);
+            if (columnHeads == null) {
+                continue;
+            }
+            for (int x = 0; x < size[0]; x++) {
+                long rows = columnHeads.getLong(x * pileStride + pileData);
+                ByteBuffer listHeads = rows == 0 ? null : readBlock(rows, size[1] * pileStride);
+                if (listHeads == null) {
+                    continue;
+                }
+                for (int z = 0; z < size[1]; z++) {
+                    long sentinel = rows + (long) z * pileStride;
+                    long first = listHeads.getLong(z * pileStride + listNext);
+                    if (first != 0 && first != sentinel) {
+                        addPile(out, walkPile(sentinel), new MapCoord(level, x, z));
                     }
                 }
             }
         }
         return out;
+    }
+
+    private void addPile(List<GroundObj> out, long[] items, MapCoord at) {
+        for (long item : items) {
+            int id = itemId(item);
+            if (id >= 0) {
+                out.add(new GroundObj(id, itemCount(item), at));
+            }
+        }
     }
 
     private boolean hasCollision() {

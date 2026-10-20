@@ -182,4 +182,23 @@ class SceneReadTest {
         game.setCornerHeight(0, 3, 4, -100);
         assertEquals(new FineCoord(2 * 128 + 64, -100, 3 * 128 + 64), scene.getTileCenter(new MapCoord(0, 2, 3)));
     }
+
+    @Test
+    void allObjsListsEveryPileOnEveryLevel() {
+        game.setPile(1, 6, 2, new int[]{4151}, new int[]{1});
+        game.setPile(0, 3, 5, new int[]{1511, 1511}, new int[]{1, 1});
+        MapCoord coins = new MapCoord(0, 3, 3);
+        MapCoord logs = new MapCoord(0, 3, 5);
+        assertEquals(List.of(new GroundObj(995, 100, coins), new GroundObj(1511, 1, coins),
+                new GroundObj(995, 5, coins), new GroundObj(1511, 1, logs), new GroundObj(1511, 1, logs),
+                new GroundObj(4151, 1, new MapCoord(1, 6, 2))), scene.getAllObjs());
+    }
+
+    @Test
+    void allObjsMatchesTheAreaListing() {
+        game.setPile(0, 6, 6, new int[]{995}, new int[]{7});
+        game.setPile(0, 3, 3, new int[0], new int[0]);
+        assertEquals(scene.getObjs(0, 0, 0, 7, 7), scene.getAllObjs());
+        assertEquals(List.of(new GroundObj(995, 7, new MapCoord(0, 6, 6))), scene.getAllObjs());
+    }
 }

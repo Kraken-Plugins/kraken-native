@@ -100,7 +100,8 @@ public final class Camera extends GameReader {
     /**
      * The camera's pitch in the client's units. Not a Lua function.
      *
-     * @return the pitch, 16384 units per circle (RuneLite's value times 8), or -1 if the client can't be read
+     * @return the pitch, 16384 units per circle (JAU14, the unit of RuneLite's {@code getCameraPitch}), or -1 if the
+     *         client can't be read
      */
     public int getPitch() {
         long client = clientBase();
@@ -110,7 +111,8 @@ public final class Camera extends GameReader {
     /**
      * The camera's yaw in the client's units. Not a Lua function.
      *
-     * @return the yaw, 16384 units per circle (RuneLite's value times 8), or -1 if the client can't be read
+     * @return the yaw, 16384 units per circle (JAU14, the unit of RuneLite's {@code getCameraYaw}), or -1 if the
+     *         client can't be read
      */
     public int getYaw() {
         long client = clientBase();

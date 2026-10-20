@@ -189,8 +189,9 @@ public final class KrakenApi implements AutoCloseable {
     /**
      * Where the RuneLite-shaped game events ({@code com.kraken.api.events}) are posted, on the poll thread. A kind of
      * event is only tracked while the bus has subscribers for it. Tracking that starts at the first poll replays the
-     * current state (the game state, every loaded NPC and player as spawned, stats and inventories), as if the client
-     * had just logged in; tracking that starts later takes a silent baseline.
+     * current state (the game state, the scene's objects and ground items, every loaded NPC and player as spawned, the
+     * actors' targets, stats and inventories), as if the client had just logged in; tracking that starts later takes a
+     * silent baseline.
      *
      * @return the bus passed to {@link #attach(long, Path, EventBus)}, or the API's own
      */

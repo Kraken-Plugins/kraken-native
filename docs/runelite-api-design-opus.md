@@ -1,6 +1,6 @@
 # A RuneLite-shaped Kraken API and plugin system
 
-Status: phases 1-6 implemented, 2026-10-20 (live checks pending, see §15). Covers `api/` and `client/`. The updater and
+Status: phases 1-8 implemented, 2026-10-20 (live checks pending, see §15). Covers `api/` and `client/`. The updater and
 the mapping format don't change.
 
 ## 1. Summary
@@ -333,6 +333,12 @@ Things to state in Javadoc, because they differ from RuneLite:
 The divide-by-8 is from the coverage doc. Whether the zero direction and the sense of rotation also match RuneLite's
 needs a live check before release (phase 8).
 
+*As built (phase 8):* no division. RuneLite now measures camera angles in JAU14, 16384 per turn (its `Perspective`
+indexes `SINE14[client.getCameraPitch()]`), which is the client's own unit, so `getCameraPitch()`/`getCameraYaw()`
+return the native values. The native projection (`Graphics.Projection.project`) has the same structure as RuneLite's
+`localToCanvas` (yaw turns x and north, then pitch turns north and height), so the angles agree as long as the trig the
+scene stores comes from `Client.camera.angles` unchanged. That is the live check that remains.
+
 ## 8. Core interfaces
 
 ### 8.1 `Client`
@@ -392,6 +398,10 @@ deprecation for now: until sub-world views exist (§8.3), the top-level view is 
 most RuneLite plugins still make.
 
 Kraken extras on `Client`: `isLoggedIn()`, `getProfileType()`, `areProjectilesRendered()` and `getOpenWidgetGroups()`.
+
+*As built (phases 7-8):* `getScene()` (non-default, like `getNpcs()`), `getWidget(int)`, `getWidget(int, int)`,
+`getProjectiles()`, the camera getters and the extras above are there. `getProjectiles()` returns a `Deque`, as
+RuneLite's does, rather than a `List`. `getCollisionMaps()` is only on `WorldView`, as RuneLite now has it.
 Phase 6 added `getCameraProjection()`, which reads the camera once (Lua's `Graphics.projection()`) and is what
 `Perspective` projects with, since `Perspective` only sees the interfaces.
 
@@ -619,6 +629,24 @@ Notes:
 - **Cost.** `getTiles()` returns lazy handles, so building it is cheap. Calling `getGameObjects()` on all ~43,000 tiles
   isn't. Plugins should track objects with the spawn events (§9.4), as RuneLite plugins do, and the Javadoc says so.
 
+*As built (phase 7):*
+
+- `Scene` adds two Kraken extras: `getSizeX()`/`getSizeY()`, and `getTileObjects()`, every object in one pass (the
+  whole-scene read the object events make each tick, ~43,000 reads). A plugin started mid-session uses it to learn the
+  scene, since walking `getTiles()` costs several reads per tile and getter. The Lua mirror gained the Java-only
+  `Scene.getAllObjs()` (the pile grid read a column at a time, a few hundred reads) for the item events.
+- A `Tile` handle holds its scene position and the map base it was made with. Its object and item getters list that one
+  tile, after checking the base hasn't moved; on a reloaded scene they read as empty. `getGroundItems()` returns an
+  empty list where RuneLite returns null, and makes new item handles each call. `getGameObjects()` holds just the
+  objects (no null slots), on their south-west tile only.
+- `TileObject`s are values (kind, loc, map base): equal across reads, so sets filled from spawns empty on despawns.
+  `getHash()` uses RuneLite's bit layout (the native tag's too: id at bit 20, type at 16), built from the fields;
+  RuneLite's bit 19 isn't read and is 0. `getWorldLocation()` is the footprint's centre tile rounded south-west, as
+  RuneLite documents; `getCanvasTilePoly()` outlines a game object's whole footprint. The four subtypes add nothing:
+  their orientation, offsets and config bits aren't read.
+- `TileItem` handles have identity: the item events keep one per stack and update its quantity. `isHidden()` is false,
+  since no Lua function hides ground items.
+
 ### 8.7 Widgets
 
 `Widget` wraps `IfType`. The RuneLite names map like this:
@@ -658,6 +686,22 @@ If it does, the adapter can become a pinned live handle the way actors are (one 
 `WidgetUtil.packComponentId(group, child)`, `componentToInterface`, `componentToId` mirror RuneLite's. Interface ids
 come from `gameval.InterfaceID` (§8.10).
 
+*As built (phase 8):* `com.kraken.api.widgets` has `Widget`, `WidgetUtil`, `WidgetType`, `WidgetPositionMode` and
+`WidgetSizeMode` (the last three are cache values, shared with Lua's `IfTypes`, `AlignMode`, `SizeMode`). Notes:
+
+- `getChildren()` is indexed by child index with nulls, as RuneLite's, and holds the *direct* children: the native
+  client can nest a dynamic layer under another, so a nested child sits under its own layer, not the static root.
+  `getChild(index)` reads one slot through a new Java extra, `IfType.getChild(subId)`, rather than every child.
+  `getChildren()` is empty rather than null.
+- `isHidden()` is RuneLite's rule: the own flag, any parent's, and a group's top-level widget counts as hidden while
+  its group isn't in the open-interface map. A group's top-level widgets have no parent (`getParentId()` -1): Kraken
+  doesn't read which component a group is opened in.
+- `getActions()` turns empty op slots into null and is null with no ops, as RuneLite's. The model getters
+  (`getModelType`, `getAnimationId`, `getRotationX/Y/Z`, `getModelZoom`) and the sprite flags are included, since
+  `IfType` has them.
+- The raw `InterfaceCoordinates` extra became `getGroupClipBounds()`, the group's clip rectangle, so no Lua type
+  leaks into the RuneLite layer. Two widgets over the same native component are equal.
+
 ### 8.8 Projectiles
 
 `Projectile extends Renderable`, over today's record:
@@ -676,6 +720,9 @@ come from `gameval.InterfaceID` (§8.10).
 
 These are RuneLite's current names. It has deprecated the older `getInteracting`, `getTarget`, `getX1`/`getY1`,
 `getFloor` and `getHeight`, so Kraken skips them. Kraken extras: `getPitch()`, `isStarted()`.
+
+*As built (phase 8):* a snapshot of one read, as the record is; `getRemainingCycles()` reads the cycle counter when
+called, as RuneLite's subtracts the current cycle, and the endpoint actors are looked up when asked for.
 
 ### 8.9 `Perspective`, collision, camera
 
@@ -707,6 +754,12 @@ There are two options:
    `WorldPoint` on every plugin's classpath, and the IDE will happily import the wrong one.
 
 Phase 2 hand-writes `InventoryID` (three constants). The generator comes in phase 8.
+
+*As built (phase 8):* option 1. `./gradlew :api:generateGameval` downloads RuneLite's `gameval` sources at a pinned
+commit (default `4baec1bd46db`, "Update GameVals to 2026-10-14-rev241"; `-PgamevalCommit=<sha>` overrides), renames
+the package, adds RuneLite's BSD 2-clause notice and writes them to `api/src/main/java/com/kraken/api/gameval`. The
+13 files (about 14 MB) are committed like the mapping, so builds don't need the network; the task isn't part of the
+build and is run when the client's revision moves. The generated `InventoryID` replaces the hand-written one.
 
 ### 8.11 What isn't there, and why
 
@@ -840,6 +893,27 @@ one event per changed varp (`varbitId = -1`, `value` = the varp's value), and on
 changed (both ids set, `value` = the varbit's value). The varbit events go first, the order the client's varp handler
 uses and `EventPoller` already keeps. Check this against RuneLite's posting order when implementing. Plugins mostly
 filter on `getVarbitId()` or `getVarpId()`, so order rarely matters.
+
+*As built (phases 7-8):*
+
+- **Scene loads.** A scene counts as new when the client comes back to logged in from anything but a lost connection,
+  or when the map base moved. The object and item trackers then read the whole scene and post a spawn for everything
+  in it, and nothing despawns. `GameStateTracker` holds a `LOGGED_IN` back until those spawns are out, so plugins see
+  `LOADING`, spawns, `LOGGED_IN`, as in RuneLite (where the spawns come while the scene builds). The replay at attach
+  posts the scene's objects and items too, and every actor's target.
+- **Objects** are compared once per game tick with a whole-scene loc read (Lua's `ON_LOC_LOAD` technique, ~43,000
+  reads), keyed by slot. A changed slot (a door opening) posts the old object's despawn and the new one's spawn, all
+  despawns first. Events are only built for kinds with subscribers. `TileObjectSpawned`/`TileObjectDespawned` are the
+  shared interfaces from §9.1.
+- **Ground items** are compared on the tick's poll and the one after (in case the tick's updates land after the counter
+  moves), with `Scene.getAllObjs()`. Per tile, stacks with the same item and quantity keep their handle, then stacks
+  with the same item and another quantity are a quantity change, then the rest despawn or spawn.
+- **`InteractingChanged`** compares every loaded actor's target on the tick's poll and the one after; an actor seen
+  for the first time posts one if it has a target.
+- **`ProjectileMoved`** is posted once, the first poll a projectile is in the list (projectiles are identified by what
+  the server sent: spot anim, endpoints, cycles, slope, start distance). Projectiles already in flight at attach
+  aren't replayed. Its position is the target actor's location, or the target tile's centre, and `z` the ground there
+  less the end height.
 
 `ON_MAP_REBUILD_PRE/POST` and Lua's `GameStateTrigger` have no RuneLite event. They stay on the Lua bus for anyone who
 wants them.
@@ -1329,8 +1403,9 @@ display scale. `OverlayCompositor` lays out and draws a frame and is tested head
 - `PanelComponent` measures its children before drawing its background, so the background fits this frame's lines
   (RuneLite's uses last frame's). Lines don't wrap; a long line widens the panel. `TextComponent` has no colour tags.
 - `OverlayUtil` has `renderPolygon`, `renderTextLocation`, `renderImageLocation` and the actor helpers; actor text goes
-  `OverlayUtil.ACTOR_OVERHEAD_OFFSET` (240) above the ground, since model heights aren't read. The tile-object helpers
-  come with phase 7.
+  `OverlayUtil.ACTOR_OVERHEAD_OFFSET` (240) above the ground, since model heights aren't read. Phase 7 added the
+  tile helpers, `renderTileOverlay` (for a `TileObject`, and for a `LocalPoint` with an image) and
+  `renderImageLocation(client, …)`, without their minimap half.
 - The dev tools keep `OverlayContext.infoPanel`; plugins use `PanelComponent`.
 
 ### 12.5 Dev tools
@@ -1388,7 +1463,12 @@ Each phase builds, passes both test suites and leaves the client usable.
 
 Phases 2 and 3 are the ones that change how the API feels. Phase 4 is where it starts feeling like RuneLite.
 
-Done so far (2026-10-20): phases 1-6. Live checks still to do: the Location tool's RuneLite view against the wiki's
+Done so far (2026-10-20): phases 1-8. Phase 7's example is `plugins.objectmarkers` (marks objects listed by name or
+id in its settings, since Kraken has no menus to pick them from); phase 8's dev tool checks are the RuneLite views of
+the Widget inspector and Game objects tool and the new Event log entries. Live checks for phases 7 and 8: object and
+item spawns after a teleport (the whole new scene, `LOGGED_IN` last), a door opening, Object Markers outlines,
+`InteractingChanged` in combat, `ProjectileMoved` for spells and arrows, the Widget inspector's RuneLite view, and
+the camera angles (§7.4). Still to do from earlier phases: the Location tool's RuneLite view against the wiki's
 world tiles (phase 2), and the Event log's RuneLite events, the Tick Counter plugin and the Plugins panel with the game
 running (phases 3 and 4). For phases 5 and 6: the NPC Highlight and Tick Counter settings pages and their overlays with
 the game running (outlines on the NPCs' tiles at 30 fps without stalling the EDT, the tick panel in the top-left corner,
@@ -1409,6 +1489,7 @@ added the typed proxies, `ConfigChanged` and the settings pages on top. `ClientT
 5. **Settings location.** `~/.kraken-native/settings.properties`, or a separate `~/.kraken` folder? *Phase 4 uses
    `~/.kraken-native/settings.properties`, as §11.2 describes.*
 6. **`gameval`.** Generate copies from RuneLite with its license notice (recommended), or depend on `runelite-api`.
+   *Phase 8 generates copies (§8.10).*
 7. **Plugin discovery.** ClassGraph scanning (RuneLite's way, adds a dependency) or an explicit catalog like
    `DevToolCatalog` (no dependency, one more line per plugin). *Phase 4 uses ClassGraph, as §10.2 describes.*
 8. **`Player.isFriend()`.** Leave it out until the friend list can answer "friend but offline" (recommended), or offer

@@ -137,6 +137,17 @@ public final class Scene {
     }
 
     /**
+     * Every item on the ground in the scene, on every level. Reads the pile grid a column at a time and walks only the
+     * piles that hold something: a few hundred reads plus a few per item, so far cheaper than
+     * {@link #getObjs(int, int, int, int, int)} over the whole scene, but still more than an area.
+     *
+     * @return the items, level by level, tile by tile, then in pile order
+     */
+    public List<GroundObj> getAllObjs() {
+        return scene.allObjs(scene.topWorld());
+    }
+
+    /**
      * The ground's height at a fine position: bilinear between the tile's corner heights, from the level above under
      * a bridge, as the client works out an actor's height but without a ground decoration's offset.
      *

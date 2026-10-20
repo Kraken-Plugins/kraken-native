@@ -1,6 +1,12 @@
 package com.kraken.client.devtools.tools;
 
+import com.kraken.api.GameObject;
 import com.kraken.api.KrakenApi;
+import com.kraken.api.Scene;
+import com.kraken.api.Tile;
+import com.kraken.api.TileObject;
+import com.kraken.api.coords.LocalPoint;
+import com.kraken.api.coords.WorldPoint;
 import com.kraken.api.lua.ClientOp;
 import com.kraken.api.lua.Loc;
 import com.kraken.api.lua.MapCoord;
@@ -16,11 +22,15 @@ import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
  * Locs (scenery) around you: a table of every loc within {@link #RADIUS} tiles, and over the game the game objects,
  * ground and wall decorations among them, outlined with their names and ids. Walls have their own tool.
+ *
+ * <p>The RuneLite view adds, for the selected loc only, the {@code TileObject} the RuneLite-shaped API reads on the
+ * same scene tile ({@code Scene.getTile}): its hash, world and local location, and a game object's size.
  */
 final class GameObjectsTool extends DevTool<Listing<GameObjectsTool.Row>> {
     static final int RADIUS = 15;
@@ -28,7 +38,23 @@ final class GameObjectsTool extends DevTool<Listing<GameObjectsTool.Row>> {
     private static final Color GROUND = new Color(0x78d778);
     private static final Color WALL_DECOR = new Color(0x64c8dc);
 
-    record Row(String key, int id, String name, String layer, int x, int z, int level, Integer distance, String ops) {
+    /**
+     * One loc in the table.
+     *
+     * @param key      the loc's slot and id
+     * @param id       the loc type id
+     * @param name     its name
+     * @param layer    its layer's name
+     * @param x        the scene tile x
+     * @param z        the scene tile z
+     * @param level    the scene level
+     * @param distance tiles from you
+     * @param ops      its non-empty ops
+     * @param runelite what the RuneLite-shaped API reads for it; "" unless it is the selected one and the RuneLite view
+     *                 is on
+     */
+    record Row(String key, int id, String name, String layer, int x, int z, int level, Integer distance, String ops,
+               String runelite) {
     }
 
     private final ToolOption objects = option("objects", "Game objects", true);
@@ -36,11 +62,17 @@ final class GameObjectsTool extends DevTool<Listing<GameObjectsTool.Row>> {
     private final ToolOption wallDecor = option("wallDecor", "Wall decorations", false);
     private final ToolOption names = option("names", "Names", true);
     private final ToolOption ids = option("ids", "Ids", true);
+    private final ToolOption runelite = option("runelite", "RuneLite view", false);
+    /**
+     * The selected row's key, chosen in the window (EDT) and read on the poll thread.
+     */
+    private volatile String selected;
 
     GameObjectsTool() {
         super("gameObjects", "Game objects", Category.SCENE, MaterialDesignC.CUBE_OUTLINE,
                 "Scenery within " + RADIUS + " tiles: game objects such as trees, rocks and tables, ground and wall "
-                        + "decorations (and, in the window, walls and doors), with id, name and ops.");
+                        + "decorations (and, in the window, walls and doors), with id, name and ops. The RuneLite view "
+                        + "adds the selected one's TileObject hash, WorldPoint, LocalPoint and size.");
     }
 
     @Override
@@ -64,17 +96,51 @@ final class GameObjectsTool extends DevTool<Listing<GameObjectsTool.Row>> {
         Projector projector = isOverlayOn() ? Projector.of(api) : null;
         Marks.Builder marks = projector == null ? null : new Marks.Builder(projector);
         List<Row> rows = new ArrayList<>(locs.size());
+        String selectedKey = runelite.isOn() ? selected : null;
         for (Loc loc : locs) {
             LocType type = api.lua().configs().loc(loc.id());
             String name = type == null ? "" : type.getName();
             MapCoord at = loc.coord();
-            rows.add(new Row(loc.layer() + ":" + at.x() + ":" + at.z() + ":" + loc.id(), loc.id(), name, loc.layerName(),
-                    at.x(), at.z(), at.level(), NpcsTool.distance(self, at), ops(type)));
+            String key = loc.layer() + ":" + at.x() + ":" + at.z() + ":" + loc.id();
+            String rl = key.equals(selectedKey) ? runeLite(api, loc) : "";
+            rows.add(new Row(key, loc.id(), name, loc.layerName(), at.x(), at.z(), at.level(),
+                    NpcsTool.distance(self, at), ops(type), rl));
             if (marks != null) {
                 mark(marks, projector, loc, name);
             }
         }
         return new Listing<>(rows, marks == null ? Marks.NONE : marks.build());
+    }
+
+    /**
+     * What the RuneLite-shaped API reads for a loc: the {@code TileObject} in the same layer of the same scene tile.
+     *
+     * @param api the API
+     * @param loc the loc, from the Lua mirror's listing
+     * @return the RuneLite view's text, or "?" if the object can't be found
+     */
+    private static String runeLite(KrakenApi api, Loc loc) {
+        MapCoord at = loc.coord();
+        Scene scene = api.client().getScene();
+        Tile tile = scene == null ? null : scene.getTile(at.level(), at.x(), at.z());
+        if (tile == null) {
+            return "?";
+        }
+        TileObject object = switch (loc.layer()) {
+            case Loc.WALL -> tile.getWallObject();
+            case Loc.WALL_DECOR -> tile.getDecorativeObject();
+            case Loc.GROUND_DECOR -> tile.getGroundObject();
+            default -> Arrays.stream(tile.getGameObjects()).filter(o -> o.getId() == loc.id()).findFirst()
+                    .orElse(null);
+        };
+        if (object == null) {
+            return "?";
+        }
+        WorldPoint world = object.getWorldLocation();
+        LocalPoint local = object.getLocalLocation();
+        String text = "hash 0x" + Long.toHexString(object.getHash()) + "  world " + world.getX() + ", " + world.getY()
+                + ", " + world.getPlane() + "  local " + local.getX() + ", " + local.getY();
+        return object instanceof GameObject game ? text + "  size " + game.sizeX() + "×" + game.sizeY() : text;
     }
 
     private void mark(Marks.Builder marks, Projector projector, Loc loc, String name) {
@@ -128,7 +194,9 @@ final class GameObjectsTool extends DevTool<Listing<GameObjectsTool.Row>> {
                 .column("Plane", Integer.class, 46, Row::level)
                 .column("Dist", Integer.class, 46, Row::distance)
                 .column("Ops", String.class, 200, Row::ops)
+                .column("RuneLite", String.class, 380, Row::runelite)
                 .key(Row::key)
+                .onSelect(row -> selected = row == null ? null : row.key())
                 .build(), Listing::rows);
     }
 }

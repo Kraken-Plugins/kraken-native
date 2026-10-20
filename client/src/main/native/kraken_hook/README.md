@@ -54,10 +54,12 @@ sent to the DLL in a short handshake, so nothing here is hard-coded per build.
 
 ## Build
 
-Needs Visual Studio's C++ build tools. MinHook is cloned on first run.
+Needs a 64-bit C++ toolchain: Visual Studio / Build Tools with the "Desktop development with C++"
+workload, or a 64-bit MinGW `g++` (e.g. TDM-GCC) on PATH. The script finds the toolchain itself —
+from any PowerShell, no "x64 Native Tools" prompt needed — preferring MSVC (located via `vswhere` and
+initialised from `vcvars64.bat`) and falling back to `g++`. MinHook is cloned on first run.
 
 ```powershell
-# from an "x64 Native Tools Command Prompt for VS"
 cd client\src\main\native\kraken_hook
 powershell -ExecutionPolicy Bypass -File build.ps1
 ```

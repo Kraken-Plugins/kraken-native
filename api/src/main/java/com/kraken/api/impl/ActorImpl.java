@@ -53,14 +53,7 @@ abstract class ActorImpl implements Actor {
     @Override
     public Actor getInteracting() {
         int index = lua.isInteracting();
-        if (index == -1) {
-            return null;
-        }
-        return switch (lua.getInteractingType()) {
-            case Entity.TARGET_NPC -> client.npc(index);
-            case Entity.TARGET_PLAYER -> client.player(index);
-            default -> null;
-        };
+        return index == -1 ? null : client.actor(lua.getInteractingType(), index);
     }
 
     @Override

@@ -1,7 +1,11 @@
 package com.kraken.client.ui.overlay;
 
 import com.kraken.api.Actor;
+import com.kraken.api.Client;
+import com.kraken.api.Perspective;
 import com.kraken.api.Point;
+import com.kraken.api.TileObject;
+import com.kraken.api.coords.LocalPoint;
 
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -12,9 +16,9 @@ import java.awt.Stroke;
 import java.awt.image.BufferedImage;
 
 /**
- * Drawing helpers for overlays, as RuneLite's {@code OverlayUtil}, in canvas pixels. Reduced: the tile-object helpers
- * ({@code renderTileOverlay} and friends) come with the scene's {@code TileObject}s, and the minimap ones with the
- * minimap's position.
+ * Drawing helpers for overlays, as RuneLite's {@code OverlayUtil}, in canvas pixels. Reduced: the minimap helpers
+ * ({@code renderMinimapLocation} and the minimap half of {@code renderTileOverlay}) wait for the minimap's position,
+ * and the hover and clickbox helpers for the mouse and models, which Kraken doesn't read.
  */
 public final class OverlayUtil {
 
@@ -151,6 +155,62 @@ public final class OverlayUtil {
             renderPolygon(graphics, tile, color);
         }
         Point location = actor.getCanvasImageLocation(image, zOffset);
+        if (location != null) {
+            renderImageLocation(graphics, location, image);
+        }
+    }
+
+    /**
+     * Outlines the tile an object is on (a game object's whole footprint) and writes text over it.
+     *
+     * @param graphics   where to draw
+     * @param tileObject the object
+     * @param text       the text, or null for none
+     * @param color      the colour of both
+     */
+    public static void renderTileOverlay(Graphics2D graphics, TileObject tileObject, String text, Color color) {
+        Polygon tile = tileObject.getCanvasTilePoly();
+        if (tile != null) {
+            renderPolygon(graphics, tile, color);
+        }
+        if (text != null) {
+            Point location = tileObject.getCanvasTextLocation(graphics, text, 0);
+            if (location != null) {
+                renderTextLocation(graphics, location, text, color);
+            }
+        }
+    }
+
+    /**
+     * Outlines the tile a point is on and draws an image centred on it.
+     *
+     * @param client        the client, for the camera
+     * @param graphics      where to draw
+     * @param localLocation a point on the tile (the outline is centred on it, so pass the tile's centre)
+     * @param image         the image
+     * @param color         the outline colour
+     */
+    public static void renderTileOverlay(Client client, Graphics2D graphics, LocalPoint localLocation,
+                                         BufferedImage image, Color color) {
+        Polygon tile = Perspective.getCanvasTilePoly(client, localLocation);
+        if (tile != null) {
+            renderPolygon(graphics, tile, color);
+        }
+        renderImageLocation(client, graphics, localLocation, image, 0);
+    }
+
+    /**
+     * Draws an image centred over a point.
+     *
+     * @param client     the client, for the camera
+     * @param graphics   where to draw
+     * @param localPoint the point
+     * @param image      the image
+     * @param zOffset    how far above the ground the image's centre goes, in local units
+     */
+    public static void renderImageLocation(Client client, Graphics2D graphics, LocalPoint localPoint,
+                                           BufferedImage image, int zOffset) {
+        Point location = Perspective.getCanvasImageLocation(client, localPoint, image, zOffset);
         if (location != null) {
             renderImageLocation(graphics, location, image);
         }

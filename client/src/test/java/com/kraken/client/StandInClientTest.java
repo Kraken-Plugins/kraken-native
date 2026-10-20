@@ -46,6 +46,16 @@ class StandInClientTest {
     }
 
     @Test
+    void theSceneWidgetAndProjectileReadsAreEmptyBeforeAttach() {
+        assertNull(client.getScene());
+        assertNull(client.getWidget(162, 1));
+        assertEquals(List.of(), client.getOpenWidgetGroups());
+        assertTrue(client.getProjectiles().isEmpty());
+        assertFalse(client.areProjectilesRendered());
+        assertEquals(-1, client.getCameraYaw());
+    }
+
+    @Test
     void onceAttachedItForwardsToTheRealClient() {
         attached.set(fake());
         assertEquals(GameState.LOGGED_IN, client.getGameState());

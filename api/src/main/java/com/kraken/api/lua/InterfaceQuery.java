@@ -232,6 +232,31 @@ public final class InterfaceQuery extends GameReader {
     }
 
     /**
+     * One entry of {@link #children}: the dynamic child with this sub id, if its direct parent is the component. It
+     * reads one slot where {@link #children} reads them all, and applies the same rules (only a {@link IfType#LAYER}
+     * has children; a dynamic layer's are in its {@code layerIdXMin..layerIdXMax} range).
+     *
+     * @param self  the component
+     * @param subId the child's sub id
+     * @return a snapshot of the child, or null if there is none with that sub id directly under the component
+     */
+    IfType child(IfType self, int subId) {
+        if (subId < 0 || self.getType() != IfType.LAYER || !dynamicReady) {
+            return null;
+        }
+        long root = self.isStatic() ? self.getAddress() : staticComponent(self.getLayerId());
+        if (root == 0 || root != self.getAddress()
+                && (subId < self.getLayerIdXMin() || subId > self.getLayerIdXMax())) {
+            return null;
+        }
+        long child = dynamicChild(root, subId);
+        if (child == 0 || safeInt(child + field("layerSubId"), Integer.MIN_VALUE) != self.getSubId()) {
+            return null;
+        }
+        return read(child, frame());
+    }
+
+    /**
      * {@code IfType.screenCoords} as the client works it out: x and y summed up the parent chain, plus the group's
      * offset and script offset at the top.
      *

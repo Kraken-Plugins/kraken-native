@@ -96,6 +96,10 @@ public final class GameFixture {
     public static final long IF_HEAP = 0xc50000000L;
     public static final long PROJECTILES = 0xb60000000L;
     /**
+     * Piles, nodes and items {@link #setPile} adds are bump-allocated from here.
+     */
+    private static final long PILE_HEAP = 0xb44000000L;
+    /**
      * Archive tables and file buffers are bump-allocated from here.
      */
     private static final long ARCHIVE_HEAP = 0xa10000000L;
@@ -166,10 +170,12 @@ public final class GameFixture {
     private long ifSlots = IF_SLOTS;
     private final Map<Integer, TreeMap<Integer, byte[]>> configFiles = new TreeMap<>();
     private long archiveHeap = ARCHIVE_HEAP;
+    private long pileHeap = PILE_HEAP;
 
     public GameFixture() throws IOException {
         map = seedMapping();
         memory.setModuleBase(MODULE_BASE);
+        memory.alloc(PILE_HEAP, 0x10000);
         buildClient();
         buildWorld();
         buildScene();
@@ -369,6 +375,140 @@ public final class GameFixture {
      */
     public void setWall(int level, int x, int z, int id) {
         memory.putLong(tile(level, x, z) + map.offset("Tile.wall"), id < 0 ? 0 : loc(id));
+    }
+
+    /**
+     * Takes every game object off a tile, as when a tree is felled and its object removed.
+     *
+     * @param level the level
+     * @param x     the tile x
+     * @param z     the tile z
+     */
+    public void removeGameObjects(int level, int x, int z) {
+        memory.putInt(tile(level, x, z) + map.offset("Tile.gameObjectCount"), 0);
+    }
+
+    /**
+     * Lays a new pile on a tile, replacing its list (the old nodes stay where they were), and adds the pile grid's
+     * column and rows for it if the grid has none.
+     *
+     * @param level  the level
+     * @param x      the tile x
+     * @param z      the tile z
+     * @param ids    the items' ids, in pile order; empty for an empty pile
+     * @param counts their stack sizes
+     */
+    public void setPile(int level, int x, int z, int[] ids, int[] counts) {
+        int stride = map.offset("World.objPiles.stride");
+        int data = map.offset("World.objPiles.dataOffset");
+        int next = map.container("list.node.next");
+        int prev = map.container("list.node.prev");
+        int value = map.container("list.node.value");
+        long levels = memory.readLong(WORLD + map.offset("World.objPiles"));
+        long columnSlot = levels + (long) level * stride + data;
+        if (memory.readLong(columnSlot) == 0) {
+            memory.putLong(columnSlot, pileAlloc(SCENE_SIZE * stride));
+        }
+        long rowSlot = memory.readLong(columnSlot) + (long) x * stride + data;
+        if (memory.readLong(rowSlot) == 0) {
+            long rows = pileAlloc(SCENE_SIZE * stride);
+            memory.putLong(rowSlot, rows);
+            for (int row = 0; row < SCENE_SIZE; row++) {
+                long sentinel = rows + (long) row * stride;
+                memory.putLong(sentinel + next, sentinel);
+                memory.putLong(sentinel + prev, sentinel);
+            }
+        }
+        long sentinel = memory.readLong(rowSlot) + (long) z * stride;
+        long previous = sentinel;
+        for (int i = 0; i < ids.length; i++) {
+            long node = pileAlloc(0x40);
+            long item = pileAlloc(0x40);
+            memory.putInt(item + map.offset("GroundItem.id"), ids[i]);
+            memory.putInt(item + map.offset("GroundItem.count"), counts[i]);
+            memory.putLong(node + value, item);
+            memory.putLong(previous + next, node);
+            previous = node;
+        }
+        memory.putLong(previous + next, sentinel);
+    }
+
+    /**
+     * Changes the size of one stack in a pile, as when more of a stackable item is dropped on it.
+     *
+     * @param level the level
+     * @param x     the tile x
+     * @param z     the tile z
+     * @param index the stack's position in the pile, from 0
+     * @param count its new size
+     */
+    public void setPileCount(int level, int x, int z, int index, int count) {
+        int next = map.container("list.node.next");
+        long node = memory.readLong(pileSentinel(level, x, z) + next);
+        for (int i = 0; i < index; i++) {
+            node = memory.readLong(node + next);
+        }
+        long item = memory.readLong(node + map.container("list.node.value"));
+        memory.putInt(item + map.offset("GroundItem.count"), count);
+    }
+
+    private long pileAlloc(int size) {
+        long at = pileHeap;
+        pileHeap += (size + 0xf) & ~0xfL;
+        return at;
+    }
+
+    /**
+     * Points an actor at a target, as an interaction does.
+     *
+     * @param address the NPC's or player's address, e.g. {@link #NPC}
+     * @param type    the target type (0 none, 1 NPC, 2 player)
+     * @param index   the target's index, -1 for none
+     */
+    public void setInteracting(long address, int type, int index) {
+        memory.putByte(address + map.offset("Actor.interactingType"), type);
+        memory.putInt(address + map.offset("Actor.interacting"), index);
+    }
+
+    /**
+     * Sets the clipping rectangle of an open group (149 or 162).
+     *
+     * @param group the group
+     * @param x1    the left edge
+     * @param y1    the top edge
+     * @param x2    the right edge
+     * @param y2    the bottom edge
+     */
+    public void setGroupClip(int group, int x1, int y1, int x2, int y2) {
+        long node = memory.readLong(IF_OPEN + 6 * 8);
+        while (memory.readInt(node + map.offset("IfGroupNode.key")) != group) {
+            node = memory.readLong(node + map.offset("IfGroupNode.next"));
+        }
+        long coords = node + map.offset("IfGroupNode.value");
+        memory.putInt(coords + map.offset("InterfaceCoordinates.clipX1"), x1);
+        memory.putInt(coords + map.offset("InterfaceCoordinates.clipY1"), y1);
+        memory.putInt(coords + map.offset("InterfaceCoordinates.clipX2"), x2);
+        memory.putInt(coords + map.offset("InterfaceCoordinates.clipY2"), y2);
+    }
+
+    /**
+     * Relinks the projectile list with some of the two projectiles, as when one is launched or lands.
+     *
+     * @param indices 0 for the spell, 1 for the arrow, in list order; none for an empty list
+     */
+    public void setProjectilesInFlight(int... indices) {
+        int next = map.container("list.node.next");
+        int prev = map.container("list.node.prev");
+        long sentinel = CLIENT + map.offset("Client.projectiles");
+        long previous = sentinel;
+        for (int index : indices) {
+            long node = PROJECTILES + 0x20L * index;
+            memory.putLong(previous + next, node);
+            memory.putLong(node + prev, previous);
+            previous = node;
+        }
+        memory.putLong(previous + next, sentinel);
+        memory.putLong(sentinel + prev, previous);
     }
 
     /**

@@ -3,21 +3,33 @@ package com.kraken.client.devtools.tools;
 import com.kraken.api.Actor;
 import com.kraken.api.Item;
 import com.kraken.api.ItemContainer;
-import com.kraken.api.NPC;
-import com.kraken.api.Player;
-import com.kraken.api.coords.WorldPoint;
 import com.kraken.api.KrakenApi;
+import com.kraken.api.NPC;
+import com.kraken.api.ObjectComposition;
+import com.kraken.api.Player;
+import com.kraken.api.Tile;
+import com.kraken.api.TileItem;
+import com.kraken.api.TileObject;
+import com.kraken.api.coords.LocalPoint;
+import com.kraken.api.coords.WorldPoint;
 import com.kraken.api.eventbus.EventBus;
 import com.kraken.api.eventbus.Subscriber;
 import com.kraken.api.events.CanvasSizeChanged;
 import com.kraken.api.events.GameStateChanged;
 import com.kraken.api.events.GameTick;
+import com.kraken.api.events.InteractingChanged;
 import com.kraken.api.events.ItemContainerChanged;
+import com.kraken.api.events.ItemDespawned;
+import com.kraken.api.events.ItemQuantityChanged;
+import com.kraken.api.events.ItemSpawned;
 import com.kraken.api.events.NpcDespawned;
 import com.kraken.api.events.NpcSpawned;
 import com.kraken.api.events.PlayerDespawned;
 import com.kraken.api.events.PlayerSpawned;
+import com.kraken.api.events.ProjectileMoved;
 import com.kraken.api.events.StatChanged;
+import com.kraken.api.events.TileObjectDespawned;
+import com.kraken.api.events.TileObjectSpawned;
 import com.kraken.api.events.VarbitChanged;
 import com.kraken.api.lua.ClientOp;
 import com.kraken.api.lua.ClientState;
@@ -45,7 +57,9 @@ import java.util.stream.IntStream;
 /**
  * A live log of the API's events: the Lua events ({@code osrs.Events}, as Lua plugins get them) and the RuneLite-shaped
  * events on the API's event bus, each layer while its option is on. Lines for RuneLite events start with the event's
- * class name. Subscribes only while its window is open, and only to the layers switched on.
+ * class name. Subscribes only while its window is open, and only to the layers switched on. The RuneLite object and
+ * ground item spawns have options of their own, off by default: while subscribed, the API reads the whole scene's
+ * objects every tick and its item piles on ticks.
  */
 final class EventLogTool extends DevTool<List<String>> {
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
@@ -57,6 +71,10 @@ final class EventLogTool extends DevTool<List<String>> {
     private final ToolOption gameState = option("gameState", "Game state changes", true);
     private final ToolOption npcs = option("npcs", "NPC load / unload", true);
     private final ToolOption players = option("players", "Player spawns (RuneLite only)", true);
+    private final ToolOption objectSpawns = option("objectSpawns", "Object spawns (RuneLite only)", false);
+    private final ToolOption itemSpawns = option("itemSpawns", "Ground item spawns (RuneLite only)", false);
+    private final ToolOption interacting = option("interacting", "Interacting changes (RuneLite only)", false);
+    private final ToolOption projectiles = option("projectiles", "Projectiles (RuneLite only)", true);
     private final ToolOption inventories = option("inventories", "Inventory transmits", true);
     private final ToolOption stats = option("stats", "Stat transmits", true);
     private final ToolOption vars = option("vars", "Var transmits", false);
@@ -69,12 +87,15 @@ final class EventLogTool extends DevTool<List<String>> {
     private final List<Integer> luaSubscriptions = new ArrayList<>();
     private final List<Integer> locSubscriptions = new ArrayList<>();
     private final List<Subscriber> runeliteSubscriptions = new ArrayList<>();
+    private final List<Subscriber> objectSubscriptions = new ArrayList<>();
+    private final List<Subscriber> itemSubscriptions = new ArrayList<>();
     private KrakenApi api;
 
     EventLogTool() {
         super("events", "Event log", Category.DIAGNOSTICS, MaterialDesignL.LIGHTNING_BOLT_OUTLINE,
                 "A live log of API events (game state, NPCs, players, inventories, stats, vars, varbits, ticks, map "
-                        + "rebuilds, locs, resizes) as they're seen, from the Lua events, the RuneLite events, or both.");
+                        + "rebuilds, locs, resizes; objects, ground items, targets and projectiles in the RuneLite "
+                        + "layer) as they're seen, from the Lua events, the RuneLite events, or both.");
     }
 
     @Override
@@ -93,6 +114,8 @@ final class EventLogTool extends DevTool<List<String>> {
             unsubscribeLua();
             unsubscribeLocs();
             unsubscribeRuneLite();
+            unsubscribe(objectSubscriptions);
+            unsubscribe(itemSubscriptions);
         }
         api = null;
         pending.clear();
@@ -117,8 +140,10 @@ final class EventLogTool extends DevTool<List<String>> {
     }
 
     /**
-     * Subscribes to each layer only while its option is on, so a layer that's off costs no reads. Loc events also wait
-     * for their own option: each makes the Lua poller compare the whole scene every tick. Poll thread.
+     * Subscribes to each layer only while its option is on, so a layer that's off costs no reads. Loc events, and the
+     * RuneLite object and ground item spawns, also wait for their own options: loc events make the Lua poller compare
+     * the whole scene every tick, and the RuneLite spawns make the API do the same for objects and read every pile on
+     * ticks. Poll thread.
      */
     private synchronized void syncSubscriptions() {
         if (api == null) {
@@ -139,6 +164,18 @@ final class EventLogTool extends DevTool<List<String>> {
             subscribeRuneLite();
         } else if (!runelite.isOn() && !runeliteSubscriptions.isEmpty()) {
             unsubscribeRuneLite();
+        }
+        boolean wantObjects = runelite.isOn() && objectSpawns.isOn();
+        if (wantObjects && objectSubscriptions.isEmpty()) {
+            subscribeObjects();
+        } else if (!wantObjects && !objectSubscriptions.isEmpty()) {
+            unsubscribe(objectSubscriptions);
+        }
+        boolean wantItems = runelite.isOn() && itemSpawns.isOn();
+        if (wantItems && itemSubscriptions.isEmpty()) {
+            subscribeItems();
+        } else if (!wantItems && !itemSubscriptions.isEmpty()) {
+            unsubscribe(itemSubscriptions);
         }
     }
 
@@ -272,16 +309,69 @@ final class EventLogTool extends DevTool<List<String>> {
                 add("CanvasSizeChanged  " + sizes());
             }
         });
+        on(InteractingChanged.class, e -> {
+            if (interacting.isOn()) {
+                add("InteractingChanged  " + actor(e.getSource()) + " → " + actor(e.getTarget()));
+            }
+        });
+        on(ProjectileMoved.class, e -> {
+            if (projectiles.isOn()) {
+                add("ProjectileMoved  " + e.getProjectile().getId() + " to " + local(e.getPosition()) + " z "
+                        + e.getZ());
+            }
+        });
+    }
+
+    /**
+     * Subscribes to the four object spawn and despawn events, through the two interfaces they share.
+     */
+    private void subscribeObjects() {
+        KrakenApi attached = api;
+        on(objectSubscriptions, TileObjectSpawned.class, e ->
+                add(e.getClass().getSimpleName() + "  " + object(attached, e.getTileObject())));
+        on(objectSubscriptions, TileObjectDespawned.class, e ->
+                add(e.getClass().getSimpleName() + "  " + object(attached, e.getTileObject())));
+    }
+
+    /**
+     * Subscribes to the ground item spawn, despawn and quantity events.
+     */
+    private void subscribeItems() {
+        on(itemSubscriptions, ItemSpawned.class, e -> add("ItemSpawned  " + item(e.getItem(), e.getTile())));
+        on(itemSubscriptions, ItemDespawned.class, e -> add("ItemDespawned  " + item(e.getItem(), e.getTile())));
+        on(itemSubscriptions, ItemQuantityChanged.class, e -> add("ItemQuantityChanged  " + e.getItem().getId()
+                + " " + e.getOldQuantity() + " → " + e.getNewQuantity() + at(e.getTile().getWorldLocation())));
     }
 
     private <T> void on(Class<T> type, Consumer<T> handler) {
-        runeliteSubscriptions.add(api.eventBus().register(type, handler, 0));
+        on(runeliteSubscriptions, type, handler);
+    }
+
+    /**
+     * Subscribes a handler on the API's event bus.
+     *
+     * @param into    the list to keep the subscription in, for unsubscribing
+     * @param type    the event type
+     * @param handler the handler, run on the poll thread
+     * @param <T>     the event type
+     */
+    private <T> void on(List<Subscriber> into, Class<T> type, Consumer<T> handler) {
+        into.add(api.eventBus().register(type, handler, 0));
     }
 
     private void unsubscribeRuneLite() {
+        unsubscribe(runeliteSubscriptions);
+    }
+
+    /**
+     * Drops a list of event bus subscriptions.
+     *
+     * @param subscriptions the subscriptions; emptied
+     */
+    private void unsubscribe(List<Subscriber> subscriptions) {
         EventBus bus = api.eventBus();
-        runeliteSubscriptions.forEach(bus::unregister);
-        runeliteSubscriptions.clear();
+        subscriptions.forEach(bus::unregister);
+        subscriptions.clear();
     }
 
     private String sizes() {
@@ -303,8 +393,49 @@ final class EventLogTool extends DevTool<List<String>> {
     }
 
     private static String at(Actor actor) {
-        WorldPoint point = actor.getWorldLocation();
+        return at(actor.getWorldLocation());
+    }
+
+    private static String at(WorldPoint point) {
         return point == null ? "" : " at (" + point.getX() + ", " + point.getY() + ", " + point.getPlane() + ")";
+    }
+
+    /**
+     * An NPC or player, for a line.
+     *
+     * @param actor the actor, or null
+     * @return "NPC …" or "player …", or "nothing" for null
+     */
+    private static String actor(Actor actor) {
+        if (actor instanceof NPC npc) {
+            return "NPC " + npc(npc);
+        }
+        if (actor instanceof Player player) {
+            return "player " + player(player);
+        }
+        return actor == null ? "nothing" : actor.getName();
+    }
+
+    private static String local(LocalPoint point) {
+        return point == null ? "?" : "local (" + point.getX() + ", " + point.getY() + ")";
+    }
+
+    /**
+     * An object, for a line: its id, its name from its definition (decoded once and cached by the API), and where it
+     * is.
+     *
+     * @param api    the API, for the definition
+     * @param object the object
+     * @return the description
+     */
+    private static String object(KrakenApi api, TileObject object) {
+        ObjectComposition composition = api.client().getObjectDefinition(object.getId());
+        String name = composition == null || composition.getName().isEmpty() ? "" : " " + composition.getName();
+        return object.getId() + name + at(object.getWorldLocation());
+    }
+
+    private static String item(TileItem item, Tile tile) {
+        return item.getId() + " ×" + item.getQuantity() + at(tile.getWorldLocation());
     }
 
     private static String container(int id, ItemContainer container) {

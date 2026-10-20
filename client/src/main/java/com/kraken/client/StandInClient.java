@@ -11,7 +11,9 @@ import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Proxy;
 import java.lang.reflect.Type;
+import java.util.ArrayDeque;
 import java.util.Collection;
+import java.util.Deque;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
@@ -132,6 +134,9 @@ public final class StandInClient {
             }
             if (type == List.class || type == Collection.class) {
                 return List.of();
+            }
+            if (type == Deque.class) {
+                return new ArrayDeque<>();
             }
             if (type == Optional.class) {
                 return Optional.empty();

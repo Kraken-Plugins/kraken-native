@@ -1,5 +1,6 @@
 package com.kraken.api.impl;
 
+import com.kraken.api.Actor;
 import com.kraken.api.CameraProjection;
 import com.kraken.api.Client;
 import com.kraken.api.GameState;
@@ -11,12 +12,16 @@ import com.kraken.api.ObjectComposition;
 import com.kraken.api.Player;
 import com.kraken.api.Point;
 import com.kraken.api.ProfileType;
+import com.kraken.api.Projectile;
+import com.kraken.api.Scene;
 import com.kraken.api.Skill;
 import com.kraken.api.WorldType;
 import com.kraken.api.WorldView;
 import com.kraken.api.coords.WorldPoint;
 import com.kraken.api.lua.ClientOp;
 import com.kraken.api.lua.ClientState;
+import com.kraken.api.lua.Entity;
+import com.kraken.api.lua.FineCoord;
 import com.kraken.api.lua.Graphics;
 import com.kraken.api.lua.Inventory;
 import com.kraken.api.lua.LuaApi;
@@ -26,17 +31,21 @@ import com.kraken.api.lua.Vector2;
 import com.kraken.api.lua.types.LocType;
 import com.kraken.api.lua.types.NpcType;
 import com.kraken.api.lua.types.ObjType;
+import com.kraken.api.widgets.Widget;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Deque;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * {@link Client} over the Lua mirror: {@code ClientOp} for actors, inventories and definitions, {@code ClientState}
- * for the game state, skills and vars, and the Java {@code Scene} for the map base the world tiles need.
+ * {@link Client} over the Lua mirror: {@code ClientOp} for actors, inventories, definitions and projectiles,
+ * {@code ClientState} for the game state, skills and vars, {@code InterfaceQuery} for widgets, {@code Camera} for the
+ * camera, and the Java {@code Scene} for the map base the world tiles need and the scene's objects.
  *
  * <p>It keeps one handle per actor index ({@link #npc}, {@link #player}), so asking twice for the same actor gives the
  * same object, and a handle's identity holds as long as the actor does. A handle is replaced when another actor takes
@@ -123,6 +132,11 @@ final class ClientImpl implements Client {
     @Override
     public List<Player> getPlayers() {
         return playerList();
+    }
+
+    @Override
+    public Scene getScene() {
+        return topLevel.getScene();
     }
 
     @Override
@@ -241,6 +255,78 @@ final class ClientImpl implements Client {
     }
 
     @Override
+    public Widget getWidget(int componentId) {
+        return getWidget(componentId >>> 16, componentId & 0xffff);
+    }
+
+    @Override
+    public Widget getWidget(int groupId, int childId) {
+        return WidgetImpl.of(lua.interfaces(), lua.interfaces().retrieveIfType(groupId, childId));
+    }
+
+    @Override
+    public List<Integer> getOpenWidgetGroups() {
+        return lua.interfaces().getOpenGroups();
+    }
+
+    @Override
+    public Deque<Projectile> getProjectiles() {
+        Deque<Projectile> out = new ArrayDeque<>();
+        for (com.kraken.api.lua.Projectile projectile : op.getProjectiles()) {
+            out.add(new ProjectileImpl(this, projectile));
+        }
+        return out;
+    }
+
+    @Override
+    public boolean areProjectilesRendered() {
+        return op.areProjectilesRendered();
+    }
+
+    @Override
+    public int getCameraX() {
+        FineCoord eye = lua.camera().getPos();
+        return eye == null ? -1 : eye.x();
+    }
+
+    /**
+     * The camera's north coordinate, which Lua keeps in {@code z}.
+     *
+     * @return the camera's y, or -1 if it can't be read
+     */
+    @Override
+    public int getCameraY() {
+        FineCoord eye = lua.camera().getPos();
+        return eye == null ? -1 : eye.z();
+    }
+
+    /**
+     * The camera's height, which Lua keeps in {@code y}.
+     *
+     * @return the camera's height, or -1 if it can't be read
+     */
+    @Override
+    public int getCameraZ() {
+        FineCoord eye = lua.camera().getPos();
+        return eye == null ? -1 : eye.y();
+    }
+
+    @Override
+    public int getCameraPitch() {
+        return lua.camera().getPitch();
+    }
+
+    @Override
+    public int getCameraYaw() {
+        return lua.camera().getYaw();
+    }
+
+    @Override
+    public int getScale() {
+        return lua.camera().getScale();
+    }
+
+    @Override
     public int getCanvasWidth() {
         Vector2 size = lua.graphics().clientDimensions();
         return size == null ? -1 : (int) size.x();
@@ -298,6 +384,33 @@ final class ClientImpl implements Client {
         }
         return players.compute(index, (i, cached) -> cached != null && cached.pin().equals(pinned)
                 ? cached : new PlayerImpl(this, pinned));
+    }
+
+    /**
+     * The handle on an actor a Lua reference names, such as an interacting target or a projectile's endpoint.
+     *
+     * @param type  {@link Entity#TARGET_NPC} or {@link Entity#TARGET_PLAYER}; anything else names no actor
+     * @param index the NPC or player index
+     * @return the handle, or null for no actor, a world entity, or an actor not loaded in the top-level world
+     */
+    Actor actor(int type, int index) {
+        if (index < 0) {
+            return null;
+        }
+        return switch (type) {
+            case Entity.TARGET_NPC -> npc(index);
+            case Entity.TARGET_PLAYER -> player(index);
+            default -> null;
+        };
+    }
+
+    /**
+     * The Lua mirror this client reads through, for the adapters that need more than the client's own methods.
+     *
+     * @return the Lua mirror
+     */
+    LuaApi lua() {
+        return lua;
     }
 
     /**

@@ -1,5 +1,8 @@
 package com.kraken.api;
 
+import com.kraken.api.widgets.Widget;
+
+import java.util.Deque;
 import java.util.EnumSet;
 import java.util.List;
 
@@ -102,6 +105,13 @@ public interface Client {
      * @return their handles; the same handle objects from call to call while each player stays loaded
      */
     List<Player> getPlayers();
+
+    /**
+     * The top-level world's scene. Same as {@code getTopLevelWorldView().getScene()}.
+     *
+     * @return the scene
+     */
+    Scene getScene();
 
     /**
      * A skill's level from its XP.
@@ -241,6 +251,89 @@ public interface Client {
      * @return the definition (the client's default type for an id without one), or null if config types can't be read
      */
     ObjectComposition getObjectDefinition(int objectId);
+
+    /**
+     * A widget (interface component) by its packed id, as the client holds it now (a snapshot; see {@link Widget}).
+     * The client loads a group's components the first time it is asked for one; Kraken can't ask, so a group the
+     * client hasn't loaded gives null. Mirrors Lua {@code IfType.retrieveIfType}.
+     *
+     * @param componentId {@code group << 16 | child}, e.g. from {@code gameval.InterfaceID}
+     * @return the widget, or null if the client holds none there
+     */
+    Widget getWidget(int componentId);
+
+    /**
+     * A widget by group and child id.
+     *
+     * @param groupId the interface (group) id
+     * @param childId the child's id within the group
+     * @return the widget, or null if the client holds none there
+     */
+    Widget getWidget(int groupId, int childId);
+
+    /**
+     * The interface groups the client has open (on screen). Kraken extra, from the client's open-interface map.
+     *
+     * @return the group ids, sorted; empty if they can't be read
+     */
+    List<Integer> getOpenWidgetGroups();
+
+    /**
+     * The projectiles in flight, as one read of the client's list (snapshots; see {@link Projectile}).
+     *
+     * @return the projectiles in the client's list order, as RuneLite's deque; empty if none or if it can't be read
+     */
+    Deque<Projectile> getProjectiles();
+
+    /**
+     * Whether any projectile in flight is drawn. Kraken extra, mirrors Lua {@code ClientOp.areProjectilesRendered}
+     * (the docs say all of them; the client's handler checks for any).
+     *
+     * @return true if a projectile in flight isn't hidden
+     */
+    boolean areProjectilesRendered();
+
+    /**
+     * The camera's x, in local units of the top-level scene. Mirrors Lua {@code Camera.getPos}.
+     *
+     * @return the camera's x, or -1 if it can't be read
+     */
+    int getCameraX();
+
+    /**
+     * The camera's y (north), in local units. Mirrors Lua {@code Camera.getPos}'s {@code z}.
+     *
+     * @return the camera's y, or -1 if it can't be read
+     */
+    int getCameraY();
+
+    /**
+     * The camera's height (more negative is higher), in local units. Mirrors Lua {@code Camera.getPos}'s {@code y}.
+     *
+     * @return the camera's height, or -1 if it can't be read
+     */
+    int getCameraZ();
+
+    /**
+     * The camera's pitch, in JAU14 (16384 per turn), as RuneLite's: the client's own value.
+     *
+     * @return the pitch, or -1 if it can't be read
+     */
+    int getCameraPitch();
+
+    /**
+     * The camera's yaw, in JAU14 (16384 per turn), as RuneLite's: the client's own value.
+     *
+     * @return the yaw, or -1 if it can't be read
+     */
+    int getCameraYaw();
+
+    /**
+     * The scale of the world, the zoom value projections multiply by. Mirrors the Java {@code Camera.getScale}.
+     *
+     * @return the scale, or -1 if it can't be read
+     */
+    int getScale();
 
     /**
      * The game canvas's width in the client's own (DPI-scaled) pixels, the units {@link Perspective} returns. Mirrors

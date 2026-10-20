@@ -46,7 +46,7 @@ public final class GameTickHook {
     private static final int PORT = 42069;
     private static final String ENABLE_PROP = "kraken.hook";
     private static final String DLL_PROP = "kraken.hook.dll";
-    private static final String DEFAULT_DLL = "client/src/main/native/kraken_hook/kraken_hook.dll";
+    private static final String DEFAULT_DLL = "src/main/native/kraken_hook/kraken_hook.dll";
     private static final String DISPATCH_FN = "dispatchEvent";
 
     private final ApiConnection api;
@@ -86,9 +86,10 @@ public final class GameTickHook {
      * @param pid the {@code osclient.exe} process id
      */
     public void installWhenAttached(long pid) {
-        if (!Boolean.getBoolean(ENABLE_PROP)) {
-            return;
-        }
+//        if (!Boolean.getBoolean(ENABLE_PROP)) {
+//            log.info("Tick hook disabled.");
+//            return;
+//        }
         api.addStateListener(() -> maybeInstall(pid));
         maybeInstall(pid); // in case it attached between api.start() and here
     }

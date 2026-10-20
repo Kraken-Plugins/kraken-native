@@ -26,6 +26,7 @@ Java, from the repo root (the Gradle toolchain auto-provisions JDK 21):
 ./gradlew :client:test                                    # plugins, config, settings pages, overlay layout (headless)
 ./gradlew :client:run --args="D:/path/to/osclient.exe"   # Windows only; arg optional (defaults to the Jagex Launcher install)
 ./gradlew :client:run --args="--plugin com.example.MyPlugin --developer-mode"   # extra plugin; load developer plugins
+./gradlew :api:generateGameval [-PgamevalCommit=<sha>]   # rewrite com.kraken.api.gameval from RuneLite's (by hand)
 ```
 
 The client reads bundled mappings unless the system property `kraken.mappings=<dir>` points at a folder of
@@ -87,7 +88,12 @@ rounds (keys can depend on other keys) → consensus verdicts (PROVEN/ANCHORED/I
   Names, types and meanings follow RuneLite's; methods Kraken can't back are left out, not stubbed, and Javadoc marks
   Kraken extras and any divergence from RuneLite.
 - RuneLite-layer actor handles are pinned (`ClientOp.pinNpc`/`pinPlayer`): one handle object per actor, which keeps its
-  last name, id and location once the actor is gone. Lua-layer `Npc`/`Player` handles follow their index.
+  last name, id and location once the actor is gone. Lua-layer `Npc`/`Player` handles follow their index. Other
+  RuneLite-layer types: `TileObject`s are values (loc + the map base it was read with), `Tile`s are handles on a scene
+  position that read empty once the base moves, `TileItem`s keep their identity through the item events, and
+  `Widget`s and `Projectile`s are snapshots of one read.
+- `com.kraken.api.gameval` is generated from RuneLite's gamevals at a pinned commit (`generateGameval`) and committed;
+  don't edit it by hand.
 - `GameReader` is the base for the Lua-namespace mirrors (`ClientOp`, `ClientState`, `Camera`, `Graphics`,
   `InterfaceQuery`) and the package-private readers they share (`ActorReader`, `SceneReader`). Chains start at
   `moduleBase + globals.client`. Constructors resolve offsets once: `mapping.offset(key)` for required keys (throws
@@ -104,8 +110,12 @@ rounds (keys can depend on other keys) → consensus verdicts (PROVEN/ANCHORED/I
   against the mapping's `enums.events`. RuneLite-shaped events (`com.kraken.api.events`, posted on the
   `eventbus.EventBus` passed to `KrakenApi.attach`): `impl.RuneLiteEventSource` has its own trackers, because spawns
   carry pinned handles, vars follow the client's working copy and every raw game state counts. Tracking that starts on
-  the API's first poll replays the current state (game state, NPC/player spawns, stats, inventories); later it takes a
-  silent baseline. The bus also matches supertypes and interfaces of an event, unlike RuneLite's.
+  the API's first poll replays the current state (game state, the scene's objects and ground items, NPC/player spawns,
+  targets, stats, inventories); later it takes a silent baseline. As in RuneLite, a scene load (back to logged in, or
+  a moved map base) spawns every object and item of the new scene and despawns none of the old, and the `LOGGED_IN`
+  is held until those spawns are posted. Objects are a whole-scene read once per tick (costly); items and targets are
+  read on the tick's poll and the next. The bus also matches supertypes and interfaces of an event, unlike RuneLite's
+  (`TileObjectSpawned` takes all four object spawns).
 - The `kraken-api-poll` thread is the "client thread". Each poll: `KrakenApi.invoke*` tasks (`TaskQueue`), Lua events,
   RuneLite events with `GameTick` after the tick's other events, `ClientTick`, `invokeAtTickEnd` tasks if a tick
   happened, the frame listener (where the client draws plugin overlays), then the 150 ms poll listener. Event handlers,
@@ -147,12 +157,13 @@ rounds (keys can depend on other keys) → consensus verdicts (PROVEN/ANCHORED/I
   them on the poll thread (the API's frame listener) at the `KrakenConfig` frame rate into a device-pixel image, scaled
   so overlays draw in canvas pixels, and hands finished frames to `GameOverlay`, the click-through window over the game,
   which the EDT paints. `OverlayCompositor` does the layout (tested headless). Differences from RuneLite are in the
-  Javadoc and design doc §12.4. `plugins.npchighlight` and `plugins.tickcounter` are the worked examples.
+  Javadoc and design doc §12.4. `plugins.npchighlight`, `plugins.objectmarkers` (scene events) and
+  `plugins.tickcounter` are the worked examples.
 - Dev tools: subclass `DevTool<S>` and list it in `DevToolCatalog.create()`. `read(api)` runs on the poll thread and
   returns an immutable snapshot; `paintOverlay`/`createView` run on the EDT. A tool reads only while its overlay or
   window is showing. `PlannedTool` entries hold sidebar spots for features the API can't read yet; replace the entry
-  when its API lands. Tools show what the Lua layer reads (`api.lua()`); a "RuneLite view" option (Location tool) shows
-  the RuneLite-shaped values (`api.client()`) beside them for live checks.
+  when its API lands. Tools show what the Lua layer reads (`api.lua()`); a "RuneLite view" option (Location, Game
+  objects and Widget inspector tools) shows the RuneLite-shaped values (`api.client()`) beside them for live checks.
 
 ## Reference
 

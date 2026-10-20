@@ -9,6 +9,8 @@ import com.sun.jna.platform.win32.WinDef.HMODULE;
 import com.sun.jna.platform.win32.WinNT.HANDLE;
 import com.sun.jna.ptr.IntByReference;
 import com.sun.jna.win32.StdCallLibrary;
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -21,6 +23,7 @@ import java.nio.file.Path;
  * <p>This is the only part of the client that writes to the game process. It is used solely to load
  * {@code kraken_hook.dll}; the DLL, not this class, installs the hook.
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 final class HookInjector {
 
     private static final int PROCESS_CREATE_THREAD = 0x0002;
@@ -36,9 +39,6 @@ final class HookInjector {
     private static final int MEM_RELEASE = 0x8000;
     private static final int PAGE_READWRITE = 0x04;
     private static final int INFINITE = 0xFFFFFFFF;
-
-    private HookInjector() {
-    }
 
     /**
      * The few Kernel32 calls injection needs. Declared here rather than reusing JNA's
