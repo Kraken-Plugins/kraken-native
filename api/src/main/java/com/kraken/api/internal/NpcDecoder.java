@@ -3,6 +3,8 @@ package com.kraken.api.internal;
 import lombok.Getter;
 import com.kraken.api.Client;
 import com.kraken.api.definition.NPCComposition;
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -20,10 +22,8 @@ import java.util.function.IntUnaryOperator;
  * <p>Opcodes the client's decoder doesn't handle (it silently reads nothing for them, which would desync the rest of
  * the file) throw {@link ConfigFormatException} here instead.
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class NpcDecoder {
-
-    private NpcDecoder() {
-    }
 
     /**
      * The NPC type for {@code id}, reading its file (and nothing else) through {@code files}.

@@ -2,6 +2,8 @@ package com.kraken.api.internal;
 
 import com.kraken.api.Client;
 import com.kraken.api.definition.ItemComposition;
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -26,6 +28,7 @@ import java.util.function.IntUnaryOperator;
  * can have sub-ops (200, 202) and var-conditional texts (201). Sub-ops (200, 202, and inventory sub-ops 43) are read
  * but not kept: nothing returns them.
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class ItemDecoder {
 
     // Strings the client's loader writes (literals in 241.3's .rdata).
@@ -41,9 +44,6 @@ public final class ItemDecoder {
      * Templates only ever link one level deep; anything deeper is a cycle the client would recurse forever on.
      */
     private static final int MAX_DEPTH = 8;
-
-    private ItemDecoder() {
-    }
 
     /**
      * Loads item {@code id} as the client's loader would.

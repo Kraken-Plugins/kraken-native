@@ -106,6 +106,7 @@ public final class EventSource {
     private final List<Tracker> sceneTrackers;
     private final List<Tracker> trackers;
     private final Set<Tracker> failing = new HashSet<>();
+    private final Map<String, List<Tracker>> triggerRoutes;
 
     private boolean tickBaselined;
     private int lastTick;
@@ -127,11 +128,57 @@ public final class EventSource {
         this.bus = bus;
         this.sceneTrackers = List.of(new LocTracker(), new ItemTracker());
         this.trackers = List.of(new CanvasTracker(), new StatTracker(), new VarTracker(), new ContainerTracker(),
-                new ActorTracker<>(client::npcIndices, client::npc, NpcDespawned::new, NpcSpawned::new,
+                new ActorTracker<>(Set.of("ON_NPC_LOAD", "ON_NPC_UNLOAD", NativeEvent.NPC_INFO_DECODE),
+                        client::npcIndices, client::npc, NpcDespawned::new, NpcSpawned::new,
                         NpcSpawned.class, NpcDespawned.class),
-                new ActorTracker<>(client::playerIndices, client::player, PlayerDespawned::new, PlayerSpawned::new,
+                new ActorTracker<>(Set.of(NativeEvent.PLAYER_ADD, NativeEvent.PLAYER_REMOVE,
+                        NativeEvent.PLAYER_INFO_DECODE),
+                        client::playerIndices, client::player, PlayerDespawned::new, PlayerSpawned::new,
                         PlayerSpawned.class, PlayerDespawned.class),
                 new InteractingTracker(), new ProjectileTracker());
+        this.triggerRoutes = routes();
+    }
+
+    /**
+     * Indexes the trackers by the native event names that drive them, so {@link #onNative} can route a raise to the
+     * trackers that want it.
+     *
+     * @return native event name to the trackers it triggers
+     */
+    private Map<String, List<Tracker>> routes() {
+        Map<String, List<Tracker>> map = new HashMap<>();
+        List<Tracker> all = new ArrayList<>();
+        all.add(gameState);
+        all.addAll(sceneTrackers);
+        all.addAll(trackers);
+        for (Tracker tracker : all) {
+            for (String name : tracker.triggerNames()) {
+                map.computeIfAbsent(name, key -> new ArrayList<>()).add(tracker);
+            }
+        }
+        return map;
+    }
+
+    /**
+     * Applies a native event raise pushed by the hook: records a trigger on each tracker that wants it, so the next
+     * {@link #poll()} reads and posts for it instead of waiting on the timer. Does not itself post events or read the
+     * game; the trackers do, in their usual order, on the poll. Poll thread only (the hook server hands these over with
+     * {@code GameSession.invoke}, which runs them just before the poll).
+     *
+     * <p>Names the trackers don't recognise are ignored, so a hook for an event the API doesn't mirror (or that a
+     * build raises but no tracker handles) costs nothing. With no hook at all, this is never called and the poll path
+     * is unchanged.
+     *
+     * @param event the parsed raise
+     */
+    public void onNative(NativeEvent event) {
+        List<Tracker> targets = triggerRoutes.get(event.name());
+        if (targets == null) {
+            return;
+        }
+        for (Tracker tracker : targets) {
+            tracker.onTrigger(event);
+        }
     }
 
     /**
@@ -199,37 +246,73 @@ public final class EventSource {
         private final Class<?>[] events;
         private boolean tracking;
         private boolean replayPending = true;
+        private boolean triggered;
 
         Tracker(Class<?>... events) {
             this.events = events;
         }
 
         /**
-         * Starts, updates or stops tracking, depending on whether anyone subscribes to the events.
+         * The native event names that drive this tracker, so a push read happens when one arrives instead of on the
+         * timer. None by default: such a tracker only ever reads on the poll.
+         *
+         * @return the native event names {@link #onTrigger} should be routed for
+         */
+        Set<String> triggerNames() {
+            return Set.of();
+        }
+
+        /**
+         * Records a native trigger for this tracker, to apply at the next {@link #run}. The default just notes one
+         * arrived ({@link #triggered()}); trackers that read a payload override this. Poll thread only.
+         *
+         * @param event the raise routed here by {@link #onNative}
+         */
+        void onTrigger(NativeEvent event) {
+            triggered = true;
+        }
+
+        /**
+         * Whether a native trigger arrived since the last poll. A tracker that only reads on a tick or when its scene
+         * is due also reads when this is set.
+         *
+         * @return true if {@link #onTrigger} ran since the last {@link #run}
+         */
+        final boolean triggered() {
+            return triggered;
+        }
+
+        /**
+         * Starts, updates or stops tracking, depending on whether anyone subscribes to the events. Clears the trigger
+         * afterwards, so a trigger drives at most the next poll.
          *
          * @param ticked whether a game tick happened in this poll
          */
         final void run(boolean ticked) {
-            boolean wanted = false;
-            for (Class<?> event : events) {
-                wanted |= bus.hasSubscribers(event);
-            }
-            if (!wanted) {
-                if (tracking) {
-                    tracking = false;
-                    forget();
+            try {
+                boolean wanted = false;
+                for (Class<?> event : events) {
+                    wanted |= bus.hasSubscribers(event);
                 }
-                replayPending = false;
-                return;
-            }
-            if (!tracking) {
-                if (baseline(replayPending)) {
-                    tracking = true;
+                if (!wanted) {
+                    if (tracking) {
+                        tracking = false;
+                        forget();
+                    }
                     replayPending = false;
+                    return;
                 }
-                return;
+                if (!tracking) {
+                    if (baseline(replayPending)) {
+                        tracking = true;
+                        replayPending = false;
+                    }
+                    return;
+                }
+                update(ticked);
+            } finally {
+                triggered = false;
             }
-            update(ticked);
         }
 
         /**
@@ -265,6 +348,11 @@ public final class EventSource {
 
         GameStateTracker() {
             super(GameStateChanged.class);
+        }
+
+        @Override
+        Set<String> triggerNames() {
+            return Set.of(NativeEvent.SET_GAME_STATE, "ON_GAME_STATE_CHANGED");
         }
 
         @Override
@@ -346,6 +434,11 @@ public final class EventSource {
         }
 
         @Override
+        Set<String> triggerNames() {
+            return Set.of("ON_SCREEN_RESIZE");
+        }
+
+        @Override
         boolean baseline(boolean replay) {
             Dimension dimensions = canvas();
             if (dimensions == null) {
@@ -405,6 +498,11 @@ public final class EventSource {
         }
 
         @Override
+        Set<String> triggerNames() {
+            return Set.of("ON_STAT_TRANSMIT");
+        }
+
+        @Override
         boolean baseline(boolean replay) {
             last = client.stats();
             if (replay && last != null) {
@@ -449,6 +547,11 @@ public final class EventSource {
 
         VarTracker() {
             super(VarbitChanged.class);
+        }
+
+        @Override
+        Set<String> triggerNames() {
+            return Set.of("ON_VAR_TRANSMIT", "ON_VARBIT_UPDATE");
         }
 
         @Override
@@ -523,6 +626,11 @@ public final class EventSource {
         }
 
         @Override
+        Set<String> triggerNames() {
+            return Set.of("ON_INV_TRANSMIT");
+        }
+
+        @Override
         boolean baseline(boolean replay) {
             last = read();
             if (replay) {
@@ -572,20 +680,42 @@ public final class EventSource {
      * @param <T> the handle type
      */
     private final class ActorTracker<T extends Actor> extends Tracker {
+        private final Set<String> triggers;
         private final Supplier<int[]> indices;
         private final IntFunction<T> handle;
         private final Function<T, Object> despawned;
         private final Function<T, Object> spawned;
         private Map<Integer, T> tracked;
         private int[] lastIndices;
+        private boolean loggedSlot;
 
-        ActorTracker(Supplier<int[]> indices, IntFunction<T> handle, Function<T, Object> despawned,
-                     Function<T, Object> spawned, Class<?>... events) {
+        ActorTracker(Set<String> triggers, Supplier<int[]> indices, IntFunction<T> handle,
+                     Function<T, Object> despawned, Function<T, Object> spawned, Class<?>... events) {
             super(events);
+            this.triggers = triggers;
             this.indices = indices;
             this.handle = handle;
             this.despawned = despawned;
             this.spawned = spawned;
+        }
+
+        @Override
+        Set<String> triggerNames() {
+            return triggers;
+        }
+
+        @Override
+        void onTrigger(NativeEvent event) {
+            super.onTrigger(event); // run the index-list diff this poll; it is cheap and needs no payload
+            Integer slot = event.i32(NativeEvent.R8);
+            if (slot != null && !loggedSlot) {
+                loggedSlot = true;
+                // The slot packing (NPC load/unload R8 int) is unconfirmed (design §7). Rather than read that one slot
+                // and risk a wrong actor, the diff re-reads the whole index list, which is cheap and always right. A
+                // live check can confirm the packing and enable a narrower read.
+                log.info("NPC hook: ON_NPC_LOAD/UNLOAD slot payload captured (assumed low 16 bits of R8 = "
+                        + (slot & 0xffff) + "); the index-list diff drives the spawn, pending a live check (§7).");
+            }
         }
 
         @Override
@@ -715,8 +845,12 @@ public final class EventSource {
                 lastBase = base;
                 loadPending = false;
                 load(base, true);
-            } else if (due(ticked)) {
-                compare(base);
+            } else {
+                boolean full = due(ticked);
+                if (full) {
+                    compare(base);
+                }
+                targeted(base, full);
             }
         }
 
@@ -724,6 +858,17 @@ public final class EventSource {
         final void forget() {
             lastBase = null;
             clear();
+        }
+
+        /**
+         * Reads just the tiles a payload trigger pointed at, posting what changed there. The default does nothing. A
+         * tracker whose trigger carries a coord overrides this; when a full {@link #compare} already ran this poll it
+         * only discards the stash, which that compare already covered.
+         *
+         * @param base           the scene's map base
+         * @param fullCompareRan whether a whole-scene {@link #compare} already ran this poll
+         */
+        void targeted(MapCoord base, boolean fullCompareRan) {
         }
 
         /**
@@ -762,7 +907,10 @@ public final class EventSource {
      * one's spawn. All despawns go before all spawns, as the client replaces a loc.
      */
     private final class LocTracker extends SceneTracker {
+        private static final int MAX_TARGETS = 256;
         private Map<Long, Loc> last = Map.of();
+        private final List<Integer> targetedCoords = new ArrayList<>();
+        private boolean targetingLogged;
 
         LocTracker() {
             super(GameObjectSpawned.class, GameObjectDespawned.class, WallObjectSpawned.class,
@@ -776,7 +924,21 @@ public final class EventSource {
         }
 
         @Override
+        Set<String> triggerNames() {
+            return Set.of("ON_LOC_LOAD", "ON_LOC_UNLOAD");
+        }
+
+        @Override
+        void onTrigger(NativeEvent event) {
+            Integer packed = event.i32(NativeEvent.RDX);
+            if (packed != null && targetedCoords.size() < MAX_TARGETS) {
+                targetedCoords.add(packed);
+            }
+        }
+
+        @Override
         void load(MapCoord base, boolean post) {
+            targetedCoords.clear(); // the full load covers the whole scene
             last = read();
             if (post) {
                 last.values().forEach(loc -> post(loc, base, true));
@@ -804,8 +966,87 @@ public final class EventSource {
         }
 
         @Override
+        void targeted(MapCoord base, boolean fullCompareRan) {
+            if (targetedCoords.isEmpty()) {
+                return;
+            }
+            List<Integer> coords = new ArrayList<>(targetedCoords);
+            targetedCoords.clear();
+            if (fullCompareRan) {
+                return; // the whole-scene compare this poll already covered these tiles
+            }
+            SceneReader scene = client.getSceneReader();
+            long world = scene.topWorld();
+            long sceneHandle = scene.sceneOf(world);
+            int[] size = scene.worldSize(world);
+            if (sceneHandle == 0 || size == null) {
+                return;
+            }
+            logTargeting();
+            for (int packed : coords) {
+                int level = (packed >>> 28) & 0x3;
+                int a = (packed >>> 14) & 0x3fff;
+                int b = packed & 0x3fff;
+                // The coord packing and whether it is scene- or world-based are unconfirmed (design §7): read it as
+                // scene-relative when it lands in the scene, else as a world tile with the base subtracted.
+                int x = a < size[0] && b < size[1] ? a : a - base.x();
+                int z = a < size[0] && b < size[1] ? b : b - base.z();
+                if (scene.inWorld(world, level, x, z)) {
+                    compareTile(sceneHandle, base, level, x, z);
+                }
+            }
+        }
+
+        /**
+         * Reads one tile's locs and posts what changed there against the last whole-scene read, then folds the result
+         * back into that read so the next whole-scene compare doesn't repost it.
+         *
+         * @param sceneHandle the scene
+         * @param base        the scene's map base
+         * @param level       the tile level
+         * @param x           the scene tile x
+         * @param z           the scene tile z
+         */
+        private void compareTile(long sceneHandle, MapCoord base, int level, int x, int z) {
+            Map<Long, Loc> nowTile = new LinkedHashMap<>();
+            for (Loc loc : client.getSceneReader().locs(sceneHandle, level, x, z, x, z)) {
+                nowTile.put(slot(loc), loc);
+            }
+            Map<Long, Loc> updated = new LinkedHashMap<>(last);
+            for (Map.Entry<Long, Loc> entry : last.entrySet()) {
+                MapCoord at = entry.getValue().coord();
+                if (at.level() == level && at.x() == x && at.z() == z
+                        && !entry.getValue().equals(nowTile.get(entry.getKey()))) {
+                    post(entry.getValue(), base, false);
+                    updated.remove(entry.getKey());
+                }
+            }
+            for (Map.Entry<Long, Loc> entry : nowTile.entrySet()) {
+                if (!entry.getValue().equals(last.get(entry.getKey()))) {
+                    post(entry.getValue(), base, true);
+                    updated.put(entry.getKey(), entry.getValue());
+                }
+            }
+            last = updated;
+        }
+
+        /**
+         * Logs, once, that loc targeting is live and on which unconfirmed assumption, so a live check can confirm or
+         * refute the coord packing (design §7). The per-tick whole-scene read is the fallback meanwhile.
+         */
+        private void logTargeting() {
+            if (!targetingLogged) {
+                targetingLogged = true;
+                log.info("Loc hook targeting active: decoding ON_LOC_LOAD/UNLOAD coord as plane<<28|x<<14|z, scene-"
+                        + "relative where in range else world-minus-base. Confirm the packing and base on a live "
+                        + "client (design §7); the per-tick whole-scene read remains the fallback.");
+            }
+        }
+
+        @Override
         void clear() {
             last = Map.of();
+            targetedCoords.clear();
         }
 
         private Map<Long, Loc> read() {
@@ -931,8 +1172,13 @@ public final class EventSource {
         }
 
         @Override
+        Set<String> triggerNames() {
+            return Set.of(NativeEvent.OBJ_ADD, NativeEvent.OBJ_DEL, NativeEvent.OBJ_COUNT);
+        }
+
+        @Override
         boolean due(boolean ticked) {
-            return ticked || afterTick;
+            return ticked || afterTick || triggered();
         }
 
         @Override
@@ -1042,6 +1288,11 @@ public final class EventSource {
         }
 
         @Override
+        Set<String> triggerNames() {
+            return Set.of(NativeEvent.NPC_INFO_DECODE, NativeEvent.PLAYER_INFO_DECODE);
+        }
+
+        @Override
         boolean baseline(boolean replay) {
             last = read();
             if (replay) {
@@ -1056,7 +1307,7 @@ public final class EventSource {
 
         @Override
         void update(boolean ticked) {
-            if (!ticked && !afterTick) {
+            if (!ticked && !afterTick && !triggered()) {
                 return;
             }
             Map<Actor, Long> now = read();
@@ -1106,6 +1357,11 @@ public final class EventSource {
 
         ProjectileTracker() {
             super(ProjectileSpawned.class, ProjectileMoved.class);
+        }
+
+        @Override
+        Set<String> triggerNames() {
+            return Set.of(NativeEvent.PROJECTILE_CTOR, NativeEvent.PROJECTILE_STEP);
         }
 
         @Override

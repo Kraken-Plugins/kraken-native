@@ -1,9 +1,13 @@
 package com.kraken.api.widgets;
 
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
+
 /**
  * Widget types: the values {@link Widget#getType()} returns. They are the cache's own values, the same in the native
  * client (Lua's {@code IfTypes}), which also names {@link #INPUT_BOX}, {@link #CIRCLE} and {@link #CRM_VIEW}.
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class WidgetType {
 
     /**
@@ -65,9 +69,6 @@ public final class WidgetType {
      * A text input field.
      */
     public static final int INPUT_FIELD = 12;
-
-    private WidgetType() {
-    }
 
     /**
      * A type's name, as Lua's {@code IfTypes} names it.

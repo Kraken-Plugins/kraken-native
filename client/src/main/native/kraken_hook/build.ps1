@@ -49,14 +49,14 @@ if (-not $haveCl) { $haveCl = Initialize-Msvc }
 
 if ($haveCl) {
     Write-Host "Compiling kraken_hook.dll with MSVC (cl.exe)..."
-    & cl /nologo /LD /EHsc /O2 /DNDEBUG /D_WIN32_WINNT=0x0601 /I "minhook\include" `
+    & cl /nologo /LD /EHsc /O2 /std:c++17 /DNDEBUG /D_WIN32_WINNT=0x0601 /I "minhook\include" `
         kraken_hook.cpp $cSources /Fe:kraken_hook.dll /link ws2_32.lib
     if ($LASTEXITCODE -ne 0) { throw "Build failed (cl exit $LASTEXITCODE)." }
 }
 elseif (Get-Command g++ -ErrorAction SilentlyContinue) {
     Write-Host "cl.exe not found; compiling with MinGW g++ (static)..."
     # -x c forces the MinHook .c files to compile as C; -x none restores auto-detection.
-    & g++ -shared -O2 -DNDEBUG -D_WIN32_WINNT=0x0601 -static -static-libgcc -static-libstdc++ `
+    & g++ -shared -O2 -std=c++17 -DNDEBUG -D_WIN32_WINNT=0x0601 -static -static-libgcc -static-libstdc++ `
         -I "minhook\include" kraken_hook.cpp -x c $cSources -x none `
         -o kraken_hook.dll -lws2_32
     if ($LASTEXITCODE -ne 0) { throw "Build failed (g++ exit $LASTEXITCODE)." }

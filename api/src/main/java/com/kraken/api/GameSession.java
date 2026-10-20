@@ -2,6 +2,7 @@ package com.kraken.api;
 
 import com.kraken.api.eventbus.EventBus;
 import com.kraken.api.internal.EventSource;
+import com.kraken.api.internal.NativeEvent;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.api.memory.MemoryException;
 import com.kraken.api.memory.ProcessMemory;
@@ -41,6 +42,13 @@ public final class GameSession implements AutoCloseable {
     private static final long POLL_INTERVAL_MS = 20;
     private static final long RENDER_INTERVAL_MS = 150;
 
+    /**
+     * How often the events are synthesised while a native hook is connected: the hook drives the reads through
+     * {@link #onNative}, so the timer poll only needs to run slowly as a safety net. Without a hook it stays at
+     * {@link #POLL_INTERVAL_MS}.
+     */
+    private static final long HOOKED_EVENT_POLL_MS = 250;
+
     private final ProcessMemory memory;
     private final Mapping mapping;
     private final Client client;
@@ -49,6 +57,21 @@ public final class GameSession implements AutoCloseable {
     private final TaskQueue tasks = new TaskQueue();
 
     private volatile boolean running;
+    /**
+     * -- SETTER --
+     *  Tells the session whether a native event hook is connected. While it is, the events are synthesised at a slow
+     *  safety-net rate (
+     * ) because the hook drives the reads through
+     * ;
+     *  when it drops, the timer poll goes back to
+     * . The loop itself, its tasks and the frame
+     *  listener keep running every
+     *  either way.
+     *
+     * @param connected whether the hook is connected
+     */
+    @Setter
+    private volatile boolean hookConnected;
     /**
      * A callback run on the poll thread after events are dispatched, at most every 150 ms. The dev tools use it to
      * refresh their views. It may read the game; it must hand any UI work to its own thread.
@@ -225,6 +248,21 @@ public final class GameSession implements AutoCloseable {
     }
 
     /**
+     * Delivers a native event raise, pushed by the hook in the game process, to the event source on the client thread.
+     * It runs at the start of the next poll iteration, just before the events are synthesised, so the trackers read
+     * and post for it in their usual order. Posts nothing itself; the trackers do, as they do from the timer poll.
+     * Safe to call from any thread.
+     *
+     * <p>The hook is optional: without it this is never called and the events come from the timer poll alone. When it
+     * is connected, {@link #setHookConnected} slows that poll to a safety-net rate.
+     *
+     * @param event the parsed raise
+     */
+    public void onNative(NativeEvent event) {
+        invoke(() -> source.onNative(event));
+    }
+
+    /**
      * Whether the calling thread is the client (poll) thread, where game events are posted and tasks run.
      *
      * @return true on the poll thread
@@ -267,6 +305,7 @@ public final class GameSession implements AutoCloseable {
     private void pollLoop() {
         tasks.bind(Thread.currentThread());
         long lastRender = 0;
+        long lastEventPoll = 0;
         while (running) {
             try {
                 Thread.sleep(POLL_INTERVAL_MS);
@@ -279,19 +318,25 @@ public final class GameSession implements AutoCloseable {
                 break;
             }
             tasks.runPending();
-            boolean[] ticked = {false};
-            if (!step("Event poll", () -> ticked[0] = source.poll())) {
-                break;
-            }
-            if (ticked[0]) {
-                tasks.runTickEnd();
+            long now = System.currentTimeMillis();
+            // The loop, its tasks and the frame listener run every POLL_INTERVAL_MS; only the event synthesis slows
+            // to a safety-net rate while the hook drives the reads (interval 0 means every iteration otherwise).
+            long eventInterval = hookConnected ? HOOKED_EVENT_POLL_MS : 0;
+            if (now - lastEventPoll >= eventInterval) {
+                lastEventPoll = now;
+                boolean[] ticked = {false};
+                if (!step("Event poll", () -> ticked[0] = source.poll())) {
+                    break;
+                }
+                if (ticked[0]) {
+                    tasks.runTickEnd();
+                }
             }
             Runnable frame = frameListener;
             if (frame != null && !step("Frame listener", frame)) {
                 break;
             }
 
-            long now = System.currentTimeMillis();
             Runnable listener = pollListener;
             if (listener != null && now - lastRender >= RENDER_INTERVAL_MS) {
                 lastRender = now;

@@ -51,7 +51,7 @@ public final class DevToolManager {
         for (DevTool<?> tool : tools) {
             tool.setOverlayOn(tool.overlaySupport() == Support.READY && prefs.getBoolean(overlayKey(tool), false));
             for (ToolOption option : tool.options()) {
-                option.set(prefs.getBoolean(optionKey(tool, option), option.isDefaultValue()));
+                option.setOn(prefs.getBoolean(optionKey(tool, option), option.isDefaultValue()));
             }
         }
         overlay.addPainter(new OverlayPainter() {
@@ -107,7 +107,7 @@ public final class DevToolManager {
     }
 
     public void setOption(DevTool<?> tool, ToolOption option, boolean on) {
-        option.set(on);
+        option.setOn(on);
         prefs.putBoolean(optionKey(tool, option), on);
         overlay.refresh();
         listeners.forEach(Runnable::run);

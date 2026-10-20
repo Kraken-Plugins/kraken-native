@@ -1,10 +1,14 @@
 package com.kraken.api.widgets;
 
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
+
 /**
  * How a widget's x or y is measured: the values {@link Widget#getXPositionMode()} and
  * {@link Widget#getYPositionMode()} return. They are the cache's own values, the same in the native client (Lua's
  * {@code AlignMode}).
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class WidgetPositionMode {
 
     /**
@@ -56,7 +60,4 @@ public final class WidgetPositionMode {
      * 1/16384ths of the parent's height from its bottom edge.
      */
     public static final int BOTTOM_16384THS = 5;
-
-    private WidgetPositionMode() {
-    }
 }

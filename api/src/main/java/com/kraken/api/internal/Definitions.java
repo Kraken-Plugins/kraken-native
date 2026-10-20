@@ -1,15 +1,16 @@
 package com.kraken.api.internal;
 
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
+
 import java.util.List;
 import java.util.Map;
 
 /**
  * Conversions the compositions share: action arrays and param lookups over the decoded params.
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class Definitions {
-
-    private Definitions() {
-    }
 
     /**
      * Op texts as an action array holds them.

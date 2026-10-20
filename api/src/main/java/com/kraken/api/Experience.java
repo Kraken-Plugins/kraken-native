@@ -1,9 +1,13 @@
 package com.kraken.api;
 
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
+
 /**
  * The XP table. Lua's {@code ClientState.getStatRemainingXPUntilLevel(stat, level)} is
  * {@code getXpForLevel(level) - client.getSkillExperience(skill)}.
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class Experience {
 
     /**
@@ -25,9 +29,6 @@ public final class Experience {
      * XP_FOR_LEVEL[n - 1] = total XP needed for level n, as the client's table holds it.
      */
     private static final int[] XP_FOR_LEVEL = table();
-
-    private Experience() {
-    }
 
     /**
      * The total XP a level takes.

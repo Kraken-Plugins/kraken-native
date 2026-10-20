@@ -6,6 +6,7 @@ import com.kraken.client.GameView;
 import com.sun.jna.Native;
 import com.sun.jna.platform.win32.User32;
 import com.sun.jna.platform.win32.WinDef.HWND;
+import lombok.Getter;
 import lombok.extern.java.Log;
 
 import java.awt.*;
@@ -41,7 +42,14 @@ public final class GameOverlay {
     private final GameView view;
     private final List<OverlayPainter> painters = new CopyOnWriteArrayList<>();
     private final AtomicBoolean refreshQueued = new AtomicBoolean();
+
+    /**
+     * The game area as it was at the last refresh: its size in UI pixels and the screen's scale. Null while the game
+     * area isn't showing (the frame is minimized, say).
+     */
+    @Getter
     private volatile Surface surface;
+
     private Window followed;
     private JWindow window;
 
@@ -75,15 +83,6 @@ public final class GameOverlay {
     public void addPainter(OverlayPainter painter) {
         painters.add(painter);
         refresh();
-    }
-
-    /**
-     * The game area as it was at the last refresh: its size in UI pixels and the screen's scale.
-     *
-     * @return the surface, or null while the game area isn't showing (the frame is minimized, say)
-     */
-    public Surface getSurface() {
-        return surface;
     }
 
     /**

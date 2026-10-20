@@ -1,5 +1,8 @@
 package com.kraken.api.collision;
 
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
+
 /**
  * The bits of a tile's collision flags ({@link CollisionData#getFlags()}). They are the client's own bits, the same as
  * Lua's {@code CollisionFlag}.
@@ -8,6 +11,7 @@ package com.kraken.api.collision;
  * {@code NPC_WALK_*} and {@code VIS_*} values are the combined masks the client tests for a step or a line in one
  * direction. Test any of them with {@link #isSet}.
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class CollisionDataFlag {
 
     /**
@@ -196,9 +200,6 @@ public final class CollisionDataFlag {
     public static final int VIS_E_NON_PC = 16912384;
     public static final int VIS_S_NON_PC = 16924672;
     public static final int VIS_W_NON_PC = 16973824;
-
-    private CollisionDataFlag() {
-    }
 
     /**
      * Whether any bit of a mask is set in a tile's flags: the test the client's walk and line of sight checks make

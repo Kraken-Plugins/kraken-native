@@ -1,10 +1,14 @@
 package com.kraken.api.widgets;
 
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
+
 /**
  * How a widget's width or height is measured: the values {@link Widget#getWidthMode()} and
  * {@link Widget#getHeightMode()} return. They are the cache's own values, the same in the native client (Lua's
  * {@code SizeMode}).
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class WidgetSizeMode {
 
     /**
@@ -21,7 +25,4 @@ public final class WidgetSizeMode {
      * The size is the parent's times the designed size over 16384.
      */
     public static final int ABSOLUTE_16384THS = 2;
-
-    private WidgetSizeMode() {
-    }
 }

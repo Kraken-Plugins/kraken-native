@@ -10,6 +10,8 @@ import com.kraken.api.scene.GroundObject;
 import com.kraken.api.scene.TileItem;
 import com.kraken.api.scene.TileObject;
 import com.kraken.api.scene.WallObject;
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 
 import java.util.Arrays;
 import java.util.List;
@@ -18,10 +20,8 @@ import java.util.Objects;
 /**
  * Formatting and lookups shared by the tools that list scene objects and items.
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 final class Scenery {
-    private Scenery() {
-    }
-
     /**
      * The scene objects on the tiles around you, in the top-level scene.
      *

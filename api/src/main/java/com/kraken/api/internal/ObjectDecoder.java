@@ -3,6 +3,8 @@ package com.kraken.api.internal;
 import lombok.Getter;
 import com.kraken.api.Client;
 import com.kraken.api.definition.ObjectComposition;
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 
 import java.util.Map;
 import java.util.function.IntFunction;
@@ -18,10 +20,8 @@ import static com.kraken.api.internal.NpcDecoder.minusOne;
  * <p>Opcodes the client's decoder doesn't handle (it silently reads nothing for them) throw
  * {@link ConfigFormatException} here instead.
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class ObjectDecoder {
-
-    private ObjectDecoder() {
-    }
 
     /**
      * The loc type for {@code id}, with the client's normal (not low-detail) model handling.

@@ -1,6 +1,8 @@
 package com.kraken.client.ui.devtools.tools;
 
 import com.kraken.client.ui.devtools.DevTool;
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 import org.kordamp.ikonli.materialdesign2.*;
 
 import java.util.List;
@@ -11,10 +13,8 @@ import static com.kraken.client.ui.devtools.Category.*;
  * Every dev tool, in sidebar order within each category. Add new tools here. Planned tools hold a place for what the
  * API can't read yet; swap each for a real tool as its API lands.
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class DevToolCatalog {
-
-    private DevToolCatalog() {
-    }
 
     public static List<DevTool<?>> create() {
         return List.of(

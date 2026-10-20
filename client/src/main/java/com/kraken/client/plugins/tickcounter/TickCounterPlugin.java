@@ -12,6 +12,8 @@ import com.kraken.client.plugins.Plugin;
 import com.kraken.client.plugins.PluginDescriptor;
 import com.kraken.client.plugins.config.ConfigManager;
 import com.kraken.client.ui.overlay.OverlayManager;
+import lombok.AccessLevel;
+import lombok.Getter;
 import lombok.extern.java.Log;
 
 /**
@@ -53,6 +55,10 @@ public class TickCounterPlugin extends Plugin {
     @Inject
     private TickCounterOverlay overlay;
 
+    /**
+     * The ticks counted this session. Client thread only.
+     */
+    @Getter(AccessLevel.PACKAGE)
     private int ticks;
 
     @Provides
@@ -93,15 +99,6 @@ public class TickCounterPlugin extends Plugin {
         if (every > 0 && ticks % every == 0) {
             log.info("Tick counter: " + ticks + " ticks (" + duration(ticks) + ")");
         }
-    }
-
-    /**
-     * The ticks counted this session. Client thread only.
-     *
-     * @return the count
-     */
-    int getTicks() {
-        return ticks;
     }
 
     /**

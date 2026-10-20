@@ -2,6 +2,8 @@ package com.kraken.api;
 
 import com.kraken.api.coords.LocalPoint;
 import com.kraken.api.scene.WorldView;
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 
 import java.awt.FontMetrics;
 import java.awt.Graphics2D;
@@ -21,6 +23,7 @@ import java.awt.image.BufferedImage;
  * the game process: a tile outline costs a few dozen reads. Code projecting many points for one frame can read the
  * projection once and call {@link CameraProjection#project} itself.
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class Perspective {
 
     /**
@@ -42,9 +45,6 @@ public final class Perspective {
      * A normal scene's size in tiles along each axis.
      */
     public static final int SCENE_SIZE = 104;
-
-    private Perspective() {
-    }
 
     /**
      * Where a point on the ground appears on the canvas.

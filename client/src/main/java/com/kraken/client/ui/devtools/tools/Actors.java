@@ -7,16 +7,16 @@ import com.kraken.api.actor.NPC;
 import com.kraken.api.actor.Player;
 import com.kraken.api.coords.LocalPoint;
 import com.kraken.api.coords.WorldPoint;
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 
 import java.util.StringJoiner;
 
 /**
  * Formatting shared by the actor tools.
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 final class Actors {
-    private Actors() {
-    }
-
     /**
      * What an actor is interacting with, e.g. "NPC 1234 Goblin", or "" if nothing.
      *

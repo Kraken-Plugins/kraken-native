@@ -1,13 +1,14 @@
 package com.kraken.api.widgets;
 
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
+
 /**
  * Packing and unpacking component ids. A component id is
  * {@code interface << 16 | child}, the same packing the native client keys its components with.
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class WidgetUtil {
-
-    private WidgetUtil() {
-    }
 
     /**
      * The interface (group) a component belongs to.

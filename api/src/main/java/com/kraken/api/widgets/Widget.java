@@ -3,6 +3,7 @@ package com.kraken.api.widgets;
 import com.kraken.api.Client;
 import com.kraken.api.Point;
 import com.kraken.api.internal.WidgetReader;
+import lombok.Getter;
 
 import java.awt.Rectangle;
 import java.nio.ByteBuffer;
@@ -36,7 +37,13 @@ public final class Widget {
     private static final int MAX_DEPTH = 64;
 
     private final WidgetReader reader;
+
+    /**
+     * Where the component lives in the client: the native component's address.
+     */
+    @Getter
     private final long address;
+
     private final byte[] data;
     private final ByteBuffer buffer;
     private final int frame;
@@ -921,15 +928,6 @@ public final class Widget {
      */
     int getLayerId() {
         return i32("layerId");
-    }
-
-    /**
-     * Where the component lives in the client.
-     *
-     * @return the native component's address
-     */
-    public long getAddress() {
-        return address;
     }
 
     /**

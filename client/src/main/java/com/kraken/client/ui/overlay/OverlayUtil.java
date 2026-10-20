@@ -6,6 +6,8 @@ import com.kraken.api.Point;
 import com.kraken.api.actor.Actor;
 import com.kraken.api.coords.LocalPoint;
 import com.kraken.api.scene.TileObject;
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -20,6 +22,7 @@ import java.awt.image.BufferedImage;
  * half of {@code renderTileOverlay}) wait for the minimap's position, and the hover and clickbox helpers for the mouse
  * and models, which Kraken doesn't read.
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class OverlayUtil {
 
     /**
@@ -29,9 +32,6 @@ public final class OverlayUtil {
     public static final int ACTOR_OVERHEAD_OFFSET = 240;
 
     private static final Color DEFAULT_FILL = new Color(0, 0, 0, 50);
-
-    private OverlayUtil() {
-    }
 
     /**
      * Outlines a shape in a colour, with a 2-pixel line and a faint dark fill.

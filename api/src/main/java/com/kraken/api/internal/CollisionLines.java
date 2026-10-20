@@ -1,6 +1,8 @@
 package com.kraken.api.internal;
 
 import com.kraken.api.collision.CollisionDataFlag;
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 
 /**
  * The client's line of walk and line of sight tests over a collision grid, step for step: a fixed-point line from
@@ -10,6 +12,7 @@ import com.kraken.api.collision.CollisionDataFlag;
  * <p>Grid indices are tile coordinates minus the grid's origin. A tile outside the grid reads as
  * {@link CollisionDataFlag#UNLOADED}, which every mask includes, where the client would read past the grid.
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class CollisionLines {
 
     /**
@@ -72,9 +75,6 @@ public final class CollisionLines {
 
     private static final int ONE = 0x10000;
     private static final int HALF = 0x8000;
-
-    private CollisionLines() {
-    }
 
     /**
      * The client's line of walk: true if nothing blocks walking in a line from the start tile to the end tile. Only the

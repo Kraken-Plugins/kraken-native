@@ -1,8 +1,9 @@
-# kraken_hook.dll — push-based ON_GAME_TICK
+# kraken_hook.dll — push-based native events
 
-A proof of concept that replaces `EventPoller`'s poll-and-diff for the game tick with a **push**
-event: a DLL injected into `osclient.exe` inline-hooks the client's event dispatcher and signals the
-Kraken client the instant a game tick is dispatched.
+A DLL injected into `osclient.exe` that turns the client's own event raises into **push** events for
+the Kraken client, replacing `EventSource`'s poll-and-diff as the thing that decides when the API
+reads. It inline-hooks the raise functions named in a handshake and signals the Kraken client the
+instant the client raises one.
 
 It is wired into the normal launch (`GameLauncher`) but is **off by default** — it is the one place
 the client writes to the game process — and only arms with `-Dkraken.hook=true`.
@@ -16,25 +17,32 @@ is IPC — here a loopback TCP socket. (Standing up a JVM inside `osclient.exe` 
 
 ## What it hooks
 
-The client fires no-payload Lua events through one dispatcher (`functions.dispatchEvent` in the
-mapping, `0xc44d0` in 241.3), called with the event id in `RCX`. In the per-tick code the client
-does, right after incrementing its tick counter (`Client.tickCount`, `+0x3198`):
+The client raises its `osrs.Events` events through a family of small wrapper functions, and writes
+game state through a handful of plain functions. The Kraken client reads both from the mapping for
+the running build (`events.*`, `functions.*`) and hands the DLL, in a handshake, the ones it wants:
+each raiser's RVA, the event id it carries (fixed, or read from an argument register) and a capture
+plan saying which argument registers to read and how. So nothing here is hard-coded per build; a new
+build only needs the updater re-run.
 
-```
-INC dword ptr [R13 + 0x3198]   ; advance the tick
-MOV ECX, 0x2C                  ; 0x2C = 44 = ON_GAME_TICK
-CALL 0x1400c44d0               ; dispatch the event
-```
+One generic detour shape fits every raiser, because they take their arguments in the four registers
+`RCX, RDX, R8, R9` and nothing on the stack or in XMM registers. The detour reads the id and the
+planned values, pushes a message, then forwards to the original unchanged.
 
-The hook forwards every dispatch untouched and signals Java only when the id is `ON_GAME_TICK`
-(`enums.events.ON_GAME_TICK`). Both the dispatcher RVA and the tick id come from the mapping and are
-sent to the DLL in a short handshake, so nothing here is hard-coded per build.
+> Note: `objAdd`/`objDel`/`objCount` (ground items) pass their item id and count **on the stack**, so
+> the generic four-register detour cannot forward them without corrupting the call. They are left out
+> until the DLL grows a stack-preserving detour; the API's `ItemTracker` reads the piles on its safety
+> poll meanwhile. See `docs/event-hooks-design.md` §2.5.
 
-The updater carries the dispatcher forward across builds (`functions.dispatchEvent`, anchored on the
-`INC [client+tickCount]` / `MOV ECX, <ON_GAME_TICK>` / `CALL` sequence above) and, from the same seed,
-maps every other native event's raise function into the mapping's `events` section
-(`updater/src/native_updater/events.py`). Extending this DLL from the game tick to all of them is
-designed in `docs/event-hooks-design.md`.
+## Protocol v2 (little-endian)
+
+**Handshake** (Java → DLL): magic `KRK2`, a `u16` slot count, then per slot
+`{u64 rva, i32 fixedId (-1 = read idArg), u8 idArg, u8 args, u8 planLen, plan[planLen]}`, where a
+plan entry is `{u8 arg, u8 op}` with ops `RAW, I32, I64, I32X2, CSTR` = 0..4.
+
+**Message** (DLL → Java): a `u32` length frame, then
+`{u32 seq, i32 eventId, u64 regs[4], u8 nValues, values...}`, where a value is `{u8 arg, u8 op, payload}`.
+`seq` climbs by one per raise, so the Kraken client sees a ring-buffer drop as a gap. A reserved
+`eventId` of `-2` is a status message reporting how many hooks installed.
 
 ## Flow
 
@@ -45,21 +53,29 @@ designed in `docs/event-hooks-design.md`.
   ServerSocket 127.0.0.1:42069
   inject kraken_hook.dll  ──────────────────► DllMain -> init thread
      (CreateRemoteThread + LoadLibraryA)         connect() back to :42069
-  send {dispatchRva, tickEventId}  ───────────► MinHook: hook base+rva
-  socket.read() -> GameTickCallback.onTick() ◄───── detour(id): if id==tick, send 1 byte
+  send handshake (slot table)  ───────────────► MinHook: hook each base+rva
+  read messages -> GameSession.onNative() ◄───── detour(id, regs): capture plan, ring, writer thread
 ```
 
+- The detour runs on the game thread for about a microsecond: capture the id and planned values and
+  push a message into a lock-free single-producer ring. A writer thread drains the ring to the
+  socket, so a slow reader never stalls the game. Pointer dereferences in the plan are SEH-guarded.
+- Hooks stay installed for the life of the process. If the socket drops, the writer thread reconnects
+  every second; the Kraken client re-sends the handshake and the DLL only adds slots it lacks. A
+  second injection is refused by a named mutex.
 - `client/.../callback/CallbackInjector.java` — the injection (the only code that writes to the game).
-- `client/.../callback/GameTickCallback.java` — the server, handshake, and tick listeners; wired into
-  `GameLauncher`.
-- `kraken_hook.cpp` — connects back, reads the handshake, installs the MinHook hook, signals ticks.
+- `client/.../callback/NativeEventServer.java` — the server, handshake builder, message reader and the
+  read-only `onEvent` tap; wired into `GameLauncher`.
+- `client/.../callback/NativeProtocol.java`, `NativeEvents.java` — the wire format and the capture plans.
+- `kraken_hook.cpp` — connects back, reads the handshake, installs the MinHook hooks, pushes messages.
 
 ## Build
 
 Needs a 64-bit C++ toolchain: Visual Studio / Build Tools with the "Desktop development with C++"
 workload, or a 64-bit MinGW `g++` (e.g. TDM-GCC) on PATH. The script finds the toolchain itself —
 from any PowerShell, no "x64 Native Tools" prompt needed — preferring MSVC (located via `vswhere` and
-initialised from `vcvars64.bat`) and falling back to `g++`. MinHook is cloned on first run.
+initialised from `vcvars64.bat`) and falling back to `g++`. MinHook is cloned on first run. It is
+built as C++17.
 
 ```powershell
 cd client\src\main\native\kraken_hook
@@ -73,17 +89,13 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
 Point `-Dkraken.hook.dll=<path>` at the DLL if it is not at the default
-`client/src/main/native/kraken_hook/kraken_hook.dll`. Log in and you will see `onGameTick (push) #n`
-in the in-app console, one per server tick.
-
-## Calling-convention note
-
-`dispatchEvent` takes only the event id (an integer in `RCX`), so the detour's single-argument
-`__fastcall` shape forwards it correctly. A different hook target that takes float/double arguments
-(passed in XMM0–XMM3) would need a signature matching the real one, not this shape.
+`client/src/main/native/kraken_hook/kraken_hook.dll`. Add `-Dkraken.hook.projectileStep=true` to also
+hook the per-cycle projectile step (about 50 messages a second per projectile; off by default). While
+the hook is connected the API's timer poll slows to a safety-net rate and the hook drives the reads.
 
 ## Caveats
 
-- The detour's `send()` runs on the client's thread. On loopback a 1-byte send is effectively
-  instant; a production version would hand off to a queue so a slow reader can never stall the game.
 - x64 only.
+- Live checks are still pending for some payloads and hook sites (see `docs/event-hooks-design.md` §7).
+  The trackers keep their whole-read fallback, so an unconfirmed payload costs latency, not a missed
+  event.

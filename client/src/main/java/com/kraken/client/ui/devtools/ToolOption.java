@@ -1,6 +1,8 @@
 package com.kraken.client.ui.devtools;
 
+import lombok.AccessLevel;
 import lombok.Getter;
+import lombok.Setter;
 
 /**
  * An on/off setting for one tool, such as which fields its overlay shows. Listed under the tool in the sidebar and
@@ -13,6 +15,12 @@ public final class ToolOption {
     private final String label;
     @Getter
     private final boolean defaultValue;
+
+    /**
+     * Whether the option is on. Safe to read from any thread.
+     */
+    @Getter
+    @Setter(AccessLevel.PACKAGE)
     private volatile boolean on;
 
     ToolOption(String key, String label, boolean defaultValue) {
@@ -20,14 +28,5 @@ public final class ToolOption {
         this.label = label;
         this.defaultValue = defaultValue;
         this.on = defaultValue;
-    }
-
-    /** Safe to call from any thread. */
-    public boolean isOn() {
-        return on;
-    }
-
-    void set(boolean on) {
-        this.on = on;
     }
 }
