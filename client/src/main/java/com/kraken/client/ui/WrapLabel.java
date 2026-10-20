@@ -1,9 +1,9 @@
 package com.kraken.client.ui;
 
+import java.awt.*;
 import javax.swing.*;
 import javax.swing.plaf.basic.BasicHTML;
 import javax.swing.text.View;
-import java.awt.*;
 
 /**
  * A label whose text wraps to the width its layout gives it, so text reflows when the sidebar is resized. Use it where

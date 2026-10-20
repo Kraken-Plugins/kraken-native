@@ -1,13 +1,12 @@
 package com.kraken.client.ui.devtools.tools;
 
+import com.kraken.api.Client;
 import com.kraken.api.KrakenApi;
-import com.kraken.api.lua.ClientOp;
-import com.kraken.api.lua.Entity;
-import com.kraken.api.lua.FineCoord;
-import com.kraken.api.lua.MapCoord;
-import com.kraken.api.lua.Npc;
-import com.kraken.api.lua.Player;
-import com.kraken.api.lua.Vector2;
+import com.kraken.api.Point;
+import com.kraken.api.actor.Actor;
+import com.kraken.api.actor.NPC;
+import com.kraken.api.actor.Player;
+import com.kraken.api.coords.WorldPoint;
 import com.kraken.client.ui.devtools.Category;
 import com.kraken.client.ui.devtools.DevTool;
 import com.kraken.client.ui.devtools.view.MappedView;
@@ -28,6 +27,14 @@ final class InteractingTool extends DevTool<Listing<InteractingTool.Row>> {
     private static final Color LINE = new Color(240, 120, 200);
     private static final int LIFT = 100;
 
+    /**
+     * One interaction's row.
+     *
+     * @param key      a key unique among the rows
+     * @param source   the interacting actor, e.g. "NPC 12 Goblin"
+     * @param target   what it targets, e.g. "Player 3 Name"
+     * @param distance the tile distance between them, or null
+     */
     record Row(String key, String source, String target, Integer distance) {
     }
 
@@ -48,46 +55,34 @@ final class InteractingTool extends DevTool<Listing<InteractingTool.Row>> {
 
     @Override
     protected Listing<Row> read(KrakenApi api) {
-        ClientOp client = api.lua().clientOp();
+        Client client = api.client();
         Projector projector = isOverlayOn() ? Projector.of(api) : null;
         Marks.Builder marks = projector == null ? null : new Marks.Builder(projector);
         List<Row> rows = new ArrayList<>();
         for (Player player : client.getPlayers()) {
-            add(rows, marks, projector, client, "p" + player.index(), "Player " + player.index() + " " + player.getName(),
-                    player, client.playerCoordFine(player.index()));
+            add(rows, marks, projector, "p" + player.getId(),
+                    "Player " + player.getId() + " " + player.getName(), player);
         }
-        for (Npc npc : client.getNpcs()) {
-            add(rows, marks, projector, client, "n" + npc.index(), "NPC " + npc.index() + " " + npc.getName(), npc,
-                    client.npcCoordFine(npc.index()));
+        for (NPC npc : client.getNpcs()) {
+            add(rows, marks, projector, "n" + npc.getIndex(), "NPC " + npc.getIndex() + " " + npc.getName(), npc);
         }
         return new Listing<>(rows, marks == null ? Marks.NONE : marks.build());
     }
 
-    private static void add(List<Row> rows, Marks.Builder marks, Projector projector, ClientOp client, String key,
-                            String source, Entity entity, FineCoord from) {
-        int type = entity.getInteractingType();
-        int id = entity.isInteracting();
-        if (id < 0) {
+    private static void add(List<Row> rows, Marks.Builder marks, Projector projector, String key, String source,
+                            Actor actor) {
+        if (!actor.isInteracting()) {
             return;
         }
-        MapCoord at = entity.getCoord();
-        MapCoord to = switch (type) {
-            case Entity.TARGET_NPC -> client.npcCoord(id);
-            case Entity.TARGET_PLAYER -> client.playerCoord(id);
-            default -> null;
-        };
-        rows.add(new Row(key, source, Actors.target(client, type, id), NpcsTool.distance(at, to)));
-        if (marks != null) {
-            FineCoord target = switch (type) {
-                case Entity.TARGET_NPC -> client.npcCoordFine(id);
-                case Entity.TARGET_PLAYER -> client.playerCoordFine(id);
-                default -> null;
-            };
-            Vector2 a = projector.above(from, LIFT);
-            Vector2 b = projector.above(target, LIFT);
-            if (a != null && b != null) {
-                marks.line(new Vector2[]{a, b}, LINE);
-            }
+        Actor target = actor.getInteracting();
+        WorldPoint at = actor.getWorldLocation();
+        WorldPoint to = target == null ? null : target.getWorldLocation();
+        rows.add(new Row(key, source, Actors.target(actor), NpcsTool.distance(at, to)));
+        if (marks != null && at != null) {
+            Point a = projector.above(at.getPlane(), actor.getLocalLocation(), LIFT);
+            Point b = target == null || to == null ? null
+                    : projector.above(to.getPlane(), target.getLocalLocation(), LIFT);
+            marks.line(a == null || b == null ? null : new Point[]{a, b}, LINE);
         }
     }
 

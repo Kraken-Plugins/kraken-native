@@ -6,8 +6,6 @@ import com.formdev.flatlaf.fonts.jetbrains_mono.FlatJetBrainsMonoFont;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 
-import javax.imageio.ImageIO;
-import javax.swing.*;
 import java.awt.*;
 import java.awt.image.BaseMultiResolutionImage;
 import java.awt.image.BufferedImage;
@@ -15,6 +13,8 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.Map;
 import java.util.Objects;
+import javax.imageio.ImageIO;
+import javax.swing.*;
 
 /** RuneLite's ColorScheme greys with an accent taken from the Kraken logo, plus logo scaling. */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)

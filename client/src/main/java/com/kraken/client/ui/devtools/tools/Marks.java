@@ -1,6 +1,6 @@
 package com.kraken.client.ui.devtools.tools;
 
-import com.kraken.api.lua.Vector2;
+import com.kraken.api.Point;
 import com.kraken.client.ui.overlay.OverlayContext;
 
 import java.awt.*;
@@ -14,12 +14,12 @@ import java.util.List;
  * @param clientSize the client's size when the points were projected
  * @param marks      what to draw, in order
  */
-record Marks(Vector2 clientSize, List<Mark> marks) {
+record Marks(Dimension clientSize, List<Mark> marks) {
 
     /**
      * Nothing to draw.
      */
-    static final Marks NONE = new Marks(new Vector2(1, 1), List.of());
+    static final Marks NONE = new Marks(new Dimension(1, 1), List.of());
 
     /**
      * One shape or label.
@@ -31,7 +31,7 @@ record Marks(Vector2 clientSize, List<Mark> marks) {
      * @param at     where the label goes, or null
      * @param color  the line and label colour
      */
-    record Mark(Vector2[] points, boolean closed, Color fill, String text, Vector2 at, Color color) {
+    record Mark(Point[] points, boolean closed, Color fill, String text, Point at, Color color) {
     }
 
     /**
@@ -54,7 +54,7 @@ record Marks(Vector2 clientSize, List<Mark> marks) {
      * Collects marks for one frame. Points that couldn't be projected (null) are skipped.
      */
     static final class Builder {
-        private final Vector2 clientSize;
+        private final Dimension clientSize;
         private final List<Mark> marks = new ArrayList<>();
 
         Builder(Projector projector) {
@@ -66,25 +66,25 @@ record Marks(Vector2 clientSize, List<Mark> marks) {
          *
          * @param clientSize the client's size
          */
-        Builder(Vector2 clientSize) {
+        Builder(Dimension clientSize) {
             this.clientSize = clientSize;
         }
 
-        Builder outline(Vector2[] points, Color color, Color fill) {
+        Builder outline(Point[] points, Color color, Color fill) {
             if (points != null) {
                 marks.add(new Mark(points, true, fill, null, null, color));
             }
             return this;
         }
 
-        Builder line(Vector2[] points, Color color) {
+        Builder line(Point[] points, Color color) {
             if (points != null) {
                 marks.add(new Mark(points, false, null, null, null, color));
             }
             return this;
         }
 
-        Builder label(String text, Vector2 at, Color color) {
+        Builder label(String text, Point at, Color color) {
             if (text != null && !text.isEmpty() && at != null) {
                 marks.add(new Mark(null, false, null, text, at, color));
             }

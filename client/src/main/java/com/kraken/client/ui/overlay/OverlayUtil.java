@@ -1,11 +1,11 @@
 package com.kraken.client.ui.overlay;
 
-import com.kraken.api.Actor;
 import com.kraken.api.Client;
 import com.kraken.api.Perspective;
 import com.kraken.api.Point;
-import com.kraken.api.TileObject;
+import com.kraken.api.actor.Actor;
 import com.kraken.api.coords.LocalPoint;
+import com.kraken.api.scene.TileObject;
 
 import java.awt.BasicStroke;
 import java.awt.Color;

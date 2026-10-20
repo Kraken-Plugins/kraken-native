@@ -1,11 +1,7 @@
 package com.kraken.api;
 
 import com.kraken.api.eventbus.EventBus;
-import com.kraken.api.impl.Adapters;
-import com.kraken.api.impl.EventSource;
-import com.kraken.api.lua.LuaApi;
-import com.kraken.api.lua.events.EventPoller;
-import com.kraken.api.lua.events.Events;
+import com.kraken.api.internal.EventSource;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.api.memory.MemoryException;
 import com.kraken.api.memory.ProcessMemory;
@@ -20,21 +16,21 @@ import java.util.logging.Logger;
 
 /**
  * Entry point for the native API. {@link #attach} opens the running {@code osclient.exe} and selects the mapping for
- * its client version ({@code mappings/<version>.json}). Then {@link #client()} is the RuneLite-shaped API
- * ({@link Client}, {@code NPC}, {@code WorldPoint}…), and {@link #lua()} the Lua mirror it is built on, one object per
- * namespace of the client's Lua {@code osrs} table.
+ * its client version ({@code mappings/<version>.json}). Then {@link #client()} is the API, shaped as RuneLite's
+ * ({@link Client}, {@code NPC}, {@code WorldPoint}…): each getter follows the mapped offset chains in the live process,
+ * replaying what the client's own Lua handlers read.
  *
  * <p>{@link #start()} runs the poll loop on the {@code kraken-api-poll} thread, which plays the part of RuneLite's
  * client thread. About every 20 ms it:
  * <ol>
  *   <li>runs the tasks handed to {@link #invoke(Runnable)} and friends;
- *   <li>synthesises the Lua events ({@code lua().events()}), then the RuneLite-shaped events on {@link #eventBus()},
- *       with {@code GameTick} after the tick's other events, then {@code ClientTick};
+ *   <li>synthesises the game events on {@link #eventBus()}, with {@code GameTick} after the tick's other events, then
+ *       {@code ClientTick};
  *   <li>runs the {@link #invokeAtTickEnd} tasks if a game tick happened;
  *   <li>calls the {@link #setFrameListener frame listener}, where the client renders plugin overlays;
  *   <li>calls the {@link #setPollListener poll listener}, at most every 150 ms.
  * </ol>
- * Both kinds of events are only synthesised while something subscribes to them.
+ * Events are only synthesised while something subscribes to them.
  *
  * <p>Read-only throughout: it never writes to or calls into the game.
  */
@@ -47,10 +43,8 @@ public final class KrakenApi implements AutoCloseable {
 
     private final ProcessMemory memory;
     private final Mapping mapping;
-    private final LuaApi lua;
     private final Client client;
     private final EventBus eventBus;
-    private final EventPoller poller;
     private final EventSource source;
     private final TaskQueue tasks = new TaskQueue();
 
@@ -73,13 +67,8 @@ public final class KrakenApi implements AutoCloseable {
         this.memory = memory;
         this.mapping = mapping;
         this.eventBus = eventBus;
-        this.lua = new LuaApi(memory, mapping);
-        this.client = Adapters.client(lua);
-        this.poller = new EventPoller(lua.events(), lua.clientOp(), lua.clientState(), lua.graphics(), lua.scene());
-        this.source = Adapters.eventSource(client, lua, eventBus);
-        for (String problem : Events.verify(mapping)) {
-            log.warning("Event enum mismatch: " + problem);
-        }
+        this.client = new Client(memory, mapping);
+        this.source = new EventSource(client, eventBus);
     }
 
     /**
@@ -103,7 +92,7 @@ public final class KrakenApi implements AutoCloseable {
      *
      * @param pid      the {@code osclient.exe} process id
      * @param exe      path to that binary on disk (its version picks the mapping; its hash must match it)
-     * @param eventBus the bus to post the RuneLite-shaped game events on
+     * @param eventBus the bus to post the game events on
      * @return the attached API; {@link #start} its poll loop to get events
      * @throws IOException               if the exe or the mapping can't be read
      * @throws UnsupportedBuildException if there is no mapping for the version, or it was made from another binary
@@ -141,7 +130,7 @@ public final class KrakenApi implements AutoCloseable {
      * @param pid         the {@code osclient.exe} process id
      * @param exe         path to that binary on disk (its version picks the mapping; its hash must match it)
      * @param mappingsDir folder holding {@code <version>.json} mappings
-     * @param eventBus    the bus to post the RuneLite-shaped game events on
+     * @param eventBus    the bus to post the game events on
      * @return the attached API; {@link #start} its poll loop to get events
      * @throws IOException               if the exe or the mapping can't be read
      * @throws UnsupportedBuildException if the folder has no mapping for the version, or it was made from another binary
@@ -168,26 +157,16 @@ public final class KrakenApi implements AutoCloseable {
     }
 
     /**
-     * The RuneLite-shaped API: the game client as RuneLite's {@code Client} presents it.
+     * The game client, as RuneLite's {@code Client} presents it.
      *
-     * @return the client, read through {@link #lua()}
+     * @return the client for this process
      */
     public Client client() {
         return client;
     }
 
     /**
-     * The Lua mirror: {@code osrs.ClientOp}, {@code osrs.ClientState}, {@code osrs.Events} and the other namespaces,
-     * read as the client's native Lua handlers read them.
-     *
-     * @return the Lua mirror for this process
-     */
-    public LuaApi lua() {
-        return lua;
-    }
-
-    /**
-     * Where the RuneLite-shaped game events ({@code com.kraken.api.events}) are posted, on the poll thread. A kind of
+     * Where the game events ({@code com.kraken.api.events}) are posted, on the poll thread. A kind of
      * event is only tracked while the bus has subscribers for it. Tracking that starts at the first poll replays the
      * current state (the game state, the scene's objects and ground items, every loaded NPC and player as spawned, the
      * actors' targets, stats and inventories), as if the client had just logged in; tracking that starts later takes a
@@ -300,11 +279,8 @@ public final class KrakenApi implements AutoCloseable {
                 break;
             }
             tasks.runPending();
-            if (!step("Lua event poll", poller::poll)) {
-                break;
-            }
             boolean[] ticked = {false};
-            if (!step("RuneLite event poll", () -> ticked[0] = source.poll())) {
+            if (!step("Event poll", () -> ticked[0] = source.poll())) {
                 break;
             }
             if (ticked[0]) {

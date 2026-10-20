@@ -1,8 +1,12 @@
 package com.kraken.client.ui.devtools.tools;
 
-import com.kraken.api.lua.ClientOp;
-import com.kraken.api.lua.Entity;
-import com.kraken.api.lua.FineCoord;
+import com.kraken.api.Client;
+import com.kraken.api.Perspective;
+import com.kraken.api.actor.Actor;
+import com.kraken.api.actor.NPC;
+import com.kraken.api.actor.Player;
+import com.kraken.api.coords.LocalPoint;
+import com.kraken.api.coords.WorldPoint;
 
 import java.util.StringJoiner;
 
@@ -14,66 +18,82 @@ final class Actors {
     }
 
     /**
-     * What an entity is interacting with, e.g. "NPC 1234 Goblin", or "" if nothing.
+     * What an actor is interacting with, e.g. "NPC 1234 Goblin", or "" if nothing.
      *
-     * @param client reads the target's name
-     * @param entity the NPC or player
+     * @param actor the NPC or player
      * @return a label such as "NPC 1234 Goblin", or "" if it isn't interacting
      */
-    static String target(ClientOp client, Entity entity) {
-        return target(client, entity.getInteractingType(), entity.isInteracting());
-    }
-
-    static String target(ClientOp client, int type, int id) {
-        if (id < 0) {
+    static String target(Actor actor) {
+        if (!actor.isInteracting()) {
             return "";
         }
-        return switch (type) {
-            case Entity.TARGET_NPC -> "NPC " + id + named(client.npcName(id));
-            case Entity.TARGET_PLAYER -> "Player " + id + named(client.playerName(id));
-            case Entity.TARGET_WORLD_ENTITY -> "World entity " + id;
+        Actor other = actor.getInteracting();
+        int id = actor.getInteractingIndex();
+        return switch (actor.getInteractingType()) {
+            case Actor.INTERACTING_NPC -> "NPC " + id + named(other == null ? null : other.getName());
+            case Actor.INTERACTING_PLAYER -> "Player " + id + named(other == null ? null : other.getName());
+            case Actor.INTERACTING_WORLD_ENTITY -> "World entity " + id;
             default -> "";
         };
     }
 
     /**
-     * "dead", "health bar" or "".
+     * A label for an actor: its kind, index or id, and name, e.g. "NPC 1234 Goblin".
      *
-     * @param entity the NPC or player
-     * @return "dead", "health bar" or ""
+     * @param actor the NPC or player
+     * @return the label, or "" for anything else
      */
-    static String health(Entity entity) {
-        if (entity.isDead()) {
-            return "dead";
+    static String label(Actor actor) {
+        if (actor instanceof NPC npc) {
+            return "NPC " + npc.getIndex() + named(npc.getName());
         }
-        return entity.isHealthbarRendered() ? "health bar" : "";
+        if (actor instanceof Player player) {
+            return "Player " + player.getId() + named(player.getName());
+        }
+        return "";
     }
 
     /**
-     * Which parts of the entity are hidden, e.g. "model", or "".
+     * "dead", "health bar" or "".
      *
-     * @param entity the NPC or player
+     * @param actor the NPC or player
+     * @return "dead", "health bar" or ""
+     */
+    static String health(Actor actor) {
+        if (actor.isDead()) {
+            return "dead";
+        }
+        return actor.isHealthbarRendered() ? "health bar" : "";
+    }
+
+    /**
+     * Which parts of the actor are hidden, e.g. "model", or "".
+     *
+     * @param actor the NPC or player
      * @return "model", "2D", both comma-separated, or ""
      */
-    static String hidden(Entity entity) {
+    static String hidden(Actor actor) {
         StringJoiner hidden = new StringJoiner(", ");
-        if (!entity.isRendered3D()) {
+        if (actor.isHidden()) {
             hidden.add("model");
         }
-        if (!entity.isRendered2D()) {
+        if (!actor.isRendered2D()) {
             hidden.add("2D");
         }
         return hidden.toString();
     }
 
     /**
-     * The ground height of a fine coordinate, or null if it's missing.
+     * The ground height under an actor, or null if its location is unknown.
      *
-     * @param fine a fine coordinate, possibly {@link FineCoord#MISSING} or null
-     * @return its height ({@code y}), or null
+     * @param client the client
+     * @param actor  the NPC or player
+     * @return the height (more negative is higher), or null
      */
-    static Integer height(FineCoord fine) {
-        return fine == null || fine.isMissing() ? null : fine.y();
+    static Integer height(Client client, Actor actor) {
+        LocalPoint local = actor.getLocalLocation();
+        WorldPoint world = actor.getWorldLocation();
+        return local == null || world == null ? null : Perspective.getTileHeight(client, local, world.getPlane());
     }
 
     private static String named(String name) {

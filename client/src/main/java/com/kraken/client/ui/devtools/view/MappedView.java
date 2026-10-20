@@ -1,7 +1,7 @@
 package com.kraken.client.ui.devtools.view;
 
-import javax.swing.*;
 import java.util.function.Function;
+import javax.swing.*;
 
 /**
  * Shows part of a tool's snapshot in another view, e.g. the rows of a snapshot that also carries overlay marks in a

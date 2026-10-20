@@ -4,16 +4,16 @@ import com.google.inject.Inject;
 import com.google.inject.Provides;
 import com.kraken.api.Client;
 import com.kraken.api.GameState;
-import com.kraken.api.NPC;
+import com.kraken.api.actor.NPC;
 import com.kraken.api.eventbus.Subscribe;
 import com.kraken.api.events.GameStateChanged;
 import com.kraken.api.events.NpcDespawned;
 import com.kraken.api.events.NpcSpawned;
 import com.kraken.client.callback.ClientThread;
-import com.kraken.client.plugins.config.ConfigManager;
 import com.kraken.client.events.ConfigChanged;
 import com.kraken.client.plugins.Plugin;
 import com.kraken.client.plugins.PluginDescriptor;
+import com.kraken.client.plugins.config.ConfigManager;
 import com.kraken.client.ui.overlay.OverlayManager;
 import lombok.Getter;
 

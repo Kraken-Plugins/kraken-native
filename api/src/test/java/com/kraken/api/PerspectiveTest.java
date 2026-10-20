@@ -1,8 +1,8 @@
 package com.kraken.api;
 
+import com.kraken.api.actor.Player;
 import com.kraken.api.coords.LocalPoint;
-import com.kraken.api.impl.Adapters;
-import com.kraken.api.lua.LuaApi;
+import com.kraken.api.scene.WorldView;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -18,34 +18,31 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * {@link Perspective}'s canvas helpers over the {@link GameFixture}, through the RuneLite-shaped client: the axes Lua's
- * projection takes in another order, the ground heights under each point, and null behind the camera. The fixture's
+ * {@link Perspective}'s canvas helpers over the {@link GameFixture}: the camera projection's axes (north second, height
+ * third), the ground heights under each point, and null behind the camera. The fixture's
  * camera sits 1000 above local (0, 0) looking north.
  */
 class PerspectiveTest {
 
     private GameFixture game;
-    private LuaApi lua;
     private Client client;
 
     @BeforeEach
     void setUp() throws IOException {
         game = new GameFixture();
-        lua = new LuaApi(game.memory, game.map);
-        client = Adapters.client(lua);
+        client = new Client(game.memory, game.map);
     }
 
     /**
-     * Lua's projection of a point, for comparing with the RuneLite-shaped results.
+     * The camera projection of a point, for comparing with the canvas helpers.
      *
      * @param x      the local x
      * @param y      the local y (north)
      * @param height the height
-     * @return where Lua's {@code Graphics} projection puts it
+     * @return where the camera projection puts it
      */
-    private Point lua(int x, int y, int height) {
-        var canvas = lua.graphics().projection().project(x, height, y);
-        return new Point((int) canvas.x(), (int) canvas.y());
+    private Point project(int x, int y, int height) {
+        return client.getCameraProjection().project(x, y, height);
     }
 
     private void flatTile(int sceneX, int sceneY, int height) {
@@ -67,7 +64,7 @@ class PerspectiveTest {
         // Straight ahead of the eye (north 1024 at the eye's height) lands on the viewport's centre
         assertEquals(new Point(192, 126), client.getCameraProjection().project(0, 1024, -1000));
         assertEquals(new Point(192, 126), Perspective.localToCanvas(client, 0, 1024, -1000));
-        assertEquals(lua(128, 1024, -744), Perspective.localToCanvas(client, 128, 1024, -744));
+        assertEquals(project(128, 1024, -744), Perspective.localToCanvas(client, 128, 1024, -744));
     }
 
     @Test
@@ -75,8 +72,8 @@ class PerspectiveTest {
         flatTile(2, 3, -100);
         LocalPoint point = new LocalPoint(288, 480, WorldView.TOPLEVEL);
         assertEquals(-100, Perspective.getTileHeight(client, point, 0));
-        assertEquals(lua(288, 480, -100), Perspective.localToCanvas(client, point, 0));
-        assertEquals(lua(288, 480, -150), Perspective.localToCanvas(client, point, 0, 50));
+        assertEquals(project(288, 480, -100), Perspective.localToCanvas(client, point, 0));
+        assertEquals(project(288, 480, -150), Perspective.localToCanvas(client, point, 0, 50));
     }
 
     @Test
@@ -86,7 +83,7 @@ class PerspectiveTest {
         game.setCornerHeight(0, 2, 4, -300);
         game.setCornerHeight(0, 3, 4, -400);
         LocalPoint point = new LocalPoint(288, 480, WorldView.TOPLEVEL);
-        assertEquals(lua.scene().getGroundHeight(0, 288, 480), Perspective.getTileHeight(client, point, 0));
+        assertEquals(-275, Perspective.getTileHeight(client, point, 0), "a quarter in, three quarters north");
         assertEquals(-100, Perspective.getTileHeight(client, new LocalPoint(256, 384, WorldView.TOPLEVEL), 0));
     }
 
@@ -98,7 +95,9 @@ class PerspectiveTest {
         game.setCornerHeight(0, 2, 4, -400);
         Polygon tile = Perspective.getCanvasTilePoly(client, LocalPoint.fromScene(2, 3, client.getTopLevelWorldView()));
         assertNotNull(tile);
-        Point[] expected = {lua(256, 384, -100), lua(384, 384, -200), lua(384, 512, -300), lua(256, 512, -400)};
+        Point[] expected = {
+            project(256, 384, -100), project(384, 384, -200), project(384, 512, -300), project(256, 512, -400)
+        };
         assertEquals(4, tile.npoints);
         for (int i = 0; i < 4; i++) {
             assertEquals(expected[i], new Point(tile.xpoints[i], tile.ypoints[i]), "corner " + i);
@@ -110,8 +109,8 @@ class PerspectiveTest {
         // A 2x2 footprint centred on the corner shared by tiles (2, 3) to (3, 4)
         Polygon area = Perspective.getCanvasTileAreaPoly(client, new LocalPoint(384, 512, WorldView.TOPLEVEL), 2);
         assertNotNull(area);
-        assertArrayEquals(new int[]{lua(256, 384, 0).getX(), lua(512, 384, 0).getX(), lua(512, 640, 0).getX(),
-                lua(256, 640, 0).getX()}, area.xpoints);
+        assertArrayEquals(new int[]{project(256, 384, 0).getX(), project(512, 384, 0).getX(), project(512, 640, 0).getX(),
+                project(256, 640, 0).getX()}, area.xpoints);
     }
 
     @Test
@@ -121,9 +120,9 @@ class PerspectiveTest {
         game.setCornerHeight(0, 8, 4, -500);
         Polygon tile = Perspective.getCanvasTilePoly(client, LocalPoint.fromScene(7, 3, client.getTopLevelWorldView()));
         assertNotNull(tile);
-        int inside = lua.scene().getGroundHeight(0, 1023, 384);
+        int inside = client.getTopLevelWorldView().getTileHeight(1023, 384, 0);
         assertTrue(inside <= -490, "the edge's height, not 0 for off the scene: " + inside);
-        assertEquals(lua(1024, 384, inside), new Point(tile.xpoints[1], tile.ypoints[1]));
+        assertEquals(project(1024, 384, inside), new Point(tile.xpoints[1], tile.ypoints[1]));
     }
 
     @Test

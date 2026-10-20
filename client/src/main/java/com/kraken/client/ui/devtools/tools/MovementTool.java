@@ -1,8 +1,11 @@
 package com.kraken.client.ui.devtools.tools;
 
+import com.kraken.api.Client;
 import com.kraken.api.KrakenApi;
-import com.kraken.api.lua.CollisionMap;
-import com.kraken.api.lua.MapCoord;
+import com.kraken.api.actor.Player;
+import com.kraken.api.collision.CollisionData;
+import com.kraken.api.coords.LocalPoint;
+import com.kraken.api.coords.WorldPoint;
 import com.kraken.client.ui.devtools.Category;
 import com.kraken.client.ui.devtools.DevTool;
 import com.kraken.client.ui.overlay.OverlayContext;
@@ -57,23 +60,28 @@ final class MovementTool extends DevTool<Marks> {
 
     @Override
     protected Marks read(KrakenApi api) {
-        MapCoord self = api.lua().clientOp().coord();
-        Projector projector = self == null ? null : Projector.of(api);
-        CollisionMap map = projector == null ? null : api.lua().world().getCollisionMap(self.level());
+        Client client = api.client();
+        Player self = client.getLocalPlayer();
+        LocalPoint local = self == null ? null : self.getLocalLocation();
+        WorldPoint world = self == null ? null : self.getWorldLocation();
+        Projector projector = local == null ? null : Projector.of(api);
+        CollisionData map = projector == null ? null : TileFlagsTool.collisionMap(client, world.getPlane());
         if (map == null) {
             return null;
         }
+        int plane = world.getPlane();
+        int sx = local.getSceneX();
+        int sy = local.getSceneY();
         int radius = sight ? TileFlagsTool.RADIUS : 1;
         Marks.Builder marks = new Marks.Builder(projector);
-        for (int x = self.x() - radius; x <= self.x() + radius; x++) {
-            for (int z = self.z() - radius; z <= self.z() + radius; z++) {
-                if (x == self.x() && z == self.z()) {
+        for (int x = sx - radius; x <= sx + radius; x++) {
+            for (int y = sy - radius; y <= sy + radius; y++) {
+                if (x == sx && y == sy) {
                     continue;
                 }
-                boolean ok = sight ? map.lineOfSight(self.x(), self.z(), x, z) : map.lineOfWalk(self.x(), self.z(), x, z);
+                boolean ok = sight ? map.lineOfSight(sx, sy, x, y) : map.lineOfWalk(sx, sy, x, y);
                 if (ok) {
-                    marks.outline(projector.tile(new MapCoord(self.level(), x, z)), sight ? SIGHT : WALK,
-                            sight ? SIGHT_FILL : WALK_FILL);
+                    marks.outline(projector.tile(plane, x, y), sight ? SIGHT : WALK, sight ? SIGHT_FILL : WALK_FILL);
                 }
             }
         }

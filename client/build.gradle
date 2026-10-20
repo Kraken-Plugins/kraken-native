@@ -44,6 +44,10 @@ test {
     systemProperty 'java.awt.headless', 'true'
 }
 
+tasks.withType(JavaExec).configureEach {
+    systemProperties = System.properties
+}
+
 application {
     mainClass = 'com.kraken.client.KrakenClient'
 }

@@ -2,37 +2,80 @@ package com.kraken.api.widgets;
 
 import com.kraken.api.Client;
 import com.kraken.api.Point;
+import com.kraken.api.internal.WidgetReader;
 
 import java.awt.Rectangle;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * An interface component, as RuneLite's {@code Widget}. Get one from {@link Client#getWidget(int)}. A static widget is
  * designed in the cache and has a fixed id ({@link WidgetUtil#packComponentId}); a dynamic one is made by a script at
- * run time under a static widget, and is told apart by its {@link #getIndex() index}.
+ * run time under a static widget (its root), and is told apart by its {@link #getIndex() index}.
  *
- * <p>Unlike RuneLite's, a widget is a snapshot: its fields are read once, when it is fetched, so ask the client for it
- * again for fresh values. The getters that follow links ({@link #getParent()}, the children, {@link #isHidden()},
- * {@link #getCanvasLocation()} and {@link #getBounds()}) read the game when called. RuneLite plugins fetch widgets
- * where they use them, so this rarely shows.
+ * <p>Unlike RuneLite's, a widget is a snapshot: its fields are read once, in one block, when it is fetched, so ask the
+ * client for it again for fresh values. The getters that follow links ({@link #getParent()}, the children,
+ * {@link #isHidden()}, {@link #getCanvasLocation()}, {@link #getBounds()} and the group getters) read the game when
+ * called. RuneLite plugins fetch widgets where they use them, so this rarely shows. A field this build's mapping lacks
+ * reads -1, false or "".
  *
  * <p>Positions and sizes are in canvas pixels, the units of {@link Client#getCanvasWidth()}. The setters, listeners
- * and script hooks of RuneLite's widget aren't there: the API only reads.
+ * and script hooks of RuneLite's widget aren't there: the API only reads. Kraken extras expose the rest of the native
+ * component's fields, which Lua's {@code IfType} names.
+ *
+ * <p>Two widgets over the same native component are equal.
  */
-public interface Widget {
+public final class Widget {
+
+    private static final Widget[] NONE = new Widget[0];
+
+    /**
+     * How far up the parent chain {@link #isHidden()} looks before giving up, as the screen position does.
+     */
+    private static final int MAX_DEPTH = 64;
+
+    private final WidgetReader reader;
+    private final long address;
+    private final byte[] data;
+    private final ByteBuffer buffer;
+    private final int frame;
+
+    /**
+     * A snapshot of one native component.
+     * Internal: used by the API's own packages; plugins don't need it.
+     *
+     * @param reader  the reader the snapshot came from
+     * @param address the native component's address
+     * @param data    the component's fields, read in one block
+     * @param frame   the client's frame counter, read with it
+     */
+    public Widget(WidgetReader reader, long address, byte[] data, int frame) {
+        this.reader = reader;
+        this.address = address;
+        this.data = data;
+        this.frame = frame;
+        this.buffer = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);
+    }
 
     /**
      * The widget's id: {@code group << 16 | component}. A dynamic widget has its static parent's id, as in RuneLite.
      *
      * @return the packed component id
      */
-    int getId();
+    public int getId() {
+        return i32("packedId");
+    }
 
     /**
      * The widget's type.
      *
-     * @return one of the {@link WidgetType} values (the native client has a few more: 1, 10 and 11)
+     * @return one of the {@link WidgetType} values
      */
-    int getType();
+    public int getType() {
+        return i32("type");
+    }
 
     /**
      * The widget's parent, read now. A group's top-level widgets have none: Kraken doesn't read which component a
@@ -40,7 +83,9 @@ public interface Widget {
      *
      * @return the parent, or null for a group's top-level widget
      */
-    Widget getParent();
+    public Widget getParent() {
+        return getLayerId() == -1 ? null : reader.lookup(getLayerId(), i32("layerSubId"));
+    }
 
     /**
      * The id of the widget's parent.
@@ -48,15 +93,29 @@ public interface Widget {
      * @return the parent's packed id (a dynamic widget's static parent's); -1 for a group's top-level widget, where
      *         RuneLite returns the id of the component the group is opened in
      */
-    int getParentId();
+    public int getParentId() {
+        return getLayerId();
+    }
 
     /**
-     * One of the dynamic children, by index, read now.
+     * The static root of a dynamic widget, read now. Kraken extra, mirrors Lua {@code IfType.staticParent}.
+     *
+     * @return the static root; a fresh read of this widget if it is static; null if it can't be read
+     */
+    public Widget getStaticParent() {
+        return reader.lookup(isStatic() ? getId() : getLayerId(), -1);
+    }
+
+    /**
+     * One of the dynamic children, by index, read now. It reads the one slot where {@link #getChildren()} reads them
+     * all.
      *
      * @param index the child's index ({@link #getIndex()})
      * @return the child, or null if there is none directly under this widget at that index
      */
-    Widget getChild(int index);
+    public Widget getChild(int index) {
+        return reader.child(this, index);
+    }
 
     /**
      * The dynamic children, read now: the widgets a script created directly under this one. Each is at its
@@ -65,28 +124,71 @@ public interface Widget {
      *
      * @return the children by index; empty rather than RuneLite's null when there are none
      */
-    Widget[] getChildren();
+    public Widget[] getChildren() {
+        List<Widget> children = reader.children(this);
+        if (children.isEmpty()) {
+            return NONE;
+        }
+        int length = 0;
+        for (Widget child : children) {
+            length = Math.max(length, child.getIndex() + 1);
+        }
+        Widget[] byIndex = new Widget[length];
+        for (Widget child : children) {
+            byIndex[child.getIndex()] = child;
+        }
+        return byIndex;
+    }
 
     /**
-     * The dynamic children without the gaps.
+     * The dynamic children without the gaps (Lua's {@code IfType.children}). As in the client, a static layer's
+     * static children aren't listed.
      *
      * @return the children in index order
      */
-    Widget[] getDynamicChildren();
+    public Widget[] getDynamicChildren() {
+        return reader.children(this).toArray(NONE);
+    }
 
     /**
      * The static widgets whose parent is this one, read now (the whole group is read to find them).
      *
      * @return the static children in component order; empty for a dynamic widget
      */
-    Widget[] getStaticChildren();
+    public Widget[] getStaticChildren() {
+        if (!isStatic()) {
+            return NONE;
+        }
+        Widget[] group = reader.getGroup(getId() >>> 16);
+        if (group == null) {
+            return NONE;
+        }
+        List<Widget> out = new ArrayList<>();
+        for (Widget component : group) {
+            if (component != null && component.getLayerId() == getId() && component.getId() != getId()) {
+                out.add(component);
+            }
+        }
+        return out.toArray(NONE);
+    }
 
     /**
      * The widget's index among its static parent's dynamic children.
      *
      * @return the index, or -1 for a static widget
      */
-    int getIndex();
+    public int getIndex() {
+        return i32("subId");
+    }
+
+    /**
+     * Whether this is a static widget, designed in the cache. Kraken extra, mirrors Lua {@code IfType.isStatic}.
+     *
+     * @return true if {@link #getIndex()} is negative
+     */
+    public boolean isStatic() {
+        return getIndex() < 0;
+    }
 
     /**
      * Whether the widget is hidden: by its own flag or a parent's, or because its group isn't open, as RuneLite works
@@ -94,275 +196,587 @@ public interface Widget {
      *
      * @return true if the client won't draw it
      */
-    boolean isHidden();
+    public boolean isHidden() {
+        Widget at = this;
+        for (int depth = 0; depth < MAX_DEPTH && at != null; depth++) {
+            if (at.isSelfHidden()) {
+                return true;
+            }
+            Widget parent = at.getParent();
+            if (parent == null) {
+                return reader.getCoordinates(at.getId() >>> 16) == null;
+            }
+            at = parent;
+        }
+        return false;
+    }
 
     /**
-     * Whether the widget's own hidden flag is set (a hidden parent also hides it; see {@link #isHidden()}).
+     * Whether the widget's own hidden flag is set (a hidden parent also hides it; see {@link #isHidden()}). Lua's
+     * {@code IfType.hidden}.
      *
      * @return true if hidden by itself
      */
-    boolean isSelfHidden();
+    public boolean isSelfHidden() {
+        return u8("hidden") != 0;
+    }
 
     /**
      * The widget's text.
      *
      * @return the text, with the client's markup ({@code <col=ff0000>}, {@code <br>}); "" if none
      */
-    String getText();
+    public String getText() {
+        return string("text");
+    }
 
     /**
-     * The name of what the widget's actions act on, such as an item's name in an inventory slot.
+     * The widget's secondary text. Kraken extra, mirrors Lua {@code IfType.text2}.
+     *
+     * @return the text, with markup; "" if none
+     */
+    public String getText2() {
+        return string("text2");
+    }
+
+    /**
+     * The name of what the widget's actions act on, such as an item's name in an inventory slot (Lua's
+     * {@code IfType.baseOpName}).
      *
      * @return the name, with markup; "" if none
      */
-    String getName();
+    public String getName() {
+        return string("baseOpName");
+    }
 
     /**
      * The colour of the widget's text or shape.
      *
      * @return the colour as {@code 0xRRGGBB}; -1 if this build's mapping lacks it
      */
-    int getTextColor();
+    public int getTextColor() {
+        return rgb("colour");
+    }
 
     /**
-     * How see-through the widget is.
+     * The widget's secondary colour. Kraken extra, mirrors Lua {@code IfType.colour2}.
+     *
+     * @return the colour as {@code 0xRRGGBB}; -1 if this build's mapping lacks it
+     */
+    public int getTextColor2() {
+        return rgb("colour2");
+    }
+
+    /**
+     * The widget's colour while the mouse is over it. Kraken extra, mirrors Lua {@code IfType.colourOver}.
+     *
+     * @return the colour as {@code 0xRRGGBB}; -1 if this build's mapping lacks it
+     */
+    public int getTextColorOver() {
+        return rgb("colourOver");
+    }
+
+    /**
+     * The colour of the text's shadow. Kraken extra, mirrors Lua {@code IfType.shadowColour}.
+     *
+     * @return the colour as {@code 0xRRGGBB}; -1 if this build's mapping lacks it
+     */
+    public int getTextShadowColor() {
+        return rgb("shadowColour");
+    }
+
+    /**
+     * How see-through the widget is (Lua's {@code IfType.transparency}).
      *
      * @return 0 (opaque) to 255 (invisible)
      */
-    int getOpacity();
+    public int getOpacity() {
+        return i32("transparency");
+    }
 
     /**
      * Whether a rectangle widget is filled.
      *
      * @return true if filled, false if outlined
      */
-    boolean isFilled();
+    public boolean isFilled() {
+        return u8("fill") != 0;
+    }
 
     /**
-     * The sprite the widget draws.
+     * How a shape blends with what is under it. Kraken extra, mirrors Lua {@code IfType.blendMode}.
+     *
+     * @return the blend mode
+     */
+    public int getBlendMode() {
+        return i32("blendMode");
+    }
+
+    /**
+     * The width of a shape's outline or a line (Lua's {@code IfType.strokeWidth}).
+     *
+     * @return the width in pixels
+     */
+    public int getLineWidth() {
+        return i32("strokeWidth");
+    }
+
+    /**
+     * Whether a line runs from the bottom corner. Kraken extra, mirrors Lua {@code IfType.diagonalStartAtBottom}.
+     *
+     * @return true if it does
+     */
+    public boolean isDiagonalStartAtBottom() {
+        return u8("diagonalStartAtBottom") != 0;
+    }
+
+    /**
+     * The start angle of an arc. Kraken extra, mirrors Lua {@code IfType.startAngle}.
+     *
+     * @return the angle
+     */
+    public int getStartAngle() {
+        return i32("startAngle");
+    }
+
+    /**
+     * The stop angle of an arc. Kraken extra, mirrors Lua {@code IfType.stopAngle}.
+     *
+     * @return the angle
+     */
+    public int getStopAngle() {
+        return i32("stopAngle");
+    }
+
+    /**
+     * The sprite the widget draws (Lua's {@code IfType.graphic}).
      *
      * @return the sprite id, as in {@code gameval.SpriteID}; -1 for none
      */
-    int getSpriteId();
+    public int getSpriteId() {
+        return i32("graphic");
+    }
+
+    /**
+     * The widget's secondary sprite. Kraken extra, mirrors Lua {@code IfType.graphic2}.
+     *
+     * @return the sprite id, or -1 for none
+     */
+    public int getSpriteId2() {
+        return i32("graphic2");
+    }
+
+    /**
+     * The URL the widget's sprite is loaded from. Kraken extra, mirrors Lua {@code IfType.graphicURL}.
+     *
+     * @return the URL, usually ""
+     */
+    public String getSpriteUrl() {
+        return string("graphicURL");
+    }
+
+    /**
+     * How far the sprite is turned. Kraken extra, mirrors Lua {@code IfType.rotate}.
+     *
+     * @return the rotation
+     */
+    public int getSpriteRotation() {
+        return i32("rotate");
+    }
 
     /**
      * Whether the sprite is tiled across the widget.
      *
      * @return true if it tiles
      */
-    boolean getSpriteTiling();
+    public boolean getSpriteTiling() {
+        return u8("tiling") != 0;
+    }
+
+    /**
+     * The width of the sprite's outline (Lua's {@code IfType.outline}).
+     *
+     * @return the border type
+     */
+    public int getBorderType() {
+        return i32("outline");
+    }
 
     /**
      * Whether the sprite is drawn upside down.
      *
      * @return true if flipped vertically
      */
-    boolean isFlippedVertically();
+    public boolean isFlippedVertically() {
+        return u8("vFlip") != 0;
+    }
 
     /**
      * Whether the sprite is drawn mirrored.
      *
      * @return true if flipped horizontally
      */
-    boolean isFlippedHorizontally();
+    public boolean isFlippedHorizontally() {
+        return u8("hFlip") != 0;
+    }
 
     /**
      * The model the widget shows.
      *
      * @return the model id (an item, NPC or model id, depending on {@link #getModelType()}); -1 for none
      */
-    int getModelId();
+    public int getModelId() {
+        return i32("model1Id");
+    }
 
     /**
      * What {@link #getModelId()} names.
      *
      * @return the model type, the cache's value
      */
-    int getModelType();
+    public int getModelType() {
+        return i32("model1Type");
+    }
+
+    /**
+     * The widget's second model. Kraken extra, mirrors Lua {@code IfType.model2Id}.
+     *
+     * @return the model id, or -1 for none
+     */
+    public int getModelId2() {
+        return i32("model2Id");
+    }
+
+    /**
+     * What {@link #getModelId2()} names. Kraken extra, mirrors Lua {@code IfType.model2Type}.
+     *
+     * @return the model type
+     */
+    public int getModelType2() {
+        return i32("model2Type");
+    }
 
     /**
      * The model's animation.
      *
      * @return the animation id, or -1
      */
-    int getAnimationId();
+    public int getAnimationId() {
+        return i32("modelAnim");
+    }
+
+    /**
+     * The second model's animation. Kraken extra, mirrors Lua {@code IfType.modelAnim2}.
+     *
+     * @return the animation id, or -1
+     */
+    public int getAnimationId2() {
+        return i32("modelAnim2");
+    }
+
+    /**
+     * The model's x offset. Kraken extra, mirrors Lua {@code IfType.modelXOf}.
+     *
+     * @return the offset
+     */
+    public int getModelOffsetX() {
+        return i32("modelXOf");
+    }
+
+    /**
+     * The model's y offset. Kraken extra, mirrors Lua {@code IfType.modelYOf}.
+     *
+     * @return the offset
+     */
+    public int getModelOffsetY() {
+        return i32("modelYOf");
+    }
 
     /**
      * The model's rotation about x.
      *
      * @return the angle, 2048 per turn
      */
-    int getRotationX();
+    public int getRotationX() {
+        return i32("modelXAn");
+    }
 
     /**
      * The model's rotation about y.
      *
      * @return the angle, 2048 per turn
      */
-    int getRotationY();
+    public int getRotationY() {
+        return i32("modelYAn");
+    }
 
     /**
      * The model's rotation about z.
      *
      * @return the angle, 2048 per turn
      */
-    int getRotationZ();
+    public int getRotationZ() {
+        return i32("modelZAn");
+    }
 
     /**
      * How far the model is zoomed.
      *
      * @return the zoom
      */
-    int getModelZoom();
+    public int getModelZoom() {
+        return i32("modelZoom");
+    }
 
     /**
-     * The item an inventory slot widget shows.
+     * The model's width. Kraken extra, mirrors Lua {@code IfType.modelWid}.
+     *
+     * @return the width
+     */
+    public int getModelWidth() {
+        return i32("modelWid");
+    }
+
+    /**
+     * The model's height. Kraken extra, mirrors Lua {@code IfType.modelHei}.
+     *
+     * @return the height
+     */
+    public int getModelHeight() {
+        return i32("modelHei");
+    }
+
+    /**
+     * How fast the model spins. Kraken extra, mirrors Lua {@code IfType.modelSpin}.
+     *
+     * @return the spin
+     */
+    public int getModelSpin() {
+        return i32("modelSpin");
+    }
+
+    /**
+     * Whether the model is drawn orthographically. Kraken extra, mirrors Lua {@code IfType.orthog}.
+     *
+     * @return true if it is
+     */
+    public boolean isOrthographic() {
+        return u8("orthog") != 0;
+    }
+
+    /**
+     * The item an inventory slot widget shows (Lua's {@code IfType.linkObjType}).
      *
      * @return the item id, or -1 for none
      */
-    int getItemId();
+    public int getItemId() {
+        return i32("linkObjType");
+    }
 
     /**
-     * The size of the stack {@link #getItemId()} shows.
+     * The size of the stack {@link #getItemId()} shows (Lua's {@code IfType.linkObjCount}).
      *
      * @return the quantity
      */
-    int getItemQuantity();
+    public int getItemQuantity() {
+        return i32("linkObjCount");
+    }
 
     /**
-     * The widget's right-click actions.
+     * The widget's right-click actions (Lua's {@code IfType.opNames}).
      *
      * @return the actions by slot, null for an empty slot; null if the widget has none, as in RuneLite
      */
-    String[] getActions();
+    public String[] getActions() {
+        List<String> ops = reader.opNames(i32("opCount"), i64("opNames"));
+        if (ops.isEmpty()) {
+            return null;
+        }
+        String[] actions = new String[ops.size()];
+        for (int i = 0; i < actions.length; i++) {
+            String op = ops.get(i);
+            actions[i] = op == null || op.isEmpty() ? null : op;
+        }
+        return actions;
+    }
 
     /**
      * The widget's x relative to its parent, as laid out.
      *
      * @return x in canvas pixels
      */
-    int getRelativeX();
+    public int getRelativeX() {
+        return i32("x");
+    }
 
     /**
      * The widget's y relative to its parent, as laid out.
      *
      * @return y in canvas pixels
      */
-    int getRelativeY();
+    public int getRelativeY() {
+        return i32("y");
+    }
 
     /**
      * The widget's width, as laid out.
      *
      * @return the width in canvas pixels
      */
-    int getWidth();
+    public int getWidth() {
+        return i32("width");
+    }
 
     /**
      * The widget's height, as laid out.
      *
      * @return the height in canvas pixels
      */
-    int getHeight();
+    public int getHeight() {
+        return i32("height");
+    }
 
     /**
      * The widget's x as designed, before {@link #getXPositionMode()} applies.
      *
      * @return the designed x
      */
-    int getOriginalX();
+    public int getOriginalX() {
+        return i32("dataX");
+    }
 
     /**
      * The widget's y as designed, before {@link #getYPositionMode()} applies.
      *
      * @return the designed y
      */
-    int getOriginalY();
+    public int getOriginalY() {
+        return i32("dataY");
+    }
 
     /**
      * The widget's width as designed, before {@link #getWidthMode()} applies.
      *
      * @return the designed width
      */
-    int getOriginalWidth();
+    public int getOriginalWidth() {
+        return i32("dataWidth");
+    }
 
     /**
      * The widget's height as designed, before {@link #getHeightMode()} applies.
      *
      * @return the designed height
      */
-    int getOriginalHeight();
+    public int getOriginalHeight() {
+        return i32("dataHeight");
+    }
 
     /**
      * How the widget's x is measured.
      *
      * @return a {@link WidgetPositionMode} value
      */
-    int getXPositionMode();
+    public int getXPositionMode() {
+        return i32("modeX");
+    }
 
     /**
      * How the widget's y is measured.
      *
      * @return a {@link WidgetPositionMode} value
      */
-    int getYPositionMode();
+    public int getYPositionMode() {
+        return i32("modeY");
+    }
 
     /**
      * How the widget's width is measured.
      *
      * @return a {@link WidgetSizeMode} value
      */
-    int getWidthMode();
+    public int getWidthMode() {
+        return i32("modeWidth");
+    }
 
     /**
      * How the widget's height is measured.
      *
      * @return a {@link WidgetSizeMode} value
      */
-    int getHeightMode();
+    public int getHeightMode() {
+        return i32("modeHeight");
+    }
+
+    /**
+     * The widget's aspect ratio pair. Kraken extra, mirrors Lua {@code IfType.aspectRatio}.
+     *
+     * @return the pair as x and y, or null if this build's mapping lacks it
+     */
+    public Point getAspectRatio() {
+        return pair("aspectRatio");
+    }
 
     /**
      * How far a scrolling layer is scrolled across.
      *
      * @return the scroll x, or -1 if this build's mapping lacks it
      */
-    int getScrollX();
+    public int getScrollX() {
+        Point pos = pair("scrollPos");
+        return pos == null ? -1 : pos.getX();
+    }
 
     /**
      * How far a scrolling layer is scrolled down.
      *
      * @return the scroll y, or -1 if this build's mapping lacks it
      */
-    int getScrollY();
+    public int getScrollY() {
+        Point pos = pair("scrollPos");
+        return pos == null ? -1 : pos.getY();
+    }
 
     /**
      * The width of a scrolling layer's content.
      *
      * @return the scroll width, or -1 if this build's mapping lacks it
      */
-    int getScrollWidth();
+    public int getScrollWidth() {
+        Point size = pair("scrollSize");
+        return size == null ? -1 : size.getX();
+    }
 
     /**
      * The height of a scrolling layer's content.
      *
      * @return the scroll height, or -1 if this build's mapping lacks it
      */
-    int getScrollHeight();
+    public int getScrollHeight() {
+        Point size = pair("scrollSize");
+        return size == null ? -1 : size.getY();
+    }
 
     /**
      * Where the widget's top-left corner is on the canvas, read now: the client's sum of the relative positions up the
-     * parent chain, plus where its group is drawn. Like the client's, it doesn't take off the scroll of scrolling
-     * parents.
+     * parent chain, plus where its group is drawn (Lua's {@code IfType.screenCoords}). Like the client's, it doesn't
+     * take off the scroll of scrolling parents.
      *
      * @return the corner in canvas pixels, or null if it can't be read
      */
-    Point getCanvasLocation();
+    public Point getCanvasLocation() {
+        return reader.screenCoords(this);
+    }
 
     /**
      * The widget's area on the canvas, read now.
      *
      * @return {@link #getCanvasLocation()} with the widget's size, or null if the location can't be read
      */
-    Rectangle getBounds();
+    public Rectangle getBounds() {
+        Point corner = getCanvasLocation();
+        return corner == null ? null : new Rectangle(corner.getX(), corner.getY(), getWidth(), getHeight());
+    }
 
     /**
      * Whether a canvas point is on the widget.
@@ -370,22 +784,104 @@ public interface Widget {
      * @param point the point, in canvas pixels
      * @return true if it is inside {@link #getBounds()}
      */
-    boolean contains(Point point);
+    public boolean contains(Point point) {
+        Rectangle bounds = getBounds();
+        return bounds != null && bounds.contains(point.getX(), point.getY());
+    }
 
     /**
-     * Whether the client drew the widget in its latest frame when the widget was read. Kraken extra, mirrors Lua
-     * {@code IfType.isRendering}.
+     * Whether the client drew the widget in its latest frame when the widget was read: its draw stamp equals the
+     * client's frame counter. Kraken extra, mirrors Lua {@code IfType.isRendering}.
      *
      * @return true if it was drawn
      */
-    boolean isRendering();
+    public boolean isRendering() {
+        return frame >= 0 && i32("renderCycle") == frame;
+    }
 
     /**
      * The label the widget's descriptor carries. Kraken extra, mirrors Lua {@code IfType.sourceName}.
      *
      * @return the label, usually ""
      */
-    String getSourceName();
+    public String getSourceName() {
+        return string("sourceName");
+    }
+
+    /**
+     * The first index (or, for a static layer, component index) that may belong to this layer. Kraken extra, mirrors
+     * Lua {@code IfType.layerIdXMin}.
+     *
+     * @return the lowest child index
+     */
+    public int getLayerIdXMin() {
+        return i32("layerIdXMin");
+    }
+
+    /**
+     * The last index (or component index) that may belong to this layer. Kraken extra, mirrors Lua
+     * {@code IfType.layerIdXMax}.
+     *
+     * @return the highest child index
+     */
+    public int getLayerIdXMax() {
+        return i32("layerIdXMax");
+    }
+
+    /**
+     * The widget's event field. Kraken extra, mirrors Lua {@code IfType.event}.
+     *
+     * @return the event
+     */
+    public int getEvent() {
+        return i32("event");
+    }
+
+    /**
+     * The widget's event code. Kraken extra, mirrors Lua {@code IfType.eventCode}.
+     *
+     * @return the event code
+     */
+    public int getEventCode() {
+        return i32("eventCode");
+    }
+
+    /**
+     * Whether the widget belongs to the entity overlay system. Kraken extra, mirrors Lua
+     * {@code IfType.isEntityOverlay}.
+     *
+     * @return true if it does
+     */
+    public boolean isEntityOverlay() {
+        return u8("isEntityOverlay") != 0;
+    }
+
+    /**
+     * The last cycle the client processed the widget. Kraken extra, mirrors Lua {@code IfType.lastProcess}.
+     *
+     * @return the cycle
+     */
+    public int getLastProcess() {
+        return i32("lastProcess");
+    }
+
+    /**
+     * The widget's overlay type. Kraken extra, mirrors Lua {@code IfType.overlayType}.
+     *
+     * @return the overlay type
+     */
+    public int getOverlayType() {
+        return i32("overlayType");
+    }
+
+    /**
+     * The widget's overlay id. Kraken extra, mirrors Lua {@code IfType.overlayId}.
+     *
+     * @return the overlay id
+     */
+    public int getOverlayId() {
+        return i32("overlayId");
+    }
 
     /**
      * The clipping rectangle of the widget's group, as the client draws the group: nothing of the group shows outside
@@ -393,5 +889,112 @@ public interface Widget {
      *
      * @return the rectangle in canvas pixels, or null if the group isn't open
      */
-    Rectangle getGroupClipBounds();
+    public Rectangle getGroupClipBounds() {
+        WidgetReader.Coordinates group = reader.getCoordinates(getId() >>> 16);
+        return group == null ? null : new Rectangle(group.clipX1(), group.clipY1(), group.clipX2() - group.clipX1(),
+                group.clipY2() - group.clipY1());
+    }
+
+    /**
+     * The offset the client draws every widget of this one's group at. Kraken extra, from Lua's
+     * {@code InterfaceCoordinates}, read now.
+     *
+     * @return the offset in canvas pixels, or null if the group isn't open
+     */
+    public Point getGroupOffset() {
+        WidgetReader.Coordinates group = reader.getCoordinates(getId() >>> 16);
+        return group == null ? null : new Point(group.offX(), group.offY());
+    }
+
+    /**
+     * The extra offset a Lua plugin gave this widget's group ({@code setRenderOffset}). Kraken extra, from Lua's
+     * {@code InterfaceCoordinates}, read now.
+     *
+     * @return the offset in canvas pixels, or null if the group isn't open
+     */
+    public Point getGroupScriptOffset() {
+        WidgetReader.Coordinates group = reader.getCoordinates(getId() >>> 16);
+        return group == null ? null : new Point(group.scriptOffX(), group.scriptOffY());
+    }
+
+    /**
+     * The packed id of the widget's parent (a dynamic widget's static root's).
+     *
+     * @return the parent's id, or -1 for a group's top-level widget
+     */
+    int getLayerId() {
+        return i32("layerId");
+    }
+
+    /**
+     * Where the component lives in the client. Kraken extra.
+     *
+     * @return the native component's address
+     */
+    public long getAddress() {
+        return address;
+    }
+
+    /**
+     * A 32-bit field of the snapshot.
+     *
+     * @param field the {@code IfType} field
+     * @return its value, or -1 if the mapping lacks it
+     */
+    int i32(String field) {
+        int off = reader.field(field);
+        return off < 0 || off + 4 > data.length ? -1 : buffer.getInt(off);
+    }
+
+    /**
+     * A 64-bit field of the snapshot.
+     *
+     * @param field the {@code IfType} field
+     * @return its value, or -1 if the mapping lacks it
+     */
+    long i64(String field) {
+        int off = reader.field(field);
+        return off < 0 || off + 8 > data.length ? -1 : buffer.getLong(off);
+    }
+
+    private int u8(String field) {
+        int off = reader.field(field);
+        return off < 0 || off >= data.length ? 0 : data[off] & 0xff;
+    }
+
+    private String string(String field) {
+        return reader.string(data, reader.field(field));
+    }
+
+    private Point pair(String field) {
+        int off = reader.field(field);
+        return off < 0 || off + 8 > data.length ? null : new Point(buffer.getInt(off), buffer.getInt(off + 4));
+    }
+
+    private int rgb(String field) {
+        int off = reader.field(field);
+        return off < 0 || off + 4 > data.length ? -1 : buffer.getInt(off) & 0xffffff;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        return other instanceof Widget widget && widget.address == address;
+    }
+
+    @Override
+    public int hashCode() {
+        return Long.hashCode(address);
+    }
+
+    /**
+     * The id as RuneLite writes it.
+     *
+     * @return {@code Widget[group:component]} for a static widget, {@code Widget[group:component[index]]} for a
+     *         dynamic one
+     */
+    @Override
+    public String toString() {
+        String id = (getId() >>> 16) + ":" + (getId() & 0xffff);
+        return "Widget[" + (isStatic() ? id : id + "[" + getIndex() + "]") + "]";
+    }
 }

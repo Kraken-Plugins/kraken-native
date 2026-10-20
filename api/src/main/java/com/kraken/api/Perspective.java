@@ -1,6 +1,7 @@
 package com.kraken.api;
 
 import com.kraken.api.coords.LocalPoint;
+import com.kraken.api.scene.WorldView;
 
 import java.awt.FontMetrics;
 import java.awt.Graphics2D;

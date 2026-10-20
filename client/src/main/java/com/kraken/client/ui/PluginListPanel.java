@@ -3,11 +3,11 @@ package com.kraken.client.ui;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import com.kraken.api.eventbus.EventBus;
-import com.kraken.client.plugins.config.Config;
-import com.kraken.client.plugins.config.ConfigManager;
 import com.kraken.client.plugins.Plugin;
 import com.kraken.client.plugins.PluginDescriptor;
 import com.kraken.client.plugins.PluginManager;
+import com.kraken.client.plugins.config.Config;
+import com.kraken.client.plugins.config.ConfigManager;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignA;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignM;
@@ -15,16 +15,16 @@ import org.kordamp.ikonli.materialdesign2.MaterialDesignP;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignT;
 import org.kordamp.ikonli.swing.FontIcon;
 
-import javax.swing.*;
-import javax.swing.border.EmptyBorder;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.stream.Collectors;
+import javax.swing.*;
+import javax.swing.border.EmptyBorder;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 
 import static com.formdev.flatlaf.FlatClientProperties.*;
 

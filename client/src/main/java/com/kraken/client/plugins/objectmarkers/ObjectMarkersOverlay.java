@@ -2,8 +2,8 @@ package com.kraken.client.plugins.objectmarkers;
 
 import com.google.inject.Inject;
 import com.kraken.api.Client;
-import com.kraken.api.TileObject;
-import com.kraken.api.WorldView;
+import com.kraken.api.scene.TileObject;
+import com.kraken.api.scene.WorldView;
 import com.kraken.client.ui.overlay.Overlay;
 import com.kraken.client.ui.overlay.OverlayLayer;
 import com.kraken.client.ui.overlay.OverlayPosition;

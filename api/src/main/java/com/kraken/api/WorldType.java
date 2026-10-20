@@ -1,5 +1,7 @@
 package com.kraken.api;
 
+import lombok.Getter;
+
 import java.util.Collection;
 import java.util.EnumSet;
 
@@ -81,19 +83,14 @@ public enum WorldType {
 
     private static final EnumSet<WorldType> PVP_WORLD_TYPES = EnumSet.of(DEADMAN, PVP);
 
+    /**
+     * This type's bit in the world flags.
+     */
+    @Getter
     private final int mask;
 
     WorldType(int mask) {
         this.mask = mask;
-    }
-
-    /**
-     * This type's bit in the world flags.
-     *
-     * @return the bit mask
-     */
-    public int getMask() {
-        return mask;
     }
 
     /**

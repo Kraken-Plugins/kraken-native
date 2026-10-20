@@ -1,7 +1,7 @@
 package com.kraken.api.events;
 
-import com.kraken.api.Actor;
-import com.kraken.api.NPC;
+import com.kraken.api.actor.Actor;
+import com.kraken.api.actor.NPC;
 import lombok.Value;
 
 /**

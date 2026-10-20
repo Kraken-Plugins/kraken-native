@@ -1,5 +1,7 @@
 package com.kraken.api;
 
+import lombok.Getter;
+
 /**
  * A skill, with RuneLite's names and order. The ordinal is the client's stat id, the index the skill arrays on
  * {@link Client} use (Lua's {@code ClientState.Stats}, with Lua's {@code SKILL_RUNECRAFTING} named {@link #RUNECRAFT}
@@ -31,18 +33,13 @@ public enum Skill {
     CONSTRUCTION("Construction"),
     SAILING("Sailing");
 
+    /**
+     * The skill's name as the game shows it, e.g. "Runecraft".
+     */
+    @Getter
     private final String name;
 
     Skill(String name) {
         this.name = name;
-    }
-
-    /**
-     * The skill's name as the game shows it.
-     *
-     * @return the display name, e.g. "Runecraft"
-     */
-    public String getName() {
-        return name;
     }
 }

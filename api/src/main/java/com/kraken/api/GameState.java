@@ -1,5 +1,7 @@
 package com.kraken.api;
 
+import lombok.Getter;
+
 /**
  * The client's game state, as RuneLite's {@code GameState}. The numbers are the client's raw {@code Client.gameState}
  * values, which are the same in the native client.
@@ -52,19 +54,14 @@ public enum GameState {
      */
     HOPPING(45);
 
+    /**
+     * The client's raw value for this state.
+     */
+    @Getter
     private final int state;
 
     GameState(int state) {
         this.state = state;
-    }
-
-    /**
-     * The client's raw value for this state.
-     *
-     * @return the raw game state
-     */
-    public int getState() {
-        return state;
     }
 
     /**

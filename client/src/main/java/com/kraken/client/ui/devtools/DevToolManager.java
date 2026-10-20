@@ -3,8 +3,8 @@ package com.kraken.client.ui.devtools;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import com.kraken.api.KrakenApi;
-import com.kraken.client.ProcessAttacher;
 import com.kraken.client.GameView;
+import com.kraken.client.ProcessAttacher;
 import com.kraken.client.ui.devtools.DevTool.Support;
 import com.kraken.client.ui.devtools.tools.DevToolCatalog;
 import com.kraken.client.ui.devtools.view.ToolWindow;
@@ -14,7 +14,6 @@ import com.kraken.client.ui.overlay.OverlayPainter;
 import lombok.Getter;
 import lombok.extern.java.Log;
 
-import javax.swing.*;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -23,6 +22,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.prefs.Preferences;
+import javax.swing.*;
 
 /**
  * Runs the dev tools: which overlays are on and which windows are open (remembered between sessions), reading each

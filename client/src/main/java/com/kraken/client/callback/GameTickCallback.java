@@ -46,7 +46,7 @@ public final class GameTickCallback {
     private static final int PORT = 42069;
     private static final String ENABLE_PROP = "kraken.hook";
     private static final String DLL_PROP = "kraken.hook.dll";
-    private static final String DEFAULT_DLL = "src/main/native/kraken_hook/kraken_hook.dll";
+    private static final String DEFAULT_DLL = "client/src/main/native/kraken_hook/kraken_hook.dll";
     private static final String DISPATCH_FN = "dispatchEvent";
 
     private final ProcessAttacher attacher;
@@ -86,10 +86,10 @@ public final class GameTickCallback {
      * @param pid the {@code osclient.exe} process id
      */
     public void installWhenAttached(long pid) {
-//        if (!Boolean.getBoolean(ENABLE_PROP)) {
-//            log.info("Tick hook disabled.");
-//            return;
-//        }
+        if (!Boolean.getBoolean(ENABLE_PROP)) {
+            log.info("Game Tick hook disabled.");
+            return;
+        }
         attacher.addStateListener(() -> maybeInstall(pid));
         maybeInstall(pid); // in case it attached between attacher.start() and here
     }

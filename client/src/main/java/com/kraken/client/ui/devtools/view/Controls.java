@@ -4,8 +4,8 @@ import com.kraken.client.ui.Theme;
 import org.kordamp.ikonli.Ikon;
 import org.kordamp.ikonli.swing.FontIcon;
 
-import javax.swing.*;
 import java.awt.event.ActionListener;
+import javax.swing.*;
 
 import static com.formdev.flatlaf.FlatClientProperties.BUTTON_TYPE;
 import static com.formdev.flatlaf.FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON;

@@ -10,12 +10,12 @@ import com.kraken.api.eventbus.EventBus;
 import com.kraken.client.plugins.config.ConfigManager;
 import lombok.AllArgsConstructor;
 
-import javax.swing.*;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import javax.swing.*;
 
 /**
  * Bindings for the client, and the parent of every plugin's injector. The frame, its panels and the launcher are

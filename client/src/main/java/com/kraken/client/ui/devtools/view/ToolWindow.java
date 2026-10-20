@@ -1,11 +1,11 @@
 package com.kraken.client.ui.devtools.view;
 
-import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.prefs.Preferences;
+import javax.swing.*;
 
 /**
  * A popout window for one dev tool. It's owned by the Kraken frame, so it floats above the game without taking a

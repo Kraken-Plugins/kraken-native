@@ -9,11 +9,11 @@ import com.kraken.client.ui.Theme;
 import com.kraken.client.ui.overlay.OverlayRenderer;
 import lombok.extern.java.Log;
 
-import javax.swing.*;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Level;
+import javax.swing.*;
 
 /**
  * Launches osclient.exe, re-parents its window into a RuneLite-style Swing frame, and runs the plugins.

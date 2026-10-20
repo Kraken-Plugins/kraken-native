@@ -4,8 +4,6 @@ import com.kraken.client.ui.Theme;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 import org.kordamp.ikonli.swing.FontIcon;
 
-import javax.swing.*;
-import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -13,6 +11,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.prefs.Preferences;
+import javax.swing.*;
+import javax.swing.border.EmptyBorder;
 
 /** A collapsible group of tool rows. Shows how many of its tools are on, so a collapsed section still says so. */
 final class CategorySection extends JPanel {

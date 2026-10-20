@@ -2,8 +2,8 @@ package com.kraken.api.widgets;
 
 /**
  * Widget types, as RuneLite's {@code WidgetType}: the values {@link Widget#getType()} returns. They are the cache's own
- * values, the same in the native client (Lua's {@code IfTypes}), which has three RuneLite doesn't name: 1
- * ({@code INPUTBOX}), 10 ({@code CIRCLE}) and 11 ({@code CRMVIEW}).
+ * values, the same in the native client (Lua's {@code IfTypes}), which has three RuneLite doesn't name: Kraken extras
+ * {@link #INPUT_BOX}, {@link #CIRCLE} and {@link #CRM_VIEW}.
  */
 public final class WidgetType {
 
@@ -11,6 +11,11 @@ public final class WidgetType {
      * A container; only a layer has children.
      */
     public static final int LAYER = 0;
+
+    /**
+     * An input box. Kraken extra, Lua's {@code IfTypes.INPUTBOX}.
+     */
+    public static final int INPUT_BOX = 1;
 
     /**
      * A filled or outlined rectangle.
@@ -48,10 +53,43 @@ public final class WidgetType {
     public static final int LINE = 9;
 
     /**
+     * A circle. Kraken extra, Lua's {@code IfTypes.CIRCLE}.
+     */
+    public static final int CIRCLE = 10;
+
+    /**
+     * Lua's {@code IfTypes.CRMVIEW}. Kraken extra.
+     */
+    public static final int CRM_VIEW = 11;
+
+    /**
      * A text input field.
      */
     public static final int INPUT_FIELD = 12;
 
     private WidgetType() {
+    }
+
+    /**
+     * A type's name, as Lua's {@code IfTypes} names it. Kraken extra.
+     *
+     * @param type the type, e.g. {@link Widget#getType()}
+     * @return its Lua name, e.g. "LAYER", or "TYPE_n" for a value Lua doesn't name
+     */
+    public static String name(int type) {
+        return switch (type) {
+            case LAYER -> "LAYER";
+            case INPUT_BOX -> "INPUTBOX";
+            case RECTANGLE -> "RECT";
+            case TEXT -> "TEXT";
+            case GRAPHIC -> "GRAPHIC";
+            case MODEL -> "MODEL";
+            case IF1_TOOLTIP -> "TOOLTIP";
+            case LINE -> "LINE";
+            case CIRCLE -> "CIRCLE";
+            case CRM_VIEW -> "CRMVIEW";
+            case INPUT_FIELD -> "INPUTFIELD";
+            default -> "TYPE_" + type;
+        };
     }
 }

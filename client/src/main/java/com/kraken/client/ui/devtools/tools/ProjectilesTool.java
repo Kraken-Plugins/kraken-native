@@ -1,13 +1,12 @@
 package com.kraken.client.ui.devtools.tools;
 
+import com.kraken.api.Client;
 import com.kraken.api.KrakenApi;
-import com.kraken.api.lua.ClientOp;
-import com.kraken.api.lua.Entity;
-import com.kraken.api.lua.FineCoord;
-import com.kraken.api.lua.MapCoord;
-import com.kraken.api.lua.Projectile;
-import com.kraken.api.lua.Scene;
-import com.kraken.api.lua.Vector2;
+import com.kraken.api.Point;
+import com.kraken.api.actor.Actor;
+import com.kraken.api.coords.LocalPoint;
+import com.kraken.api.coords.WorldPoint;
+import com.kraken.api.scene.Projectile;
 import com.kraken.client.ui.devtools.Category;
 import com.kraken.client.ui.devtools.DevTool;
 import com.kraken.client.ui.devtools.ToolOption;
@@ -24,7 +23,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Projectiles in flight (arrows, spells, cannonballs…): a live table of each one's id, source, target, timing and
+ * Projectiles in flight (arrows, spells, cannonballs...): a live table of each one's id, source, target, timing and
  * position, and over the game a marker on each with its id and a line to where it is heading.
  */
 final class ProjectilesTool extends DevTool<Listing<ProjectilesTool.Row>> {
@@ -48,8 +47,8 @@ final class ProjectilesTool extends DevTool<Listing<ProjectilesTool.Row>> {
      * @param id        its spot anim id
      * @param source    where it comes from, e.g. "Player 7 Zezima" or "Tile (3202, 3203, 0)"
      * @param target    where it is going
-     * @param x         its fine x, or null before it sets off
-     * @param z         its fine z, or null before it sets off
+     * @param x         its local x, or null before it sets off
+     * @param y         its local y (north), or null before it sets off
      * @param height    its height, or null before it sets off
      * @param start     the cycle it sets off on
      * @param end       the cycle it lands on
@@ -57,7 +56,7 @@ final class ProjectilesTool extends DevTool<Listing<ProjectilesTool.Row>> {
      * @param state     "flying", "waiting" (not set off yet) or "hidden"
      * @param yaw       its heading (0-2047), or null before it sets off
      */
-    record Row(String key, int id, String source, String target, Integer x, Integer z, Integer height, int start,
+    record Row(String key, int id, String source, String target, Integer x, Integer y, Integer height, int start,
                int end, int remaining, String state, Integer yaw) {
     }
 
@@ -79,45 +78,46 @@ final class ProjectilesTool extends DevTool<Listing<ProjectilesTool.Row>> {
 
     @Override
     protected Listing<Row> read(KrakenApi api) {
-        ClientOp client = api.lua().clientOp();
-        Scene scene = api.lua().scene();
+        Client client = api.client();
         Projector projector = isOverlayOn() ? Projector.of(api) : null;
         Marks.Builder marks = projector == null ? null : new Marks.Builder(projector);
         Map<String, Integer> keys = new HashMap<>();
         List<Row> rows = new ArrayList<>();
         for (Projectile p : client.getProjectiles()) {
-            FineCoord at = p.position();
-            boolean placed = !at.isMissing();
-            String identity = p.id() + ":" + p.startCycle() + ":" + p.endCycle() + ":" + p.source().tile() + ":"
-                    + p.target().tile();
+            boolean placed = p.isStarted();
+            String identity = p.getId() + ":" + p.getStartCycle() + ":" + p.getEndCycle() + ":" + p.getSourcePoint()
+                    + ":" + p.getTargetPoint();
             String key = identity + "#" + keys.merge(identity, 1, Integer::sum);
-            String state = !p.isRendered() ? "hidden" : placed ? "flying" : "waiting";
-            rows.add(new Row(key, p.id(), endpoint(client, p.source()), endpoint(client, p.target()),
-                    placed ? at.x() : null, placed ? at.z() : null, placed ? at.y() : null, p.startCycle(),
-                    p.endCycle(), p.remainingCycles(), state, placed ? p.yaw() : null));
-            if (marks != null && placed) {
-                mark(marks, projector, client, scene, p, at);
+            String state = p.isHidden() ? "hidden" : placed ? "flying" : "waiting";
+            rows.add(new Row(key, p.getId(), endpoint(p.getSourceActor(), p.getSourcePoint()),
+                    endpoint(p.getTargetActor(), p.getTargetPoint()),
+                    placed ? (int) Math.round(p.getX()) : null, placed ? (int) Math.round(p.getY()) : null,
+                    placed ? (int) Math.round(p.getZ()) : null, p.getStartCycle(), p.getEndCycle(),
+                    p.getRemainingCycles(), state, placed ? p.getOrientation() : null));
+            if (marks != null && placed && !p.isHidden()) {
+                mark(marks, projector, p);
             }
         }
         return new Listing<>(rows, marks == null ? Marks.NONE : marks.build());
     }
 
-    private void mark(Marks.Builder marks, Projector projector, ClientOp client, Scene scene, Projectile p,
-                      FineCoord at) {
-        Vector2 point = projector.point(at);
+    private void mark(Marks.Builder marks, Projector projector, Projectile p) {
+        Point point = projector.at((int) Math.round(p.getX()), (int) Math.round(p.getY()),
+                (int) Math.round(p.getZ()));
         if (point == null) {
             return;
         }
-        marks.outline(new Vector2[]{new Vector2(point.x(), point.y() - MARKER), new Vector2(point.x() + MARKER, point.y()),
-                new Vector2(point.x(), point.y() + MARKER), new Vector2(point.x() - MARKER, point.y())}, COLOR, FILL);
+        marks.outline(new Point[]{new Point(point.getX(), point.getY() - MARKER),
+                new Point(point.getX() + MARKER, point.getY()), new Point(point.getX(), point.getY() + MARKER),
+                new Point(point.getX() - MARKER, point.getY())}, COLOR, FILL);
         if (paths.isOn()) {
-            Vector2 aim = aim(projector, client, scene, p.target());
+            Point aim = aim(projector, p);
             if (aim != null) {
-                marks.line(new Vector2[]{point, aim}, PATH);
+                marks.line(new Point[]{point, aim}, PATH);
             }
         }
         if (ids.isOn()) {
-            marks.label(String.valueOf(p.id()), new Vector2(point.x(), point.y() - LABEL_GAP), COLOR);
+            marks.label(String.valueOf(p.getId()), new Point(point.getX(), point.getY() - LABEL_GAP), COLOR);
         }
     }
 
@@ -126,33 +126,34 @@ final class ProjectilesTool extends DevTool<Listing<ProjectilesTool.Row>> {
      * else the target tile's centre, raised by the endpoint's height.
      *
      * @param projector this frame's projection
-     * @param client    finds the target actor
-     * @param scene     turns the target's world tile into a scene tile
-     * @param end       the projectile's target
+     * @param p         the projectile
      * @return the screen point, or null if it can't be projected
      */
-    private static Vector2 aim(Projector projector, ClientOp client, Scene scene, Projectile.Endpoint end) {
-        FineCoord actor = switch (end.actorType()) {
-            case Entity.TARGET_NPC -> client.npcCoordFine(end.actorIndex());
-            case Entity.TARGET_PLAYER -> client.playerCoordFine(end.actorIndex());
-            default -> null;
-        };
-        if (actor != null && !actor.isMissing()) {
-            return projector.above(actor, end.height());
+    private static Point aim(Projector projector, Projectile p) {
+        Actor actor = p.getTargetActor();
+        WorldPoint tile = p.getTargetPoint();
+        if (actor != null && actor.getLocalLocation() != null && tile != null) {
+            return projector.above(tile.getPlane(), actor.getLocalLocation(), p.getEndHeight());
         }
-        MapCoord tile = scene.toScene(end.tile());
-        return tile == null ? null : projector.tileCenter(tile, end.height());
+        if (tile == null) {
+            return null;
+        }
+        LocalPoint centre = LocalPoint.fromWorld(projector.view(), tile);
+        return centre == null ? null : projector.above(tile.getPlane(), centre, p.getEndHeight());
     }
 
     /**
      * A label for one end of a projectile's path.
      *
-     * @param client reads the actor's name
-     * @param end    the endpoint
+     * @param actor the actor at that end, or null
+     * @param tile  the world tile at that end, or null
      * @return e.g. "NPC 1234 Goblin", or "Tile (3202, 3203, 0)" (a world tile) when it isn't an actor
      */
-    private static String endpoint(ClientOp client, Projectile.Endpoint end) {
-        return end.isActor() ? Actors.target(client, end.actorType(), end.actorIndex()) : "Tile " + end.tile();
+    private static String endpoint(Actor actor, WorldPoint tile) {
+        if (actor != null) {
+            return Actors.label(actor);
+        }
+        return tile == null ? "" : "Tile (" + tile.getX() + ", " + tile.getY() + ", " + tile.getPlane() + ")";
     }
 
     @Override
@@ -167,7 +168,7 @@ final class ProjectilesTool extends DevTool<Listing<ProjectilesTool.Row>> {
                 .column("From", String.class, 170, Row::source)
                 .column("To", String.class, 170, Row::target)
                 .column("X", Integer.class, 56, Row::x)
-                .column("Z", Integer.class, 56, Row::z)
+                .column("Y", Integer.class, 56, Row::y)
                 .column("Height", Integer.class, 56, Row::height)
                 .column("Start", Integer.class, 64, Row::start)
                 .column("End", Integer.class, 64, Row::end)

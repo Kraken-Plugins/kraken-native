@@ -1,7 +1,7 @@
 package com.kraken.client.plugins.npchighlight;
 
 import com.google.inject.Inject;
-import com.kraken.api.NPC;
+import com.kraken.api.actor.NPC;
 import com.kraken.client.ui.overlay.Overlay;
 import com.kraken.client.ui.overlay.OverlayLayer;
 import com.kraken.client.ui.overlay.OverlayPosition;

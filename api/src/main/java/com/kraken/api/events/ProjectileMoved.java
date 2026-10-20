@@ -1,7 +1,7 @@
 package com.kraken.api.events;
 
-import com.kraken.api.Projectile;
 import com.kraken.api.coords.LocalPoint;
+import com.kraken.api.scene.Projectile;
 import lombok.Data;
 
 /**

@@ -3,16 +3,15 @@ package com.kraken.client.ui.overlay;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import com.kraken.api.KrakenApi;
-import com.kraken.api.lua.Vector2;
-import com.kraken.client.ProcessAttacher;
 import com.kraken.client.KrakenConfig;
+import com.kraken.client.ProcessAttacher;
 import lombok.extern.java.Log;
 
-import javax.swing.*;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.util.List;
 import java.util.logging.Level;
+import javax.swing.*;
 
 /**
  * Draws the plugins' {@link Overlay}s over the game. The client creates it at launch.
@@ -113,8 +112,9 @@ public final class OverlayRenderer {
         // Step the schedule rather than restarting it, so 30 fps on a 20 ms poll averages 30, not 25
         nextFrame = now - nextFrame > interval ? now + interval : nextFrame + interval;
 
-        Vector2 canvas = api.lua().graphics().clientDimensions();
-        if (canvas == null || canvas.x() < 1 || canvas.y() < 1) {
+        int canvasWidth = api.client().getCanvasWidth();
+        int canvasHeight = api.client().getCanvasHeight();
+        if (canvasWidth < 1 || canvasHeight < 1) {
             clear();
             return;
         }
@@ -127,8 +127,8 @@ public final class OverlayRenderer {
                 g.setComposite(AlphaComposite.Clear);
                 g.fillRect(0, 0, width, height);
                 g.setComposite(AlphaComposite.SrcOver);
-                g.scale(width / canvas.x(), height / canvas.y());
-                compositor.render(g, overlays, (int) canvas.x(), (int) canvas.y());
+                g.scale(width / (double) canvasWidth, height / (double) canvasHeight);
+                compositor.render(g, overlays, canvasWidth, canvasHeight);
             } finally {
                 g.dispose();
             }

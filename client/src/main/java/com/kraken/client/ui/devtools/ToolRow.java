@@ -1,21 +1,21 @@
 package com.kraken.client.ui.devtools;
 
-import com.kraken.client.ui.devtools.DevTool.Support;
 import com.kraken.client.ui.Theme;
 import com.kraken.client.ui.WrapLabel;
+import com.kraken.client.ui.devtools.DevTool.Support;
 import org.kordamp.ikonli.Ikon;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignE;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignO;
 import org.kordamp.ikonli.swing.FontIcon;
 
-import javax.swing.*;
-import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import javax.swing.*;
+import javax.swing.border.EmptyBorder;
 
 import static com.formdev.flatlaf.FlatClientProperties.*;
 

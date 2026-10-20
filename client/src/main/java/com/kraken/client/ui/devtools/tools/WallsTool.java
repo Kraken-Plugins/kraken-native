@@ -1,8 +1,11 @@
 package com.kraken.client.ui.devtools.tools;
 
+import com.kraken.api.Client;
 import com.kraken.api.KrakenApi;
-import com.kraken.api.lua.Loc;
-import com.kraken.api.lua.MapCoord;
+import com.kraken.api.Point;
+import com.kraken.api.scene.Tile;
+import com.kraken.api.scene.TileObject;
+import com.kraken.api.scene.WallObject;
 import com.kraken.client.ui.devtools.Category;
 import com.kraken.client.ui.devtools.DevTool;
 import com.kraken.client.ui.devtools.ToolOption;
@@ -12,7 +15,7 @@ import org.kordamp.ikonli.materialdesign2.MaterialDesignW;
 import java.awt.*;
 
 /**
- * Walls (and doors, fences…) around you, outlined over the game with their ids.
+ * Walls (and doors, fences...) around you, outlined over the game with their ids.
  */
 final class WallsTool extends DevTool<Marks> {
     private static final Color COLOR = new Color(0xf09650);
@@ -32,17 +35,20 @@ final class WallsTool extends DevTool<Marks> {
 
     @Override
     protected Marks read(KrakenApi api) {
-        MapCoord self = api.lua().clientOp().coord();
-        Projector projector = self == null ? null : Projector.of(api);
+        Client client = api.client();
+        Projector projector = Projector.of(api);
         if (projector == null) {
             return null;
         }
         Marks.Builder marks = new Marks.Builder(projector);
-        for (Loc loc : api.lua().scene().getLocs(self, GameObjectsTool.RADIUS)) {
-            if (loc.layer() == Loc.WALL) {
-                marks.outline(projector.tile(loc.coord()), COLOR, FILL);
+        for (TileObject object : Scenery.objectsAround(client, GameObjectsTool.RADIUS)) {
+            if (object instanceof WallObject) {
+                Tile tile = object.getTile();
+                Point scene = tile.getSceneLocation();
+                marks.outline(projector.tile(tile.getPlane(), scene.getX(), scene.getY()), COLOR, FILL);
                 if (ids.isOn()) {
-                    marks.label(String.valueOf(loc.id()), projector.tileCenter(loc.coord(), 0), COLOR);
+                    marks.label(String.valueOf(object.getId()),
+                            projector.tileCenter(tile.getPlane(), scene.getX(), scene.getY(), 0), COLOR);
                 }
             }
         }

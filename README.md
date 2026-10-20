@@ -35,11 +35,10 @@ Use at your own risk. The developers are not responsible for any consequences re
 | [`client/`](client) | Proof of concept | Java 21 Swing client that launches `osclient.exe` and embeds its window, with a RuneLite-style sidebar, plugins and log console |
 | [`updater/`](updater) | Working | Python updater that maps a client build and writes the API's `mappings/<version>.json` |
 | [`api/src/main/resources/mappings/`](api/src/main/resources/mappings) | Seed build | One mapping per client version (e.g. `241.3.json`): the offsets the API reads, nothing else. Bundled on the API's classpath |
-| [`api/`](api) | In progress | Java mirror of the Lua plugin API (`ClientOp`, `ClientState`, `Events`, `Engine`, the entity objects and config types), read from outside the process, with a RuneLite-shaped API on top (`Client`, `NPC`, `WorldPoint`…); see [lua-api-coverage.md](docs/lua-api-coverage.md) and [runelite-api-design-opus.md](docs/runelite-api-design-opus.md) |
+| [`api/`](api) | In progress | RuneLite-shaped Java API (`Client`, `NPC`, `WorldPoint`, `Widget`, events…) read from outside the process, each getter replaying what the client's Lua plugin API reads; see [runelite-api-design-opus.md](docs/runelite-api-design-opus.md) |
 | [`docs/`](docs) | | Design documents for the client surface, updater and API |
 
 The seed build, client 241.3, maps 253 of 260 keys as PROVEN or ANCHORED (the other 7 are INFERRED), with none failed.
-[lua-api-coverage.md](docs/lua-api-coverage.md) tracks which Lua functions the API mirrors and what the rest need.
 
 ## Prerequisites
 
@@ -159,8 +158,7 @@ uv run python -m unittest discover -s tests -t .
 
 ## Roadmap
 
-The API is built in sections you can test live with the dev tools; [lua-api-coverage.md](docs/lua-api-coverage.md)
-lists them and what each covers. The milestones below are the longer-term plan.
+The API is built in sections you can test live with the dev tools. The milestones below are the longer-term plan.
 
 * **A0** Load the mapping, attach to the client and verify its identity, then read `Client` scalars such as the game
   state, tick, skills and varps.

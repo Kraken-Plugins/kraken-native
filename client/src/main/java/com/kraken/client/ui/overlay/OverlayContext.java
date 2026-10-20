@@ -1,14 +1,14 @@
 package com.kraken.client.ui.overlay;
 
-import com.kraken.api.lua.Vector2;
+import com.kraken.api.Point;
 import com.kraken.client.ui.Theme;
 import lombok.Getter;
 
-import javax.swing.*;
 import java.awt.*;
 import java.awt.geom.Path2D;
 import java.awt.geom.Point2D;
 import java.util.Map;
+import javax.swing.*;
 
 /**
  * What a painter gets for one overlay frame: the graphics, the size of the game area, and helpers for common
@@ -42,13 +42,14 @@ public final class OverlayContext {
      * pixels. The client fills the game area, so this scales by the overlay's size over the client's.
      *
      * @param point      the position in client pixels
-     * @param clientSize the client's size ({@code Graphics.clientDimensions}) when the position was projected
+     * @param clientSize the client's size ({@code Client.getCanvasWidth} by {@code Client.getCanvasHeight}) when the
+     *                   position was projected
      * @return the position in overlay pixels
      */
-    public Point2D.Float toOverlay(Vector2 point, Vector2 clientSize) {
-        float sx = clientSize.x() > 0 ? width / clientSize.x() : 1f;
-        float sy = clientSize.y() > 0 ? height / clientSize.y() : 1f;
-        return new Point2D.Float(point.x() * sx, point.y() * sy);
+    public Point2D.Float toOverlay(Point point, Dimension clientSize) {
+        float sx = clientSize.width > 0 ? width / (float) clientSize.width : 1f;
+        float sy = clientSize.height > 0 ? height / (float) clientSize.height : 1f;
+        return new Point2D.Float(point.getX() * sx, point.getY() * sy);
     }
 
     /**
@@ -60,7 +61,7 @@ public final class OverlayContext {
      * @param stroke     the line colour
      * @param fill       the fill colour for a closed shape, or null for none
      */
-    public void path(Vector2[] points, Vector2 clientSize, boolean closed, Color stroke, Color fill) {
+    public void path(Point[] points, Dimension clientSize, boolean closed, Color stroke, Color fill) {
         if (points.length < 2) {
             return;
         }
@@ -98,7 +99,7 @@ public final class OverlayContext {
      * @param clientSize the client's size when it was projected
      * @param color      the text colour
      */
-    public void label(String text, Vector2 at, Vector2 clientSize, Color color) {
+    public void label(String text, Point at, Dimension clientSize, Color color) {
         Point2D.Float p = toOverlay(at, clientSize);
         Graphics2D g = (Graphics2D) graphics.create();
         try {

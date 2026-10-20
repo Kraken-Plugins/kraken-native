@@ -1,10 +1,11 @@
 package com.kraken.client.ui.devtools.tools;
 
+import com.kraken.api.Client;
 import com.kraken.api.KrakenApi;
-import com.kraken.api.lua.ClientOp;
-import com.kraken.api.lua.ClientOp.WornSlots;
-import com.kraken.api.lua.InvItem;
-import com.kraken.api.lua.Inventory;
+import com.kraken.api.gameval.InventoryID;
+import com.kraken.api.item.EquipmentInventorySlot;
+import com.kraken.api.item.Item;
+import com.kraken.api.item.ItemContainer;
 import com.kraken.client.ui.devtools.Category;
 import com.kraken.client.ui.devtools.DevTool;
 import com.kraken.client.ui.devtools.ToolOption;
@@ -18,9 +19,23 @@ import java.util.List;
 
 /**
  * Every slot of every inventory the client holds: your backpack, worn equipment, and the bank or a shop once you've
- * opened it, with item names ({@code ocName}) and each inventory's defined size ({@code invSize}).
+ * opened it, with item names, each inventory's defined size, and the equipment slot a worn item sits in.
  */
 final class InventoryTool extends DevTool<List<InventoryTool.Row>> {
+    /**
+     * One slot's row.
+     *
+     * @param key       the inventory id and slot, unique among the rows
+     * @param inv       the inventory's id
+     * @param inventory the inventory's name
+     * @param size      the inventory's defined size
+     * @param slot      the slot
+     * @param wornSlot  the equipment slot, for a worn item, or ""
+     * @param item      the item id, -1 for an empty slot
+     * @param name      the item's name, or ""
+     * @param count     the stack's quantity
+     * @param stackable whether the item stacks, or null for an empty slot
+     */
     record Row(long key, int inv, String inventory, int size, int slot, String wornSlot, int item, String name,
                int count, Boolean stackable) {
     }
@@ -29,7 +44,7 @@ final class InventoryTool extends DevTool<List<InventoryTool.Row>> {
 
     InventoryTool() {
         super("inventories", "Inventories", Category.STATE, MaterialDesignB.BAG_PERSONAL_OUTLINE,
-                "Every inventory the client holds (backpack, worn, bank…) with each slot's item, name and count, "
+                "Every inventory the client holds (backpack, worn, bank...) with each slot's item, name and count, "
                         + "and the inventory's size.");
     }
 
@@ -40,22 +55,24 @@ final class InventoryTool extends DevTool<List<InventoryTool.Row>> {
 
     @Override
     protected List<Row> read(KrakenApi api) {
-        ClientOp client = api.lua().clientOp();
-        List<Inventory> inventories = new ArrayList<>(client.getInventories());
-        inventories.sort(Comparator.comparingInt(Inventory::id));
+        Client client = api.client();
+        List<ItemContainer> containers = new ArrayList<>(client.getItemContainers());
+        containers.sort(Comparator.comparingInt(ItemContainer::getId));
         boolean showEmpty = empty.isOn();
         List<Row> rows = new ArrayList<>();
-        for (Inventory inventory : inventories) {
-            int size = client.invSize(inventory.id());
-            for (InvItem item : inventory.items()) {
-                if (item.isEmpty() && !showEmpty) {
+        for (ItemContainer container : containers) {
+            Item[] items = container.getItems();
+            for (int slot = 0; slot < items.length; slot++) {
+                Item item = items[slot];
+                boolean isEmpty = item == null || item.getId() == -1;
+                if (isEmpty && !showEmpty) {
                     continue;
                 }
-                WornSlots worn = inventory.id() == ClientOp.INV_WORN ? WornSlots.of(item.slot()) : null;
-                String itemName = item.isEmpty() ? "" : client.ocName(item.id());
-                Boolean stacks = item.isEmpty() ? null : client.ocStackable(item.id());
-                rows.add(new Row((long) inventory.id() << 32 | item.slot(), inventory.id(), name(inventory.id()), size,
-                        item.slot(), worn == null ? "" : worn.name(), item.id(), itemName, item.count(), stacks));
+                String worn = container.getId() == InventoryID.WORN ? wornSlot(slot) : "";
+                rows.add(new Row((long) container.getId() << 32 | slot, container.getId(), name(container.getId()),
+                        container.size(), slot, worn, isEmpty ? -1 : item.getId(),
+                        isEmpty ? "" : client.getItemDefinition(item.getId()).getName(), isEmpty ? 0 : item.getQuantity(),
+                        isEmpty ? null : client.getItemDefinition(item.getId()).isStackable()));
             }
         }
         return rows;
@@ -77,11 +94,32 @@ final class InventoryTool extends DevTool<List<InventoryTool.Row>> {
                 .build();
     }
 
+    /**
+     * The equipment slot a worn item's slot index stands for.
+     *
+     * @param slot the slot index in the worn inventory
+     * @return the equipment slot's name, or "" if none
+     */
+    private static String wornSlot(int slot) {
+        for (EquipmentInventorySlot equipment : EquipmentInventorySlot.values()) {
+            if (equipment.getSlotIdx() == slot) {
+                return equipment.name();
+            }
+        }
+        return "";
+    }
+
+    /**
+     * An inventory's name.
+     *
+     * @param inv the inventory's id
+     * @return "Backpack", "Worn", "Bank", or "" for another inventory
+     */
     private static String name(int inv) {
         return switch (inv) {
-            case ClientOp.INV_BACKPACK -> "Backpack";
-            case ClientOp.INV_WORN -> "Worn";
-            case ClientOp.INV_BANK -> "Bank";
+            case InventoryID.INV -> "Backpack";
+            case InventoryID.WORN -> "Worn";
+            case InventoryID.BANK -> "Bank";
             default -> "";
         };
     }

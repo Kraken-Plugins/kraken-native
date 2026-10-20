@@ -33,7 +33,6 @@ final class CallbackInjector {
     private static final int PROCESS_QUERY_INFORMATION = 0x0400;
     private static final int ACCESS = PROCESS_CREATE_THREAD | PROCESS_VM_OPERATION
             | PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_QUERY_INFORMATION;
-
     private static final int MEM_COMMIT = 0x1000;
     private static final int MEM_RESERVE = 0x2000;
     private static final int MEM_RELEASE = 0x8000;

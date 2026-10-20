@@ -1,11 +1,9 @@
 package com.kraken.client.ui.devtools.tools;
 
+import com.kraken.api.Client;
 import com.kraken.api.KrakenApi;
-import com.kraken.api.lua.ClientOp;
-import com.kraken.api.lua.FineCoord;
-import com.kraken.api.lua.MapCoord;
-import com.kraken.api.lua.Npc;
-import com.kraken.api.lua.types.NpcType;
+import com.kraken.api.actor.NPC;
+import com.kraken.api.coords.WorldPoint;
 import com.kraken.client.ui.devtools.Category;
 import com.kraken.client.ui.devtools.DevTool;
 import com.kraken.client.ui.devtools.ToolOption;
@@ -31,7 +29,26 @@ final class NpcsTool extends DevTool<Listing<NpcsTool.Row>> {
     private final ToolOption ids = option("ids", "Ids", false);
     private final ToolOption tiles = option("tiles", "Tiles", true);
 
-    record Row(int index, int id, String name, Integer x, Integer z, Integer level, Integer distance, Integer height,
+    /**
+     * One NPC's row. The tile is a world tile.
+     *
+     * @param index    the NPC's index
+     * @param id       the NPC's type id
+     * @param name     the NPC's name
+     * @param x        the world x, or null
+     * @param y        the world y, or null
+     * @param plane    the plane, or null
+     * @param distance the tile distance from you, or null
+     * @param height   the ground height under it, or null
+     * @param category the NPC's category
+     * @param target   what it's interacting with
+     * @param health   "dead", "health bar" or ""
+     * @param follower "yours", "yes" or ""
+     * @param hidden   what is hidden
+     * @param uid      the NPC's uid
+     * @param spawned  the cycle it was created on
+     */
+    record Row(int index, int id, String name, Integer x, Integer y, Integer plane, Integer distance, Integer height,
                int category, String target, String health, String follower, String hidden, int uid, int spawned) {
     }
 
@@ -53,42 +70,40 @@ final class NpcsTool extends DevTool<Listing<NpcsTool.Row>> {
 
     @Override
     protected Listing<Row> read(KrakenApi api) {
-        ClientOp client = api.lua().clientOp();
-        MapCoord self = localTile(client);
+        Client client = api.client();
+        WorldPoint self = localTile(client);
         List<Row> rows = new ArrayList<>();
         Projector projector = isOverlayOn() ? Projector.of(api) : null;
         Marks.Builder marks = projector == null ? null : new Marks.Builder(projector);
-        for (Npc npc : client.getNpcs()) {
+        for (NPC npc : client.getNpcs()) {
             if (marks != null) {
-                mark(marks, projector, client, npc);
+                mark(marks, projector, npc);
             }
-            MapCoord at = npc.getCoord();
+            WorldPoint at = npc.getWorldLocation();
             String follower = npc.isLocalFollower() ? "yours" : npc.isFollower() ? "yes" : "";
-            rows.add(new Row(npc.index(), npc.getTypeId(), npc.getName(),
-                    at == null ? null : at.x(), at == null ? null : at.z(), at == null ? null : at.level(),
-                    distance(self, at), Actors.height(client.npcCoordFine(npc.index())), npc.getType(),
-                    Actors.target(client, npc), Actors.health(npc), follower, Actors.hidden(npc), npc.getUid(),
-                    npc.getCreationCycle()));
+            rows.add(new Row(npc.getIndex(), npc.getId(), npc.getName(),
+                    at == null ? null : at.getX(), at == null ? null : at.getY(), at == null ? null : at.getPlane(),
+                    distance(self, at), Actors.height(client, npc), npc.getCategory(),
+                    Actors.target(npc), Actors.health(npc), follower, Actors.hidden(npc), npc.getUid(),
+                    npc.getSpawnCycle()));
         }
         return new Listing<>(rows, marks == null ? Marks.NONE : marks.build());
     }
 
-    private void mark(Marks.Builder marks, Projector projector, ClientOp client, Npc npc) {
-        MapCoord at = npc.getCoord();
+    private void mark(Marks.Builder marks, Projector projector, NPC npc) {
+        WorldPoint at = npc.getWorldLocation();
         if (at == null) {
             return;
         }
         if (tiles.isOn()) {
-            NpcType type = npc.getTypeData();
-            int size = type == null ? 1 : Math.max(1, type.getSize());
-            marks.outline(projector.area(at, size, size), COLOR, FILL);
+            marks.outline(projector.footprint(at.getPlane(), npc.getLocalLocation(), npc.getFootprintSize()),
+                    COLOR, FILL);
         }
         String label = names.isOn() ? npc.getName() : "";
         if (ids.isOn()) {
-            label = (label.isEmpty() ? "" : label + " ") + "(" + npc.getTypeId() + ")";
+            label = (label.isEmpty() ? "" : label + " ") + "(" + npc.getId() + ")";
         }
-        FineCoord fine = client.npcCoordFine(npc.index());
-        marks.label(label, projector.above(fine, Projector.LABEL_LIFT), COLOR);
+        marks.label(label, projector.above(at.getPlane(), npc.getLocalLocation(), Projector.LABEL_LIFT), COLOR);
     }
 
     @Override
@@ -107,8 +122,8 @@ final class NpcsTool extends DevTool<Listing<NpcsTool.Row>> {
                 .column("Id", Integer.class, 60, Row::id)
                 .column("Name", String.class, 160, Row::name)
                 .column("X", Integer.class, 56, Row::x)
-                .column("Z", Integer.class, 56, Row::z)
-                .column("Plane", Integer.class, 46, Row::level)
+                .column("Y", Integer.class, 56, Row::y)
+                .column("Plane", Integer.class, 46, Row::plane)
                 .column("Dist", Integer.class, 46, Row::distance)
                 .column("Height", Integer.class, 56, Row::height)
                 .column("Category", Integer.class, 64, Row::category)
@@ -129,7 +144,7 @@ final class NpcsTool extends DevTool<Listing<NpcsTool.Row>> {
      * @param at   the other tile, or null
      * @return the Chebyshev distance in tiles, or null
      */
-    static Integer distance(MapCoord self, MapCoord at) {
-        return self == null || at == null || self.level() != at.level() ? null : self.distanceTo(at);
+    static Integer distance(WorldPoint self, WorldPoint at) {
+        return self == null || at == null || self.getPlane() != at.getPlane() ? null : self.distanceTo(at);
     }
 }

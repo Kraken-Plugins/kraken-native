@@ -1,7 +1,8 @@
 package com.kraken.api;
 
-import com.kraken.api.lua.IfType;
+import com.kraken.api.actor.NPC;
 import com.kraken.api.mapping.Mapping;
+import com.kraken.api.widgets.WidgetType;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -1229,30 +1230,30 @@ public final class GameFixture {
         memory.putInt(CLIENT + map.offset("Client.renderCycle"), RENDER_CYCLE);
 
         int inv = 149 << 16;
-        long invRoot = component(inv, -1, -1, -1, IfType.LAYER, 0, 0, 190, 261);
-        long item = component(inv, 0, -1, inv, IfType.GRAPHIC, 16, 8, 36, 32);
+        long invRoot = component(inv, -1, -1, -1, WidgetType.LAYER, 0, 0, 190, 261);
+        long item = component(inv, 0, -1, inv, WidgetType.GRAPHIC, 16, 8, 36, 32);
         memory.putInt(item + map.offset("IfType.linkObjType"), 995);
         memory.putInt(item + map.offset("IfType.linkObjCount"), 1000);
         memory.putSsoString(item + map.offset("IfType.baseOpName"), "Coins");
         ops(item, "Use", "", "Drop");
-        long layer = component(inv, 1, -1, inv, IfType.LAYER, 58, 8, 36, 32);
+        long layer = component(inv, 1, -1, inv, WidgetType.LAYER, 58, 8, 36, 32);
         memory.putInt(layer + map.offset("IfType.layerIdXMin"), 2);
         memory.putInt(layer + map.offset("IfType.layerIdXMax"), 2);
-        long nested = component(inv, 2, 1, inv, IfType.TEXT, 3, 4, 30, 12);
+        long nested = component(inv, 2, 1, inv, WidgetType.TEXT, 3, 4, 30, 12);
         memory.putSsoString(nested + map.offset("IfType.text"), "Nested");
         groupSlots(149, invRoot);
         dynamicSlots(invRoot, item, layer, nested);
 
-        groupSlots(150, component(150 << 16, -1, -1, -1, IfType.LAYER, 0, 0, 10, 10));
+        groupSlots(150, component(150 << 16, -1, -1, -1, WidgetType.LAYER, 0, 0, 10, 10));
 
         int chat = 162 << 16;
-        long chatRoot = component(chat, -1, -1, -1, IfType.LAYER, 0, 0, 519, 165);
-        long all = component(chat | 1, -1, -1, chat, IfType.TEXT, 5, 142, 56, 22);
+        long chatRoot = component(chat, -1, -1, -1, WidgetType.LAYER, 0, 0, 519, 165);
+        long all = component(chat | 1, -1, -1, chat, WidgetType.TEXT, 5, 142, 56, 22);
         memory.putSsoString(all + map.offset("IfType.text"), "All");
         memory.putInt(all + map.offset("IfType.colour"), 0xffffff);
         memory.putInt(all + map.offset("IfType.renderCycle"), RENDER_CYCLE);
         ops(all, "Switch tab");
-        long line = component(chat | 2, -1, -1, chat, IfType.TEXT, 0, 0, 500, 14);
+        long line = component(chat | 2, -1, -1, chat, WidgetType.TEXT, 0, 0, 500, 14);
         memory.putByte(line + map.offset("IfType.hidden"), 1);
         long text = line + map.offset("IfType.text");
         memory.putBytes(IF_HEAP, LONG_TEXT.getBytes(StandardCharsets.UTF_8));

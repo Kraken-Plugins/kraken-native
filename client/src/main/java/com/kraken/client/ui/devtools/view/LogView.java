@@ -6,13 +6,13 @@ import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignT;
 import org.kordamp.ikonli.swing.FontIcon;
 
+import java.awt.*;
+import java.awt.datatransfer.StringSelection;
+import java.util.List;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultCaret;
-import java.awt.*;
-import java.awt.datatransfer.StringSelection;
-import java.util.List;
 
 import static com.formdev.flatlaf.FlatClientProperties.*;
 

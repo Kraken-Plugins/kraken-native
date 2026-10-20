@@ -1,17 +1,18 @@
 package com.kraken.client.ui.devtools;
 
+import com.kraken.api.Client;
 import com.kraken.api.KrakenApi;
-import com.kraken.api.lua.ClientOp;
-import com.kraken.api.lua.MapCoord;
+import com.kraken.api.actor.Player;
+import com.kraken.api.coords.WorldPoint;
 import com.kraken.client.ui.devtools.view.ToolView;
 import com.kraken.client.ui.overlay.OverlayContext;
 import lombok.Getter;
 import org.kordamp.ikonli.Ikon;
 
-import javax.swing.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import javax.swing.*;
 
 /**
  * One tool in the dev tools sidebar. A tool reads the game into an immutable snapshot on the API poll thread
@@ -104,8 +105,10 @@ public abstract class DevTool<S> {
     }
 
     /**
-     * Poll thread: reads what this tool shows. {@code api.lua().clientOp()} mirrors Lua's {@code ClientOp},
-     * {@code api.lua().clientState()} its {@code ClientState}. Return null when there's nothing to show.
+     * Poll thread: reads what this tool shows, through {@code api.client()}. Return null when there's nothing to show.
+     *
+     * @param api the attached API
+     * @return the snapshot, or null
      */
     protected abstract S read(KrakenApi api);
 
@@ -126,10 +129,15 @@ public abstract class DevTool<S> {
     protected void onStop() {
     }
 
-    /** The local player's tile, or null when logged out. */
-    protected static MapCoord localTile(ClientOp client) {
-        int self = client.getLocalPlayerIndex();
-        return self < 0 ? null : client.playerCoord(self);
+    /**
+     * The local player's world tile.
+     *
+     * @param client the client
+     * @return the tile, or null when logged out
+     */
+    protected static WorldPoint localTile(Client client) {
+        Player self = client.getLocalPlayer();
+        return self == null ? null : self.getWorldLocation();
     }
 
     final void setOverlayOn(boolean on) {

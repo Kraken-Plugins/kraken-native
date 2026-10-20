@@ -1,6 +1,6 @@
 package com.kraken.api.events;
 
-import com.kraken.api.ItemContainer;
+import com.kraken.api.item.ItemContainer;
 import lombok.Value;
 
 /**

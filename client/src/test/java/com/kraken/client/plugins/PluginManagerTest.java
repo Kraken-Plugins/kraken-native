@@ -7,14 +7,15 @@ import com.google.inject.Module;
 import com.google.inject.Provides;
 import com.google.inject.name.Names;
 import com.kraken.api.Client;
-import com.kraken.api.GameState;
 import com.kraken.api.eventbus.EventBus;
 import com.kraken.api.eventbus.Subscribe;
+import com.kraken.api.mapping.Mapping;
+import com.kraken.api.memory.Memory;
+import com.kraken.client.events.PluginChanged;
 import com.kraken.client.plugins.config.Config;
 import com.kraken.client.plugins.config.ConfigGroup;
 import com.kraken.client.plugins.config.ConfigItem;
 import com.kraken.client.plugins.config.ConfigManager;
-import com.kraken.client.events.PluginChanged;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,11 +23,12 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.io.IOException;
-import java.lang.reflect.Proxy;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
@@ -84,12 +86,37 @@ class PluginManagerTest {
 
     /**
      * A stand-in for the attached client: plugins load only once the API has attached, so they always see a real one.
+     * It is built over a memory image that reads zeros, so it reports no game state.
      *
-     * @return a {@link Client} that reports {@link GameState#LOGGED_IN} and nothing else
+     * @return a {@link Client} over that memory
      */
     private static Client attachedClient() {
-        return (Client) Proxy.newProxyInstance(Client.class.getClassLoader(), new Class<?>[]{Client.class},
-                (proxy, method, args) -> method.getName().equals("getGameState") ? GameState.LOGGED_IN : null);
+        Memory zeros = new Memory() {
+            @Override
+            public byte[] read(long address, int length) {
+                return new byte[length];
+            }
+
+            @Override
+            public long moduleBase() {
+                return 0;
+            }
+
+            @Override
+            public long moduleSize() {
+                return 0;
+            }
+
+            @Override
+            public boolean isValid() {
+                return true;
+            }
+        };
+        try {
+            return new Client(zeros, Objects.requireNonNull(Mapping.bundled("241.3"), "bundled 241.3 mapping"));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     private Plugin plugin(Class<? extends Plugin> type) {
@@ -113,7 +140,7 @@ class PluginManagerTest {
 
         @Override
         protected void startUp() {
-            events.add("start Good, bus " + (bus != null) + ", " + client.getGameState());
+            events.add("start Good, bus " + (bus != null) + ", client " + (client.getClass() == Client.class));
         }
 
         @Override
@@ -275,7 +302,7 @@ class PluginManagerTest {
         Plugin good = plugin(GoodPlugin.class);
         assertTrue(manager.isPluginActive(good));
         assertFalse(manager.isPluginActive(plugin(OffPlugin.class)), "off by default");
-        assertEquals(List.of("start Good, bus true, LOGGED_IN", "Good got running"), events);
+        assertEquals(List.of("start Good, bus true, client true", "Good got running"), events);
         assertEquals(List.of("Good true"), changes);
 
         events.clear();
@@ -385,7 +412,7 @@ class PluginManagerTest {
     void aPluginsConfigIsFoundThroughItsInjector() {
         manager.loadPlugins(List.of(ConfiguredPlugin.class, GoodPlugin.class));
         manager.startPlugins();
-        assertEquals(List.of("start Configured, default", "start Good, bus true, LOGGED_IN"), events);
+        assertEquals(List.of("start Configured, default", "start Good, bus true, client true"), events);
 
         Config found = manager.getPluginConfigProxy(plugin(ConfiguredPlugin.class));
         assertTrue(found instanceof ConfiguredConfig, String.valueOf(found));

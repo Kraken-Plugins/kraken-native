@@ -2,6 +2,7 @@ package com.kraken.client.ui;
 
 import com.kraken.api.eventbus.EventBus;
 import com.kraken.api.eventbus.Subscriber;
+import com.kraken.client.events.ConfigChanged;
 import com.kraken.client.plugins.config.Config;
 import com.kraken.client.plugins.config.ConfigDescriptor;
 import com.kraken.client.plugins.config.ConfigGroup;
@@ -11,21 +12,12 @@ import com.kraken.client.plugins.config.ConfigManager;
 import com.kraken.client.plugins.config.ConfigObject;
 import com.kraken.client.plugins.config.ConfigSectionDescriptor;
 import com.kraken.client.plugins.config.Range;
-import com.kraken.client.events.ConfigChanged;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignA;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignR;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignT;
 import org.kordamp.ikonli.swing.FontIcon;
 
-import javax.swing.*;
-import javax.swing.border.CompoundBorder;
-import javax.swing.border.EmptyBorder;
-import javax.swing.border.MatteBorder;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
-import javax.swing.text.DefaultFormatterFactory;
-import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
@@ -48,6 +40,14 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import javax.swing.*;
+import javax.swing.border.CompoundBorder;
+import javax.swing.border.EmptyBorder;
+import javax.swing.border.MatteBorder;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import javax.swing.text.DefaultFormatterFactory;
+import javax.swing.text.JTextComponent;
 
 import static com.formdev.flatlaf.FlatClientProperties.*;
 

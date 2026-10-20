@@ -1,16 +1,15 @@
 package com.kraken.client.ui.devtools.tools;
 
-import com.kraken.api.GameObject;
+import com.kraken.api.Client;
 import com.kraken.api.KrakenApi;
-import com.kraken.api.Scene;
-import com.kraken.api.Tile;
-import com.kraken.api.TileObject;
-import com.kraken.api.coords.LocalPoint;
+import com.kraken.api.Point;
 import com.kraken.api.coords.WorldPoint;
-import com.kraken.api.lua.ClientOp;
-import com.kraken.api.lua.Loc;
-import com.kraken.api.lua.MapCoord;
-import com.kraken.api.lua.types.LocType;
+import com.kraken.api.scene.DecorativeObject;
+import com.kraken.api.scene.GameObject;
+import com.kraken.api.scene.GroundObject;
+import com.kraken.api.scene.Tile;
+import com.kraken.api.scene.TileObject;
+import com.kraken.api.scene.WallObject;
 import com.kraken.client.ui.devtools.Category;
 import com.kraken.client.ui.devtools.DevTool;
 import com.kraken.client.ui.devtools.ToolOption;
@@ -22,15 +21,12 @@ import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 
 import java.awt.*;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 /**
- * Locs (scenery) around you: a table of every loc within {@link #RADIUS} tiles, and over the game the game objects,
- * ground and wall decorations among them, outlined with their names and ids. Walls have their own tool.
- *
- * <p>The RuneLite view adds, for the selected loc only, the {@code TileObject} the RuneLite-shaped API reads on the
- * same scene tile ({@code Scene.getTile}): its hash, world and local location, and a game object's size.
+ * Scene objects around you (game objects, ground and wall decorations, and walls and doors too): a table of every
+ * object within {@link #RADIUS} tiles, and over the game the outlines of those in the game object and decoration
+ * layers, with their names and ids. Walls have their own tool.
  */
 final class GameObjectsTool extends DevTool<Listing<GameObjectsTool.Row>> {
     static final int RADIUS = 15;
@@ -39,22 +35,23 @@ final class GameObjectsTool extends DevTool<Listing<GameObjectsTool.Row>> {
     private static final Color WALL_DECOR = new Color(0x64c8dc);
 
     /**
-     * One loc in the table.
+     * One object in the table. The tile is a world tile; the hash identifies the object.
      *
-     * @param key      the loc's slot and id
-     * @param id       the loc type id
+     * @param key      the object's layer, scene tile and id
+     * @param id       the object type's id
      * @param name     its name
-     * @param layer    its layer's name
-     * @param x        the scene tile x
-     * @param z        the scene tile z
-     * @param level    the scene level
+     * @param layer    its layer
+     * @param x        the world x
+     * @param y        the world y
+     * @param plane    the plane
      * @param distance tiles from you
      * @param ops      its non-empty ops
-     * @param runelite what the RuneLite-shaped API reads for it; "" unless it is the selected one and the RuneLite view
-     *                 is on
+     * @param hash     the object's hash
+     * @param local    its local location, "x, y"
+     * @param size     a game object's footprint, "x x y", or ""
      */
-    record Row(String key, int id, String name, String layer, int x, int z, int level, Integer distance, String ops,
-               String runelite) {
+    record Row(String key, int id, String name, String layer, int x, int y, int plane, Integer distance, String ops,
+               String hash, String local, String size) {
     }
 
     private final ToolOption objects = option("objects", "Game objects", true);
@@ -62,17 +59,11 @@ final class GameObjectsTool extends DevTool<Listing<GameObjectsTool.Row>> {
     private final ToolOption wallDecor = option("wallDecor", "Wall decorations", false);
     private final ToolOption names = option("names", "Names", true);
     private final ToolOption ids = option("ids", "Ids", true);
-    private final ToolOption runelite = option("runelite", "RuneLite view", false);
-    /**
-     * The selected row's key, chosen in the window (EDT) and read on the poll thread.
-     */
-    private volatile String selected;
 
     GameObjectsTool() {
         super("gameObjects", "Game objects", Category.SCENE, MaterialDesignC.CUBE_OUTLINE,
                 "Scenery within " + RADIUS + " tiles: game objects such as trees, rocks and tables, ground and wall "
-                        + "decorations (and, in the window, walls and doors), with id, name and ops. The RuneLite view "
-                        + "adds the selected one's TileObject hash, WorldPoint, LocalPoint and size.");
+                        + "decorations, and walls and doors: with id, name, ops, hash, local location and size.");
     }
 
     @Override
@@ -87,74 +78,57 @@ final class GameObjectsTool extends DevTool<Listing<GameObjectsTool.Row>> {
 
     @Override
     protected Listing<Row> read(KrakenApi api) {
-        ClientOp client = api.lua().clientOp();
-        MapCoord self = client.coord();
-        if (self == null) {
+        Client client = api.client();
+        WorldPoint here = localTile(client);
+        if (here == null) {
             return null;
         }
-        List<Loc> locs = api.lua().scene().getLocs(self, RADIUS);
+        List<TileObject> objects = Scenery.objectsAround(client, RADIUS);
         Projector projector = isOverlayOn() ? Projector.of(api) : null;
         Marks.Builder marks = projector == null ? null : new Marks.Builder(projector);
-        List<Row> rows = new ArrayList<>(locs.size());
-        String selectedKey = runelite.isOn() ? selected : null;
-        for (Loc loc : locs) {
-            LocType type = api.lua().configs().loc(loc.id());
-            String name = type == null ? "" : type.getName();
-            MapCoord at = loc.coord();
-            String key = loc.layer() + ":" + at.x() + ":" + at.z() + ":" + loc.id();
-            String rl = key.equals(selectedKey) ? runeLite(api, loc) : "";
-            rows.add(new Row(key, loc.id(), name, loc.layerName(), at.x(), at.z(), at.level(),
-                    NpcsTool.distance(self, at), ops(type), rl));
+        List<Row> rows = new ArrayList<>(objects.size());
+        for (TileObject object : objects) {
+            Tile tile = object.getTile();
+            Point scene = tile.getSceneLocation();
+            WorldPoint at = object.getWorldLocation();
+            String layer = Scenery.layer(object);
+            String name = Scenery.name(client, object.getId());
+            String key = layer + ":" + scene.getX() + ":" + scene.getY() + ":" + object.getId();
+            rows.add(new Row(key, object.getId(), name, layer, at.getX(), at.getY(),
+                    at.getPlane(), NpcsTool.distance(here, at), Scenery.ops(client, object.getId()),
+                    "0x" + Long.toHexString(object.getHash()), Scenery.local(object), size(object)));
             if (marks != null) {
-                mark(marks, projector, loc, name);
+                mark(marks, projector, object, name);
             }
         }
         return new Listing<>(rows, marks == null ? Marks.NONE : marks.build());
     }
 
     /**
-     * What the RuneLite-shaped API reads for a loc: the {@code TileObject} in the same layer of the same scene tile.
+     * A game object's footprint.
      *
-     * @param api the API
-     * @param loc the loc, from the Lua mirror's listing
-     * @return the RuneLite view's text, or "?" if the object can't be found
+     * @param object the object
+     * @return "2 x 1" for a game object, "" for the others
      */
-    private static String runeLite(KrakenApi api, Loc loc) {
-        MapCoord at = loc.coord();
-        Scene scene = api.client().getScene();
-        Tile tile = scene == null ? null : scene.getTile(at.level(), at.x(), at.z());
-        if (tile == null) {
-            return "?";
-        }
-        TileObject object = switch (loc.layer()) {
-            case Loc.WALL -> tile.getWallObject();
-            case Loc.WALL_DECOR -> tile.getDecorativeObject();
-            case Loc.GROUND_DECOR -> tile.getGroundObject();
-            default -> Arrays.stream(tile.getGameObjects()).filter(o -> o.getId() == loc.id()).findFirst()
-                    .orElse(null);
-        };
-        if (object == null) {
-            return "?";
-        }
-        WorldPoint world = object.getWorldLocation();
-        LocalPoint local = object.getLocalLocation();
-        String text = "hash 0x" + Long.toHexString(object.getHash()) + "  world " + world.getX() + ", " + world.getY()
-                + ", " + world.getPlane() + "  local " + local.getX() + ", " + local.getY();
-        return object instanceof GameObject game ? text + "  size " + game.sizeX() + "×" + game.sizeY() : text;
+    private static String size(TileObject object) {
+        return object instanceof GameObject game ? game.sizeX() + " x " + game.sizeY() : "";
     }
 
-    private void mark(Marks.Builder marks, Projector projector, Loc loc, String name) {
-        Color color = switch (loc.layer()) {
-            case Loc.GAME_OBJECT -> objects.isOn() ? OBJECT : null;
-            case Loc.GROUND_DECOR -> ground.isOn() ? GROUND : null;
-            case Loc.WALL_DECOR -> wallDecor.isOn() ? WALL_DECOR : null;
-            default -> null;
+    private void mark(Marks.Builder marks, Projector projector, TileObject object, String name) {
+        Color color = switch (object) {
+            case GameObject game -> objects.isOn() ? OBJECT : null;
+            case GroundObject floor -> ground.isOn() ? GROUND : null;
+            case DecorativeObject decor -> wallDecor.isOn() ? WALL_DECOR : null;
+            case WallObject wall -> null;
         };
         if (color == null) {
             return;
         }
-        marks.outline(projector.tile(loc.coord()), color, null);
-        marks.label(label(name, loc.id()), projector.tileCenter(loc.coord(), 0), color);
+        Tile tile = object.getTile();
+        Point scene = tile.getSceneLocation();
+        marks.outline(projector.tile(tile.getPlane(), scene.getX(), scene.getY()), color, null);
+        marks.label(label(name, object.getId()),
+                projector.tileCenter(tile.getPlane(), scene.getX(), scene.getY(), 0), color);
     }
 
     private String label(String name, int id) {
@@ -165,19 +139,6 @@ final class GameObjectsTool extends DevTool<Listing<GameObjectsTool.Row>> {
         return text;
     }
 
-    private static String ops(LocType type) {
-        if (type == null) {
-            return "";
-        }
-        List<String> ops = new ArrayList<>();
-        for (String op : type.getOps()) {
-            if (!op.isEmpty()) {
-                ops.add(op);
-            }
-        }
-        return String.join(", ", ops);
-    }
-
     @Override
     protected void paintOverlay(Listing<Row> snapshot, OverlayContext overlay) {
         snapshot.marks().paint(overlay);
@@ -185,18 +146,19 @@ final class GameObjectsTool extends DevTool<Listing<GameObjectsTool.Row>> {
 
     @Override
     protected ToolView<Listing<Row>> createView() {
-        return new MappedView<>(TableView.<Row>builder("locs")
+        return new MappedView<>(TableView.<Row>builder("objects")
                 .column("Id", Integer.class, 60, Row::id)
                 .column("Name", String.class, 150, Row::name)
                 .column("Layer", String.class, 100, Row::layer)
                 .column("X", Integer.class, 46, Row::x)
-                .column("Z", Integer.class, 46, Row::z)
-                .column("Plane", Integer.class, 46, Row::level)
+                .column("Y", Integer.class, 46, Row::y)
+                .column("Plane", Integer.class, 46, Row::plane)
                 .column("Dist", Integer.class, 46, Row::distance)
+                .column("Local", String.class, 100, Row::local)
+                .column("Size", String.class, 60, Row::size)
+                .column("Hash", String.class, 150, Row::hash)
                 .column("Ops", String.class, 200, Row::ops)
-                .column("RuneLite", String.class, 380, Row::runelite)
                 .key(Row::key)
-                .onSelect(row -> selected = row == null ? null : row.key())
                 .build(), Listing::rows);
     }
 }

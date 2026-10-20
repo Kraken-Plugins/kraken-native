@@ -11,13 +11,13 @@ import com.sun.jna.platform.win32.WinDef.RECT;
 import com.sun.jna.platform.win32.WinUser.GUITHREADINFO;
 import com.sun.jna.ptr.IntByReference;
 
-import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.swing.*;
 
 import static com.sun.jna.platform.win32.WinUser.*;
 

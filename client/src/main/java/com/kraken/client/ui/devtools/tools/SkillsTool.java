@@ -1,8 +1,9 @@
 package com.kraken.client.ui.devtools.tools;
 
+import com.kraken.api.Client;
+import com.kraken.api.Experience;
 import com.kraken.api.KrakenApi;
-import com.kraken.api.lua.ClientState;
-import com.kraken.api.lua.ClientState.Stats;
+import com.kraken.api.Skill;
 import com.kraken.client.ui.devtools.Category;
 import com.kraken.client.ui.devtools.DevTool;
 import com.kraken.client.ui.devtools.view.TableView;
@@ -13,16 +14,27 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Every stat as the ClientState stat functions return it: effective and base level, XP and XP to the next level.
- * Compare with the in-game skills tab; boosts and drains show up as a non-zero Boost.
+ * Every skill's level, base level, boost, XP and XP to the next level, as the client holds them. Compare with the
+ * in-game skills tab; boosts and drains show up as a non-zero Boost.
  */
 final class SkillsTool extends DevTool<List<SkillsTool.Row>> {
+    /**
+     * One skill's row.
+     *
+     * @param id      the skill's id (its ordinal)
+     * @param skill   the skill's name
+     * @param level   the current level
+     * @param base    the base level
+     * @param boost   the current level minus the base level
+     * @param xp      the XP
+     * @param toNext  the XP left to the next level, or null at 99
+     */
     record Row(int id, String skill, int level, int base, int boost, int xp, Integer toNext) {
     }
 
     SkillsTool() {
         super("skills", "Skills", Category.STATE, MaterialDesignA.ARM_FLEX_OUTLINE,
-                "Every skill's level, base level, boost, XP and XP to the next level (getStat* functions).");
+                "Every skill's level, base level, boost, XP and XP to the next level.");
     }
 
     @Override
@@ -32,17 +44,17 @@ final class SkillsTool extends DevTool<List<SkillsTool.Row>> {
 
     @Override
     protected List<Row> read(KrakenApi api) {
-        ClientState state = api.lua().clientState();
-        if (!state.areStatsTransmitted()) {
+        Client client = api.client();
+        if (client.getRealSkillLevel(Skill.ATTACK) == -1) {
             return List.of();
         }
         List<Row> rows = new ArrayList<>();
-        for (Stats stat : Stats.values()) {
-            int level = state.getStatEffectiveLevel(stat);
-            int base = state.getStatBaseLevel(stat);
-            int xp = state.getStatXP(stat);
-            int toNext = state.getStatRemainingXPUntilLevel(stat);
-            rows.add(new Row(stat.id(), stat.displayName(), level, base, level - base, xp, base >= 99 ? null : toNext));
+        for (Skill skill : Skill.values()) {
+            int level = client.getBoostedSkillLevel(skill);
+            int base = client.getRealSkillLevel(skill);
+            int xp = client.getSkillExperience(skill);
+            rows.add(new Row(skill.ordinal(), skill.getName(), level, base, level - base, xp,
+                    base >= Experience.MAX_REAL_LEVEL ? null : Experience.getXpForLevel(base + 1) - xp));
         }
         return rows;
     }

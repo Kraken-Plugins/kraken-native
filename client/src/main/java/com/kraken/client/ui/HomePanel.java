@@ -4,11 +4,11 @@ import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import com.kraken.client.ProcessAttacher;
 
-import javax.swing.*;
-import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.util.HashMap;
 import java.util.Map;
+import javax.swing.*;
+import javax.swing.border.EmptyBorder;
 
 import static com.formdev.flatlaf.FlatClientProperties.STYLE;
 import static com.formdev.flatlaf.FlatClientProperties.STYLE_CLASS;

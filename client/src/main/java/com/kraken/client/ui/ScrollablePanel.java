@@ -1,7 +1,7 @@
 package com.kraken.client.ui;
 
-import javax.swing.*;
 import java.awt.*;
+import javax.swing.*;
 
 /**
  * A scroll view that always fits the sidebar's width, so rows wrap instead of scrolling sideways. Put the content in

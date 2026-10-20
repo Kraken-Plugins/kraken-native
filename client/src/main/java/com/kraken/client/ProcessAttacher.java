@@ -10,13 +10,13 @@ import com.kraken.client.events.ApiStateChanged;
 import lombok.Getter;
 import lombok.extern.java.Log;
 
-import javax.swing.*;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 import java.util.logging.Level;
+import javax.swing.*;
 
 /**
  * Attaches a {@link KrakenApi} to the running osclient.exe. {@link #start} attaches in the background (retrying while

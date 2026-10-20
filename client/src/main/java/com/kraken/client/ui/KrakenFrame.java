@@ -5,20 +5,20 @@ import com.google.inject.Singleton;
 import com.kraken.api.eventbus.EventBus;
 import com.kraken.client.ExitHandler;
 import com.kraken.client.GameView;
-import com.kraken.client.plugins.config.ConfigManager;
 import com.kraken.client.KrakenConfig;
-import com.kraken.client.ui.devtools.DevToolsPanel;
 import com.kraken.client.events.ConfigChanged;
+import com.kraken.client.plugins.config.ConfigManager;
+import com.kraken.client.ui.devtools.DevToolsPanel;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignP;
 
-import javax.swing.*;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.Set;
 import java.util.logging.Logger;
 import java.util.stream.Stream;
+import javax.swing.*;
 
 import static com.formdev.flatlaf.FlatClientProperties.TITLE_BAR_SHOW_TITLE;
 

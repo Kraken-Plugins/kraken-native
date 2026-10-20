@@ -6,11 +6,11 @@ import lombok.Setter;
 import org.kordamp.ikonli.Ikon;
 import org.kordamp.ikonli.swing.FontIcon;
 
-import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.prefs.Preferences;
+import javax.swing.*;
 
 import static com.formdev.flatlaf.FlatClientProperties.*;
 

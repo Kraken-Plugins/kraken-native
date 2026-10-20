@@ -1,10 +1,11 @@
 package com.kraken.client.ui.devtools.tools;
 
+import com.kraken.api.Client;
 import com.kraken.api.KrakenApi;
-import com.kraken.api.lua.ClientOp;
-import com.kraken.api.lua.GroundObj;
-import com.kraken.api.lua.MapCoord;
-import com.kraken.api.lua.Vector2;
+import com.kraken.api.Point;
+import com.kraken.api.coords.WorldPoint;
+import com.kraken.api.scene.Tile;
+import com.kraken.api.scene.TileItem;
 import com.kraken.client.ui.devtools.Category;
 import com.kraken.client.ui.devtools.DevTool;
 import com.kraken.client.ui.devtools.ToolOption;
@@ -27,7 +28,20 @@ final class GroundItemsTool extends DevTool<Listing<GroundItemsTool.Row>> {
     private static final Color COLOR = new Color(0xf0f0a0);
     private static final int LINE = 14;
 
-    record Row(String key, int id, String name, int count, int x, int z, int level, Integer distance, long value) {
+    /**
+     * One pile's row. The tile is a world tile.
+     *
+     * @param key   a key unique among the rows
+     * @param id    the item's id
+     * @param name  its name
+     * @param count the stack's quantity
+     * @param x     the world x
+     * @param y     the world y
+     * @param plane the plane
+     * @param distance tiles from you, or null
+     * @param value the stack's value: its price times its quantity
+     */
+    record Row(String key, int id, String name, int count, int x, int y, int plane, Integer distance, long value) {
     }
 
     private final ToolOption ids = option("ids", "Ids", false);
@@ -50,28 +64,33 @@ final class GroundItemsTool extends DevTool<Listing<GroundItemsTool.Row>> {
 
     @Override
     protected Listing<Row> read(KrakenApi api) {
-        ClientOp client = api.lua().clientOp();
-        MapCoord self = client.coord();
-        if (self == null) {
+        Client client = api.client();
+        WorldPoint here = localTile(client);
+        if (here == null) {
             return null;
         }
         Projector projector = isOverlayOn() ? Projector.of(api) : null;
         Marks.Builder marks = projector == null ? null : new Marks.Builder(projector);
-        Map<MapCoord, Integer> stacked = new HashMap<>();
+        Map<Tile, Integer> stacked = new HashMap<>();
         List<Row> rows = new ArrayList<>();
-        for (GroundObj obj : api.lua().scene().getObjs(self, GameObjectsTool.RADIUS)) {
-            MapCoord at = obj.coord();
-            String name = client.ocName(obj.id());
-            int line = stacked.merge(at, 1, Integer::sum) - 1;
-            rows.add(new Row(at.x() + ":" + at.z() + ":" + line, obj.id(), name, obj.count(), at.x(), at.z(),
-                    at.level(), NpcsTool.distance(self, at), (long) Math.max(0, client.ocCost(obj.id())) * obj.count()));
+        for (TileItem item : Scenery.itemsAround(client, GameObjectsTool.RADIUS)) {
+            Tile tile = item.getTile();
+            Point scene = tile.getSceneLocation();
+            WorldPoint at = tile.getWorldLocation();
+            String name = client.getItemDefinition(item.getId()).getName();
+            int line = stacked.merge(tile, 1, Integer::sum) - 1;
+            rows.add(new Row(scene.getX() + ":" + scene.getY() + ":" + tile.getPlane() + ":" + line, item.getId(),
+                    name, item.getQuantity(), at.getX(), at.getY(), at.getPlane(), NpcsTool.distance(here, at),
+                    (long) Math.max(0, client.getItemDefinition(item.getId()).getPrice()) * item.getQuantity()));
             if (marks != null) {
                 if (line == 0 && tiles.isOn()) {
-                    marks.outline(projector.tile(at), COLOR, null);
+                    marks.outline(projector.tile(tile.getPlane(), scene.getX(), scene.getY()), COLOR, null);
                 }
-                Vector2 anchor = projector.tileCenter(at, 0);
-                String text = name + (obj.count() > 1 ? " ×" + obj.count() : "") + (ids.isOn() ? " (" + obj.id() + ")" : "");
-                marks.label(text, anchor == null ? null : new Vector2(anchor.x(), anchor.y() - line * LINE), COLOR);
+                Point anchor = projector.tileCenter(tile.getPlane(), scene.getX(), scene.getY(), 0);
+                String text = name + (item.getQuantity() > 1 ? " ×" + item.getQuantity() : "")
+                        + (ids.isOn() ? " (" + item.getId() + ")" : "");
+                marks.label(text, anchor == null ? null : new Point(anchor.getX(), anchor.getY() - line * LINE),
+                        COLOR);
             }
         }
         return new Listing<>(rows, marks == null ? Marks.NONE : marks.build());
@@ -89,8 +108,8 @@ final class GroundItemsTool extends DevTool<Listing<GroundItemsTool.Row>> {
                 .column("Name", String.class, 160, Row::name)
                 .column("Qty", Integer.class, 60, Row::count)
                 .column("X", Integer.class, 46, Row::x)
-                .column("Z", Integer.class, 46, Row::z)
-                .column("Plane", Integer.class, 46, Row::level)
+                .column("Y", Integer.class, 46, Row::y)
+                .column("Plane", Integer.class, 46, Row::plane)
                 .column("Dist", Integer.class, 46, Row::distance)
                 .column("Value", Long.class, 80, Row::value)
                 .key(Row::key)

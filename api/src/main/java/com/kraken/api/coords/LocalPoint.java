@@ -1,7 +1,7 @@
 package com.kraken.api.coords;
 
 import com.kraken.api.Client;
-import com.kraken.api.WorldView;
+import com.kraken.api.scene.WorldView;
 import lombok.Value;
 
 import static com.kraken.api.Perspective.LOCAL_COORD_BITS;

@@ -1,7 +1,7 @@
 package com.kraken.client.plugins;
 
-import com.google.inject.Inject;
 import com.google.inject.Binding;
+import com.google.inject.Inject;
 import com.google.inject.Injector;
 import com.google.inject.Key;
 import com.google.inject.Module;
@@ -10,10 +10,10 @@ import com.google.inject.name.Named;
 import com.google.inject.spi.Element;
 import com.google.inject.spi.Elements;
 import com.kraken.api.eventbus.EventBus;
-import com.kraken.client.plugins.config.Config;
-import com.kraken.client.plugins.config.ConfigManager;
 import com.kraken.client.KrakenConfig;
 import com.kraken.client.events.PluginChanged;
+import com.kraken.client.plugins.config.Config;
+import com.kraken.client.plugins.config.ConfigManager;
 import io.github.classgraph.ClassGraph;
 import io.github.classgraph.ClassInfo;
 import io.github.classgraph.ScanResult;

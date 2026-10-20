@@ -1,12 +1,12 @@
 package com.kraken.client.ui;
 
 import com.kraken.api.eventbus.EventBus;
+import com.kraken.client.KrakenConfig;
 import com.kraken.client.plugins.config.Config;
 import com.kraken.client.plugins.config.ConfigGroup;
 import com.kraken.client.plugins.config.ConfigItem;
 import com.kraken.client.plugins.config.ConfigManager;
 import com.kraken.client.plugins.config.ConfigSection;
-import com.kraken.client.KrakenConfig;
 import com.kraken.client.plugins.config.Range;
 import com.kraken.client.plugins.config.Units;
 import org.junit.jupiter.api.AfterEach;
@@ -14,7 +14,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import javax.swing.*;
 import java.awt.*;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -23,6 +22,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import javax.swing.*;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;

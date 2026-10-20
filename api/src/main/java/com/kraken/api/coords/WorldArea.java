@@ -1,6 +1,6 @@
 package com.kraken.api.coords;
 
-import com.kraken.api.WorldView;
+import com.kraken.api.scene.WorldView;
 import lombok.AllArgsConstructor;
 import lombok.Value;
 

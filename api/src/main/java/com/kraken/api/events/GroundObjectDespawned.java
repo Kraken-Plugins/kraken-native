@@ -1,8 +1,8 @@
 package com.kraken.api.events;
 
-import com.kraken.api.GroundObject;
-import com.kraken.api.Tile;
-import com.kraken.api.TileObject;
+import com.kraken.api.scene.GroundObject;
+import com.kraken.api.scene.Tile;
+import com.kraken.api.scene.TileObject;
 import lombok.Data;
 
 /**

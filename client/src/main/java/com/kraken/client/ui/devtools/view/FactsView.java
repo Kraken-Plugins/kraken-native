@@ -3,8 +3,6 @@ package com.kraken.client.ui.devtools.view;
 import com.kraken.client.ui.Theme;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 
-import javax.swing.*;
-import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.util.ArrayList;
@@ -12,6 +10,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import javax.swing.*;
+import javax.swing.border.EmptyBorder;
 
 import static com.formdev.flatlaf.FlatClientProperties.STYLE_CLASS;
 
