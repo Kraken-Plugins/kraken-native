@@ -1,6 +1,6 @@
 package com.kraken.client.overlay;
 
-import com.kraken.api.game.Vector2;
+import com.kraken.api.lua.Vector2;
 import com.kraken.client.ui.Theme;
 import lombok.Getter;
 

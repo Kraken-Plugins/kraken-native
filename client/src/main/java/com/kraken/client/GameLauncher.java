@@ -3,6 +3,7 @@ package com.kraken.client;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import com.google.inject.name.Named;
+import com.kraken.client.hook.GameTickHook;
 import com.sun.jna.platform.win32.WinDef.HWND;
 import lombok.AllArgsConstructor;
 import lombok.extern.java.Log;
@@ -26,6 +27,7 @@ public final class GameLauncher {
     private final GameView view;
     private final HomePanel home;
     private final ApiConnection api;
+    private final GameTickHook tickHook;
 
     /**
      * Blocks while the client runs. If it can't be started, logs why and says so on the game view.
@@ -62,6 +64,10 @@ public final class GameLauncher {
 
         // Attach the native API to the running client (read-only; safe if it isn't logged in yet)
         api.start(process.pid());
+
+        // Opt-in (-Dkraken.hook=true): inject a hook that pushes ON_GAME_TICK instead of polling for it
+        tickHook.onTick(() -> log.info("onGameTick (push) #" + tickHook.tickCount()));
+        tickHook.installWhenAttached(process.pid());
 
         // The client resizes itself (restoring its saved size, fixed mode, ...), so keep it pinned to the canvas
         while (process.isAlive()) {

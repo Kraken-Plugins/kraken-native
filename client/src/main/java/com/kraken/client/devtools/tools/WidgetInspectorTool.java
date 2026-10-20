@@ -1,11 +1,11 @@
 package com.kraken.client.devtools.tools;
 
 import com.kraken.api.KrakenApi;
-import com.kraken.api.game.IfGroup;
-import com.kraken.api.game.IfType;
-import com.kraken.api.game.InterfaceCoordinates;
-import com.kraken.api.game.InterfaceQuery;
-import com.kraken.api.game.Vector2;
+import com.kraken.api.lua.IfGroup;
+import com.kraken.api.lua.IfType;
+import com.kraken.api.lua.InterfaceCoordinates;
+import com.kraken.api.lua.InterfaceQuery;
+import com.kraken.api.lua.Vector2;
 import com.kraken.client.devtools.Category;
 import com.kraken.client.devtools.DevTool;
 import com.kraken.client.devtools.ToolOption;
@@ -93,7 +93,7 @@ final class WidgetInspectorTool extends DevTool<WidgetInspectorTool.Snapshot> {
 
     @Override
     protected Snapshot read(KrakenApi api) {
-        InterfaceQuery interfaces = api.interfaces();
+        InterfaceQuery interfaces = api.lua().interfaces();
         List<Integer> open = interfaces.getOpenGroups();
         if (open.isEmpty()) {
             return null;
@@ -104,7 +104,7 @@ final class WidgetInspectorTool extends DevTool<WidgetInspectorTool.Snapshot> {
         }
         IfGroup ifGroup = interfaces.retrieveIfGroup(shown);
         List<Row> rows = new ArrayList<>();
-        Vector2 clientSize = api.graphics().clientDimensions();
+        Vector2 clientSize = api.lua().graphics().clientDimensions();
         Marks.Builder marks = clientSize == null ? null : new Marks.Builder(clientSize);
         if (ifGroup != null) {
             new Tree(ifGroup, rows, marks).walk();

@@ -1,0 +1,6 @@
+# Build artifacts and the vendored hooking library (cloned by build.ps1)
+minhook/
+*.dll
+*.obj
+*.lib
+*.exp

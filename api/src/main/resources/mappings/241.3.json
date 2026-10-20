@@ -505,6 +505,7 @@
     "locTypeLoader": "0x5ed080",
     "npcTypeLoader": "0x5f18f0",
     "objTypeLoader": "0x5f5cd0",
-    "varbitRead": "0x5ae330"
+    "varbitRead": "0x5ae330",
+    "dispatchEvent": "0xc44d0"
   }
 }

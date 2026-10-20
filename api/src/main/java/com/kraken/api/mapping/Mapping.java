@@ -33,6 +33,7 @@ import java.util.Map;
  * <ul>
  *   <li>{@link #offset(String)}: a struct field, e.g. {@code "Actor.pathX"} → {@code structs.Actor.pathX}
  *   <li>{@link #global(String)}: a global's RVA, e.g. {@code "client"} → {@code globals.client}
+ *   <li>{@link #function(String)}: a function's RVA, e.g. {@code "worldToScreen"} → {@code functions.worldToScreen}
  *   <li>{@link #container(String)}: a container layout value, e.g. {@code "hash_map.node.value"}
  * </ul>
  */
@@ -116,6 +117,32 @@ public final class Mapping {
     public boolean hasGlobal(String key) {
         try {
             global(key);
+            return true;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /**
+     * RVA (relative to the module base) of a mapped function, e.g. {@code "worldToScreen"} or
+     * {@code "dispatchEvent"}.
+     *
+     * @param key the function name under {@code functions}
+     * @return the function's RVA
+     */
+    public long function(String key) {
+        return parse(obj(root, "functions"), key, key);
+    }
+
+    /**
+     * Whether the mapping has a function, e.g. {@code "dispatchEvent"}. Older mappings may lack newer keys.
+     *
+     * @param key the function name under {@code functions}
+     * @return true if the mapping defines it
+     */
+    public boolean hasFunction(String key) {
+        try {
+            function(key);
             return true;
         } catch (RuntimeException e) {
             return false;

@@ -1,8 +1,8 @@
 package com.kraken.client.devtools.tools;
 
 import com.kraken.api.KrakenApi;
-import com.kraken.api.game.ClientState;
-import com.kraken.api.game.ClientState.Stats;
+import com.kraken.api.lua.ClientState;
+import com.kraken.api.lua.ClientState.Stats;
 import com.kraken.client.devtools.Category;
 import com.kraken.client.devtools.DevTool;
 import com.kraken.client.devtools.view.TableView;
@@ -32,7 +32,7 @@ final class SkillsTool extends DevTool<List<SkillsTool.Row>> {
 
     @Override
     protected List<Row> read(KrakenApi api) {
-        ClientState state = api.clientState();
+        ClientState state = api.lua().clientState();
         if (!state.areStatsTransmitted()) {
             return List.of();
         }

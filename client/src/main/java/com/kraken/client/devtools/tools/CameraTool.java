@@ -1,10 +1,10 @@
 package com.kraken.client.devtools.tools;
 
 import com.kraken.api.KrakenApi;
-import com.kraken.api.game.Camera;
-import com.kraken.api.game.FineCoord;
-import com.kraken.api.game.Graphics;
-import com.kraken.api.game.Vector2;
+import com.kraken.api.lua.Camera;
+import com.kraken.api.lua.FineCoord;
+import com.kraken.api.lua.Graphics;
+import com.kraken.api.lua.Vector2;
 import com.kraken.client.devtools.Category;
 import com.kraken.client.devtools.DevTool;
 import com.kraken.client.devtools.ToolOption;
@@ -48,8 +48,8 @@ final class CameraTool extends DevTool<CameraTool.State> {
 
     @Override
     protected State read(KrakenApi api) {
-        Camera camera = api.camera();
-        Graphics graphics = api.graphics();
+        Camera camera = api.lua().camera();
+        Graphics graphics = api.lua().graphics();
         FineCoord pos = camera.getPos();
         if (pos == null) {
             return null;

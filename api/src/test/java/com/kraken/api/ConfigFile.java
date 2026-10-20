@@ -23,6 +23,10 @@ public final class ConfigFile {
         return g1(v >> 8).g1(v);
     }
 
+    public ConfigFile g3(int v) {
+        return g1(v >> 16).g2(v);
+    }
+
     public ConfigFile g4(int v) {
         return g2(v >> 16).g2(v);
     }

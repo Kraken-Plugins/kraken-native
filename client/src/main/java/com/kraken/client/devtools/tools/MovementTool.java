@@ -1,8 +1,8 @@
 package com.kraken.client.devtools.tools;
 
 import com.kraken.api.KrakenApi;
-import com.kraken.api.game.CollisionMap;
-import com.kraken.api.game.MapCoord;
+import com.kraken.api.lua.CollisionMap;
+import com.kraken.api.lua.MapCoord;
 import com.kraken.client.devtools.Category;
 import com.kraken.client.devtools.DevTool;
 import com.kraken.client.overlay.OverlayContext;
@@ -57,9 +57,9 @@ final class MovementTool extends DevTool<Marks> {
 
     @Override
     protected Marks read(KrakenApi api) {
-        MapCoord self = api.client().coord();
+        MapCoord self = api.lua().clientOp().coord();
         Projector projector = self == null ? null : Projector.of(api);
-        CollisionMap map = projector == null ? null : api.world().getCollisionMap(self.level());
+        CollisionMap map = projector == null ? null : api.lua().world().getCollisionMap(self.level());
         if (map == null) {
             return null;
         }

@@ -1,11 +1,11 @@
 package com.kraken.client.devtools.tools;
 
 import com.kraken.api.KrakenApi;
-import com.kraken.api.game.FineCoord;
-import com.kraken.api.game.Graphics;
-import com.kraken.api.game.MapCoord;
-import com.kraken.api.game.Scene;
-import com.kraken.api.game.Vector2;
+import com.kraken.api.lua.FineCoord;
+import com.kraken.api.lua.Graphics;
+import com.kraken.api.lua.MapCoord;
+import com.kraken.api.lua.Scene;
+import com.kraken.api.lua.Vector2;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -39,9 +39,9 @@ final class Projector {
      * @return a projector, or null if the camera or the client's size can't be read
      */
     static Projector of(KrakenApi api) {
-        Graphics.Projection projection = api.graphics().projection();
-        Vector2 size = api.graphics().clientDimensions();
-        return projection == null || size == null ? null : new Projector(projection, api.scene(), size);
+        Graphics.Projection projection = api.lua().graphics().projection();
+        Vector2 size = api.lua().graphics().clientDimensions();
+        return projection == null || size == null ? null : new Projector(projection, api.lua().scene(), size);
     }
 
     /**

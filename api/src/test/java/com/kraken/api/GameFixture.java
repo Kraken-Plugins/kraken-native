@@ -1,6 +1,6 @@
 package com.kraken.api;
 
-import com.kraken.api.game.IfType;
+import com.kraken.api.lua.IfType;
 import com.kraken.api.mapping.Mapping;
 
 import java.io.IOException;
@@ -159,6 +159,7 @@ public final class GameFixture {
     public final Mapping map;
     public final FakeMemory memory = new FakeMemory();
     private final Map<Integer, Long> invNodes = new HashMap<>();
+    private final boolean[] npcLoaded = {true, true};
     private long locHeap = LOC_HEAP;
     private long tilePool = TILE_POOL;
     private long ifTypes = IF_TYPES;
@@ -399,6 +400,67 @@ public final class GameFixture {
         long sentinel = CLIENT + map.offset("Client.projectiles");
         memory.putLong(sentinel + map.container("list.node.next"), sentinel);
         memory.putLong(sentinel + map.container("list.node.prev"), sentinel);
+    }
+
+    /**
+     * Loads or unloads NPC 5 or 6, as a spawn or despawn does: the world's NPC table and active list are relinked with
+     * or without it. Its memory stays where it was, as freed memory might.
+     *
+     * @param index  5 or 6
+     * @param loaded whether the NPC should be in the world
+     */
+    public void setNpcLoaded(int index, boolean loaded) {
+        npcLoaded[index - 5] = loaded;
+        long previous = 0;
+        int count = 0;
+        memory.putLong(BUCKETS_NPC, 0);
+        for (int i = 0; i < npcLoaded.length; i++) {
+            if (!npcLoaded[i]) {
+                continue;
+            }
+            long node = NODE_NPC + i * 0x20L;
+            memory.putLong(node + map.container("hash_map.node.next"), 0);
+            memory.putLong(previous == 0 ? BUCKETS_NPC : previous + map.container("hash_map.node.next"), node);
+            memory.putInt(NPC_INDICES + count * 4L, 5 + i);
+            previous = node;
+            count++;
+        }
+        memory.putInt(WORLD + map.offset("World.npcIndexCount"), count);
+    }
+
+    /**
+     * Changes the cycle NPC 5 or 6 was created on, as when the client puts a new NPC where the old one was.
+     *
+     * @param index 5 or 6
+     * @param cycle the new creation cycle
+     */
+    public void setNpcSpawnCycle(int index, int cycle) {
+        memory.putInt((index == 5 ? NPC : NPC_MULTI) + map.offset("Npc.spawnCycle"), cycle);
+    }
+
+    /**
+     * Renames a player, as when the client puts a new player where the old one was.
+     *
+     * @param index      7, 9 or 10
+     * @param display    the new display name
+     * @param normalized the new normalised name
+     */
+    public void setPlayerName(int index, String display, String normalized) {
+        long name = memory.readLong(player(index) + map.offset("Player.name"));
+        memory.putSsoString(name + map.offset("PlayerName.display"), display);
+        memory.putSsoString(name + map.offset("PlayerName.normalized"), normalized);
+    }
+
+    /**
+     * Moves an actor to another scene tile.
+     *
+     * @param address the NPC's or player's address, e.g. {@link #NPC}
+     * @param x       the scene x
+     * @param z       the scene z
+     */
+    public void setActorTile(long address, int x, int z) {
+        memory.putInt(address + map.offset("Actor.pathX"), x);
+        memory.putInt(address + map.offset("Actor.pathZ"), z);
     }
 
     private void buildClient() {

@@ -1,10 +1,10 @@
 package com.kraken.client.devtools.tools;
 
 import com.kraken.api.KrakenApi;
-import com.kraken.api.game.Client;
-import com.kraken.api.game.GroundObj;
-import com.kraken.api.game.MapCoord;
-import com.kraken.api.game.Vector2;
+import com.kraken.api.lua.ClientOp;
+import com.kraken.api.lua.GroundObj;
+import com.kraken.api.lua.MapCoord;
+import com.kraken.api.lua.Vector2;
 import com.kraken.client.devtools.Category;
 import com.kraken.client.devtools.DevTool;
 import com.kraken.client.devtools.ToolOption;
@@ -50,7 +50,7 @@ final class GroundItemsTool extends DevTool<Listing<GroundItemsTool.Row>> {
 
     @Override
     protected Listing<Row> read(KrakenApi api) {
-        Client client = api.client();
+        ClientOp client = api.lua().clientOp();
         MapCoord self = client.coord();
         if (self == null) {
             return null;
@@ -59,7 +59,7 @@ final class GroundItemsTool extends DevTool<Listing<GroundItemsTool.Row>> {
         Marks.Builder marks = projector == null ? null : new Marks.Builder(projector);
         Map<MapCoord, Integer> stacked = new HashMap<>();
         List<Row> rows = new ArrayList<>();
-        for (GroundObj obj : api.scene().getObjs(self, GameObjectsTool.RADIUS)) {
+        for (GroundObj obj : api.lua().scene().getObjs(self, GameObjectsTool.RADIUS)) {
             MapCoord at = obj.coord();
             String name = client.ocName(obj.id());
             int line = stacked.merge(at, 1, Integer::sum) - 1;

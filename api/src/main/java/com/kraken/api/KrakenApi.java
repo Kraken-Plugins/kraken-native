@@ -1,18 +1,9 @@
 package com.kraken.api;
 
-import com.kraken.api.config.ConfigTypes;
-import com.kraken.api.events.EventPoller;
-import com.kraken.api.events.Events;
-import com.kraken.api.game.Camera;
-import com.kraken.api.game.Client;
-import com.kraken.api.game.ClientState;
-import com.kraken.api.game.Collision;
-import com.kraken.api.game.Engine;
-import com.kraken.api.game.Graphics;
-import com.kraken.api.game.InterfaceQuery;
-import com.kraken.api.game.Scene;
-import com.kraken.api.game.Vector2;
-import com.kraken.api.game.World;
+import com.kraken.api.impl.Adapters;
+import com.kraken.api.lua.LuaApi;
+import com.kraken.api.lua.events.EventPoller;
+import com.kraken.api.lua.events.Events;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.api.memory.MemoryException;
 import com.kraken.api.memory.ProcessMemory;
@@ -25,13 +16,11 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Entry point for the native API, the Java counterpart of the Lua {@code osrs} table. {@link #attach} opens the running
- * {@code osclient.exe} and selects the mapping for its client version ({@code mappings/<version>.json}); then
- * {@link #client()} mirrors {@code osrs.ClientOp}, {@link #clientState()} mirrors {@code osrs.ClientState},
- * {@link #events()} mirrors {@code osrs.Events}, and {@link #camera()}, {@link #graphics()}, {@link #world()} and
- * {@link #collision()} mirror the getters of {@code Camera}, {@code Graphics}, {@code osrs.World} and
- * {@code osrs.Collision}, and {@link #interfaces()} mirrors {@code InterfaceQuery} (the {@code osrs.IfType} functions). {@link #start()} runs a background poll loop that synthesises events by diffing successive
- * snapshots.
+ * Entry point for the native API. {@link #attach} opens the running {@code osclient.exe} and selects the mapping for
+ * its client version ({@code mappings/<version>.json}). Then {@link #client()} is the RuneLite-shaped API
+ * ({@link Client}, {@code NPC}, {@code WorldPoint}…), and {@link #lua()} the Lua mirror it is built on, one object per
+ * namespace of the client's Lua {@code osrs} table. {@link #start()} runs a background poll loop that synthesises
+ * events by diffing successive snapshots.
  *
  * <p>Read-only throughout: it never writes to or calls into the game.
  */
@@ -44,17 +33,8 @@ public final class KrakenApi implements AutoCloseable {
 
     private final ProcessMemory memory;
     private final Mapping mapping;
-    private final ConfigTypes configs;
+    private final LuaApi lua;
     private final Client client;
-    private final ClientState clientState;
-    private final Engine engine;
-    private final Camera camera;
-    private final Graphics graphics;
-    private final World world;
-    private final Collision collision;
-    private final Scene scene;
-    private final InterfaceQuery interfaces;
-    private final Events events = new Events();
     private final EventPoller poller;
 
     private volatile boolean running;
@@ -69,17 +49,9 @@ public final class KrakenApi implements AutoCloseable {
     private KrakenApi(ProcessMemory memory, Mapping mapping) {
         this.memory = memory;
         this.mapping = mapping;
-        this.configs = new ConfigTypes(memory, mapping);
-        this.client = new Client(memory, mapping, configs);
-        this.clientState = new ClientState(memory, mapping, configs);
-        this.engine = new Engine(client);
-        this.camera = new Camera(memory, mapping);
-        this.graphics = new Graphics(memory, mapping);
-        this.world = new World(client);
-        this.collision = new Collision(client);
-        this.scene = new Scene(client);
-        this.interfaces = new InterfaceQuery(memory, mapping);
-        this.poller = new EventPoller(events, client, clientState, graphics, scene);
+        this.lua = new LuaApi(memory, mapping);
+        this.client = Adapters.client(lua);
+        this.poller = new EventPoller(lua.events(), lua.clientOp(), lua.clientState(), lua.graphics(), lua.scene());
         for (String problem : Events.verify(mapping)) {
             log.warning("Event enum mismatch: " + problem);
         }
@@ -139,117 +111,38 @@ public final class KrakenApi implements AutoCloseable {
     }
 
     /**
-     * Mirrors {@code osrs.ClientOp}.
+     * The RuneLite-shaped API: the game client as RuneLite's {@code Client} presents it.
      *
-     * @return the reader for players, NPCs, inventories and item definitions
+     * @return the client, read through {@link #lua()}
      */
     public Client client() {
         return client;
     }
 
     /**
-     * Mirrors {@code osrs.ClientState}.
+     * The Lua mirror: {@code osrs.ClientOp}, {@code osrs.ClientState}, {@code osrs.Events} and the other namespaces,
+     * read as the client's native Lua handlers read them.
      *
-     * @return the reader for stats, vars, the tick, login state and profile type
+     * @return the Lua mirror for this process
      */
-    public ClientState clientState() {
-        return clientState;
+    public LuaApi lua() {
+        return lua;
     }
 
     /**
-     * Mirrors {@code osrs.Engine}'s config decoders.
+     * The mapping this API reads through.
      *
-     * @return the decoder for item, NPC and loc definitions by id
+     * @return the mapping for the attached client's build
      */
-    public Engine engine() {
-        return engine;
-    }
-
-    /**
-     * Mirrors the getters of Lua's {@code Camera}.
-     *
-     * @return the reader for the camera's position, look-at point and angles
-     */
-    public Camera camera() {
-        return camera;
-    }
-
-    /**
-     * Mirrors the getters of Lua's {@code Graphics}.
-     *
-     * @return the reader for the client's size and the world-to-screen projection
-     */
-    public Graphics graphics() {
-        return graphics;
-    }
-
-    /**
-     * Mirrors {@code osrs.World}.
-     *
-     * @return the reader for the scene's collision maps
-     */
-    public World world() {
-        return world;
-    }
-
-    /**
-     * Mirrors {@code osrs.Collision}.
-     *
-     * @return the live collision checks
-     */
-    public Collision collision() {
-        return collision;
-    }
-
-    /**
-     * The top-level scene's locs, ground items, base and ground heights. Not a Lua namespace.
-     *
-     * @return the scene reader
-     */
-    public Scene scene() {
-        return scene;
-    }
-
-    /**
-     * Mirrors {@code InterfaceQuery}, the functions the Lua docs list under {@code osrs.IfType}.
-     *
-     * @return the reader for interface components and groups
-     */
-    public InterfaceQuery interfaces() {
-        return interfaces;
-    }
-
-    /**
-     * Mirrors {@code osrs.screenSize}: the game window's size in physical pixels.
-     *
-     * @return {@code x} = width, {@code y} = height; null if it can't be read
-     */
-    public Vector2 screenSize() {
-        return graphics.screenSize();
-    }
-
-    /**
-     * The config types (definitions) every reader shares, with their cache. Not a Lua namespace.
-     *
-     * @return the shared config type reader
-     */
-    public ConfigTypes configs() {
-        return configs;
-    }
-
-    /**
-     * Mirrors {@code osrs.Events}.
-     *
-     * @return the event bus to subscribe to game events on
-     */
-    public Events events() {
-        return events;
-    }
-
     public Mapping mapping() {
         return mapping;
     }
 
+    /**
+     * Whether the client process is still running.
+     *
+     * @return true while {@code osclient.exe} can be read
+     */
     public boolean isAttached() {
         return memory.isValid();
     }

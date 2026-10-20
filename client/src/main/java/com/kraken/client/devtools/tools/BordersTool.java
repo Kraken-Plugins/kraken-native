@@ -1,9 +1,9 @@
 package com.kraken.client.devtools.tools;
 
 import com.kraken.api.KrakenApi;
-import com.kraken.api.game.FineCoord;
-import com.kraken.api.game.MapCoord;
-import com.kraken.api.game.Vector2;
+import com.kraken.api.lua.FineCoord;
+import com.kraken.api.lua.MapCoord;
+import com.kraken.api.lua.Vector2;
 import com.kraken.client.devtools.Category;
 import com.kraken.client.devtools.DevTool;
 import com.kraken.client.overlay.OverlayContext;
@@ -58,8 +58,8 @@ final class BordersTool extends DevTool<Marks> {
 
     @Override
     protected Marks read(KrakenApi api) {
-        MapCoord self = api.client().coord();
-        MapCoord base = api.scene().getBase();
+        MapCoord self = api.lua().clientOp().coord();
+        MapCoord base = api.lua().scene().getBase();
         Projector projector = self == null || base == null ? null : Projector.of(api);
         if (projector == null) {
             return null;

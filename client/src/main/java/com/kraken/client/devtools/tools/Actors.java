@@ -1,8 +1,8 @@
 package com.kraken.client.devtools.tools;
 
-import com.kraken.api.game.Client;
-import com.kraken.api.game.Entity;
-import com.kraken.api.game.FineCoord;
+import com.kraken.api.lua.ClientOp;
+import com.kraken.api.lua.Entity;
+import com.kraken.api.lua.FineCoord;
 
 import java.util.StringJoiner;
 
@@ -20,11 +20,11 @@ final class Actors {
      * @param entity the NPC or player
      * @return a label such as "NPC 1234 Goblin", or "" if it isn't interacting
      */
-    static String target(Client client, Entity entity) {
+    static String target(ClientOp client, Entity entity) {
         return target(client, entity.getInteractingType(), entity.isInteracting());
     }
 
-    static String target(Client client, int type, int id) {
+    static String target(ClientOp client, int type, int id) {
         if (id < 0) {
             return "";
         }

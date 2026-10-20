@@ -1,10 +1,10 @@
 package com.kraken.client.devtools.tools;
 
 import com.kraken.api.KrakenApi;
-import com.kraken.api.config.LocType;
-import com.kraken.api.game.Client;
-import com.kraken.api.game.Loc;
-import com.kraken.api.game.MapCoord;
+import com.kraken.api.lua.ClientOp;
+import com.kraken.api.lua.Loc;
+import com.kraken.api.lua.MapCoord;
+import com.kraken.api.lua.types.LocType;
 import com.kraken.client.devtools.Category;
 import com.kraken.client.devtools.DevTool;
 import com.kraken.client.devtools.ToolOption;
@@ -55,17 +55,17 @@ final class GameObjectsTool extends DevTool<Listing<GameObjectsTool.Row>> {
 
     @Override
     protected Listing<Row> read(KrakenApi api) {
-        Client client = api.client();
+        ClientOp client = api.lua().clientOp();
         MapCoord self = client.coord();
         if (self == null) {
             return null;
         }
-        List<Loc> locs = api.scene().getLocs(self, RADIUS);
+        List<Loc> locs = api.lua().scene().getLocs(self, RADIUS);
         Projector projector = isOverlayOn() ? Projector.of(api) : null;
         Marks.Builder marks = projector == null ? null : new Marks.Builder(projector);
         List<Row> rows = new ArrayList<>(locs.size());
         for (Loc loc : locs) {
-            LocType type = api.configs().loc(loc.id());
+            LocType type = api.lua().configs().loc(loc.id());
             String name = type == null ? "" : type.getName();
             MapCoord at = loc.coord();
             rows.add(new Row(loc.layer() + ":" + at.x() + ":" + at.z() + ":" + loc.id(), loc.id(), name, loc.layerName(),

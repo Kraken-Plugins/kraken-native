@@ -1,13 +1,13 @@
 package com.kraken.client.devtools.tools;
 
 import com.kraken.api.KrakenApi;
-import com.kraken.api.game.Client;
-import com.kraken.api.game.Entity;
-import com.kraken.api.game.FineCoord;
-import com.kraken.api.game.MapCoord;
-import com.kraken.api.game.Npc;
-import com.kraken.api.game.Player;
-import com.kraken.api.game.Vector2;
+import com.kraken.api.lua.ClientOp;
+import com.kraken.api.lua.Entity;
+import com.kraken.api.lua.FineCoord;
+import com.kraken.api.lua.MapCoord;
+import com.kraken.api.lua.Npc;
+import com.kraken.api.lua.Player;
+import com.kraken.api.lua.Vector2;
 import com.kraken.client.devtools.Category;
 import com.kraken.client.devtools.DevTool;
 import com.kraken.client.devtools.view.MappedView;
@@ -48,7 +48,7 @@ final class InteractingTool extends DevTool<Listing<InteractingTool.Row>> {
 
     @Override
     protected Listing<Row> read(KrakenApi api) {
-        Client client = api.client();
+        ClientOp client = api.lua().clientOp();
         Projector projector = isOverlayOn() ? Projector.of(api) : null;
         Marks.Builder marks = projector == null ? null : new Marks.Builder(projector);
         List<Row> rows = new ArrayList<>();
@@ -63,7 +63,7 @@ final class InteractingTool extends DevTool<Listing<InteractingTool.Row>> {
         return new Listing<>(rows, marks == null ? Marks.NONE : marks.build());
     }
 
-    private static void add(List<Row> rows, Marks.Builder marks, Projector projector, Client client, String key,
+    private static void add(List<Row> rows, Marks.Builder marks, Projector projector, ClientOp client, String key,
                             String source, Entity entity, FineCoord from) {
         int type = entity.getInteractingType();
         int id = entity.isInteracting();

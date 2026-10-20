@@ -1,8 +1,8 @@
 package com.kraken.client.devtools.tools;
 
 import com.kraken.api.KrakenApi;
-import com.kraken.api.game.ClientState;
-import com.kraken.api.game.ClientState.ProfileType;
+import com.kraken.api.lua.ClientState;
+import com.kraken.api.lua.ClientState.ProfileType;
 import com.kraken.client.devtools.Category;
 import com.kraken.client.devtools.DevTool;
 import com.kraken.client.devtools.ToolOption;
@@ -45,7 +45,7 @@ final class ClientStateTool extends DevTool<ClientStateTool.Snapshot> {
 
     @Override
     protected Snapshot read(KrakenApi api) {
-        ClientState state = api.clientState();
+        ClientState state = api.lua().clientState();
         boolean varcs = state.hasVarcs();
         // Varc maps are only read while the window (or that overlay row) shows them: string varcs cost a read each
         boolean countVarcs = varcs && (isWindowOpen() || vars.isOn());

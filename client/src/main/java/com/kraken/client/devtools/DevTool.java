@@ -1,8 +1,8 @@
 package com.kraken.client.devtools;
 
 import com.kraken.api.KrakenApi;
-import com.kraken.api.game.Client;
-import com.kraken.api.game.MapCoord;
+import com.kraken.api.lua.ClientOp;
+import com.kraken.api.lua.MapCoord;
 import com.kraken.client.devtools.view.ToolView;
 import com.kraken.client.overlay.OverlayContext;
 import lombok.Getter;
@@ -104,8 +104,8 @@ public abstract class DevTool<S> {
     }
 
     /**
-     * Poll thread: reads what this tool shows. {@code api.client()} mirrors Lua's {@code ClientOp},
-     * {@code api.clientState()} its {@code ClientState}. Return null when there's nothing to show.
+     * Poll thread: reads what this tool shows. {@code api.lua().clientOp()} mirrors Lua's {@code ClientOp},
+     * {@code api.lua().clientState()} its {@code ClientState}. Return null when there's nothing to show.
      */
     protected abstract S read(KrakenApi api);
 
@@ -127,7 +127,7 @@ public abstract class DevTool<S> {
     }
 
     /** The local player's tile, or null when logged out. */
-    protected static MapCoord localTile(Client client) {
+    protected static MapCoord localTile(ClientOp client) {
         int self = client.getLocalPlayerIndex();
         return self < 0 ? null : client.playerCoord(self);
     }

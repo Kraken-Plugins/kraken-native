@@ -1,13 +1,13 @@
 package com.kraken.client.devtools.tools;
 
 import com.kraken.api.KrakenApi;
-import com.kraken.api.game.Client;
-import com.kraken.api.game.Entity;
-import com.kraken.api.game.FineCoord;
-import com.kraken.api.game.MapCoord;
-import com.kraken.api.game.Projectile;
-import com.kraken.api.game.Scene;
-import com.kraken.api.game.Vector2;
+import com.kraken.api.lua.ClientOp;
+import com.kraken.api.lua.Entity;
+import com.kraken.api.lua.FineCoord;
+import com.kraken.api.lua.MapCoord;
+import com.kraken.api.lua.Projectile;
+import com.kraken.api.lua.Scene;
+import com.kraken.api.lua.Vector2;
 import com.kraken.client.devtools.Category;
 import com.kraken.client.devtools.DevTool;
 import com.kraken.client.devtools.ToolOption;
@@ -79,8 +79,8 @@ final class ProjectilesTool extends DevTool<Listing<ProjectilesTool.Row>> {
 
     @Override
     protected Listing<Row> read(KrakenApi api) {
-        Client client = api.client();
-        Scene scene = api.scene();
+        ClientOp client = api.lua().clientOp();
+        Scene scene = api.lua().scene();
         Projector projector = isOverlayOn() ? Projector.of(api) : null;
         Marks.Builder marks = projector == null ? null : new Marks.Builder(projector);
         Map<String, Integer> keys = new HashMap<>();
@@ -102,7 +102,8 @@ final class ProjectilesTool extends DevTool<Listing<ProjectilesTool.Row>> {
         return new Listing<>(rows, marks == null ? Marks.NONE : marks.build());
     }
 
-    private void mark(Marks.Builder marks, Projector projector, Client client, Scene scene, Projectile p, FineCoord at) {
+    private void mark(Marks.Builder marks, Projector projector, ClientOp client, Scene scene, Projectile p,
+                      FineCoord at) {
         Vector2 point = projector.point(at);
         if (point == null) {
             return;
@@ -130,7 +131,7 @@ final class ProjectilesTool extends DevTool<Listing<ProjectilesTool.Row>> {
      * @param end       the projectile's target
      * @return the screen point, or null if it can't be projected
      */
-    private static Vector2 aim(Projector projector, Client client, Scene scene, Projectile.Endpoint end) {
+    private static Vector2 aim(Projector projector, ClientOp client, Scene scene, Projectile.Endpoint end) {
         FineCoord actor = switch (end.actorType()) {
             case Entity.TARGET_NPC -> client.npcCoordFine(end.actorIndex());
             case Entity.TARGET_PLAYER -> client.playerCoordFine(end.actorIndex());
@@ -150,7 +151,7 @@ final class ProjectilesTool extends DevTool<Listing<ProjectilesTool.Row>> {
      * @param end    the endpoint
      * @return e.g. "NPC 1234 Goblin", or "Tile (3202, 3203, 0)" (a world tile) when it isn't an actor
      */
-    private static String endpoint(Client client, Projectile.Endpoint end) {
+    private static String endpoint(ClientOp client, Projectile.Endpoint end) {
         return end.isActor() ? Actors.target(client, end.actorType(), end.actorIndex()) : "Tile " + end.tile();
     }
 

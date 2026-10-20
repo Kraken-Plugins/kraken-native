@@ -1,6 +1,6 @@
 package com.kraken.client.devtools.tools;
 
-import com.kraken.api.game.Vector2;
+import com.kraken.api.lua.Vector2;
 import com.kraken.client.overlay.OverlayContext;
 
 import java.awt.*;

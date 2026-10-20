@@ -1,11 +1,11 @@
 package com.kraken.client.devtools.tools;
 
 import com.kraken.api.KrakenApi;
-import com.kraken.api.game.Client;
-import com.kraken.api.game.MapCoord;
-import com.kraken.api.game.Npc;
-import com.kraken.api.config.NpcType;
-import com.kraken.api.game.FineCoord;
+import com.kraken.api.lua.ClientOp;
+import com.kraken.api.lua.FineCoord;
+import com.kraken.api.lua.MapCoord;
+import com.kraken.api.lua.Npc;
+import com.kraken.api.lua.types.NpcType;
 import com.kraken.client.devtools.Category;
 import com.kraken.client.devtools.DevTool;
 import com.kraken.client.devtools.ToolOption;
@@ -53,7 +53,7 @@ final class NpcsTool extends DevTool<Listing<NpcsTool.Row>> {
 
     @Override
     protected Listing<Row> read(KrakenApi api) {
-        Client client = api.client();
+        ClientOp client = api.lua().clientOp();
         MapCoord self = localTile(client);
         List<Row> rows = new ArrayList<>();
         Projector projector = isOverlayOn() ? Projector.of(api) : null;
@@ -73,7 +73,7 @@ final class NpcsTool extends DevTool<Listing<NpcsTool.Row>> {
         return new Listing<>(rows, marks == null ? Marks.NONE : marks.build());
     }
 
-    private void mark(Marks.Builder marks, Projector projector, Client client, Npc npc) {
+    private void mark(Marks.Builder marks, Projector projector, ClientOp client, Npc npc) {
         MapCoord at = npc.getCoord();
         if (at == null) {
             return;

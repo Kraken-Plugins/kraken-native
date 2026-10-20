@@ -1,11 +1,12 @@
 package com.kraken.client.devtools.tools;
 
 import com.kraken.api.KrakenApi;
-import com.kraken.api.events.Events;
-import com.kraken.api.events.StatUpdate;
-import com.kraken.api.game.ClientState;
-import com.kraken.api.game.InvItem;
-import com.kraken.api.game.Inventory;
+import com.kraken.api.lua.ClientOp;
+import com.kraken.api.lua.ClientState;
+import com.kraken.api.lua.InvItem;
+import com.kraken.api.lua.Inventory;
+import com.kraken.api.lua.events.Events;
+import com.kraken.api.lua.events.StatUpdate;
 import com.kraken.client.devtools.Category;
 import com.kraken.client.devtools.DevTool;
 import com.kraken.client.devtools.ToolOption;
@@ -56,8 +57,8 @@ final class EventLogTool extends DevTool<List<String>> {
 
     @Override
     protected void onStart(KrakenApi api) {
-        events = api.events();
-        ClientState state = api.clientState();
+        events = api.lua().events();
+        ClientState state = api.lua().clientState();
         subscriptions.add(events.subscribe(Events.ON_GAME_STATE_CHANGED, trigger -> {
             if (gameState.isOn()) {
                 add("Game state  " + trigger + " (" + trigger.value() + ")");
@@ -101,13 +102,13 @@ final class EventLogTool extends DevTool<List<String>> {
         }));
         subscriptions.add(events.subscribe(Events.ON_MAP_REBUILD_POST, () -> {
             if (map.isOn()) {
-                add("Map rebuilt  base " + api.scene().getBase());
+                add("Map rebuilt  base " + api.lua().scene().getBase());
             }
         }));
         subscriptions.add(events.subscribe(Events.ON_SCREEN_RESIZE, () -> {
             if (resize.isOn()) {
-                add("Screen resized  client " + api.graphics().clientDimensions() + ", window "
-                        + api.graphics().screenSize());
+                add("Screen resized  client " + api.lua().graphics().clientDimensions() + ", window "
+                        + api.lua().graphics().screenSize());
             }
         }));
     }
@@ -145,10 +146,11 @@ final class EventLogTool extends DevTool<List<String>> {
             return;
         }
         if (locs.isOn() && locSubscriptions.isEmpty()) {
+            ClientOp client = api.lua().clientOp();
             locSubscriptions.add(events.subscribe(Events.ON_LOC_LOAD, (id, name, layer) ->
-                    add("Loc loaded  " + id + " " + name + " (layer " + layer + ") at " + api.client().locCoord())));
+                    add("Loc loaded  " + id + " " + name + " (layer " + layer + ") at " + client.locCoord())));
             locSubscriptions.add(events.subscribe(Events.ON_LOC_UNLOAD, (id, name, layer) ->
-                    add("Loc unloaded  " + id + " " + name + " (layer " + layer + ") at " + api.client().locCoord())));
+                    add("Loc unloaded  " + id + " " + name + " (layer " + layer + ") at " + client.locCoord())));
         } else if (!locs.isOn() && !locSubscriptions.isEmpty()) {
             locSubscriptions.forEach(events::unsubscribe);
             locSubscriptions.clear();

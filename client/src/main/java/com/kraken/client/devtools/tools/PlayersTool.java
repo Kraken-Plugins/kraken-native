@@ -1,9 +1,9 @@
 package com.kraken.client.devtools.tools;
 
 import com.kraken.api.KrakenApi;
-import com.kraken.api.game.Client;
-import com.kraken.api.game.MapCoord;
-import com.kraken.api.game.Player;
+import com.kraken.api.lua.ClientOp;
+import com.kraken.api.lua.MapCoord;
+import com.kraken.api.lua.Player;
 import com.kraken.client.devtools.Category;
 import com.kraken.client.devtools.DevTool;
 import com.kraken.client.devtools.ToolOption;
@@ -54,7 +54,7 @@ final class PlayersTool extends DevTool<Listing<PlayersTool.Row>> {
 
     @Override
     protected Listing<Row> read(KrakenApi api) {
-        Client client = api.client();
+        ClientOp client = api.lua().clientOp();
         MapCoord self = localTile(client);
         List<Row> rows = new ArrayList<>();
         Projector projector = isOverlayOn() ? Projector.of(api) : null;
@@ -74,7 +74,7 @@ final class PlayersTool extends DevTool<Listing<PlayersTool.Row>> {
         return new Listing<>(rows, marks == null ? Marks.NONE : marks.build());
     }
 
-    private void mark(Marks.Builder marks, Projector projector, Client client, Player player, MapCoord at) {
+    private void mark(Marks.Builder marks, Projector projector, ClientOp client, Player player, MapCoord at) {
         boolean local = player.isLocalPlayer();
         if (at == null || (local && !self.isOn())) {
             return;

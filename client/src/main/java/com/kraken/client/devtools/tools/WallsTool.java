@@ -1,8 +1,8 @@
 package com.kraken.client.devtools.tools;
 
 import com.kraken.api.KrakenApi;
-import com.kraken.api.game.Loc;
-import com.kraken.api.game.MapCoord;
+import com.kraken.api.lua.Loc;
+import com.kraken.api.lua.MapCoord;
 import com.kraken.client.devtools.Category;
 import com.kraken.client.devtools.DevTool;
 import com.kraken.client.devtools.ToolOption;
@@ -32,13 +32,13 @@ final class WallsTool extends DevTool<Marks> {
 
     @Override
     protected Marks read(KrakenApi api) {
-        MapCoord self = api.client().coord();
+        MapCoord self = api.lua().clientOp().coord();
         Projector projector = self == null ? null : Projector.of(api);
         if (projector == null) {
             return null;
         }
         Marks.Builder marks = new Marks.Builder(projector);
-        for (Loc loc : api.scene().getLocs(self, GameObjectsTool.RADIUS)) {
+        for (Loc loc : api.lua().scene().getLocs(self, GameObjectsTool.RADIUS)) {
             if (loc.layer() == Loc.WALL) {
                 marks.outline(projector.tile(loc.coord()), COLOR, FILL);
                 if (ids.isOn()) {

@@ -1,10 +1,10 @@
 package com.kraken.client.devtools.tools;
 
 import com.kraken.api.KrakenApi;
-import com.kraken.api.game.Client;
-import com.kraken.api.game.Client.WornSlots;
-import com.kraken.api.game.InvItem;
-import com.kraken.api.game.Inventory;
+import com.kraken.api.lua.ClientOp;
+import com.kraken.api.lua.ClientOp.WornSlots;
+import com.kraken.api.lua.InvItem;
+import com.kraken.api.lua.Inventory;
 import com.kraken.client.devtools.Category;
 import com.kraken.client.devtools.DevTool;
 import com.kraken.client.devtools.ToolOption;
@@ -40,7 +40,7 @@ final class InventoryTool extends DevTool<List<InventoryTool.Row>> {
 
     @Override
     protected List<Row> read(KrakenApi api) {
-        Client client = api.client();
+        ClientOp client = api.lua().clientOp();
         List<Inventory> inventories = new ArrayList<>(client.getInventories());
         inventories.sort(Comparator.comparingInt(Inventory::id));
         boolean showEmpty = empty.isOn();
@@ -51,7 +51,7 @@ final class InventoryTool extends DevTool<List<InventoryTool.Row>> {
                 if (item.isEmpty() && !showEmpty) {
                     continue;
                 }
-                WornSlots worn = inventory.id() == Client.INV_WORN ? WornSlots.of(item.slot()) : null;
+                WornSlots worn = inventory.id() == ClientOp.INV_WORN ? WornSlots.of(item.slot()) : null;
                 String itemName = item.isEmpty() ? "" : client.ocName(item.id());
                 Boolean stacks = item.isEmpty() ? null : client.ocStackable(item.id());
                 rows.add(new Row((long) inventory.id() << 32 | item.slot(), inventory.id(), name(inventory.id()), size,
@@ -79,9 +79,9 @@ final class InventoryTool extends DevTool<List<InventoryTool.Row>> {
 
     private static String name(int inv) {
         return switch (inv) {
-            case Client.INV_BACKPACK -> "Backpack";
-            case Client.INV_WORN -> "Worn";
-            case Client.INV_BANK -> "Bank";
+            case ClientOp.INV_BACKPACK -> "Backpack";
+            case ClientOp.INV_WORN -> "Worn";
+            case ClientOp.INV_BANK -> "Bank";
             default -> "";
         };
     }

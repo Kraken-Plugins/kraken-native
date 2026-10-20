@@ -1,9 +1,9 @@
 package com.kraken.client.devtools.tools;
 
 import com.kraken.api.KrakenApi;
-import com.kraken.api.config.VarBitType;
-import com.kraken.api.events.Events;
-import com.kraken.api.game.ClientState;
+import com.kraken.api.lua.ClientState;
+import com.kraken.api.lua.events.Events;
+import com.kraken.api.lua.types.VarBitType;
 import com.kraken.client.devtools.Category;
 import com.kraken.client.devtools.DevTool;
 import com.kraken.client.devtools.ToolOption;
@@ -61,8 +61,8 @@ final class VarInspectorTool extends DevTool<List<String>> {
 
     @Override
     protected void onStart(KrakenApi api) {
-        ClientState state = api.clientState();
-        events = api.events();
+        ClientState state = api.lua().clientState();
+        events = api.lua().events();
         lastVarps = state.getVarps();
         lastIntVarcs = null;
         lastStringVarcs = null;
@@ -82,7 +82,7 @@ final class VarInspectorTool extends DevTool<List<String>> {
 
     @Override
     protected List<String> read(KrakenApi api) {
-        diffVarcs(api.clientState());
+        diffVarcs(api.lua().clientState());
         if (pending.isEmpty()) {
             return null;
         }
