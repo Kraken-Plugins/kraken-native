@@ -10,6 +10,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -20,7 +21,8 @@ import java.util.Map;
  * <p>The client keeps the components of every interface group it has loaded in its interface store: per group, a slot
  * per static component, and per static component, a slot per dynamic child. A slot is a {@code jag::shared_ptr} to the
  * component. The groups on screen are also in a hash map from group id to where they are drawn
- * ({@link Coordinates}).
+ * ({@link Coordinates}), and the groups opened inside a component in a hash map from that component's id to the group
+ * (its sub-interfaces; the layer drawer draws the group it finds there after the layer's own children).
  */
 public final class WidgetReader extends GameReader {
 
@@ -60,6 +62,11 @@ public final class WidgetReader extends GameReader {
     private final int nodeKey;
     private final int nodeValue;
     private final int nodeNext;
+    private final int cSub;
+    private final int cSubCount;
+    private final int subKey;
+    private final int subGroup;
+    private final int subNext;
     private final int[] coordinates;
     private final boolean storeReady;
     private final boolean dynamicReady;
@@ -95,6 +102,11 @@ public final class WidgetReader extends GameReader {
         this.nodeKey = optionalOffset("IfGroupNode.key");
         this.nodeValue = optionalOffset("IfGroupNode.value");
         this.nodeNext = optionalOffset("IfGroupNode.next");
+        this.cSub = optionalOffset("Client.subInterfaces.buckets");
+        this.cSubCount = optionalOffset("Client.subInterfaces.bucketCount");
+        this.subKey = optionalOffset("SubInterfaceNode.key");
+        this.subGroup = optionalOffset("SubInterfaceNode.group");
+        this.subNext = optionalOffset("SubInterfaceNode.next");
         this.storeReady = cStore >= 0 && storeGroupCount >= 0 && storeGroups >= 0 && groupStride > 0 && groupCount >= 0
                 && groupSlots >= 0 && slotStride > 0;
         this.dynamicReady = field("dynCount") >= 0 && field("dynSlots") >= 0 && field("layerSubId") >= 0;
@@ -154,6 +166,63 @@ public final class WidgetReader extends GameReader {
         });
         Collections.sort(groups);
         return groups;
+    }
+
+    /**
+     * Whether this build's mapping has the sub-interface table's keys.
+     *
+     * @return true if {@link #getSubInterfaces()} can read the table
+     */
+    public boolean hasSubInterfaces() {
+        return cSub >= 0 && cSubCount >= 0 && subKey >= 0 && subGroup >= 0 && subNext >= 0;
+    }
+
+    /**
+     * The groups opened inside components: the client's sub-interface table, read now.
+     *
+     * @return each group by the packed id of the component it is opened in; empty if the table can't be read or this
+     *         build's mapping lacks it
+     */
+    public Map<Integer, Integer> getSubInterfaces() {
+        Map<Integer, Integer> out = new LinkedHashMap<>();
+        long client = clientBase();
+        if (client == 0 || !hasSubInterfaces()) {
+            return out;
+        }
+        int count = safeInt(client + cSubCount, 0);
+        ByteBuffer heads = count <= 0 || count > MAX_SLOTS ? null : readBlock(safePointer(client + cSub), count * 8);
+        if (heads == null) {
+            return out;
+        }
+        int steps = 0;
+        for (int b = 0; b < count; b++) {
+            long node = heads.getLong(b * 8);
+            while (node != 0 && steps++ < MAX_CHAIN) {
+                int component = safeInt(node + subKey, -1);
+                int group = safeInt(node + subGroup, -1);
+                if (component != -1 && group >= 0) {
+                    out.put(component, group);
+                }
+                node = safePointer(node + subNext);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * The component a group is opened in, from the sub-interface table.
+     *
+     * @param groupId the group
+     * @return the component's packed id, or -1 for a group opened in none (the top-level interface) or if the table
+     *         can't be read
+     */
+    public int getMount(int groupId) {
+        for (Map.Entry<Integer, Integer> entry : getSubInterfaces().entrySet()) {
+            if (entry.getValue() == groupId) {
+                return entry.getKey();
+            }
+        }
+        return -1;
     }
 
     /**
@@ -264,8 +333,9 @@ public final class WidgetReader extends GameReader {
     }
 
     /**
-     * {@code IfType.screenCoords} as the client works it out: x and y summed up the parent chain, plus the group's
-     * offset and script offset at the top.
+     * {@code IfType.screenCoords} as the client works it out: x and y summed up the parent chain within the group,
+     * plus the group's offset and script offset at its top. It doesn't go on into the component the group is opened
+     * in; the group's offset already places it there.
      *
      * @param self the component
      * @return the screen position in client pixels, or null if it can't be read
@@ -278,7 +348,7 @@ public final class WidgetReader extends GameReader {
             x += at.getRelativeX();
             y += at.getRelativeY();
             Widget parent = at.getParent();
-            if (parent == null) {
+            if (parent == null || parent.getId() >>> 16 != at.getId() >>> 16) {
                 Coordinates group = getCoordinates(at.getId() >> 16);
                 if (group != null) {
                     x += group.offX() + group.scriptOffX();

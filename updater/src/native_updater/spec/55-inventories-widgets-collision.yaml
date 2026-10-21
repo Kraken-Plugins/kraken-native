@@ -92,6 +92,44 @@ keys:
     strategies:
       - getter: { in: InterfaceQuery.retrieveIfGroup, base: hash_node, load: any, select: { nth: 1, min: 4 } }
 
+  # Sub-interfaces: hash_map<int componentId, SubInterface> on the Client, from a component to the group opened in it
+  # (what IF_OPENSUB fills). The layer drawer looks a static layer's id up in it after drawing the layer's children and
+  # passes the group it finds to the group drawer. The node keeps the value inline: key at 0, group at 4, next at 0x10.
+  - key: Client.subInterfaces.buckets
+    type: ptr
+    priority: P1
+    live: subInterfaces
+    strategies:
+      - hash-map: { in: "@IfDrawLayer", base: arg0, part: buckets }
+  - key: Client.subInterfaces.bucketCount
+    type: i32
+    priority: P1
+    live: subInterfaces
+    strategies:
+      - hash-map: { in: "@IfDrawLayer", base: arg0, part: count }
+    invariants:
+      - equals: "Client.subInterfaces.buckets + 8"
+  - key: SubInterfaceNode.key
+    type: i32
+    priority: P1
+    live: subInterfaces
+    doc: The component's packed id (group << 16 | index).
+    strategies:
+      - hash-map: { in: "@IfDrawLayer", base: arg0, part: node_key }
+  - key: SubInterfaceNode.next
+    type: ptr
+    priority: P1
+    live: subInterfaces
+    strategies:
+      - hash-map: { in: "@IfDrawLayer", base: arg0, part: node_next }
+  - key: SubInterfaceNode.group
+    type: i32
+    priority: P1
+    live: subInterfaces
+    doc: The group opened in the component; the layer drawer passes it to the group drawer.
+    strategies:
+      - getter: { in: "@IfDrawLayer", base: hash_node, load: i32, select: { passed_to: { arg: 1 } } }
+
   # Interface store: every loaded group's components, by group id. groups[g] is an array of jag::shared_ptr<IfType>
   # slots, one per static component; a static component keeps its dynamic children in a slot array of its own.
   - key: Client.interfaceStore

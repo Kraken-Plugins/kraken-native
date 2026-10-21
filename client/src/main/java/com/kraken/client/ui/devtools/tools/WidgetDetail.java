@@ -131,8 +131,8 @@ record WidgetDetail(String key, Area bounds, boolean gone, List<Section> section
         if (info != null) {
             WidgetForest.WidgetNode mount = forest.node(info.mount());
             out.section("Placement")
-                    .add("Drawn in", mount == null ? "nothing (a root)"
-                            : label(mount.row()) + "  (found by where the group is drawn)")
+                    .add("Opened in", mount == null ? "nothing (a root)"
+                            : label(mount.row()) + (info.guessed() ? "  (guessed from where the group is drawn)" : ""))
                     .add("Offset", info.offX() + ", " + info.offY())
                     .addIf(info.scriptOffX() != 0 || info.scriptOffY() != 0, "Script offset",
                             info.scriptOffX() + ", " + info.scriptOffY())

@@ -30,8 +30,8 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Browses every open interface as one tree, with the cache's names for groups and components: each group under the
- * widget it is drawn in, each widget with its static children, then its dynamic ones. The selected widget's fields are
- * read fresh every poll and it is outlined over the game; a widget can also be picked by clicking it in the game.
+ * component it is opened in, each widget with its static children, then its dynamic ones. The selected widget's fields
+ * are read fresh every poll and it is outlined over the game; a widget can also be picked by clicking it in the game.
  *
  * <p>Reading every open group costs far more than one widget, so whole-tree reads are spaced out to take at most
  * {@link #READ_SHARE} of the poll thread's time, and repeated at once when a group opens or closes. The selected
@@ -238,7 +238,10 @@ final class WidgetInspectorTool extends DevTool<WidgetInspectorTool.Snapshot> {
             groups.add(group);
         }
         Dimension canvas = new Dimension(Math.max(1, client.getCanvasWidth()), Math.max(1, client.getCanvasHeight()));
-        return WidgetForest.assemble(groups, canvas);
+        // The component each group is opened in; a mapping without the table leaves the forest to guess
+        Map<Integer, Integer> openedIn = new HashMap<>();
+        client.getComponentTable().forEach((component, node) -> openedIn.put(node.getId(), component));
+        return WidgetForest.assemble(groups, openedIn, canvas);
     }
 
     /**

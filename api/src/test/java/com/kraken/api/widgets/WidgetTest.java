@@ -10,6 +10,7 @@ import java.awt.Rectangle;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 import static com.kraken.api.GameFixture.CLIENT;
 import static com.kraken.api.GameFixture.LONG_TEXT;
@@ -28,6 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class WidgetTest {
 
     private static final int INVENTORY = 149;
+    private static final int TOPLEVEL = 161;
     private static final int CHATBOX = 162;
 
     private GameFixture game;
@@ -61,7 +63,7 @@ class WidgetTest {
         assertTrue(all.isRendering());
         assertEquals("Widget[162:1]", all.toString());
         assertNull(client.getWidget(151, 0), "a group the client hasn't loaded");
-        assertEquals(List.of(INVENTORY, CHATBOX), client.getOpenWidgetGroups());
+        assertEquals(List.of(INVENTORY, TOPLEVEL, CHATBOX), client.getOpenWidgetGroups());
     }
 
     @Test
@@ -173,6 +175,32 @@ class WidgetTest {
         game.memory.putByte(client.getWidget(INVENTORY, 0).getAddress() + game.map.offset("IfType.hidden"), 1);
         assertTrue(nested.isHidden(), "a hidden root hides everything under it");
         assertFalse(nested.isSelfHidden());
+    }
+
+    @Test
+    void aGroupsTopLevelWidgetsParentIsTheComponentItIsOpenedIn() {
+        int panel = TOPLEVEL << 16 | 1;
+        assertEquals(Map.of(panel, new WidgetNode(INVENTORY)), client.getComponentTable());
+
+        Widget root = client.getWidget(INVENTORY, 0);
+        assertEquals(panel, root.getParentId());
+        assertEquals(client.getWidget(panel), root.getParent());
+        assertEquals(client.getWidget(TOPLEVEL, 0), root.getParent().getParent());
+        assertNull(client.getWidget(TOPLEVEL, 0).getParent(), "the toplevel is opened in nothing");
+        assertEquals(-1, client.getWidget(CHATBOX, 0).getParentId(), "the chatbox isn't in the table");
+    }
+
+    @Test
+    void aHiddenComponentHidesTheInterfaceOpenedInIt() {
+        Widget item = client.getWidget(INVENTORY, 0).getChild(0);
+        assertFalse(item.isHidden());
+
+        game.memory.putByte(client.getWidget(TOPLEVEL, 1).getAddress() + game.map.offset("IfType.hidden"), 1);
+
+        assertTrue(item.isHidden(), "the side panel the inventory is opened in is hidden, as an inactive tab's is");
+        assertFalse(item.isSelfHidden());
+        assertEquals(new Point(16 + 970, 8 + 328), item.getCanvasLocation(),
+                "the position comes from where the inventory is drawn, not from the panel");
     }
 
     @Test

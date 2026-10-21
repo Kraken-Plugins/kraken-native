@@ -25,6 +25,7 @@ class WidgetForestTest {
 
     private static final int TOPLEVEL = 161;
     private static final int INVENTORY = 149;
+    private static final int PRAYER = 541;
     private static final Dimension CANVAS = new Dimension(800, 600);
 
     @Test
@@ -52,9 +53,40 @@ class WidgetForestTest {
         assertEquals(1, forest.getRoots().size(), "the inventory is inside the toplevel");
         assertEquals("161:1", forest.groupInfo(INVENTORY).mount(),
                 "of two layers at the group's corner, the one with no children");
+        assertTrue(forest.groupInfo(INVENTORY).guessed(), "no component table: the mount is guessed");
         assertEquals(List.of("g161", "161:0", "161:1", "g149", "149:0"),
                 forest.path("149:0").stream().map(Row::key).toList());
         assertNull(forest.groupInfo(TOPLEVEL).mount());
+    }
+
+    @Test
+    void theComponentTableSaysWhichPanelEachTabIsOpenedIn() {
+        GroupDraft toplevel = new GroupDraft(TOPLEVEL, "TOPLEVEL").drawn(new Area(0, 0, 800, 600), 0, 0, 0, 0)
+                .add(layer(TOPLEVEL, 0).at(0, 0, 800, 600)
+                        .add(layer(TOPLEVEL, 1).at(560, 200, 190, 261).hidden(true))
+                        .add(layer(TOPLEVEL, 2).at(560, 200, 190, 261)));
+        GroupDraft prayer = new GroupDraft(PRAYER, "PRAYERBOOK").drawn(new Area(560, 200, 190, 261), 560, 200, 0, 0)
+                .add(graphic(PRAYER, 0).at(0, 0, 190, 261));
+
+        WidgetForest forest = WidgetForest.assemble(List.of(toplevel, inventory(), prayer),
+                Map.of(INVENTORY, TOPLEVEL << 16 | 2, PRAYER, TOPLEVEL << 16 | 1), CANVAS);
+
+        assertEquals("161:2", forest.groupInfo(INVENTORY).mount(),
+                "two panels share the spot; the table tells them apart");
+        assertFalse(forest.groupInfo(INVENTORY).guessed());
+        assertEquals("161:1", forest.groupInfo(PRAYER).mount());
+        assertTrue(forest.node("149:0[0]").row().onScreen(), "the active tab's interface is on screen");
+        assertTrue(forest.node("541:0").row().hidden(), "the inactive tab's interface is hidden by its panel");
+        assertEquals("149:0[0]", forest.pick(560 + 20, 200 + 12).get(0).key());
+    }
+
+    @Test
+    void aGroupOpenedInAComponentOutsideTheForestIsARoot() {
+        WidgetForest forest = WidgetForest.assemble(List.of(inventory()), Map.of(INVENTORY, TOPLEVEL << 16 | 9),
+                CANVAS);
+
+        assertNull(forest.groupInfo(INVENTORY).mount());
+        assertEquals(List.of("g149"), forest.getRoots().stream().map(node -> node.row().key()).toList());
     }
 
     @Test

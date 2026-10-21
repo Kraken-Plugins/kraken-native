@@ -103,6 +103,7 @@ public final class GameFixture {
     public static final long IF_TYPES = 0xc30000000L;
     public static final long IF_OPEN = 0xc40000000L;
     public static final long IF_HEAP = 0xc50000000L;
+    public static final long IF_SUB = 0xc60000000L;
     public static final long PROJECTILES = 0xb60000000L;
     public static final long GRAPHICS_OBJECTS = 0xb70000000L;
     public static final long KEYED_PROJECTILES = 0xb80000000L;
@@ -1302,16 +1303,38 @@ public final class GameFixture {
         memory.putByte(text + map.container("string.heapFlagByte"), map.container("string.heapFlagMask"));
         groupSlots(162, chatRoot, all, line);
 
-        // Both open groups chain in bucket 6 of 13 (149 % 13 == 162 % 13)
+        // The toplevel: a root layer with two side panels where the inventory is drawn, the second hidden
+        int top = 161 << 16;
+        long topRoot = component(top, -1, -1, -1, WidgetType.LAYER, 0, 0, 1200, 800);
+        long panel = component(top | 1, -1, -1, top, WidgetType.LAYER, 970, 328, 190, 261);
+        long otherPanel = component(top | 2, -1, -1, top, WidgetType.LAYER, 970, 328, 190, 261);
+        memory.putByte(otherPanel + map.offset("IfType.hidden"), 1);
+        groupSlots(161, topRoot, panel, otherPanel);
+
+        // The inventory and chatbox chain in bucket 6 of 13 (149 % 13 == 162 % 13), the toplevel is alone in bucket 5
         int buckets = 13;
         memory.alloc(IF_OPEN, 0x200);
         memory.putLong(CLIENT + map.offset("Client.interfaces.buckets"), IF_OPEN);
         memory.putInt(CLIENT + map.offset("Client.interfaces.bucketCount"), buckets);
         long first = IF_OPEN + 0x100;
         long second = first + 0x40;
+        long third = second + 0x40;
         memory.putLong(IF_OPEN + 6 * 8, first);
+        memory.putLong(IF_OPEN + 5 * 8, third);
         openGroup(first, 162, second, 0, 461, 2, 1);
         openGroup(second, 149, 0, 970, 328, 0, 0);
+        openGroup(third, 161, 0, 0, 0, 0, 0);
+
+        // The component table: the inventory is opened in the toplevel's first side panel; the chatbox in nothing
+        int subBuckets = 7;
+        memory.alloc(IF_SUB, 0x100);
+        memory.putLong(CLIENT + map.offset("Client.subInterfaces.buckets"), IF_SUB);
+        memory.putInt(CLIENT + map.offset("Client.subInterfaces.bucketCount"), subBuckets);
+        long node = IF_SUB + 0x80;
+        memory.putLong(IF_SUB + (long) Integer.remainderUnsigned(top | 1, subBuckets) * 8, node);
+        memory.putInt(node + map.offset("SubInterfaceNode.key"), top | 1);
+        memory.putInt(node + map.offset("SubInterfaceNode.group"), 149);
+        memory.putLong(node + map.offset("SubInterfaceNode.next"), 0);
     }
 
     /**

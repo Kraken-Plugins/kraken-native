@@ -454,6 +454,27 @@ def run_checks(r, log):
                 steps += 1
     ok("widgets", any(g in (149, 162, 548, 161, 164) for g in groups), f"{len(groups)} interface groups open; known root ids present: {sorted(set(groups) & {149, 162, 548, 161, 164})}")
 
+    # Sub-interfaces: component -> the group opened in it. Every entry's group is open, and so is the group its
+    # component is in; logged in, the inventory (149) is one of them.
+    if "SubInterfaceNode" not in m["structs"]:
+        skipped("subInterfaces", "the mapping has no SubInterfaceNode keys")
+    else:
+        sb = r.ptr(client + r.off("Client", "subInterfaces.buckets"))
+        sc = r.i32(client + r.off("Client", "subInterfaces.bucketCount"))
+        subs = []
+        if 0 < sc < 8192 and sb:
+            for b in range(min(sc, 256)):
+                node, steps = r.ptr(sb + 8 * b), 0
+                while node and steps < 32:
+                    subs.append((r.i32(node + r.off("SubInterfaceNode", "key")), r.i32(node + r.off("SubInterfaceNode", "group"))))
+                    node = r.ptr(node + r.off("SubInterfaceNode", "next"))
+                    steps += 1
+        bad = [(c, g) for c, g in subs if g not in groups or (c >> 16) not in groups]
+        inventory = [f"{c >> 16}:{c & 0xffff}" for c, g in subs if g == 149]
+        ok("subInterfaces", bool(subs) and not bad and bool(inventory),
+           f"{len(subs)} sub-interfaces, all between open groups; inventory opened in {inventory}" if not bad
+           else f"entries outside the open groups: {[(f'{c >> 16}:{c & 0xffff}', g) for c, g in bad][:5]}")
+
     # The minimenu: the rows of what the mouse is over (or of the open menu), top first; the bottom row is "Cancel".
     if "Minimenu" not in m["structs"]:
         skipped("minimenu", "the mapping has no Minimenu keys")

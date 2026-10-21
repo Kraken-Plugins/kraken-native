@@ -105,3 +105,6 @@ fingerprints:
   IfChildren:           { callee_of: osrs.IfType.children }
   # The op names getter copies the component (a big copy constructor) and reads the copy in this small helper.
   IfOpNames:            { callee_of: osrs.IfType.opNames, max_size: 0x400 }
+  # The layer drawer: draws a static layer's children, then the interface opened in it (Client.subInterfaces). It also
+  # draws the FPS counter, so it is the one function that uses the counter's format string.
+  IfDrawLayer:          { references: "%s:%0.1f", refs_global: global.cycle }

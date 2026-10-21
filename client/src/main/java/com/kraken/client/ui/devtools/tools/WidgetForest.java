@@ -20,9 +20,8 @@ import java.util.Set;
  * children, then the groups opened inside it. Built on the poll thread from {@link GroupDraft}s and immutable after,
  * so it can be handed to the EDT.
  *
- * <p>The client's open-interface map says where each group is drawn but not which component it was opened in, so a
- * group is put under the empty layer drawn exactly where the group is ({@link #assemble}). A group with no such layer
- * is a root.
+ * <p>Each group goes under the component the client's component table says it is opened in. A mapping without the
+ * table leaves the forest to guess from where each group is drawn ({@link #assemble}).
  */
 final class WidgetForest {
 
@@ -172,10 +171,11 @@ final class WidgetForest {
      * @param scriptOffX extra x a Lua plugin moved it by
      * @param scriptOffY extra y a Lua plugin moved it by
      * @param components how many static widgets it has
-     * @param mount      the key of the widget it is drawn in, or null for a root
+     * @param mount      the key of the widget it is opened in, or null for a root
+     * @param guessed    whether the mount was guessed from where the group is drawn, for want of the component table
      */
     record GroupInfo(int id, String name, Area clip, int offX, int offY, int scriptOffX, int scriptOffY,
-                     int components, String mount) {
+                     int components, String mount, boolean guessed) {
     }
 
     /**
@@ -426,22 +426,25 @@ final class WidgetForest {
      * <p>A child's corner is its parent's corner plus its own x and y, less the parent's scroll; a group's roots start
      * from the group's offset and script offset. A layer clips its children to itself, inside its group's clip.
      *
-     * <p>A group goes under a static layer of another group whose corner is exactly where the group is drawn. Of
-     * several such layers, one whose area matches the group's clip wins, then an empty one (a component a group is
-     * opened in has no children of its own), then the deepest. Smaller groups are placed first, and a group is never
-     * put inside one that is already inside it.
+     * <p>A group goes under the component {@code openedIn} names for it. Without that table (an empty map), the mount
+     * is guessed: a static layer of another group whose corner is exactly where the group is drawn. Of several such
+     * layers, one whose area matches the group's clip wins, then an empty one (a component a group is opened in has no
+     * children of its own), then the deepest. The guess can't tell apart layers that share a place, such as the side
+     * panels each tab is opened in. Either way a group is never put inside one that is already inside it.
      *
-     * @param drafts the open groups as read
-     * @param canvas the canvas's size
+     * @param drafts   the open groups as read
+     * @param openedIn the component each group is opened in, by group id (packed component ids); empty to guess
+     * @param canvas   the canvas's size
      * @return the forest
      */
-    static WidgetForest assemble(List<GroupDraft> drafts, Dimension canvas) {
+    static WidgetForest assemble(List<GroupDraft> drafts, Map<Integer, Integer> openedIn, Dimension canvas) {
         for (GroupDraft group : drafts) {
             for (Draft root : group.roots) {
                 place(root, group.offX + group.scriptOffX, group.offY + group.scriptOffY, group.clip, 0);
             }
         }
-        Map<Integer, Draft> mounts = mounts(drafts);
+        boolean guessed = openedIn.isEmpty();
+        Map<Integer, Draft> mounts = guessed ? mounts(drafts) : mounts(drafts, openedIn);
         Map<Draft, List<GroupDraft>> opened = new IdentityHashMap<>();
         for (GroupDraft group : drafts) {
             Draft mount = mounts.get(group.id);
@@ -455,7 +458,8 @@ final class WidgetForest {
         for (GroupDraft group : drafts) {
             Draft mount = mounts.get(group.id);
             infos.put(group.id, new GroupInfo(group.id, group.name, group.clip, group.offX, group.offY,
-                    group.scriptOffX, group.scriptOffY, group.components, mount == null ? null : mount.key()));
+                    group.scriptOffX, group.scriptOffY, group.components, mount == null ? null : mount.key(),
+                    guessed && mount != null));
         }
         List<WidgetNode> roots = new ArrayList<>();
         for (GroupDraft group : drafts) {
@@ -465,6 +469,55 @@ final class WidgetForest {
         }
         roots.sort(Comparator.comparingInt((WidgetNode node) -> -size(node)).thenComparingInt(node -> node.row().id()));
         return new WidgetForest(roots, infos, canvas);
+    }
+
+    /**
+     * Places every group's widgets with no component table to go by: each group's mount is guessed.
+     *
+     * @param drafts the open groups as read
+     * @param canvas the canvas's size
+     * @return the forest
+     */
+    static WidgetForest assemble(List<GroupDraft> drafts, Dimension canvas) {
+        return assemble(drafts, Map.of(), canvas);
+    }
+
+    /**
+     * The widget each group is opened in, from the component table.
+     *
+     * @param drafts   the groups
+     * @param openedIn the component each group is opened in, by group id
+     * @return the mount of each group whose component is in the forest, by group id
+     */
+    private static Map<Integer, Draft> mounts(List<GroupDraft> drafts, Map<Integer, Integer> openedIn) {
+        Map<Integer, Draft> statics = new HashMap<>();
+        for (GroupDraft group : drafts) {
+            for (Draft root : group.roots) {
+                collectStatics(root, statics);
+            }
+        }
+        Map<Integer, Integer> parentGroup = new HashMap<>();
+        Map<Integer, Draft> mounts = new HashMap<>();
+        for (GroupDraft group : drafts) {
+            Integer component = openedIn.get(group.id);
+            Draft mount = component == null ? null : statics.get(component);
+            int mountGroup = component == null ? -1 : component >>> 16;
+            if (mount != null && mountGroup != group.id && !reaches(parentGroup, mountGroup, group.id)) {
+                mounts.put(group.id, mount);
+                parentGroup.put(group.id, mountGroup);
+            }
+        }
+        return mounts;
+    }
+
+    private static void collectStatics(Draft draft, Map<Integer, Draft> statics) {
+        if (draft.kind != Kind.STATIC) {
+            return;
+        }
+        statics.put(draft.id, draft);
+        for (Draft child : draft.children) {
+            collectStatics(child, statics);
+        }
     }
 
     private static void place(Draft draft, int originX, int originY, Area clip, int depth) {

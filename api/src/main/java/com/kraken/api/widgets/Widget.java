@@ -84,22 +84,29 @@ public final class Widget {
     }
 
     /**
-     * The widget's parent, read now. A group's top-level widgets have none, since the API doesn't read which component
-     * a group is opened in.
+     * The widget's parent, read now: the layer it is in, or for a group's top-level widget the component the group is
+     * opened in ({@link Client#getComponentTable()}).
      *
-     * @return the parent, or null for a group's top-level widget
+     * @return the parent; null for a top-level widget of a group opened in no component (the top-level interface, or
+     *         a group that isn't open)
      */
     public Widget getParent() {
-        return getLayerId() == -1 ? null : reader.lookup(getLayerId(), i32("layerSubId"));
+        if (getLayerId() != -1) {
+            return reader.lookup(getLayerId(), i32("layerSubId"));
+        }
+        int mount = reader.getMount(getId() >>> 16);
+        return mount == -1 ? null : reader.lookup(mount, -1);
     }
 
     /**
-     * The id of the widget's parent.
+     * The id of the widget's parent: the layer it is in, or for a group's top-level widget the component the group is
+     * opened in. Read now for a top-level widget.
      *
-     * @return the parent's packed id (a dynamic widget's static parent's); -1 for a group's top-level widget
+     * @return the parent's packed id (a dynamic widget's static parent's); -1 for a top-level widget of a group opened
+     *         in no component
      */
     public int getParentId() {
-        return getLayerId();
+        return getLayerId() != -1 ? getLayerId() : reader.getMount(getId() >>> 16);
     }
 
     /**
@@ -196,8 +203,8 @@ public final class Widget {
     }
 
     /**
-     * Whether the widget is hidden: by its own flag or a parent's, or because its group isn't open. Reads up the parent
-     * chain.
+     * Whether the widget is hidden: by its own flag or a parent's (through the component its group is opened in, so an
+     * inactive tab's interface is hidden), or because its group isn't open. Reads up the parent chain.
      *
      * @return true if the client won't draw it
      */

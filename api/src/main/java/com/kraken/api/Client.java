@@ -28,6 +28,7 @@ import com.kraken.api.scene.Projectile;
 import com.kraken.api.scene.Scene;
 import com.kraken.api.scene.WorldView;
 import com.kraken.api.widgets.Widget;
+import com.kraken.api.widgets.WidgetNode;
 import lombok.Getter;
 
 import java.nio.ByteBuffer;
@@ -751,6 +752,20 @@ public final class Client extends GameReader {
      */
     public List<Integer> getOpenWidgetGroups() {
         return widgets.getOpenGroups();
+    }
+
+    /**
+     * The interfaces opened inside components, read now: the client's sub-interface table, which says, for example,
+     * which side panel the inventory is opened in. The top-level interface is opened in no component, so it isn't in
+     * it.
+     *
+     * @return each interface by the packed id of the component it is opened in; empty if the table can't be read or
+     *         this build's mapping lacks it
+     */
+    public Map<Integer, WidgetNode> getComponentTable() {
+        Map<Integer, WidgetNode> table = new LinkedHashMap<>();
+        widgets.getSubInterfaces().forEach((component, group) -> table.put(component, new WidgetNode(group)));
+        return table;
     }
 
     /**

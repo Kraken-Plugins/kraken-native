@@ -1077,8 +1077,9 @@ final class WidgetInspectorView implements ToolView<WidgetInspectorTool.Snapshot
                 }
                 WidgetForest.GroupInfo info = forest.groupInfo(row.id());
                 WidgetNode mount = info == null ? null : forest.node(info.mount());
-                html.append("<br>").append(mount == null ? "Not drawn inside another interface"
-                        : "Drawn inside " + Theme.escape(mount.row().key()) + " (found by where it is drawn)");
+                html.append("<br>").append(mount == null ? "Not opened inside another interface"
+                        : "Opened in " + Theme.escape(mount.row().key())
+                        + (info.guessed() ? " (guessed from where it is drawn)" : ""));
             } else {
                 WidgetNames.Name name = row.kind() == Kind.STATIC ? names.component(row.id()) : null;
                 html.append("<b>").append(Theme.escape(row.key())).append("</b>&nbsp; ")

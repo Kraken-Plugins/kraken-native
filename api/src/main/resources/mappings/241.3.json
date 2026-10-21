@@ -45,6 +45,8 @@
       "zoomB": "0x4814",
       "interfaces.buckets": "0x413cc0",
       "interfaces.bucketCount": "0x413cc8",
+      "subInterfaces.buckets": "0x413ba0",
+      "subInterfaces.bucketCount": "0x413ba8",
       "interfaceStore": "0x413bd8",
       "renderCycle": "0x4133fc",
       "mapLoader": "0x49a8",
@@ -222,6 +224,11 @@
       "key": "0x0",
       "next": "0x28",
       "value": "0x4"
+    },
+    "SubInterfaceNode": {
+      "key": "0x0",
+      "next": "0x10",
+      "group": "0x4"
     },
     "IfStore": {
       "groupCount": "0x6888",
