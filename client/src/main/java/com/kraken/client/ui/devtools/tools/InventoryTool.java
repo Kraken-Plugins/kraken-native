@@ -2,6 +2,7 @@ package com.kraken.client.ui.devtools.tools;
 
 import com.kraken.api.Client;
 import com.kraken.api.GameSession;
+import com.kraken.api.definition.ItemComposition;
 import com.kraken.api.gameval.InventoryID;
 import com.kraken.api.item.EquipmentInventorySlot;
 import com.kraken.api.item.Item;
@@ -9,9 +10,13 @@ import com.kraken.api.item.ItemContainer;
 import com.kraken.client.ui.devtools.Category;
 import com.kraken.client.ui.devtools.DevTool;
 import com.kraken.client.ui.devtools.ToolOption;
+import com.kraken.client.ui.devtools.view.MappedView;
+import com.kraken.client.ui.devtools.view.TabbedView;
 import com.kraken.client.ui.devtools.view.TableView;
 import com.kraken.client.ui.devtools.view.ToolView;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignB;
+import org.kordamp.ikonli.materialdesign2.MaterialDesignT;
+import org.kordamp.ikonli.materialdesign2.MaterialDesignV;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -19,9 +24,10 @@ import java.util.List;
 
 /**
  * Every slot of every inventory the client holds: your backpack, worn equipment, and the bank or a shop once you've
- * opened it, with item names, each inventory's defined size, and the equipment slot a worn item sits in.
+ * opened it, with item names, each inventory's defined size, and the equipment slot a worn item sits in. The window
+ * has two tabs: a table of every slot, and the worn equipment and backpack drawn as the game lays them out.
  */
-final class InventoryTool extends DevTool<List<InventoryTool.Row>> {
+final class InventoryTool extends DevTool<InventoryTool.Snapshot> {
     /**
      * One slot's row.
      *
@@ -40,7 +46,22 @@ final class InventoryTool extends DevTool<List<InventoryTool.Row>> {
                int count, Boolean stackable) {
     }
 
+    /**
+     * One read of the inventories.
+     *
+     * @param rows     the table's rows: every filled slot, plus the empty ones when they're shown
+     * @param worn     the worn equipment's filled slots, or null when the client holds no worn inventory
+     * @param backpack the backpack's filled slots, or null when the client holds no backpack
+     */
+    record Snapshot(List<Row> rows, List<Row> worn, List<Row> backpack) {
+    }
+
     private final ToolOption empty = option("empty", "Show empty slots", false);
+
+    /**
+     * The window tab last picked, so the window reopens on it. EDT only.
+     */
+    private int tab;
 
     InventoryTool() {
         super("inventories", "Inventories", Category.STATE, MaterialDesignB.BAG_PERSONAL_OUTLINE,
@@ -54,13 +75,17 @@ final class InventoryTool extends DevTool<List<InventoryTool.Row>> {
     }
 
     @Override
-    protected List<Row> read(GameSession session) {
+    protected Snapshot read(GameSession session) {
         Client client = session.client();
         List<ItemContainer> containers = new ArrayList<>(client.getItemContainers());
         containers.sort(Comparator.comparingInt(ItemContainer::getId));
         boolean showEmpty = empty.isOn();
         List<Row> rows = new ArrayList<>();
+        List<Row> worn = null;
+        List<Row> backpack = null;
         for (ItemContainer container : containers) {
+            int inv = container.getId();
+            List<Row> filled = new ArrayList<>();
             Item[] items = container.getItems();
             for (int slot = 0; slot < items.length; slot++) {
                 Item item = items[slot];
@@ -68,19 +93,28 @@ final class InventoryTool extends DevTool<List<InventoryTool.Row>> {
                 if (isEmpty && !showEmpty) {
                     continue;
                 }
-                String worn = container.getId() == InventoryID.WORN ? wornSlot(slot) : "";
-                rows.add(new Row((long) container.getId() << 32 | slot, container.getId(), name(container.getId()),
-                        container.size(), slot, worn, isEmpty ? -1 : item.getId(),
-                        isEmpty ? "" : client.getItemDefinition(item.getId()).getName(), isEmpty ? 0 : item.getQuantity(),
-                        isEmpty ? null : client.getItemDefinition(item.getId()).isStackable()));
+                ItemComposition definition = isEmpty ? null : client.getItemDefinition(item.getId());
+                Row row = new Row((long) inv << 32 | slot, inv, name(inv), container.size(), slot,
+                        inv == InventoryID.WORN ? wornSlot(slot) : "", isEmpty ? -1 : item.getId(),
+                        isEmpty ? "" : definition.getName(), isEmpty ? 0 : item.getQuantity(),
+                        isEmpty ? null : definition.isStackable());
+                rows.add(row);
+                if (!isEmpty) {
+                    filled.add(row);
+                }
+            }
+            if (inv == InventoryID.WORN) {
+                worn = List.copyOf(filled);
+            } else if (inv == InventoryID.INV) {
+                backpack = List.copyOf(filled);
             }
         }
-        return rows;
+        return new Snapshot(List.copyOf(rows), worn, backpack);
     }
 
     @Override
-    protected ToolView<List<Row>> createView() {
-        return TableView.<Row>builder("slots")
+    protected ToolView<Snapshot> createView() {
+        TableView<Row> table = TableView.<Row>builder("slots")
                 .column("Inv", Integer.class, 50, Row::inv)
                 .column("Inventory", String.class, 90, Row::inventory)
                 .column("Size", Integer.class, 46, Row::size)
@@ -91,6 +125,12 @@ final class InventoryTool extends DevTool<List<InventoryTool.Row>> {
                 .column("Count", Integer.class, 80, Row::count)
                 .column("Stacks", Boolean.class, 56, Row::stackable)
                 .key(Row::key)
+                .build();
+        return TabbedView.<Snapshot>builder()
+                .tab("Table", MaterialDesignT.TABLE, new MappedView<>(table, Snapshot::rows))
+                .tab("Slots", MaterialDesignV.VIEW_GRID_OUTLINE, new InventorySlotsView())
+                .selected(tab)
+                .onSelect(index -> tab = index)
                 .build();
     }
 

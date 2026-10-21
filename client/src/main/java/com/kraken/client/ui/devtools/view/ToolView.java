@@ -4,7 +4,8 @@ import javax.swing.*;
 
 /**
  * The content of a tool's popout window. A fresh view is built each time the window opens, and it receives every
- * new snapshot while open. Reusable views: {@link TableView}, {@link FactsView}, {@link LogView}.
+ * new snapshot while open. Reusable views: {@link TableView}, {@link FactsView}, {@link LogView}, and
+ * {@link TabbedView} to put several of them behind tabs.
  *
  * @param <S> the tool's snapshot type
  */
