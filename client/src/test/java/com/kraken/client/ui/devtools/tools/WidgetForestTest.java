@@ -29,9 +29,9 @@ class WidgetForestTest {
 
     @Test
     void childrenArePlacedFromTheirParentLessItsScrollAndClippedToIt() {
-        Draft items = layer(INVENTORY, 0).at(0, 0, 190, 261).scroll(0, 40).state(false, true)
-                .add(dynamic(INVENTORY, 0, 0, WidgetType.GRAPHIC).at(16, 0, 36, 32).state(false, true))
-                .add(dynamic(INVENTORY, 0, 3, WidgetType.GRAPHIC).at(16, 50, 36, 32).state(false, true));
+        Draft items = layer(INVENTORY, 0).at(0, 0, 190, 261).scroll(0, 40)
+                .add(dynamic(INVENTORY, 0, 0, WidgetType.GRAPHIC).at(16, 0, 36, 32))
+                .add(dynamic(INVENTORY, 0, 3, WidgetType.GRAPHIC).at(16, 50, 36, 32));
         GroupDraft inventory = new GroupDraft(INVENTORY, "INVENTORY")
                 .drawn(new Area(500, 200, 190, 261), 500, 200, 0, 0).add(items);
 
@@ -60,11 +60,11 @@ class WidgetForestTest {
     @Test
     void aGroupIsNeverPutInsideOneThatIsInsideIt() {
         GroupDraft big = new GroupDraft(TOPLEVEL, "TOPLEVEL").drawn(new Area(0, 0, 800, 600), 0, 0, 0, 0)
-                .add(layer(TOPLEVEL, 0).at(0, 0, 800, 600).state(false, true)
-                        .add(layer(TOPLEVEL, 1).at(0, 0, 800, 600).state(false, true))
-                        .add(graphic(TOPLEVEL, 2).at(10, 10, 20, 20).state(false, true)));
+                .add(layer(TOPLEVEL, 0).at(0, 0, 800, 600)
+                        .add(layer(TOPLEVEL, 1).at(0, 0, 800, 600))
+                        .add(graphic(TOPLEVEL, 2).at(10, 10, 20, 20)));
         GroupDraft overlay = new GroupDraft(303, "OVERLAY").drawn(new Area(0, 0, 800, 600), 0, 0, 0, 0)
-                .add(layer(303, 0).at(0, 0, 800, 600).state(false, true));
+                .add(layer(303, 0).at(0, 0, 800, 600));
         big.components = 3;
         overlay.components = 1;
 
@@ -78,7 +78,7 @@ class WidgetForestTest {
     @Test
     void aHiddenLayerHidesItsChildrenAndTheGroupsInIt() {
         GroupDraft toplevel = toplevel();
-        toplevel.roots.get(0).children.get(0).state(true, false);
+        toplevel.roots.get(0).children.get(0).hidden(true);
 
         WidgetForest forest = WidgetForest.assemble(List.of(toplevel, inventory()), CANVAS);
 
@@ -92,18 +92,20 @@ class WidgetForestTest {
     @Test
     void aClickPicksTheTopmostWidgetThatDrawsSomething() {
         GroupDraft group = new GroupDraft(INVENTORY, "INVENTORY").drawn(new Area(0, 0, 800, 600), 0, 0, 0, 0)
-                .add(layer(INVENTORY, 0).at(0, 0, 200, 200).state(false, true)
-                        .add(graphic(INVENTORY, 1).at(10, 10, 50, 50).state(false, true))
-                        .add(graphic(INVENTORY, 2).at(20, 20, 50, 50).state(false, true))
-                        .add(graphic(INVENTORY, 3).at(20, 20, 50, 50).state(false, false))
-                        .add(graphic(INVENTORY, 4).at(20, 20, 50, 50).state(true, true))
-                        .add(layer(INVENTORY, 5).at(0, 0, 200, 200).state(false, true)));
+                .add(layer(INVENTORY, 0).at(0, 0, 200, 200)
+                        .add(graphic(INVENTORY, 1).at(10, 10, 50, 50))
+                        .add(graphic(INVENTORY, 2).at(20, 20, 50, 50))
+                        .add(layer(INVENTORY, 6).at(20, 20, 0, 0)
+                                .add(graphic(INVENTORY, 3).at(0, 0, 50, 50)))
+                        .add(graphic(INVENTORY, 4).at(20, 20, 50, 50).hidden(true))
+                        .add(layer(INVENTORY, 5).at(0, 0, 200, 200)));
 
         WidgetForest forest = WidgetForest.assemble(List.of(group), CANVAS);
 
         assertEquals(List.of("149:2", "149:1", "149:5", "149:0"),
                 forest.pick(30, 30).stream().map(Row::key).toList(),
-                "drawn last first; layers after the widgets that draw; undrawn and hidden ones left out");
+                "drawn last first; layers after the widgets that draw; hidden ones and ones outside their parent "
+                        + "left out");
         assertEquals(List.of("149:5", "149:0"), forest.pick(150, 150).stream().map(Row::key).toList());
         assertTrue(forest.pick(300, 300).isEmpty());
     }
@@ -126,14 +128,17 @@ class WidgetForestTest {
     }
 
     @Test
-    void theOnScreenFilterDropsWhatWasntDrawn() {
+    void theOnScreenFilterDropsHiddenWidgetsAndOnesOutsideTheirParent() {
         GroupDraft inventory = inventory();
-        inventory.roots.get(0).children.get(1).state(false, false);
+        inventory.roots.get(0).children.get(1).hidden(true);
+        inventory.roots.get(0).add(dynamic(INVENTORY, 0, 2, WidgetType.GRAPHIC).at(400, 8, 36, 32));
 
         WidgetForest forest = WidgetForest.assemble(List.of(inventory), CANVAS);
 
         WidgetNode items = forest.filter("", true).roots().get(0).children().get(0);
         assertEquals(List.of("149:0[0]"), items.children().stream().map(node -> node.row().key()).toList());
+        assertFalse(forest.node("149:0[2]").row().onScreen(), "outside the layer it is in");
+        assertTrue(forest.node("149:0[0]").row().onScreen());
     }
 
     @Test
@@ -176,10 +181,10 @@ class WidgetForestTest {
      */
     private static GroupDraft toplevel() {
         GroupDraft group = new GroupDraft(TOPLEVEL, "TOPLEVEL").drawn(new Area(0, 0, 800, 600), 0, 0, 0, 0)
-                .add(layer(TOPLEVEL, 0).at(0, 0, 800, 600).state(false, true)
-                        .add(layer(TOPLEVEL, 1).at(560, 200, 190, 261).state(false, true))
-                        .add(layer(TOPLEVEL, 2).at(560, 200, 190, 261).state(false, true)
-                                .add(graphic(TOPLEVEL, 3).at(0, 0, 10, 10).state(false, true))));
+                .add(layer(TOPLEVEL, 0).at(0, 0, 800, 600)
+                        .add(layer(TOPLEVEL, 1).at(560, 200, 190, 261))
+                        .add(layer(TOPLEVEL, 2).at(560, 200, 190, 261)
+                                .add(graphic(TOPLEVEL, 3).at(0, 0, 10, 10))));
         group.components = 4;
         return group;
     }
@@ -192,9 +197,9 @@ class WidgetForestTest {
     private static GroupDraft inventory() {
         GroupDraft group = new GroupDraft(INVENTORY, "INVENTORY")
                 .drawn(new Area(560, 200, 190, 261), 560, 200, 0, 0)
-                .add(layer(INVENTORY, 0).at(0, 0, 190, 261).state(false, true).text("ITEMS", "", "")
-                        .add(dynamic(INVENTORY, 0, 0, WidgetType.GRAPHIC).at(16, 8, 36, 32).state(false, true))
-                        .add(dynamic(INVENTORY, 0, 1, WidgetType.GRAPHIC).at(58, 8, 36, 32).state(false, true)));
+                .add(layer(INVENTORY, 0).at(0, 0, 190, 261).text("ITEMS", "", "")
+                        .add(dynamic(INVENTORY, 0, 0, WidgetType.GRAPHIC).at(16, 8, 36, 32))
+                        .add(dynamic(INVENTORY, 0, 1, WidgetType.GRAPHIC).at(58, 8, 36, 32)));
         group.components = 1;
         return group;
     }

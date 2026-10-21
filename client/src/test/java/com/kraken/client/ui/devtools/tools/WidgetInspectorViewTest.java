@@ -98,10 +98,10 @@ class WidgetInspectorViewTest {
      */
     private static WidgetForest inventory(List<Integer> slots, String summary) {
         Draft items = new Draft(Kind.STATIC, 149 << 16, -1, WidgetType.LAYER).at(0, 0, 190, 261)
-                .text("ITEMS", "", "").state(false, true);
+                .text("ITEMS", "", "");
         for (int slot : slots) {
             items.add(new Draft(Kind.DYNAMIC, 149 << 16, slot, WidgetType.GRAPHIC).at(slot * 40, 0, 36, 32)
-                    .text("", slot == 1 ? summary : "Coins", "").state(false, true));
+                    .text("", slot == 1 ? summary : "Coins", ""));
         }
         GroupDraft group = new GroupDraft(149, "INVENTORY").drawn(new Area(0, 0, 190, 261), 0, 0, 0, 0).add(items);
         return WidgetForest.assemble(List.of(group), CANVAS);
@@ -115,9 +115,9 @@ class WidgetInspectorViewTest {
      * @return the group
      */
     private static GroupDraft group(int id, int widgets) {
-        Draft root = new Draft(Kind.STATIC, id << 16, -1, WidgetType.LAYER).at(0, 0, 50, 50).state(false, true);
+        Draft root = new Draft(Kind.STATIC, id << 16, -1, WidgetType.LAYER).at(0, 0, 50, 50);
         for (int i = 1; i <= widgets; i++) {
-            root.add(new Draft(Kind.STATIC, id << 16 | i, -1, WidgetType.GRAPHIC).at(0, 0, 5, 5).state(false, true));
+            root.add(new Draft(Kind.STATIC, id << 16 | i, -1, WidgetType.GRAPHIC).at(0, 0, 5, 5));
         }
         return new GroupDraft(id, "").drawn(new Area(id, id, 50, 50), id, id, 0, 0).add(root);
     }

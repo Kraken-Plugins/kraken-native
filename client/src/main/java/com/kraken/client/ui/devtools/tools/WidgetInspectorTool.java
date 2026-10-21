@@ -26,6 +26,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Browses every open interface as one tree, with the cache's names for groups and components: each group under the
@@ -58,9 +59,16 @@ final class WidgetInspectorTool extends DevTool<WidgetInspectorTool.Snapshot> {
      */
     private static final int SUMMARY_TEXT = 48;
 
+    /**
+     * How long the selected widget counts as drawn after a read last saw the client draw it, in seconds. A widget's
+     * draw stamp only matches the client's counter on the frame that drew it, which a read from outside the client
+     * lands on now and then, not every time.
+     */
+    static final int DRAWN_MEMORY_SECONDS = 2;
+
     static final Color SELECTED = new Color(0x3cdcff);
     static final Color HOVERED = new Color(0xffcf40);
-    private static final Color DRAWN = new Color(255, 255, 255, 90);
+    private static final Color ON_SCREEN = new Color(255, 255, 255, 90);
     private static final Color SELECTED_FILL = new Color(0x3c, 0xdc, 0xff, 0x22);
 
     /**
@@ -74,7 +82,7 @@ final class WidgetInspectorTool extends DevTool<WidgetInspectorTool.Snapshot> {
     record Snapshot(WidgetForest forest, WidgetDetail detail, Marks marks, boolean overlayOn) {
     }
 
-    private final ToolOption allDrawn = option("drawn", "Outline everything drawn", false);
+    private final ToolOption allOnScreen = option("drawn", "Outline everything on screen", false);
 
     /**
      * Chosen in the window (EDT), read on the poll thread.
@@ -88,6 +96,9 @@ final class WidgetInspectorTool extends DevTool<WidgetInspectorTool.Snapshot> {
      */
     private WidgetForest forest;
     private long nextReadAt;
+    private String drawnKey;
+    private long drawnAt;
+    private boolean drawnSeen;
 
     WidgetInspectorTool() {
         super("widgets", "Widget inspector", Category.INTERFACE, MaterialDesignW.WIDGETS_OUTLINE,
@@ -175,9 +186,30 @@ final class WidgetInspectorTool extends DevTool<WidgetInspectorTool.Snapshot> {
             nextReadAt = now + (long) ((System.nanoTime() - now) / READ_SHARE);
         }
         String key = selected;
-        WidgetDetail detail = key == null ? null : WidgetDetail.read(client, current, key, WidgetNames.get());
+        WidgetDetail detail = key == null ? null
+                : WidgetDetail.read(client, current, key, WidgetNames.get(), this::drawnRecently);
         Marks marks = isOverlayOn() ? marks(current, detail, key, hovered) : Marks.NONE;
         return new Snapshot(current, detail, marks, isOverlayOn());
+    }
+
+    /**
+     * Whether a read saw the client draw the selected widget within the last {@link #DRAWN_MEMORY_SECONDS}.
+     *
+     * @param key      the selected widget's key
+     * @param drawnNow whether this read saw it drawn in the client's latest frame
+     * @return true if a read saw it drawn recently
+     */
+    boolean drawnRecently(String key, boolean drawnNow) {
+        long now = System.nanoTime();
+        if (!key.equals(drawnKey)) {
+            drawnKey = key;
+            drawnSeen = false;
+        }
+        if (drawnNow) {
+            drawnAt = now;
+            drawnSeen = true;
+        }
+        return drawnSeen && now - drawnAt < TimeUnit.SECONDS.toNanos(DRAWN_MEMORY_SECONDS);
     }
 
     @Override
@@ -288,7 +320,7 @@ final class WidgetInspectorTool extends DevTool<WidgetInspectorTool.Snapshot> {
                 widget.getType())
                 .at(widget.getRelativeX(), widget.getRelativeY(), widget.getWidth(), widget.getHeight())
                 .scroll(Math.max(0, widget.getScrollX()), Math.max(0, widget.getScrollY()))
-                .state(widget.isSelfHidden(), widget.isRendering());
+                .hidden(widget.isSelfHidden());
         WidgetNames.Name name = dynamic ? null : names.component(widget.getId());
         String text = WidgetForest.plain(widget.getText());
         String opBase = WidgetForest.plain(widget.getName());
@@ -360,7 +392,8 @@ final class WidgetInspectorTool extends DevTool<WidgetInspectorTool.Snapshot> {
     }
 
     /**
-     * The outlines over the game: everything drawn if asked, the hovered row's node, then the selection with its name.
+     * The outlines over the game: everything on screen if asked, the hovered row's node, then the selection with its
+     * name.
      *
      * @param forest   the forest
      * @param detail   the selected node's fresh fields, or null
@@ -370,9 +403,9 @@ final class WidgetInspectorTool extends DevTool<WidgetInspectorTool.Snapshot> {
      */
     private Marks marks(WidgetForest forest, WidgetDetail detail, String selected, String hovered) {
         Marks.Builder marks = new Marks.Builder(forest.getCanvas());
-        if (allDrawn.isOn()) {
-            for (Row row : forest.drawn()) {
-                marks.outline(box(row.visible()), DRAWN, null);
+        if (allOnScreen.isOn()) {
+            for (Row row : forest.onScreen()) {
+                marks.outline(box(row.visible()), ON_SCREEN, null);
             }
         }
         WidgetNode hover = forest.node(hovered);

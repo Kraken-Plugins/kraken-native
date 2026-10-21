@@ -65,7 +65,7 @@ import static com.formdev.flatlaf.FlatClientProperties.*;
  * interfaces with the selected node's detail beside it.
  *
  * <p>The tree keeps its rows as the game changes: each new forest is merged into the rows already shown by key, so
- * expanded rows stay expanded and the selection stays put. A row is dimmed when the client didn't draw it.
+ * expanded rows stay expanded and the selection stays put. A row is dimmed when it isn't on screen.
  */
 final class WidgetInspectorView implements ToolView<WidgetInspectorTool.Snapshot> {
 
@@ -96,7 +96,7 @@ final class WidgetInspectorView implements ToolView<WidgetInspectorTool.Snapshot
     private final JToggleButton pick = new JToggleButton("Pick",
             FontIcon.of(MaterialDesignC.CROSSHAIRS_GPS, 16, Theme.TEXT));
     private final JToggleButton onScreen = toolbarToggle(MaterialDesignE.EYE_CHECK_OUTLINE,
-            "Only what is on screen: hide widgets that are hidden or weren't drawn");
+            "Only what is on screen: hide widgets that are hidden or outside their parent's area");
     private final JToggleButton inGame = toolbarToggle(MaterialDesignV.VECTOR_SQUARE,
             "Outline the selection in the game");
     private final JLabel count = new JLabel();
@@ -110,7 +110,6 @@ final class WidgetInspectorView implements ToolView<WidgetInspectorTool.Snapshot
     private String lastQuery = "";
     private int hoverRow = -1;
     private boolean syncing;
-    private boolean drawnKnown;
 
     private GamePicker picker;
     private Point pickAt;
@@ -229,7 +228,6 @@ final class WidgetInspectorView implements ToolView<WidgetInspectorTool.Snapshot
         inGame.setSelected(snapshot.overlayOn());
         if (snapshot.forest() != forest) {
             forest = snapshot.forest();
-            drawnKnown = !forest.drawn().isEmpty();
             applyFilter();
             showDetail();
             if (picker != null && picker.isActive()) {
@@ -1097,7 +1095,7 @@ final class WidgetInspectorView implements ToolView<WidgetInspectorTool.Snapshot
                             .append(bounds.width()).append(" × ").append(bounds.height());
                 }
                 String state = row.selfHidden() ? "Hidden by its own flag" : row.hidden() ? "Hidden by a parent"
-                        : !row.drawn() && drawnKnown ? "Not drawn in the latest frame" : null;
+                        : !row.onScreen() ? "Outside its parent's area" : null;
                 if (state != null) {
                     html.append("<br><i>").append(state).append("</i>");
                 }
@@ -1108,7 +1106,7 @@ final class WidgetInspectorView implements ToolView<WidgetInspectorTool.Snapshot
 
     /**
      * Paints a tree row: the type's icon, the id, the name, a summary of what the widget shows, and an eye if it hides
-     * itself. Rows the client didn't draw are dimmed.
+     * itself. Rows that aren't on screen are dimmed.
      */
     private final class Cell extends JComponent implements TreeCellRenderer {
         private static final int ICON = 16;
@@ -1178,8 +1176,7 @@ final class WidgetInspectorView implements ToolView<WidgetInspectorTool.Snapshot
                     g.addRenderingHints(map);
                 }
                 g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                boolean dim = row.hidden() || drawnKnown && !row.drawn();
-                if (dim && !selected) {
+                if (!row.onScreen() && !selected) {
                     g.setComposite(AlphaComposite.SrcOver.derive(DIM));
                 }
                 // The theme picks a dark text for the focused highlight and a light one for the unfocused one

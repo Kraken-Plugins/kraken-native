@@ -43,6 +43,21 @@ record WidgetDetail(String key, Area bounds, boolean gone, List<Section> section
     }
 
     /**
+     * Remembers when the selected widget was last seen drawn.
+     */
+    @FunctionalInterface
+    interface DrawMemory {
+        /**
+         * Notes one read of the widget's draw stamp.
+         *
+         * @param key      the widget's key
+         * @param drawnNow whether this read saw it drawn in the client's latest frame
+         * @return whether a read saw it drawn recently
+         */
+        boolean drawnRecently(String key, boolean drawnNow);
+    }
+
+    /**
      * One field.
      *
      * @param label   what it is
@@ -60,9 +75,10 @@ record WidgetDetail(String key, Area bounds, boolean gone, List<Section> section
      * @param forest the forest the node was selected in
      * @param key    the node's key
      * @param names  the cache's names
+     * @param drawn  remembers when the widget was last seen drawn
      * @return the fields; {@link #gone} set if the node isn't in the forest or can't be read
      */
-    static WidgetDetail read(Client client, WidgetForest forest, String key, WidgetNames names) {
+    static WidgetDetail read(Client client, WidgetForest forest, String key, WidgetNames names, DrawMemory drawn) {
         List<Row> path = forest.path(key);
         if (path.isEmpty()) {
             return new WidgetDetail(key, null, true, List.of());
@@ -75,7 +91,7 @@ record WidgetDetail(String key, Area bounds, boolean gone, List<Section> section
         if (widget == null) {
             return new WidgetDetail(key, null, true, List.of());
         }
-        return widget(client, forest, path, widget, names);
+        return widget(client, path, widget, names, drawn);
     }
 
     /**
@@ -129,14 +145,14 @@ record WidgetDetail(String key, Area bounds, boolean gone, List<Section> section
      * A widget's fields, from a fresh read of it.
      *
      * @param client the client
-     * @param forest the forest
      * @param path   the rows from a root down to the widget
      * @param w      the widget, read now
      * @param names  the cache's names
+     * @param drawn  remembers when the widget was last seen drawn
      * @return the fields
      */
-    private static WidgetDetail widget(Client client, WidgetForest forest, List<Row> path, Widget w,
-                                       WidgetNames names) {
+    private static WidgetDetail widget(Client client, List<Row> path, Widget w, WidgetNames names,
+                                       DrawMemory drawn) {
         Row row = path.get(path.size() - 1);
         Row parent = path.size() > 1 ? path.get(path.size() - 2) : null;
         Area bounds = canvasBounds(w);
@@ -181,10 +197,13 @@ record WidgetDetail(String key, Area bounds, boolean gone, List<Section> section
             }
         }
 
-        boolean hidden = w.isHidden();
+        String onScreen = w.isSelfHidden() ? "no, hidden by its own flag" : w.isHidden() ? "no, hidden by a parent"
+                : row.visible() != null && row.visible().isEmpty() ? "no, outside its parent's area" : "yes";
+        String seconds = WidgetInspectorTool.DRAWN_MEMORY_SECONDS + " seconds";
         out.section("State")
-                .add("Hidden", w.isSelfHidden() ? "yes, by its own flag" : hidden ? "yes, by a parent" : "no")
-                .add("Drawn", w.isRendering() ? "yes, in the latest frame" : "no")
+                .add("On screen", onScreen)
+                .add("Drawn", drawn.drawnRecently(row.key(), w.isRendering()) ? "in the last " + seconds
+                        : "not in the last " + seconds)
                 .addIf(w.getEvent() > 0 || w.getEventCode() > 0, "Event", w.getEvent() + ", code " + w.getEventCode())
                 .addIf(w.getOverlayType() > 0, "Overlay", "type " + w.getOverlayType() + ", id " + w.getOverlayId())
                 .addIf(w.isEntityOverlay(), "Entity overlay", "yes")

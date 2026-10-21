@@ -180,6 +180,7 @@ public final class GameSurface {
             refused = true;
             log.warning("The native hook isn't drawing overlay surface " + generation + "; overlays go back to the "
                     + "window over the game.");
+            stopDrawing();
             return false;
         }
         return true;
@@ -356,6 +357,19 @@ public final class GameSurface {
         sequence = 0;
         Arrays.fill(tops, 0);
         Arrays.fill(bottoms, 0);
+    }
+
+    /**
+     * Tells the DLL to stop drawing any surface, so it doesn't keep showing a last frame nothing updates, and closes
+     * this side's mapping.
+     */
+    private void stopDrawing() {
+        try {
+            link.show(0, "");
+        } catch (RuntimeException e) {
+            log.log(Level.FINE, "Could not tell the native hook to stop drawing", e);
+        }
+        closeRegion();
     }
 
     private void closeRegion() {

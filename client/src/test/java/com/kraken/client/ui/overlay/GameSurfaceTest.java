@@ -131,6 +131,8 @@ class GameSurfaceTest {
         assertTrue(surface.isAvailable(), "within the grace period");
         now += 2_000_000_000L;
         assertFalse(surface.isAvailable(), "not drawn after it");
+        assertEquals("0 ", shown.get(shown.size() - 1), "the DLL is told to stop drawing");
+        assertTrue(regions.get(0).closed);
         surface.frame(4, 3, GL_4_6, 1);
         assertFalse(surface.isAvailable(), "given up for the connection");
         connect(4, 3);

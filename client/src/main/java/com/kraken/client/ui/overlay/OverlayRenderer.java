@@ -57,7 +57,7 @@ public final class OverlayRenderer {
     private final OverlayCompositor compositor;
     private volatile Frame front;
     private Frame back;
-    private long nextFrame = System.nanoTime();
+    private final FrameSchedule schedule = new FrameSchedule();
     private boolean failing;
 
     /**
@@ -133,7 +133,7 @@ public final class OverlayRenderer {
             clear();
             return;
         }
-        if (!due(front != null)) {
+        if (!due(front == null)) {
             return;
         }
         int canvasWidth = session.client().getCanvasWidth();
@@ -163,20 +163,14 @@ public final class OverlayRenderer {
     }
 
     /**
-     * Whether a frame is due at the {@linkplain KrakenConfig#overlayFrameRate frame rate}, stepping the schedule if so.
+     * Whether a frame is due at the {@linkplain KrakenConfig#overlayFrameRate frame rate}, moving the schedule on if so.
      *
-     * @param showing whether a frame is on screen; if not, one is due at once
+     * @param restart true when no frame is on screen yet, so one is due at once and the schedule starts over
      * @return true to draw a frame now
      */
-    private boolean due(boolean showing) {
-        long now = System.nanoTime();
+    private boolean due(boolean restart) {
         long interval = 1_000_000_000L / Math.max(1, Math.min(MAX_FRAME_RATE, config.overlayFrameRate()));
-        if (showing && now - nextFrame < 0) {
-            return false;
-        }
-        // Step the schedule rather than restarting it, so 30 fps on a 20 ms poll averages 30, not 25
-        nextFrame = now - nextFrame > interval ? now + interval : nextFrame + interval;
-        return true;
+        return schedule.due(System.nanoTime(), interval, restart);
     }
 
     /**
@@ -200,10 +194,11 @@ public final class OverlayRenderer {
             }
             return;
         }
-        if (!due(gameShowing)) {
+        boolean fresh = gameImage == null || gameImage.getWidth() != width || gameImage.getHeight() != height;
+        if (!due(fresh)) {
             return;
         }
-        if (gameImage == null || gameImage.getWidth() != width || gameImage.getHeight() != height) {
+        if (fresh) {
             gameImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB_PRE);
             gameTop = 0;
             gameBottom = 0;
@@ -307,6 +302,36 @@ public final class OverlayRenderer {
             front = null;
             back = null;
             window.refresh();
+        }
+    }
+
+    /**
+     * When frames are due: at most one an interval. A frame that is due moves the schedule on by one interval, so the
+     * average rate holds on a poll that doesn't divide the interval, and a call that isn't due leaves it alone, so
+     * however often it is asked, the schedule never runs ahead of the clock.
+     */
+    static final class FrameSchedule {
+
+        private long next;
+        private boolean started;
+
+        /**
+         * Whether a frame is due now, moving the schedule on if so.
+         *
+         * @param now      the time, in nanoseconds
+         * @param interval the nanoseconds between frames
+         * @param restart  true to draw at once and start the schedule over
+         * @return true to draw a frame now
+         */
+        boolean due(long now, long interval, boolean restart) {
+            if (!restart && started && now - next < 0) {
+                return false;
+            }
+            // Step the schedule rather than restarting it, so 30 fps on a 20 ms poll averages 30, not 25; start it over
+            // after a gap of more than a frame, so frames don't bunch up after a pause
+            next = restart || !started || now - next > interval ? now + interval : next + interval;
+            started = true;
+            return true;
         }
     }
 

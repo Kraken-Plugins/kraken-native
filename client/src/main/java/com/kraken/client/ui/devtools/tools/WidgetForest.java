@@ -104,11 +104,21 @@ final class WidgetForest {
      * @param visible    the part of {@code bounds} its clipping lets show, or null if unknown
      * @param selfHidden hidden by its own flag
      * @param hidden     hidden by its own flag or an ancestor's
-     * @param drawn      the client drew it in its latest frame (a group: any of its widgets)
      * @param search     lower-case text the search matches against
      */
     record Row(Kind kind, String key, int id, int index, int type, String name, String summary, Area bounds,
-               Area visible, boolean selfHidden, boolean hidden, boolean drawn, String search) {
+               Area visible, boolean selfHidden, boolean hidden, String search) {
+
+        /**
+         * Whether the node is on screen: nothing hides it and some of it lies inside its parents' areas. This, not
+         * the client's draw stamp, is what the tree goes by: the stamp only matches on the frame that drew the
+         * widget, which a read from outside the client rarely lands on.
+         *
+         * @return true if it is on screen
+         */
+        boolean onScreen() {
+            return !hidden && visible != null && !visible.isEmpty();
+        }
 
         /**
          * Whether this is a group.
@@ -192,7 +202,6 @@ final class WidgetForest {
     private final Map<String, String> parents;
     private final Map<Integer, GroupInfo> groups;
     private final List<Row> drawOrder;
-    private final boolean drawnKnown;
 
     private WidgetForest(List<WidgetNode> roots, Map<Integer, GroupInfo> groups, Dimension canvas) {
         this.roots = List.copyOf(roots);
@@ -208,7 +217,6 @@ final class WidgetForest {
         this.parents = Collections.unmodifiableMap(up);
         this.drawOrder = List.copyOf(order);
         this.widgetCount = order.size();
-        this.drawnKnown = order.stream().anyMatch(Row::drawn);
     }
 
     private static void index(WidgetNode node, String parent, Map<String, WidgetNode> keys, Map<String, String> up,
@@ -282,7 +290,7 @@ final class WidgetForest {
     }
 
     /**
-     * The widgets under a canvas point, topmost first. Only widgets the client drew and doesn't hide count, inside
+     * The widgets under a canvas point, topmost first. Only widgets on screen count ({@link Row#onScreen()}), inside
      * their clipping. Widgets that draw something come before the layers that hold them, since a layer covers the
      * whole of its children's area and draws nothing itself.
      *
@@ -295,7 +303,7 @@ final class WidgetForest {
         List<Row> layers = new ArrayList<>();
         for (int i = drawOrder.size() - 1; i >= 0; i--) {
             Row row = drawOrder.get(i);
-            if (row.hidden() || drawnKnown && !row.drawn() || row.visible() == null || !row.visible().contains(x, y)) {
+            if (!row.onScreen() || !row.visible().contains(x, y)) {
                 continue;
             }
             (row.type() == WidgetType.LAYER ? layers : drawing).add(row);
@@ -305,12 +313,12 @@ final class WidgetForest {
     }
 
     /**
-     * The rows of every widget the client drew in its latest frame, in draw order.
+     * The rows of every widget on screen ({@link Row#onScreen()}), in draw order.
      *
      * @return the rows
      */
-    List<Row> drawn() {
-        return drawOrder.stream().filter(row -> row.drawn() && !row.hidden()).toList();
+    List<Row> onScreen() {
+        return drawOrder.stream().filter(Row::onScreen).toList();
     }
 
     /**
@@ -318,7 +326,7 @@ final class WidgetForest {
      * ancestors stay so it can be reached.
      *
      * @param query       the text to look for, any case; blank keeps everything
-     * @param visibleOnly drop what the client didn't draw or hides
+     * @param visibleOnly drop what isn't on screen ({@link Row#onScreen()})
      * @return the nodes left
      */
     Filtered filter(String query, boolean visibleOnly) {
@@ -337,7 +345,7 @@ final class WidgetForest {
             Row row = node.row();
             boolean self = !q.isEmpty() && row.search().contains(q);
             List<WidgetNode> children = filter(node.children(), q, visibleOnly, matches, inMatch || self);
-            boolean shown = !visibleOnly || !row.hidden() && (row.drawn() || !drawnKnown);
+            boolean shown = !visibleOnly || row.onScreen();
             if (self && shown) {
                 matches.add(row.key());
             }
@@ -562,11 +570,10 @@ final class WidgetForest {
         for (Draft root : group.roots) {
             children.add(freeze(root, hiddenAbove, opened));
         }
-        boolean drawn = children.stream().anyMatch(child -> child.row().drawn());
         String search = (group.id + " " + group.name).toLowerCase(Locale.ROOT);
         Row row = new Row(Kind.GROUP, "g" + group.id, group.id, -1, -1, group.name,
                 group.components == 1 ? "1 widget" : group.components + " widgets", group.clip, group.clip, false,
-                hiddenAbove, drawn, search);
+                hiddenAbove, search);
         return new WidgetNode(row, List.copyOf(children));
     }
 
@@ -582,7 +589,7 @@ final class WidgetForest {
         String key = draft.key();
         String search = (key + " " + draft.name + " " + draft.summary + " " + draft.search).toLowerCase(Locale.ROOT);
         Row row = new Row(draft.kind, key, draft.id, draft.index, draft.type, draft.name, draft.summary, draft.bounds,
-                draft.visible, draft.selfHidden, hidden, draft.drawn, search);
+                draft.visible, draft.selfHidden, hidden, search);
         return new WidgetNode(row, List.copyOf(children));
     }
 
@@ -614,7 +621,6 @@ final class WidgetForest {
         int scrollX;
         int scrollY;
         boolean selfHidden;
-        boolean drawn;
         Area bounds;
         Area visible;
         int depth;
@@ -665,15 +671,13 @@ final class WidgetForest {
         }
 
         /**
-         * Sets the hidden and drawn flags.
+         * Sets the widget's own hidden flag.
          *
          * @param selfHidden hidden by its own flag
-         * @param drawn      drawn in the latest frame
          * @return this draft
          */
-        Draft state(boolean selfHidden, boolean drawn) {
+        Draft hidden(boolean selfHidden) {
             this.selfHidden = selfHidden;
-            this.drawn = drawn;
             return this;
         }
 

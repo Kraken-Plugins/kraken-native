@@ -22,6 +22,7 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.event.HyperlinkEvent;
 import javax.swing.text.DefaultCaret;
+import javax.swing.text.JTextComponent;
 import javax.swing.text.View;
 import javax.swing.text.html.HTMLDocument;
 
@@ -43,9 +44,26 @@ final class WidgetDetailPanel extends JPanel implements Scrollable {
     private final JPanel fields = new JPanel(new GridBagLayout());
     private final JLabel notice = new JLabel();
     private final List<Value> values = new ArrayList<>();
-    private List<Row> shownPath;
+    private Header shownHeader;
     private List<String> shownLayout;
     private WidgetDetail shownDetail;
+
+    /**
+     * What the header shows, so it is only built again when that changes: a new forest brings new rows for the
+     * path even when nothing the header shows moved, and building it again makes the panel lay out twice.
+     *
+     * @param key      the node's key, or "" for none
+     * @param empty    whether the panel shows that nothing is selected
+     * @param crumbs   the trail's keys and labels
+     * @param title    the title
+     * @param subtitle the id line
+     * @param summary  what the widget shows
+     * @param state    the state chip's text
+     * @param code     the code that fetches the node
+     */
+    private record Header(String key, boolean empty, List<String> crumbs, String title, String subtitle,
+                          String summary, String state, String code) {
+    }
 
     /**
      * A value already on the panel, updated in place.
@@ -95,13 +113,14 @@ final class WidgetDetailPanel extends JPanel implements Scrollable {
      * @param names  the cache's names
      */
     void show(List<Row> path, WidgetDetail detail, WidgetNames names) {
-        if (shownPath != null && path.equals(shownPath) && Objects.equals(detail, shownDetail)) {
+        Header next = header(path, detail, names);
+        if (next.equals(shownHeader) && Objects.equals(detail, shownDetail)) {
             return;
         }
-        if (!path.equals(shownPath) || path.isEmpty()) {
-            boolean otherNode = shownPath == null || path.isEmpty() || !lastKey(path).equals(lastKey(shownPath));
-            buildHeader(path, detail, names);
-            shownPath = path;
+        if (!next.equals(shownHeader)) {
+            boolean otherNode = shownHeader == null || !next.key().equals(shownHeader.key());
+            buildHeader(path, next);
+            shownHeader = next;
             if (otherNode) {
                 SwingUtilities.invokeLater(() -> scrollRectToVisible(new Rectangle(0, 0, 1, 1)));
             }
@@ -122,8 +141,41 @@ final class WidgetDetailPanel extends JPanel implements Scrollable {
         repaint();
     }
 
-    private static String lastKey(List<Row> path) {
-        return path.isEmpty() ? "" : path.get(path.size() - 1).key();
+    /**
+     * What the header shows for a node.
+     *
+     * @param path   the rows from a root down to the node; empty for no selection
+     * @param detail its fields, or null while they are being read
+     * @param names  the cache's names
+     * @return the header's content
+     */
+    private static Header header(List<Row> path, WidgetDetail detail, WidgetNames names) {
+        if (path.isEmpty()) {
+            return new Header("", detail == null, List.of(), "", "", "", "", "");
+        }
+        Row row = path.get(path.size() - 1);
+        List<String> crumbs = new ArrayList<>();
+        for (Row step : path) {
+            crumbs.add(step.key() + "|" + crumb(step));
+        }
+        return new Header(row.key(), false, crumbs, WidgetInspectorTool.title(path), subtitle(row, names),
+                row.isGroup() ? "" : row.summary(), state(row), WidgetForest.code(path, names));
+    }
+
+    /**
+     * The state chip's text.
+     *
+     * @param row the node's row
+     * @return what hides it, or whether it is on screen
+     */
+    private static String state(Row row) {
+        if (row.selfHidden()) {
+            return "hidden";
+        }
+        if (row.hidden()) {
+            return "hidden by a parent";
+        }
+        return row.onScreen() ? "on screen" : "outside its parent";
     }
 
     /**
@@ -143,7 +195,7 @@ final class WidgetDetailPanel extends JPanel implements Scrollable {
         return area;
     }
 
-    private void buildHeader(List<Row> path, WidgetDetail detail, WidgetNames names) {
+    private void buildHeader(List<Row> path, Header content) {
         header.removeAll();
         GridBagConstraints c = new GridBagConstraints();
         c.gridx = 0;
@@ -152,7 +204,7 @@ final class WidgetDetailPanel extends JPanel implements Scrollable {
         c.anchor = GridBagConstraints.NORTHWEST;
         c.gridy = 0;
         if (path.isEmpty()) {
-            if (detail == null) {
+            if (content.empty()) {
                 header.add(emptyState(), c);
             }
             return;
@@ -163,21 +215,21 @@ final class WidgetDetailPanel extends JPanel implements Scrollable {
             c.gridy++;
         }
 
-        JLabel title = new JLabel(WidgetInspectorTool.title(path));
+        JLabel title = new JLabel(content.title());
         title.setFont(getFont().deriveFont(Font.BOLD, getFont().getSize2D() + 6f));
         title.setForeground(Theme.TEXT);
         title.setBorder(new EmptyBorder(path.size() > 1 ? 6 : 0, 0, 2, 0));
         header.add(title, c);
         c.gridy++;
 
-        JLabel ids = new JLabel(subtitle(row, names));
+        JLabel ids = new JLabel(content.subtitle());
         ids.setFont(WidgetInspectorView.mono(getFont().getSize2D() - 1f));
         ids.setForeground(Theme.LIGHT);
         header.add(ids, c);
         c.gridy++;
 
-        if (!row.summary().isEmpty() && !row.isGroup()) {
-            JLabel summary = new JLabel(row.summary());
+        if (!content.summary().isEmpty()) {
+            JLabel summary = new JLabel(content.summary());
             summary.setForeground(Theme.TEXT);
             summary.setBorder(new EmptyBorder(6, 0, 0, 0));
             header.add(summary, c);
@@ -192,20 +244,12 @@ final class WidgetDetailPanel extends JPanel implements Scrollable {
         if (!row.isGroup()) {
             chips.add(chip(row.kind() == Kind.STATIC ? "static" : "dynamic", Theme.LIGHT));
         }
-        if (row.selfHidden()) {
-            chips.add(chip("hidden", Theme.WARNING));
-        } else if (row.hidden()) {
-            chips.add(chip("hidden by a parent", Theme.WARNING));
-        } else if (row.drawn()) {
-            chips.add(chip("drawn", Theme.ACCENT));
-        } else {
-            chips.add(chip("not drawn", Theme.LIGHT));
-        }
+        chips.add(chip(content.state(), row.hidden() ? Theme.WARNING : row.onScreen() ? Theme.ACCENT : Theme.LIGHT));
         header.add(chips, c);
         c.gridy++;
 
         c.insets = new Insets(12, 0, 0, 0);
-        header.add(code(WidgetForest.code(path, names)), c);
+        header.add(code(content.code()), c);
     }
 
     /**
@@ -262,7 +306,7 @@ final class WidgetDetailPanel extends JPanel implements Scrollable {
             }
         });
         pane.setCursor(Cursor.getDefaultCursor());
-        return pane;
+        return new Wrapped(pane);
     }
 
     private static String crumb(Row row) {
@@ -520,14 +564,15 @@ final class WidgetDetailPanel extends JPanel implements Scrollable {
     }
 
     /**
-     * A wrapping text area that asks only for the height its text needs at the width it is given, so the layout
-     * hands it the column's width rather than its text's unwrapped length.
+     * Wrapping text that asks only for the height it needs at the width it is given, so the layout hands it the
+     * column's width rather than its text's unwrapped length. Before its first layout it measures at its parent's
+     * width, so it doesn't lay out once at a guess and again at its real width.
      */
     private static final class Wrapped extends JPanel {
-        private final JTextArea text;
+        private final JTextComponent text;
         private int laidOutWidth = -1;
 
-        Wrapped(JTextArea text) {
+        Wrapped(JTextComponent text) {
             super(new BorderLayout());
             this.text = text;
             setOpaque(false);
@@ -546,7 +591,7 @@ final class WidgetDetailPanel extends JPanel implements Scrollable {
         @Override
         public Dimension getPreferredSize() {
             Insets insets = getInsets();
-            int width = Math.max(40, (getWidth() > 0 ? getWidth() : 280) - insets.left - insets.right);
+            int width = Math.max(40, available() - insets.left - insets.right);
             View view = text.getUI().getRootView(text);
             view.setSize(width, Float.MAX_VALUE / 2);
             int height = (int) Math.ceil(view.getPreferredSpan(View.Y_AXIS));
@@ -557,6 +602,24 @@ final class WidgetDetailPanel extends JPanel implements Scrollable {
         @Override
         public Dimension getMinimumSize() {
             return getPreferredSize();
+        }
+
+        /**
+         * The width to wrap at: this panel's own once it has been laid out, else the nearest laid-out ancestor's.
+         *
+         * @return the width in pixels
+         */
+        private int available() {
+            if (getWidth() > 0) {
+                return getWidth();
+            }
+            for (Container at = getParent(); at != null; at = at.getParent()) {
+                if (at.getWidth() > 0) {
+                    Insets insets = at.getInsets();
+                    return at.getWidth() - insets.left - insets.right;
+                }
+            }
+            return 280;
         }
     }
 }

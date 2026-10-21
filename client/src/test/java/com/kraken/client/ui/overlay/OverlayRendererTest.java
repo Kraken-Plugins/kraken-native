@@ -6,6 +6,8 @@ import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The row bookkeeping {@link OverlayRenderer} does for frames that go to the game: finding the rows that hold pixels,
@@ -29,6 +31,40 @@ class OverlayRendererTest {
         int[] one = new int[width * height];
         one[3 * width + 1] = 1;
         assertEquals(3, OverlayRenderer.lastRow(one, width, 3, height), "a single row is both ends");
+    }
+
+    @Test
+    void askingOftenDoesNotPushTheScheduleAhead() {
+        OverlayRenderer.FrameSchedule schedule = new OverlayRenderer.FrameSchedule();
+        long interval = 33_333_333L;
+        assertTrue(schedule.due(0, interval, true), "the first frame is due at once");
+        long ms = 1_000_000L;
+        for (long t = 8 * ms; t < interval; t += 8 * ms) {
+            assertFalse(schedule.due(t, interval, false), "not due at " + t / ms + " ms");
+        }
+        assertTrue(schedule.due(interval, interval, false), "due one interval on, however often it was asked");
+    }
+
+    @Test
+    void theRateHoldsOnAPollThatDoesNotDivideIt() {
+        OverlayRenderer.FrameSchedule schedule = new OverlayRenderer.FrameSchedule();
+        long interval = 33_333_333L;
+        int frames = 0;
+        for (long t = 0; t < 1_000_000_000L; t += 20_000_000L) {
+            if (schedule.due(t, interval, t == 0)) {
+                frames++;
+            }
+        }
+        assertEquals(30, frames, "30 a second on a 20 ms poll, not one every other poll (25)");
+    }
+
+    @Test
+    void aRestartDrawsAtOnce() {
+        OverlayRenderer.FrameSchedule schedule = new OverlayRenderer.FrameSchedule();
+        long interval = 33_333_333L;
+        schedule.due(0, interval, true);
+        assertFalse(schedule.due(1_000_000L, interval, false));
+        assertTrue(schedule.due(2_000_000L, interval, true), "a new image is drawn at once");
     }
 
     @Test
