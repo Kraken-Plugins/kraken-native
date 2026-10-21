@@ -48,8 +48,9 @@ import java.util.logging.Level;
  *   <li><b>Discovery.</b> {@link #loadCorePlugins} finds every top-level {@link PluginDescriptor} class under
  *       {@code com.kraken.client.plugins}; {@link #loadPlugins} takes classes from anywhere (the developer launcher's
  *       {@code --plugin}). Developer plugins only load with {@code --developer-mode}.
- *   <li><b>Injection.</b> Each plugin gets a child of the client's injector, with the plugin bound and installed as a
- *       module, plus the {@link Plugin#getPublicModule() public module} of each plugin it depends on.
+ *   <li><b>Injection.</b> Each plugin gets a child of the injector it's loaded with (in the client, the session
+ *       injector, which binds the attached game), with the plugin bound and installed as a module, plus the
+ *       {@link Plugin#getPublicModule() public module} of each plugin it depends on.
  *   <li><b>Order.</b> Plugins load and start in dependency order and stop in reverse.
  *   <li><b>Lifecycle.</b> Starting runs {@code startUp} on the EDT, registers the plugin on the event bus and posts
  *       {@link PluginChanged}; stopping unregisters it, runs {@code shutDown} on the EDT and posts
@@ -73,7 +74,6 @@ public class PluginManager {
 
     private static final String PLUGIN_PACKAGE = "com.kraken.client.plugins";
 
-    private final Injector parent;
     private final EventBus eventBus;
     private final ConfigManager configManager;
     private final Executor edt;
@@ -86,16 +86,14 @@ public class PluginManager {
     /**
      * Creates the manager.
      *
-     * @param parent        the client's injector, parent of every plugin's
      * @param eventBus      the bus plugins are registered on
      * @param configManager keeps the plugins' on/off state
      * @param edt           runs plugin start-up and shut-down (the EDT in the client)
      * @param developerMode whether developer plugins load
      */
     @Inject
-    public PluginManager(Injector parent, EventBus eventBus, ConfigManager configManager, @Named("edt") Executor edt,
+    public PluginManager(EventBus eventBus, ConfigManager configManager, @Named("edt") Executor edt,
                          @Named("developerMode") boolean developerMode) {
-        this.parent = parent;
         this.eventBus = eventBus;
         this.configManager = configManager;
         this.edt = edt;
@@ -106,9 +104,10 @@ public class PluginManager {
      * Finds and loads the built-in plugins: every top-level class under {@code com.kraken.client.plugins} with a
      * {@link PluginDescriptor}.
      *
+     * @param parent the parent of each plugin's injector: in the client, the session injector
      * @return the plugins loaded
      */
-    public List<Plugin> loadCorePlugins() {
+    public List<Plugin> loadCorePlugins(Injector parent) {
         List<Class<?>> classes = new ArrayList<>();
         try (ScanResult scan = new ClassGraph().enableAnnotationInfo().acceptPackages(PLUGIN_PACKAGE).scan()) {
             for (ClassInfo info : scan.getClassesWithAnnotation(PluginDescriptor.class.getName())) {
@@ -117,7 +116,7 @@ public class PluginManager {
                 }
             }
         }
-        return loadPlugins(classes);
+        return loadPlugins(parent, classes);
     }
 
     /**
@@ -125,10 +124,11 @@ public class PluginManager {
      * skipped; one that can't be created, or whose dependency isn't available, is logged and skipped; one whose
      * injector can't be built is listed as failed.
      *
+     * @param parent  the parent of each plugin's injector: in the client, the session injector
      * @param classes {@link Plugin} subclasses with a {@link PluginDescriptor}
      * @return the plugins loaded
      */
-    public List<Plugin> loadPlugins(Collection<? extends Class<?>> classes) {
+    public List<Plugin> loadPlugins(Injector parent, Collection<? extends Class<?>> classes) {
         Map<Class<?>, Plugin> loaded = new HashMap<>();
         plugins.forEach(plugin -> loaded.put(plugin.getClass(), plugin));
         Set<Class<? extends Plugin>> candidates = new LinkedHashSet<>();
@@ -146,7 +146,7 @@ public class PluginManager {
         }
         List<Plugin> added = new ArrayList<>();
         for (Class<? extends Plugin> clazz : dependencyOrder(candidates, loaded.keySet())) {
-            Plugin plugin = instantiate(clazz, loaded);
+            Plugin plugin = instantiate(clazz, loaded, parent);
             if (plugin != null) {
                 loaded.put(clazz, plugin);
                 plugins.add(plugin);
@@ -386,11 +386,12 @@ public class PluginManager {
      *
      * @param clazz  the plugin class
      * @param loaded the plugins loaded so far, by class; every dependency of {@code clazz} is among them
+     * @param parent the parent of the plugin's injector
      * @return the plugin (with a failure and no injector if its injector can't be built), or null if it can't be
      *         created at all
      */
     @SuppressWarnings("unchecked")
-    private Plugin instantiate(Class<? extends Plugin> clazz, Map<Class<?>, Plugin> loaded) {
+    private Plugin instantiate(Class<? extends Plugin> clazz, Map<Class<?>, Plugin> loaded, Injector parent) {
         Plugin plugin;
         try {
             Constructor<? extends Plugin> constructor = clazz.getDeclaredConstructor();

@@ -1,6 +1,7 @@
-package com.kraken.api.internal;
+package com.kraken.api.internal.reader;
 
 import com.kraken.api.Client;
+import com.kraken.api.internal.ConfigTypes;
 import com.kraken.api.item.Item;
 import com.kraken.api.item.ItemContainer;
 import com.kraken.api.mapping.Mapping;

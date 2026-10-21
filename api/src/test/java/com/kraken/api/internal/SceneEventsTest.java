@@ -22,6 +22,7 @@ import com.kraken.api.events.TileObjectDespawned;
 import com.kraken.api.events.TileObjectSpawned;
 import com.kraken.api.events.WallObjectDespawned;
 import com.kraken.api.events.WallObjectSpawned;
+import com.kraken.api.internal.event.EventSource;
 import com.kraken.api.scene.TileItem;
 import com.kraken.api.scene.WallObject;
 import org.junit.jupiter.api.BeforeEach;

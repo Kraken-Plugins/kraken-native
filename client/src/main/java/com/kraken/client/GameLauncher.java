@@ -3,7 +3,6 @@ package com.kraken.client;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import com.google.inject.name.Named;
-import com.kraken.client.callback.NativeEventServer;
 import com.kraken.client.ui.HomePanel;
 import com.sun.jna.platform.win32.WinDef.HWND;
 import lombok.AllArgsConstructor;
@@ -31,7 +30,6 @@ public final class GameLauncher {
     private final GameView view;
     private final HomePanel home;
     private final ProcessAttacher attacher;
-    private final NativeEventServer nativeEventServer;
     private final ExitHandler exitHandler;
 
     /**
@@ -69,9 +67,6 @@ public final class GameLauncher {
 
         // Attach the native API to the running client (read-only; safe if it isn't logged in yet)
         attacher.start(process.pid());
-
-        // Opt-in (-Dkraken.hook=true): inject a hook that pushes the client's event raises instead of polling for them
-        nativeEventServer.installWhenAttached(process.pid());
 
         // The client resizes itself (restoring its saved size, fixed mode, ...), so keep it pinned to the canvas
         while (process.isAlive()) {

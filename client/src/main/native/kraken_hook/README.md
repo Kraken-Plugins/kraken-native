@@ -5,8 +5,9 @@ the Kraken client, replacing `EventSource`'s poll-and-diff as the thing that dec
 reads. It inline-hooks the raise functions named in a handshake and signals the Kraken client the
 instant the client raises one.
 
-It is wired into the normal launch (`GameLauncher`) but is **off by default** — it is the one place
-the client writes to the game process — and only arms with `-Dkraken.hook=true`.
+It is installed on every launch, once the API attaches (`NativeEventServer`, created by the session
+injector). It is the one place the client writes to the game process. If the DLL can't be found or
+injected, the launch carries on and the API's timer poll drives the reads alone.
 
 ## Why a socket, not a JNI/JNA callback
 
@@ -77,6 +78,17 @@ from any PowerShell, no "x64 Native Tools" prompt needed — preferring MSVC (lo
 initialised from `vcvars64.bat`) and falling back to `g++`. MinHook is cloned on first run. It is
 built as C++17.
 
+A client build runs the script automatically: `processResources` depends on the `buildNativeHook` Gradle
+task, which compiles the DLL and stages it into the client resources, so every jar carries it as
+`native/kraken_hook.dll`. The compile is incremental — it re-runs only when `kraken_hook.cpp` or
+`build.ps1` changes — so it costs nothing on an unchanged tree. To build it on its own:
+
+```bash
+./gradlew :client:buildNativeHook
+```
+
+To run the script directly instead:
+
 ```powershell
 cd client\src\main\native\kraken_hook
 powershell -ExecutionPolicy Bypass -File build.ps1
@@ -85,13 +97,15 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 ## Run
 
 ```bash
-./gradlew :client:run --args="D:/path/to/osclient.exe" -Dkraken.hook=true
+./gradlew :client:run --args="D:/path/to/osclient.exe"
 ```
 
-Point `-Dkraken.hook.dll=<path>` at the DLL if it is not at the default
-`client/src/main/native/kraken_hook/kraken_hook.dll`. Add `-Dkraken.hook.projectileStep=true` to also
-hook the per-cycle projectile step (about 50 messages a second per projectile; off by default). While
-the hook is connected the API's timer poll slows to a safety-net rate and the hook drives the reads.
+The DLL is loaded from the jar (the `native/kraken_hook.dll` resource staged by `buildNativeHook`) and
+extracted to a temporary file before injection; point `-Dkraken.hook.dll=<path>` at a built DLL on disk
+to use that instead (handy when iterating on the DLL without re-staging). Add
+`-Dkraken.hook.projectileStep=true` to also hook the per-cycle projectile step (about 50 messages a
+second per projectile; off by default). While the hook is connected the API's timer poll slows to a
+safety-net rate and the hook drives the reads.
 
 ## Caveats
 

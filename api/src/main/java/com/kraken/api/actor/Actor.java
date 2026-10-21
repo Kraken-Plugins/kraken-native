@@ -6,7 +6,7 @@ import com.kraken.api.Point;
 import com.kraken.api.coords.LocalPoint;
 import com.kraken.api.coords.WorldArea;
 import com.kraken.api.coords.WorldPoint;
-import com.kraken.api.internal.ActorReader;
+import com.kraken.api.internal.reader.ActorReader;
 import com.kraken.api.internal.FineCoord;
 import com.kraken.api.internal.MapCoord;
 import com.kraken.api.scene.WorldView;

@@ -1,6 +1,6 @@
 package com.kraken.client.callback;
 
-import com.kraken.api.internal.NativeEvent;
+import com.kraken.api.internal.event.NativeEvent;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 

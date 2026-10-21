@@ -194,7 +194,9 @@ scene rebuild replaying the zone; hooking the functions catches both paths.
 In `client/.../callback`, the server socket, injection and reader thread move from `GameTickCallback` into a
 `NativeEventServer`:
 
-- Arms exactly as today (`-Dkraken.hook=true`, DLL path property, inject once `ProcessAttacher` is `ATTACHED`).
+- Lives in the session injector (`SessionModule`, created once the API attaches) and installs on every launch: the
+  client calls `install()` from an attach listener, injecting the DLL bundled in the jar or the one
+  `-Dkraken.hook.dll` points at.
 - Builds the slot table from the mapping: every event in `NativeEvents` (below) that the mapping has hooks for, plus
   `clientCycle` and `setGameState`. Logs each event it could not hook (older mapping, no raise site) and goes on.
 - The reader thread parses messages into a `NativeEvent(name, id, long[] regs, Map<Integer, Object> values, seq)`
@@ -258,7 +260,7 @@ usual order with the queued triggers applied, so a tick arriving together with N
 
 ### 4.5 Safety and scope
 
-- Still opt-in (`-Dkraken.hook=true`) and still the only thing that writes to the game process: MinHook's entry
+- Installed on every launch, and still the only thing that writes to the game process: MinHook's entry
   patches and trampolines. Read-only semantics of the API are unchanged; hooks observe, they never call into the
   client.
 - The DLL guards each detour with `__try/__except` around the plan (a bad pointer must not take the client down)

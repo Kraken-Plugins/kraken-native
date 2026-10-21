@@ -1,6 +1,6 @@
 package com.kraken.client.callback;
 
-import com.kraken.api.internal.NativeEvent;
+import com.kraken.api.internal.event.NativeEvent;
 import com.kraken.client.callback.NativeProtocol.Plan;
 import com.kraken.client.callback.NativeProtocol.Slot;
 import org.junit.jupiter.api.Test;

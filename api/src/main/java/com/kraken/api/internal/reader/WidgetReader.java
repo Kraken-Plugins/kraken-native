@@ -1,4 +1,4 @@
-package com.kraken.api.internal;
+package com.kraken.api.internal.reader;
 
 import com.kraken.api.Point;
 import com.kraken.api.mapping.Mapping;

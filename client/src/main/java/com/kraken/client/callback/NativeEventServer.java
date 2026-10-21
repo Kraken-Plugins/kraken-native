@@ -2,10 +2,10 @@ package com.kraken.client.callback;
 
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
+import com.google.inject.name.Named;
 import com.kraken.api.GameSession;
-import com.kraken.api.internal.NativeEvent;
+import com.kraken.api.internal.event.NativeEvent;
 import com.kraken.api.mapping.Mapping;
-import com.kraken.client.ProcessAttacher;
 import lombok.extern.java.Log;
 
 import java.io.DataInputStream;
@@ -20,6 +20,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -31,16 +32,19 @@ import java.util.logging.Level;
 
 /**
  * Pushes the client's own event raises to the API, replacing {@code EventSource}'s timer poll as the thing that
- * decides when the API reads. Once the API has attached (so the mapping for the running build is known), this injects
- * {@code kraken_hook.dll} into {@code osclient.exe} and hands it, in a handshake, the raise functions to hook for the
- * events in {@link NativeEvents} (their RVAs, ids and capture plans come from the mapping). The DLL sends one message
- * per raise; this parses each into a {@link NativeEvent} and hands it to the API on the client thread with
+ * decides when the API reads. It lives in the session injector, so it exists once the API has attached and the mapping
+ * for the running build is known. The client then calls {@link #install}, which injects {@code kraken_hook.dll} into
+ * {@code osclient.exe} and hands it, in a handshake, the raise functions to hook for the events in
+ * {@link NativeEvents} (their RVAs, ids and capture plans come from the mapping). The DLL sends one message per raise;
+ * this parses each into a {@link NativeEvent} and hands it to the API on the client thread with
  * {@link GameSession#onNative}, where the matching tracker reads and posts the {@code com.kraken.api.events} event.
  * Plugins see only those events, exactly as from the poll path.
  *
- * <p>This is the one place the client writes to the game process, so it is <b>off by default</b> and only arms when
- * {@code -Dkraken.hook=true} is set. The DLL is located via {@code -Dkraken.hook.dll} (default {@value #DEFAULT_DLL});
- * if it is missing the launch continues without the hook, and the events come from the timer poll alone.
+ * <p>This is the one place the client writes to the game process, and it installs on every launch. The DLL ships in
+ * the jar (staged there by the {@code buildNativeHook} Gradle task) and is extracted to a temporary file before
+ * injection, since {@code LoadLibraryA} needs a path on disk; {@code -Dkraken.hook.dll} points at a DLL on disk
+ * instead. If neither can be found the launch continues without the hook, and the events come from the timer poll
+ * alone.
  *
  * <p>Nothing here is hard-coded per client build: every RVA, event id and capture plan comes from the mapping and is
  * handed to the DLL in the handshake. See {@code docs/event-hooks-design.md}.
@@ -51,21 +55,33 @@ public final class NativeEventServer {
 
     /** Loopback port the injected DLL connects back on; must match {@code KRAKEN_PORT} in kraken_hook.cpp. */
     static final int PORT = 42069;
-    private static final String ENABLE_PROP = "kraken.hook";
     private static final String DLL_PROP = "kraken.hook.dll";
     private static final String STEP_PROP = "kraken.hook.projectileStep";
-    private static final String DEFAULT_DLL = "client/src/main/native/kraken_hook/kraken_hook.dll";
+
+    /** Classpath location of the bundled DLL, staged into the jar by the {@code buildNativeHook} Gradle task. */
+    private static final String DLL_RESOURCE = "/native/kraken_hook.dll";
 
     /** Synthetic ids for the function hooks, which carry no {@code osrs.Events} id; kept clear of the real ids. */
     private static final int FUNCTION_ID_BASE = 1000;
 
-    private final ProcessAttacher attacher;
+    private final GameSession session;
+    private final Mapping mapping;
+    private final long pid;
     private final AtomicBoolean armed = new AtomicBoolean();
     private final List<Tap> taps = new CopyOnWriteArrayList<>();
 
+    /**
+     * Creates the server for the attached game.
+     *
+     * @param session the attached API, which the hook's events are handed to
+     * @param mapping the attached build's mapping, which says what to hook
+     * @param pid     the {@code osclient.exe} process id to inject into
+     */
     @Inject
-    NativeEventServer(ProcessAttacher attacher) {
-        this.attacher = attacher;
+    NativeEventServer(GameSession session, Mapping mapping, @Named("pid") long pid) {
+        this.session = session;
+        this.mapping = mapping;
+        this.pid = pid;
     }
 
     /**
@@ -89,43 +105,29 @@ public final class NativeEventServer {
     }
 
     /**
-     * Arms the hook for the given client process: injects once the API reaches {@link ProcessAttacher.State#ATTACHED}.
-     * A no-op unless {@code -Dkraken.hook=true}. Safe to call once per launch.
-     *
-     * @param pid the {@code osclient.exe} process id
+     * Installs the hook on a thread of its own ({@code kraken-hook-install}): finds the DLL, starts the loopback
+     * server and injects the DLL into the game. The client calls this once the API attaches; only the first call does
+     * anything. If the DLL can't be found or injected, it logs why and the events come from the timer poll alone.
      */
-    public void installWhenAttached(long pid) {
-        if (!Boolean.getBoolean(ENABLE_PROP)) {
-            log.info("Native event hook disabled (set -D" + ENABLE_PROP + "=true to push events instead of polling).");
-            return;
-        }
-        attacher.addStateListener(() -> maybeInstall(pid));
-        maybeInstall(pid); // in case it attached between attacher.start() and here
-    }
-
-    private void maybeInstall(long pid) {
-        if (attacher.getState() == ProcessAttacher.State.ATTACHED && armed.compareAndSet(false, true)) {
-            Thread thread = new Thread(() -> install(pid), "kraken-hook-install");
+    public void install() {
+        if (armed.compareAndSet(false, true)) {
+            Thread thread = new Thread(this::inject, "kraken-hook-install");
             thread.setDaemon(true);
             thread.start();
         }
     }
 
-    private void install(long pid) {
-        Path dll = Path.of(System.getProperty(DLL_PROP, DEFAULT_DLL)).toAbsolutePath();
-        if (!Files.isReadable(dll)) {
-            log.warning("Native event hook is enabled but the DLL was not found: " + dll
-                    + " (build it with client/src/main/native/kraken_hook/build.ps1). Continuing without it.");
+    /**
+     * Builds the handshake from the mapping, starts the server and injects the DLL. Runs on the install thread.
+     */
+    private void inject() {
+        Path dll = locateDll();
+        if (dll == null) {
             return;
         }
-        GameSession session = attacher.attached();
-        if (session == null) {
-            log.warning("Native event hook armed but the API is not attached; cannot install.");
-            return;
-        }
-        Build build = build(session.mapping());
+        Build build = build();
         if (build.slots.isEmpty()) {
-            log.warning("Native event hook: mapping " + session.mapping().version()
+            log.warning("Native event hook: mapping " + mapping.version()
                     + " has no hookable events; continuing on the timer poll.");
             return;
         }
@@ -136,17 +138,64 @@ public final class NativeEventServer {
             server.setReuseAddress(true);
             server.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), PORT));
             ServerSocket bound = server;
-            Thread serverThread = new Thread(() -> serve(bound, handshake, build.idToName, session),
-                    "kraken-hook-server");
+            Thread serverThread = new Thread(() -> serve(bound, handshake, build.idToName), "kraken-hook-server");
             serverThread.setDaemon(true);
             serverThread.start();
 
             log.info("Injecting native event hook into pid " + pid + " (" + build.slots.size() + " slots for client "
-                    + session.mapping().version() + ")");
+                    + mapping.version() + ")");
             CallbackInjector.inject((int) pid, dll);
         } catch (IOException | RuntimeException e) {
             log.log(Level.WARNING, "Could not install the native event hook", e);
             closeQuietly(server);
+        }
+    }
+
+    /**
+     * Finds the DLL to inject: the file {@code -Dkraken.hook.dll} points at if set, otherwise the copy bundled on the
+     * classpath ({@value #DLL_RESOURCE}), extracted to a temporary file because {@code LoadLibraryA} needs a path on
+     * disk. Logs and returns null when neither is available, so the launch falls back to the timer poll.
+     *
+     * @return the absolute path to the DLL on disk, or null if it could not be found
+     */
+    private Path locateDll() {
+        String override = System.getProperty(DLL_PROP);
+        if (override != null) {
+            Path dll = Path.of(override).toAbsolutePath();
+            if (!Files.isReadable(dll)) {
+                log.warning("Native event hook: -D" + DLL_PROP + " points at a DLL that is not readable: " + dll
+                        + ". Continuing without it.");
+                return null;
+            }
+            return dll;
+        }
+        Path extracted = extractBundledDll();
+        if (extracted == null) {
+            log.warning("Native event hook is enabled but kraken_hook.dll was not found on the classpath "
+                    + "(build and bundle it with ./gradlew :client:buildNativeHook, or point -D" + DLL_PROP
+                    + " at a built DLL). Continuing without it.");
+        }
+        return extracted;
+    }
+
+    /**
+     * Copies the bundled DLL out of the jar to a temporary file so it can be injected. The file is marked for deletion
+     * on exit; the game process keeps it mapped while the hook lives, so the delete is best-effort.
+     *
+     * @return the absolute path to the extracted DLL, or null if it is not on the classpath or could not be written
+     */
+    private Path extractBundledDll() {
+        try (InputStream in = NativeEventServer.class.getResourceAsStream(DLL_RESOURCE)) {
+            if (in == null) {
+                return null;
+            }
+            Path dll = Files.createTempFile("kraken_hook", ".dll");
+            dll.toFile().deleteOnExit();
+            Files.copy(in, dll, StandardCopyOption.REPLACE_EXISTING);
+            return dll.toAbsolutePath();
+        } catch (IOException e) {
+            log.log(Level.WARNING, "Native event hook: could not extract kraken_hook.dll from the classpath", e);
+            return null;
         }
     }
 
@@ -164,10 +213,9 @@ public final class NativeEventServer {
      * {@link NativeEvents}, plus the function hooks. Events and functions the mapping lacks are logged and skipped;
      * their trackers then fall back to the timer poll.
      *
-     * @param mapping the attached client's mapping
      * @return the slots and the id-to-name map
      */
-    private Build build(Mapping mapping) {
+    private Build build() {
         List<NativeProtocol.Slot> slots = new ArrayList<>();
         Map<Long, Integer> byFn = new HashMap<>();
         Map<Integer, String> idToName = new HashMap<>();
@@ -242,9 +290,8 @@ public final class NativeEventServer {
      * @param server    the already-bound loopback server socket
      * @param handshake the handshake bytes to send on each connection
      * @param idToName  an event id to its name
-     * @param session   the attached API
      */
-    private void serve(ServerSocket server, byte[] handshake, Map<Integer, String> idToName, GameSession session) {
+    private void serve(ServerSocket server, byte[] handshake, Map<Integer, String> idToName) {
         try (ServerSocket toClose = server) {
             while (!Thread.currentThread().isInterrupted()) {
                 try (Socket socket = server.accept();
@@ -254,7 +301,7 @@ public final class NativeEventServer {
                     out.flush();
                     session.setHookConnected(true);
                     log.info("Native event hook connected from " + socket.getRemoteSocketAddress());
-                    read(new DataInputStream(in), idToName, session);
+                    read(new DataInputStream(in), idToName);
                     log.info("Native event hook disconnected; back on the timer poll until it reconnects.");
                 } catch (IOException e) {
                     log.log(Level.FINE, "Native event hook connection ended", e);
@@ -276,10 +323,9 @@ public final class NativeEventServer {
      *
      * @param in       the connection's input
      * @param idToName an event id to its name
-     * @param session  the attached API
      * @throws IOException if the connection breaks
      */
-    private void read(DataInputStream in, Map<Integer, String> idToName, GameSession session) throws IOException {
+    private void read(DataInputStream in, Map<Integer, String> idToName) throws IOException {
         long expectedSeq = -1;
         for (int len = readLength(in); len >= 0; len = readLength(in)) {
             byte[] body = new byte[len];

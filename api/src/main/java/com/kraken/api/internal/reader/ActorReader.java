@@ -1,4 +1,4 @@
-package com.kraken.api.internal;
+package com.kraken.api.internal.reader;
 
 import com.kraken.api.Client;
 import com.kraken.api.actor.Actor;
@@ -7,6 +7,9 @@ import com.kraken.api.actor.Player;
 import com.kraken.api.definition.NPCComposition;
 import com.kraken.api.definition.ObjectComposition;
 import com.kraken.api.definition.VarbitComposition;
+import com.kraken.api.internal.ConfigTypes;
+import com.kraken.api.internal.FineCoord;
+import com.kraken.api.internal.MapCoord;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.api.memory.Memory;
 import com.kraken.api.memory.MemoryException;

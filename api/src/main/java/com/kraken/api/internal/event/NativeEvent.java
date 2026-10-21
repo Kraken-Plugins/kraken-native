@@ -1,4 +1,4 @@
-package com.kraken.api.internal;
+package com.kraken.api.internal.event;
 
 import java.util.Map;
 

@@ -3,7 +3,7 @@ package com.kraken.api.scene;
 import com.kraken.api.Client;
 import com.kraken.api.internal.GroundObj;
 import com.kraken.api.internal.Loc;
-import com.kraken.api.internal.SceneReader;
+import com.kraken.api.internal.reader.SceneReader;
 
 import java.util.ArrayList;
 import java.util.List;

@@ -4,8 +4,6 @@ import com.google.inject.AbstractModule;
 import com.google.inject.Provides;
 import com.google.inject.Singleton;
 import com.google.inject.name.Names;
-import com.kraken.api.Client;
-import com.kraken.api.GameSession;
 import com.kraken.api.eventbus.EventBus;
 import com.kraken.client.plugins.config.ConfigManager;
 import lombok.AllArgsConstructor;
@@ -18,12 +16,14 @@ import java.util.concurrent.ScheduledExecutorService;
 import javax.swing.*;
 
 /**
- * Bindings for the client, and the parent of every plugin's injector. The frame, its panels and the launcher are
- * {@link Singleton}s that Guice creates on first use, so request the frame on the EDT before anything else.
+ * Bindings for the client: everything that exists from launch, before the game does. The frame, its panels and the
+ * launcher are {@link Singleton}s that Guice creates on first use, so request the frame on the EDT before anything
+ * else. The attached game is bound in the session injector ({@link SessionModule}), a child of this one that
+ * {@link ProcessAttacher} creates once the API attaches, and every plugin's injector is a child of that.
  *
- * <p>Plugins can inject: {@link Client} (the attached API's; plugins load only once it has attached), {@link EventBus},
- * {@code ClientThread}, {@code ConfigManager}, {@link KrakenConfig}, {@code OverlayManager}, {@code PluginManager} and
- * a shared {@link ScheduledExecutorService}.
+ * <p>Plugins can inject: {@code GameSession}, {@code Client}, {@code Mapping} and {@code ClientThread} (from the
+ * session injector; plugins load only once the API has attached), {@link EventBus}, {@code ConfigManager},
+ * {@link KrakenConfig}, {@code OverlayManager}, {@code PluginManager} and a shared {@link ScheduledExecutorService}.
  */
 @AllArgsConstructor
 public final class KrakenModule extends AbstractModule {
@@ -39,23 +39,6 @@ public final class KrakenModule extends AbstractModule {
         bind(EventBus.class).toInstance(new EventBus());
         // Plugin start-up and shut-down run here: on the EDT, at once when already on it
         bind(Executor.class).annotatedWith(Names.named("edt")).toInstance(KrakenModule::onEdt);
-    }
-
-    /**
-     * The client plugins see: the attached API's client. Plugins are loaded only once the API has attached (see
-     * {@link KrakenClient}), so there is always an attached client by the time this is resolved.
-     *
-     * @param attacher the client's link to the game
-     * @return the attached client
-     */
-    @Provides
-    @Singleton
-    Client provideClient(ProcessAttacher attacher) {
-        GameSession session = attacher.attached();
-        if (session == null) {
-            throw new IllegalStateException("No client to inject: the API hasn't attached yet");
-        }
-        return session.client();
     }
 
     /**

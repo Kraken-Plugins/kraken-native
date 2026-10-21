@@ -1,6 +1,7 @@
 package com.kraken.api.internal;
 
 import com.kraken.api.FakeMemory;
+import com.kraken.api.internal.reader.StructReader;
 import com.kraken.api.mapping.Mapping;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

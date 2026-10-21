@@ -9,6 +9,8 @@ import com.kraken.api.events.InteractingChanged;
 import com.kraken.api.events.ItemSpawned;
 import com.kraken.api.events.StatChanged;
 import com.kraken.api.events.WallObjectSpawned;
+import com.kraken.api.internal.event.EventSource;
+import com.kraken.api.internal.event.NativeEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

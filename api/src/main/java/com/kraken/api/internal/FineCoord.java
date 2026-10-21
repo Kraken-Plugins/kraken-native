@@ -1,5 +1,7 @@
 package com.kraken.api.internal;
 
+import com.kraken.api.internal.reader.ActorReader;
+
 /**
  * A position in fine units as {@link ActorReader} returns it: {@code x}/{@code z} are 1/128 of a tile (the scene's
  * tiles times 128, a {@code LocalPoint}'s space) and {@code y} is the ground height there. Heights follow the game's

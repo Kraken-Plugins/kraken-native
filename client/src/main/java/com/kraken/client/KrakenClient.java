@@ -2,6 +2,7 @@ package com.kraken.client;
 
 import com.google.inject.Guice;
 import com.google.inject.Injector;
+import com.kraken.client.callback.NativeEventServer;
 import com.kraken.client.plugins.Plugin;
 import com.kraken.client.plugins.PluginManager;
 import com.kraken.client.ui.KrakenFrame;
@@ -70,14 +71,19 @@ public class KrakenClient {
         // Draws the plugins' overlays once the API attaches
         injector.getInstance(OverlayRenderer.class);
 
-        // Plugins read the game, so they load and start only once the API attaches, giving them the real client;
-        // if it never attaches (unsupported build or a failed attach), none load.
+        // Plugins read the game, so they load and start only once the API attaches, under the session injector that
+        // binds the attached game; if it never attaches (unsupported build or a failed attach), none load.
         PluginManager pluginManager = injector.getInstance(PluginManager.class);
-        injector.getInstance(ProcessAttacher.class).addAttachListener(api -> {
-            pluginManager.loadCorePlugins();
-            pluginManager.loadPlugins(options.plugins());
+        ProcessAttacher attacher = injector.getInstance(ProcessAttacher.class);
+        attacher.addAttachListener(session -> {
+            pluginManager.loadCorePlugins(session);
+            pluginManager.loadPlugins(session, options.plugins());
             pluginManager.startPlugins();
         });
+
+        // Then inject the native event hook, which pushes the client's event raises so the API reads when they happen
+        // instead of on its timer poll. It installs on a thread of its own and falls back to the poll if it can't.
+        attacher.addAttachListener(session -> session.getInstance(NativeEventServer.class).install());
 
         injector.getInstance(GameLauncher.class).launch();
     }

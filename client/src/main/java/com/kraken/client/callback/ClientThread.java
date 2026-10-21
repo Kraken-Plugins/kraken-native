@@ -3,34 +3,30 @@ package com.kraken.client.callback;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import com.kraken.api.GameSession;
-import com.kraken.client.ProcessAttacher;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.function.BooleanSupplier;
-import java.util.function.Consumer;
 
 /**
  * Runs code on the client thread. Kraken's client thread is the API's poll thread ({@code kraken-api-poll}): game
  * events are posted there and these tasks run there, so plugin state touched only from events and tasks needs no
  * locking.
  *
- * <p>Tasks handed over before the API attaches wait, and run from the API's first poll on.
+ * <p>It lives in the session injector, so it exists once the API has attached, as plugins do. Tasks handed over
+ * before the poll loop starts run from its first poll.
  */
 @Singleton
 public class ClientThread {
 
-    private final Object lock = new Object();
-    private final List<Consumer<GameSession>> waiting = new ArrayList<>();
-    private GameSession session;
+    private final GameSession session;
 
+    /**
+     * Creates the client thread for the attached game.
+     *
+     * @param session the attached API, whose poll thread runs the tasks
+     */
     @Inject
-    ClientThread(ProcessAttacher attacher) {
-        attacher.addAttachListener(this::attached);
-        GameSession attached = attacher.attached();
-        if (attached != null) {
-            attached(attached);
-        }
+    ClientThread(GameSession session) {
+        this.session = session;
     }
 
     /**
@@ -39,7 +35,7 @@ public class ClientThread {
      * @param task the task
      */
     public void invoke(Runnable task) {
-        submit(session -> session.invoke(task));
+        session.invoke(task);
     }
 
     /**
@@ -49,7 +45,7 @@ public class ClientThread {
      * @param task the task; false asks to run it again at the next poll
      */
     public void invoke(BooleanSupplier task) {
-        submit(session -> session.invoke(task));
+        session.invoke(task);
     }
 
     /**
@@ -58,7 +54,7 @@ public class ClientThread {
      * @param task the task
      */
     public void invokeLater(Runnable task) {
-        submit(session -> session.invokeLater(task));
+        session.invokeLater(task);
     }
 
     /**
@@ -67,7 +63,7 @@ public class ClientThread {
      * @param task the task; false asks to run it again at the next poll
      */
     public void invokeLater(BooleanSupplier task) {
-        submit(session -> session.invokeLater(task));
+        session.invokeLater(task);
     }
 
     /**
@@ -76,7 +72,7 @@ public class ClientThread {
      * @param task the task
      */
     public void invokeAtTickEnd(Runnable task) {
-        submit(session -> session.invokeAtTickEnd(task));
+        session.invokeAtTickEnd(task);
     }
 
     /**
@@ -85,38 +81,6 @@ public class ClientThread {
      * @return true on the API's poll thread
      */
     public boolean isClientThread() {
-        GameSession attached;
-        synchronized (lock) {
-            attached = session;
-        }
-        return attached != null && attached.isClientThread();
-    }
-
-    private void submit(Consumer<GameSession> handoff) {
-        GameSession attached;
-        synchronized (lock) {
-            if (session == null) {
-                waiting.add(handoff);
-                return;
-            }
-            attached = session;
-        }
-        handoff.accept(attached);
-    }
-
-    /**
-     * Hands the tasks that waited for the API to it, in order. Runs on the attach thread, so none run here.
-     *
-     * @param attached the API that just attached
-     */
-    private void attached(GameSession attached) {
-        synchronized (lock) {
-            if (session != null) {
-                return;
-            }
-            session = attached;
-            waiting.forEach(handoff -> handoff.accept(attached));
-            waiting.clear();
-        }
+        return session.isClientThread();
     }
 }

@@ -1,8 +1,9 @@
-package com.kraken.api.internal;
+package com.kraken.api.internal.reader;
 
 import com.kraken.api.Client;
 import com.kraken.api.collision.CollisionData;
 import com.kraken.api.collision.CollisionDataFlag;
+import com.kraken.api.internal.*;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.api.memory.Memory;
 import com.kraken.api.scene.Scene;

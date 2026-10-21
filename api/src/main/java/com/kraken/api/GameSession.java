@@ -1,9 +1,10 @@
 package com.kraken.api;
 
 import com.kraken.api.eventbus.EventBus;
-import com.kraken.api.internal.EventSource;
-import com.kraken.api.internal.NativeEvent;
+import com.kraken.api.internal.event.EventSource;
+import com.kraken.api.internal.event.NativeEvent;
 import com.kraken.api.mapping.Mapping;
+import com.kraken.api.memory.Memory;
 import com.kraken.api.memory.MemoryException;
 import com.kraken.api.memory.ProcessMemory;
 import lombok.Setter;
@@ -49,7 +50,7 @@ public final class GameSession implements AutoCloseable {
      */
     private static final long HOOKED_EVENT_POLL_MS = 250;
 
-    private final ProcessMemory memory;
+    private final Memory memory;
     private final Mapping mapping;
     private final Client client;
     private final EventBus eventBus;
@@ -57,27 +58,17 @@ public final class GameSession implements AutoCloseable {
     private final TaskQueue tasks = new TaskQueue();
 
     private volatile boolean running;
-    /**
-     * -- SETTER --
-     *  Tells the session whether a native event hook is connected. While it is, the events are synthesised at a slow
-     *  safety-net rate (
-     * ) because the hook drives the reads through
-     * ;
-     *  when it drops, the timer poll goes back to
-     * . The loop itself, its tasks and the frame
-     *  listener keep running every
-     *  either way.
-     *
-     * @param connected whether the hook is connected
-     */
+
     @Setter
     private volatile boolean hookConnected;
+
     /**
      * A callback run on the poll thread after events are dispatched, at most every 150 ms. The dev tools use it to
      * refresh their views. It may read the game; it must hand any UI work to its own thread.
      */
     @Setter
     private volatile Runnable pollListener;
+
     /**
      * A callback run on the poll thread at the end of every poll (about every 20 ms), after the tick-end tasks and
      * before the poll listener. The client renders plugin overlays from it, deciding itself whether a frame is due.
@@ -86,7 +77,17 @@ public final class GameSession implements AutoCloseable {
     private volatile Runnable frameListener;
     private Thread thread;
 
-    private GameSession(ProcessMemory memory, Mapping mapping, EventBus eventBus) {
+    /**
+     * Builds a session over a process image, with its own {@link Client} and event source reading that image.
+     * {@link #attach} makes the one for the attached process; making another is for tests and tools that read a
+     * memory image of their own.
+     *
+     * @param memory   the client process's memory; closed with the session if it is a {@link ProcessMemory}
+     * @param mapping  the client build's mapping
+     * @param eventBus the bus to post the game events on
+     * @throws com.kraken.api.mapping.Mapping.MissingMappingException if the mapping lacks a key every build has
+     */
+    public GameSession(Memory memory, Mapping mapping, EventBus eventBus) {
         this.memory = memory;
         this.mapping = mapping;
         this.eventBus = eventBus;
@@ -123,12 +124,7 @@ public final class GameSession implements AutoCloseable {
      */
     public static GameSession attach(long pid, Path exe, EventBus eventBus) throws IOException {
         ClientBuild build = ClientBuild.of(exe);
-        String name = build.version() + ".json";
-        Mapping mapping = Mapping.bundled(build.version());
-        if (mapping == null) {
-            throw new UnsupportedBuildException(build, "no bundled " + Mapping.RESOURCE_DIR + name);
-        }
-        return attach(pid, build, mapping, name, eventBus);
+        return attach(pid, build, mappingFor(build), eventBus);
     }
 
     /**
@@ -161,22 +157,64 @@ public final class GameSession implements AutoCloseable {
      */
     public static GameSession attach(long pid, Path exe, Path mappingsDir, EventBus eventBus) throws IOException {
         ClientBuild build = ClientBuild.of(exe);
-        Path file = mappingsDir.resolve(build.version() + ".json");
-        if (!Files.isRegularFile(file)) {
-            throw new UnsupportedBuildException(build, "no " + file.getFileName() + " in " + mappingsDir);
-        }
-        return attach(pid, build, Mapping.load(file), file.getFileName().toString(), eventBus);
+        return attach(pid, build, mappingFor(build, mappingsDir), eventBus);
     }
 
-    private static GameSession attach(long pid, ClientBuild build, Mapping mapping, String name, EventBus eventBus) {
+    /**
+     * Like {@link #attach(long, Path, EventBus)}, with the build and its mapping already read. A caller that retries
+     * while the client boots reads and hashes the exe and parses the mapping once ({@link ClientBuild#of},
+     * {@link #mappingFor}), then retries only this, which opens the process.
+     *
+     * @param pid      the {@code osclient.exe} process id
+     * @param build    the running binary's build
+     * @param mapping  the mapping for that build; its hash must match the build's
+     * @param eventBus the bus to post the game events on
+     * @return the attached API; {@link #start} its poll loop to get events
+     * @throws UnsupportedBuildException if the mapping was made from another binary
+     * @throws MemoryException           if the process cannot be opened
+     */
+    public static GameSession attach(long pid, ClientBuild build, Mapping mapping, EventBus eventBus) {
         if (!mapping.sha256().equalsIgnoreCase(build.sha256())) {
-            throw new UnsupportedBuildException(build, name + " was made from a different binary (sha256 "
-                    + mapping.sha256().substring(0, 16) + "); re-run the updater for this one");
+            throw new UnsupportedBuildException(build, mapping.version() + ".json was made from a different binary "
+                    + "(sha256 " + mapping.sha256().substring(0, 16) + "); re-run the updater for this one");
         }
         ProcessMemory memory = ProcessMemory.attach((int) pid, MODULE);
         log.info("Attached to " + MODULE + " pid " + pid + " (client " + build.version() + ", base 0x"
                 + Long.toHexString(memory.moduleBase()) + ")");
         return new GameSession(memory, mapping, eventBus);
+    }
+
+    /**
+     * The mapping bundled with the API for a build: the classpath resource {@code mappings/<version>.json}.
+     *
+     * @param build the running binary's build
+     * @return the mapping for its version
+     * @throws IOException               if the mapping can't be read
+     * @throws UnsupportedBuildException if there is no bundled mapping for the version
+     */
+    public static Mapping mappingFor(ClientBuild build) throws IOException {
+        Mapping mapping = Mapping.bundled(build.version());
+        if (mapping == null) {
+            throw new UnsupportedBuildException(build, "no bundled " + Mapping.RESOURCE_DIR + build.version() + ".json");
+        }
+        return mapping;
+    }
+
+    /**
+     * The mapping for a build from a folder on disk, {@code <mappingsDir>/<version>.json}, e.g. one the updater wrote.
+     *
+     * @param build       the running binary's build
+     * @param mappingsDir folder holding {@code <version>.json} mappings
+     * @return the mapping for its version
+     * @throws IOException               if the mapping can't be read
+     * @throws UnsupportedBuildException if the folder has no mapping for the version
+     */
+    public static Mapping mappingFor(ClientBuild build, Path mappingsDir) throws IOException {
+        Path file = mappingsDir.resolve(build.version() + ".json");
+        if (!Files.isRegularFile(file)) {
+            throw new UnsupportedBuildException(build, "no " + file.getFileName() + " in " + mappingsDir);
+        }
+        return Mapping.load(file);
     }
 
     /**
@@ -381,6 +419,8 @@ public final class GameSession implements AutoCloseable {
         if (thread != null) {
             thread.interrupt();
         }
-        memory.close();
+        if (memory instanceof ProcessMemory process) {
+            process.close();
+        }
     }
 }

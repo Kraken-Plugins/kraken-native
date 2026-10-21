@@ -20,6 +20,7 @@ import com.kraken.api.events.PlayerSpawned;
 import com.kraken.api.events.StatChanged;
 import com.kraken.api.events.VarbitChanged;
 import com.kraken.api.gameval.InventoryID;
+import com.kraken.api.internal.event.EventSource;
 import com.kraken.api.item.Item;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

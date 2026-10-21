@@ -5,12 +5,13 @@ import com.google.inject.Inject;
 import com.google.inject.Injector;
 import com.google.inject.Module;
 import com.google.inject.Provides;
-import com.google.inject.name.Names;
 import com.kraken.api.Client;
+import com.kraken.api.GameSession;
 import com.kraken.api.eventbus.EventBus;
 import com.kraken.api.eventbus.Subscribe;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.api.memory.Memory;
+import com.kraken.client.SessionModule;
 import com.kraken.client.events.PluginChanged;
 import com.kraken.client.plugins.config.Config;
 import com.kraken.client.plugins.config.ConfigGroup;
@@ -21,7 +22,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -52,6 +52,7 @@ class PluginManagerTest {
     private ScheduledExecutorService scheduler;
     private EventBus bus;
     private ConfigManager config;
+    private Injector parent;
     private PluginManager manager;
 
     @BeforeEach
@@ -71,26 +72,27 @@ class PluginManagerTest {
      * A manager over the same settings file and bus, as the next launch would have.
      *
      * @param developerMode whether developer plugins load
-     * @return the manager, with no plugins loaded
+     * @return the manager, with no plugins loaded; load them under {@link #parent}, a session injector as the client
+     *         builds once the API attaches
      */
     private PluginManager newManager(boolean developerMode) {
         config = new ConfigManager(dir.resolve("settings.properties"), scheduler, bus);
-        Injector parent = Guice.createInjector(binder -> {
+        Injector root = Guice.createInjector(binder -> {
             binder.bind(EventBus.class).toInstance(bus);
             binder.bind(ConfigManager.class).toInstance(config);
-            binder.bind(Client.class).toInstance(attachedClient());
-            binder.bind(File.class).annotatedWith(Names.named("exe")).toInstance(new File("osclient.exe"));
         });
-        return new PluginManager(parent, bus, config, Runnable::run, developerMode);
+        parent = root.createChildInjector(new SessionModule(attachedSession(), 0));
+        return new PluginManager(bus, config, Runnable::run, developerMode);
     }
 
     /**
-     * A stand-in for the attached client: plugins load only once the API has attached, so they always see a real one.
-     * It is built over a memory image that reads zeros, so it reports no game state.
+     * A stand-in for the attached game: plugins load only once the API has attached, so they always see a real
+     * session. It is built over a memory image that reads zeros, so it reports no game state, and its poll loop never
+     * starts.
      *
-     * @return a {@link Client} over that memory
+     * @return a {@link GameSession} over that memory, posting on {@link #bus}
      */
-    private static Client attachedClient() {
+    private GameSession attachedSession() {
         Memory zeros = new Memory() {
             @Override
             public byte[] read(long address, int length) {
@@ -113,7 +115,8 @@ class PluginManagerTest {
             }
         };
         try {
-            return new Client(zeros, Objects.requireNonNull(Mapping.bundled("241.3"), "bundled 241.3 mapping"));
+            return new GameSession(zeros, Objects.requireNonNull(Mapping.bundled("241.3"), "bundled 241.3 mapping"),
+                    bus);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -294,7 +297,7 @@ class PluginManagerTest {
     void startsEnabledPluginsWithTheirInjectionsAndSubscribers() {
         List<String> changes = new ArrayList<>();
         bus.register(PluginChanged.class, e -> changes.add(e.getPlugin().getName() + " " + e.isLoaded()), 0);
-        manager.loadPlugins(List.of(GoodPlugin.class, OffPlugin.class));
+        manager.loadPlugins(parent, List.of(GoodPlugin.class, OffPlugin.class));
         bus.post(new Ping("before"));
         manager.startPlugins();
         bus.post(new Ping("running"));
@@ -316,7 +319,7 @@ class PluginManagerTest {
 
     @Test
     void dependenciesLoadAndStartFirstAndStopLast() {
-        manager.loadPlugins(List.of(DependentPlugin.class, ServicePlugin.class));
+        manager.loadPlugins(parent, List.of(DependentPlugin.class, ServicePlugin.class));
         assertEquals(List.of("Service", "A dependent"), manager.getPlugins().stream().map(Plugin::getName).toList());
         manager.startPlugins();
         assertEquals(List.of("start Service", "start Dependent, hello"), events);
@@ -327,13 +330,13 @@ class PluginManagerTest {
 
     @Test
     void aPluginWhoseDependencyIsMissingIsNotLoaded() {
-        manager.loadPlugins(List.of(DependentPlugin.class));
+        manager.loadPlugins(parent, List.of(DependentPlugin.class));
         assertEquals(List.of(), manager.getPlugins());
     }
 
     @Test
     void aPluginWhoseDependencyOffersNoServicesIsListedAsFailed() {
-        manager.loadPlugins(List.of(GoodPlugin.class, NeedyPlugin.class));
+        manager.loadPlugins(parent, List.of(GoodPlugin.class, NeedyPlugin.class));
         Plugin needy = plugin(NeedyPlugin.class);
         assertNull(needy.getInjector());
         assertNotNull(manager.getFailure(needy));
@@ -342,7 +345,7 @@ class PluginManagerTest {
 
     @Test
     void aFailingPluginIsSwitchedOffAndItsErrorKept() {
-        manager.loadPlugins(List.of(FailingPlugin.class));
+        manager.loadPlugins(parent, List.of(FailingPlugin.class));
         Plugin failing = plugin(FailingPlugin.class);
         manager.startPlugins();
 
@@ -353,20 +356,20 @@ class PluginManagerTest {
 
         config.flush();
         manager = newManager(false);
-        manager.loadPlugins(List.of(FailingPlugin.class));
+        manager.loadPlugins(parent, List.of(FailingPlugin.class));
         assertFalse(manager.isPluginEnabled(plugin(FailingPlugin.class)), "still off on the next launch");
     }
 
     @Test
     void enabledStatePersistsAcrossLaunches() throws IOException {
-        manager.loadPlugins(List.of(GoodPlugin.class, OffPlugin.class));
+        manager.loadPlugins(parent, List.of(GoodPlugin.class, OffPlugin.class));
         manager.setPluginEnabled(plugin(OffPlugin.class), true);
         manager.setPluginEnabled(plugin(GoodPlugin.class), false);
         config.flush();
         assertTrue(Files.readString(dir.resolve("settings.properties")).contains("kraken.offplugin=true"));
 
         manager = newManager(false);
-        manager.loadPlugins(List.of(GoodPlugin.class, OffPlugin.class));
+        manager.loadPlugins(parent, List.of(GoodPlugin.class, OffPlugin.class));
         manager.startPlugins();
         assertTrue(manager.isPluginActive(plugin(OffPlugin.class)));
         assertFalse(manager.isPluginActive(plugin(GoodPlugin.class)));
@@ -375,7 +378,7 @@ class PluginManagerTest {
 
     @Test
     void turningOnAPluginTurnsOffTheOnesItConflictsWith() {
-        manager.loadPlugins(List.of(LeftPlugin.class, RightPlugin.class));
+        manager.loadPlugins(parent, List.of(LeftPlugin.class, RightPlugin.class));
         Plugin left = plugin(LeftPlugin.class);
         Plugin right = plugin(RightPlugin.class);
         assertEquals(List.of(right), manager.conflictsForPlugin(left));
@@ -394,23 +397,23 @@ class PluginManagerTest {
 
     @Test
     void developerPluginsOnlyLoadInDeveloperMode() {
-        manager.loadPlugins(List.of(DevPlugin.class));
+        manager.loadPlugins(parent, List.of(DevPlugin.class));
         assertEquals(List.of(), manager.getPlugins());
         manager = newManager(true);
-        manager.loadPlugins(List.of(DevPlugin.class));
+        manager.loadPlugins(parent, List.of(DevPlugin.class));
         assertEquals(1, manager.getPlugins().size());
     }
 
     @Test
     void aPluginsProvidesMethodsAreInstalled() {
-        manager.loadPlugins(List.of(ProviderPlugin.class));
+        manager.loadPlugins(parent, List.of(ProviderPlugin.class));
         manager.startPlugins();
         assertEquals(List.of("start Provider, provided"), events);
     }
 
     @Test
     void aPluginsConfigIsFoundThroughItsInjector() {
-        manager.loadPlugins(List.of(ConfiguredPlugin.class, GoodPlugin.class));
+        manager.loadPlugins(parent, List.of(ConfiguredPlugin.class, GoodPlugin.class));
         manager.startPlugins();
         assertEquals(List.of("start Configured, default", "start Good, bus true, client true"), events);
 
@@ -423,21 +426,21 @@ class PluginManagerTest {
 
     @Test
     void aConfigFromADependencyOrOneThatCantBeCreatedIsNotTheirs() {
-        manager.loadPlugins(List.of(ConfigServicePlugin.class, ConfigUserPlugin.class, BrokenConfigPlugin.class));
+        manager.loadPlugins(parent, List.of(ConfigServicePlugin.class, ConfigUserPlugin.class, BrokenConfigPlugin.class));
         assertNull(manager.getPluginConfigProxy(plugin(ConfigUserPlugin.class)), "the dependency's, not its own");
         assertNull(manager.getPluginConfigProxy(plugin(BrokenConfigPlugin.class)), "its provider throws");
     }
 
     @Test
     void loadingAClassTwiceLoadsItOnce() {
-        manager.loadPlugins(List.of(GoodPlugin.class));
-        manager.loadPlugins(List.of(GoodPlugin.class));
+        manager.loadPlugins(parent, List.of(GoodPlugin.class));
+        manager.loadPlugins(parent, List.of(GoodPlugin.class));
         assertEquals(1, manager.getPlugins().size());
     }
 
     @Test
     void theCoreScanFindsTheBuiltInPluginsAndNotTheseFakes() {
-        manager.loadCorePlugins();
+        manager.loadCorePlugins(parent);
         List<String> names = manager.getPlugins().stream().map(Plugin::getName).toList();
         assertTrue(names.contains("Tick Counter"), names.toString());
         assertTrue(names.contains("NPC Highlight"), names.toString());

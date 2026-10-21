@@ -1,5 +1,6 @@
 package com.kraken.api.internal;
 
+import com.kraken.api.internal.reader.SceneReader;
 import com.kraken.api.scene.Scene;
 import com.kraken.api.scene.TileObject;
 

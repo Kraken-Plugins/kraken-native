@@ -2,7 +2,7 @@ package com.kraken.api.widgets;
 
 import com.kraken.api.Client;
 import com.kraken.api.Point;
-import com.kraken.api.internal.WidgetReader;
+import com.kraken.api.internal.reader.WidgetReader;
 import lombok.Getter;
 
 import java.awt.Rectangle;

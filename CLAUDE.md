@@ -26,6 +26,7 @@ Java, from the repo root (the Gradle toolchain auto-provisions JDK 21):
 ./gradlew :client:test                                    # plugins, config, settings pages, overlay layout (headless)
 ./gradlew :client:run --args="D:/path/to/osclient.exe"   # Windows only; arg optional (defaults to the Jagex Launcher install)
 ./gradlew :client:run --args="--plugin com.example.MyPlugin --developer-mode"   # extra plugin; load developer plugins
+./gradlew :client:buildNativeHook                         # compile kraken_hook.dll (build.ps1) into client resources (also runs on every client build)
 ./gradlew :api:generateGameval [-PgamevalCommit=<sha>]   # rewrite com.kraken.api.gameval from RuneLite's (by hand)
 ```
 
@@ -49,11 +50,12 @@ but some key was left out (FAILED/NEEDS_REVIEW) or a P0 key is only INFERRED.
 
 ### Platform
 
-- The test suites run on Linux/WSL (they use fakes; the client's run headless). Anything that touches the live process (`:client:run`,
-  `GameSession.attach`, `native-updater probe`) needs Windows. Run Ghidra `export` from Windows too; WSL reuses it from the
-  shared cache.
-- In WSL, `uv` is a shell function that sets `UV_PROJECT_ENVIRONMENT=.venv-linux` under `/mnt/*`, keeping Windows'
-  `.venv` intact. Invoke uv through that function.
+- Windows only. The client attaches to, reads and injects into `osclient.exe`, which runs only on Windows, so build and
+  run everything from Windows. A full `:client` build compiles `kraken_hook.dll` (via `build.ps1`), so a C++ toolchain
+  must be on PATH (see `client/src/main/native/kraken_hook/README.md`); the Java test suites themselves use fakes and run
+  headless. Run Ghidra `export` from Windows too.
+- The `updater/` Python tooling runs under WSL: `uv` is a shell function there that sets
+  `UV_PROJECT_ENVIRONMENT=.venv-linux` under `/mnt/*`, keeping Windows' `.venv` intact. Invoke uv through that function.
 - `tests/test_golden.py` skips unless the corpus build's binary and `program.db` are cached in `~/.kraken-native` (from
   WSL: the Windows profile's `.kraken-native`). Report a skipped golden run as skipped, not passed.
 
@@ -154,18 +156,24 @@ rounds (keys can depend on other keys) → consensus verdicts (PROVEN/ANCHORED/I
   after `Theme.install()`. Logging is `java.util.logging` via Lombok `@Log(topic = "kraken")`, and shows in the in-app
   console. `lombok.config` copies `@Named` onto Lombok-generated constructors, so `@AllArgsConstructor(onConstructor_ =
   @Inject)` with `@Named` fields works.
-- `ProcessAttacher` attaches the API in the background (retrying while the client boots) with the client's one `EventBus`,
-  posts `events.ApiStateChanged` on each state change, and fans each poll out to listeners on the poll thread, about
-  every 150 ms. `callback.ClientThread` (RuneLite's) forwards to `GameSession.invoke*`, holding tasks until the API
-  attaches.
+- Two injectors. `KrakenModule` binds what exists from launch (frame, panels, config, `EventBus`, `PluginManager`).
+  `ProcessAttacher` reads the exe's `ClientBuild` and mapping once, attaches the API in the background (retrying only
+  the process open while the client boots) with the client's one `EventBus`, then creates the session injector: a
+  child with `SessionModule`, binding the one `GameSession`, its `Client` and `Mapping`, the pid (`@Named("pid")`),
+  and session-only services: `callback.ClientThread` (RuneLite's, which forwards to `GameSession.invoke*`) and
+  `callback.NativeEventServer` (the injected event hook, installed on every launch by `KrakenClient`'s attach
+  listener). Bind such services in `SessionModule` explicitly. Components that exist before the game (frame, dev
+  tools, overlay renderer) don't inject session objects; they follow `ProcessAttacher`'s state, attach, poll (about
+  every 150 ms) and frame listeners, and it posts `events.ApiStateChanged` on each state change.
 - Plugins (`plugins.Plugin`, `@PluginDescriptor`, `@PluginDependency`) follow RuneLite's. `PluginManager` finds
   top-level `@PluginDescriptor` classes under `com.kraken.client.plugins` with ClassGraph (one package per plugin, e.g.
-  `plugins.tickcounter`), gives each a child injector (plugin bound and installed as a module, plus each dependency's
-  `getPublicModule()`), and starts/stops them on the EDT through the `@Named("edt")` executor (tests pass
+  `plugins.tickcounter`), gives each a child of the injector it's loaded with, the session injector (plugin bound and
+  installed as a module, plus each dependency's `getPublicModule()`), and starts/stops them on the EDT through the `@Named("edt")` executor (tests pass
   `Runnable::run`). On/off state is `ConfigManager` group `kraken`, key = class simple name lower-cased; a plugin whose
   `startUp` throws is switched off and keeps its error (`getFailure`). Plugins load and start only once the API
-  attaches, so they always inject the real `Client`; if it never attaches, none load (`KrakenClient` registers the
-  loader as a `ProcessAttacher` attach listener). `ExitHandler` posts `ClientShutdown`, stops plugins and flushes
+  attaches, so they always inject the real `GameSession`/`Client`; if it never attaches, none load (`KrakenClient`
+  registers the loader as a `ProcessAttacher` attach listener, which receives the session injector). Tests build the
+  session injector from `new GameSession(memory, mapping, bus)` over a fake memory. `ExitHandler` posts `ClientShutdown`, stops plugins and flushes
   settings on exit.
 - Config (`client.plugins.config`; Kraken's own `KrakenConfig` sits in the root package) follows RuneLite's: `ConfigManager.getConfig` implements a `@ConfigGroup` interface (getters
   annotated `@ConfigItem`, defaults in `default` bodies) as a proxy, usually from the plugin's `@Provides` method; every

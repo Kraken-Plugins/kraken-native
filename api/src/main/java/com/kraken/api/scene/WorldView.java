@@ -10,7 +10,7 @@ import com.kraken.api.collision.CollisionDataFlag;
 import com.kraken.api.coords.LocalPoint;
 import com.kraken.api.coords.WorldPoint;
 import com.kraken.api.internal.CollisionLines;
-import com.kraken.api.internal.SceneReader;
+import com.kraken.api.internal.reader.SceneReader;
 import lombok.Getter;
 
 /**

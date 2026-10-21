@@ -1,5 +1,7 @@
 package com.kraken.api.internal;
 
+import com.kraken.api.internal.reader.ProjectileReader;
+
 /**
  * A scene tile as the readers return it: {@code level} is the plane (0-3) and {@code x}/{@code z} are tile coordinates,
  * with {@code z} pointing north.
