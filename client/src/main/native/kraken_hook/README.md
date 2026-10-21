@@ -66,7 +66,7 @@ plan entry is `{u8 arg, u8 op}` with ops `RAW, I32, I64, I32X2, CSTR` = 0..4.
   second injection is refused by a named mutex.
 - `client/.../callback/CallbackInjector.java` — the injection (the only code that writes to the game).
 - `client/.../callback/NativeEventServer.java` — the server, handshake builder, message reader and the
-  read-only `onEvent` tap; wired into `GameLauncher`.
+  read-only `onEvent` tap; bound in `SessionModule` and installed by `KrakenClient`'s attach listener.
 - `client/.../callback/NativeProtocol.java`, `NativeEvents.java` — the wire format and the capture plans.
 - `kraken_hook.cpp` — connects back, reads the handshake, installs the MinHook hooks, pushes messages.
 

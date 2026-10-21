@@ -9,11 +9,10 @@ by one contract, `api/src/main/resources/mappings/<version>.json`:
 
 - `updater/` (Python, uv): statically analyses a client build (via a Ghidra export) and writes that mapping.
 - `api/` (Java 21 library): attaches to the running client and reads game state with `ReadProcessMemory`, following
-  the offset chains in the mapping. `GameSession.client()` is a RuneLite-shaped API (`Client`, `NPC`, `WorldPoint`…;
-  design in `docs/runelite-api-design-opus.md`) whose getters replay what the client's own Lua plugin API
-  (`osrs.ClientOp`, `osrs.ClientState`…) reads.
-- `client/` (Java 21 Swing + Guice): launches `osclient.exe`, embeds its window in a RuneLite-style frame, and hosts dev
-  tools that show what the API reads.
+  the offset chains in the mapping. `GameSession.client()` is a RuneLite-shaped API (`Client`, `NPC`, `WorldPoint`…)
+  whose getters replay what the client's own Lua plugin API (`osrs.ClientOp`, `osrs.ClientState`…) reads.
+- `client/` (Java 21 Swing + Guice): launches `osclient.exe`, embeds its window in a RuneLite-style frame, injects
+  `kraken_hook.dll` for native events, and hosts plugins and dev tools.
 
 ## Commands
 
@@ -30,9 +29,9 @@ Java, from the repo root (the Gradle toolchain auto-provisions JDK 21):
 ./gradlew :api:generateGameval [-PgamevalCommit=<sha>]   # rewrite com.kraken.api.gameval from RuneLite's (by hand)
 ```
 
-The client reads bundled mappings unless the system property `kraken.mappings=<dir>` points at a folder of
-`<version>.json` files (see `ProcessAttacher`). Settings (plugin on/off state) live in
-`~/.kraken-native/settings.properties` unless `kraken.settings=<file>` says otherwise.
+System properties: `kraken.mappings=<dir>` (a folder of `<version>.json` instead of the bundled ones),
+`kraken.settings=<file>` (default `~/.kraken-native/settings.properties`), `kraken.hook.dll=<path>`,
+`kraken.hook.projectileStep=true`.
 
 Updater, from `updater/`:
 
@@ -45,15 +44,15 @@ uv run native-updater bindings --binary <osclient.exe> --table osrs.IfType   # d
 uv run native-updater sql --binary <osclient.exe> "<SQL over program.db>"
 ```
 
-`run` exits 0 when every P0 key is PROVEN/ANCHORED, 1 on acquisition failure or crash, 2 when the mapping was written
-but some key was left out (FAILED/NEEDS_REVIEW) or a P0 key is only INFERRED.
+`run` exits 0 when every P0 key is PROVEN/ANCHORED and no key is FAILED/NEEDS_REVIEW, 1 on acquisition failure or
+crash, 2 when the mapping was written but some key was left out or a P0 key is only INFERRED. Other subcommands
+(`export`, `build-model`, `probe`) are in `updater/README.md`.
 
 ### Platform
 
-- Windows only. The client attaches to, reads and injects into `osclient.exe`, which runs only on Windows, so build and
-  run everything from Windows. A full `:client` build compiles `kraken_hook.dll` (via `build.ps1`), so a C++ toolchain
-  must be on PATH (see `client/src/main/native/kraken_hook/README.md`); the Java test suites themselves use fakes and run
-  headless. Run Ghidra `export` from Windows too.
+- Windows only: the client attaches to, reads and injects into `osclient.exe`. A full `:client` build compiles
+  `kraken_hook.dll`, so a C++ toolchain must be on PATH (see `client/src/main/native/kraken_hook/README.md`); the Java
+  test suites use fakes and run headless. Run Ghidra `export` from Windows too.
 - The `updater/` Python tooling runs under WSL: `uv` is a shell function there that sets
   `UV_PROJECT_ENVIRONMENT=.venv-linux` under `/mnt/*`, keeping Windows' `.venv` intact. Invoke uv through that function.
 - `tests/test_golden.py` skips unless the corpus build's binary and `program.db` are cached in `~/.kraken-native` (from
@@ -61,19 +60,17 @@ but some key was left out (FAILED/NEEDS_REVIEW) or a P0 key is only INFERRED.
 
 ## Updater architecture
 
-Pipeline (`pipeline.py`): identify the build (`pe.py` file version + sha256, archived in the binary store) → Ghidra
-export → `program.db` SQLite (`model.py`) → parse sol2 Lua bindings and fingerprints → run each key's strategies in
-rounds (keys can depend on other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED) → invariants
-(`verify.py`) → emit.
+Pipeline (`pipeline.py`): identify the build (`pe.py` file version + sha256) → Ghidra export → `program.db` SQLite
+(`model.py`) → parse sol2 Lua bindings and fingerprints → run each key's strategies in rounds (keys can depend on
+other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED) → invariants (`verify.py`) → emit.
 
 - `src/native_updater/spec/*.yaml` is the source of truth for what gets mapped: one entry per key with strategies,
   invariants and a `live` probe check. Key names map to mapping sections: `Struct.field` → `structs`, `global.x` →
   `globals`, `functions.x` → `functions`, `enums.x` → `enums`, `container.x.y` → `containers`, `events.ON_X` →
-  `events` (the hook sites where the client raises that native event; `events.py`, design in
-  `docs/event-hooks-design.md`).
-- The mapping JSON is updater output and holds only PROVEN/ANCHORED/INFERRED, non-`internal` keys. The evidence behind
-  each value, plus every Lua binding's handler RVA, goes to `~/.kraken-native/cache/<sha256>/analysis.json`; read that
-  when a value looks wrong.
+  `events` (the client's native event raise sites; `events.py`, see `docs/event-hooks-design.md`).
+- The mapping JSON holds only PROVEN/ANCHORED/INFERRED, non-`internal` keys. The evidence behind each value, plus every
+  Lua binding's handler RVA, goes to `~/.kraken-native/cache/<sha256>/analysis.json`; read that when a value looks
+  wrong.
 - Writing recipes: see "Writing a recipe" in `updater/README.md`. Inspect what a recipe can match with `bindings`,
   `sql`, or `Provenance(model).facts(fn)` in `uv run python`. Spell offset params `offset`, since YAML parses `off` as
   `false`.
@@ -82,139 +79,94 @@ rounds (keys can depend on other keys) → consensus verdicts (PROVEN/ANCHORED/I
 
 ## API architecture
 
-- No hard-coded offsets: `Mapping` serves everything from the JSON. `GameSession.attach` picks `mappings/<version>.json`
-  by the exe's version resource and rejects it unless its `sha256` matches the exe. `ClientBuild.version` parses the
-  version the same way as the updater's `pe.py: file_version`; change the two together.
-- One layer, shaped as RuneLite's: concrete classes, grouped by domain. `com.kraken.api` holds `GameSession`, `Client`
-  and the client-wide types (`GameState`, `Skill`, `WorldType`, `Point`, `Perspective`, `CameraProjection`,
-  `MenuEntry`, `MenuAction`…); `actor`
-  (`Actor`, `NPC`, `Player`, `IndexedObjectSet`), `scene` (`WorldView`, `Scene`, `Tile`, `TileObject` and its four
-  subclasses, `TileItem`, `Projectile`), `collision`, `item` (`Item`, `ItemContainer`, `EquipmentInventorySlot`),
-  `definition` (the compositions), `widgets`, `coords`, `events`, `eventbus`, `gameval`. There are no interfaces or
-  adapters: each getter reads memory itself or calls a reader that does (`NPC.getSpawnCycle()` →
-  `actors.npcCreationCycle(address())`). Names,
-  types and meanings follow RuneLite's; methods the API can't back are left out, not stubbed. Reads the client's Lua API
-  has and RuneLite doesn't are added to the matching class (camera focal point, `Actor.getPathLength`, widget fields,
-  `CollisionDataFlag`'s Lua names…). Javadoc says what the code does, which Lua function a getter mirrors, and any
-  divergence from the native handler. It never mentions RuneLite (credited in the README) and doesn't label extras or
-  call the library "Kraken". Use Lombok `@Getter`/`@Setter` for plain fields.
-- All plumbing lives in `com.kraken.api.internal`: `GameReader` (the base) and `StructReader`, `ActorReader` (actors by
-  address), `SceneReader` (locs, piles, collision, map base), `ProjectileReader`, `InventoryReader`, `WidgetReader`,
-  `MenuReader` (the minimenu's rows, open flag and last-run entry; works a `MenuAction` out of an entry's subject kind
-  and op),
-  `ConfigTypes` (the config archive and its decoders, `ItemDecoder`/`NpcDecoder`/`ObjectDecoder` with their builders,
-  which build the compositions), `EventSource`, and the records readers return (`MapCoord`, `FineCoord`, `Loc`,
-  `GroundObj`, `ProjectileEndpoint`). Java has no friend packages, so it is public, as are the hooks the domain
-  packages share (`Client.getActorReader()`, `npc(index)`, `toWorld`, `Actor.remember`, the handles' constructors…);
-  their Javadoc says "Internal", and plugins never need them. `Client` reads its own struct's fields (game state,
-  stats, vars, varcs, camera, canvas) directly.
-- Actor handles are pinned to an actor's address (and an NPC's creation cycle or a player's name): `Client` hands out
-  one handle object per actor, which keeps its last name, id and location once the actor is gone. `TileObject`s are
-  values (loc + the map base it was read with), `Tile`s are handles on a scene position that read empty once the base
-  moves, `TileItem`s keep their identity through the item events, and `Widget`s and `Projectile`s are snapshots of one
-  read. Compositions are cached by `ConfigTypes` and resolve conditional actions against `Client`'s live vars.
-- `com.kraken.api.gameval` is generated from RuneLite's gamevals at a pinned commit (`generateGameval`) and committed;
-  don't edit it by hand.
-- `internal.GameReader` is the base for `Client` and the readers. Chains start at `moduleBase + globals.client`.
-  Constructors resolve offsets once: `mapping.offset(key)` for required keys (throws `MissingMappingException`),
-  `optionalOffset`/`offsetOr`/`has` for keys older mappings may lack. Reads go through the `safe*` helpers and return
-  fallbacks (-1, "", empty array, null) for unreadable or logged-out state.
-- Coordinates: the client stores actor tiles as scene tiles (relative to the loaded map's base), which the readers
-  return as `MapCoord`s; the API adds the base (`Client.toWorld`) for a `WorldPoint`, a world tile. A `LocalPoint` is
-  the scene × 128, the space of fine coordinates and the camera. The client (and its Lua API) keeps the height in `y`
-  and north in `z`; the API uses RuneLite's axes (`y` north, `z` height), so readers that copy Lua's order swap them
-  (`CameraProjection.project`, `Projectile`, the camera getters).
-- Read-only by design: the API only reads the game process. Lua functions that change the client (highlights, camera
-  control, actions) belong to a future in-process backend and are out of scope.
-- Events (`com.kraken.api.events`, posted on the `eventbus.EventBus` passed to `GameSession.attach`) are synthesised by
-  `EventSource`, only for events that have subscribers: its trackers diff reads every 20 ms, spawns carry pinned
-  handles, vars follow the client's working copy and every raw game state counts. The Lua API's own events
-  (`osrs.Events`) aren't mirrored: each has a RuneLite event that covers it. Tracking that starts on
-  the API's first poll replays the current state (game state, the scene's objects and ground items, NPC/player spawns,
-  targets, stats, inventories, menu entries); later it takes a silent baseline. As in RuneLite, a scene load (back to logged in, or
-  a moved map base) spawns every object and item of the new scene and despawns none of the old, and the `LOGGED_IN`
-  is held until those spawns are posted. Objects are a whole-scene read once per tick (costly); items and targets are
-  read on the tick's poll and the next. The bus also matches supertypes and interfaces of an event, unlike RuneLite's
-  (`TileObjectSpawned` takes all four object spawns).
-- The `kraken-api-poll` thread is the "client thread". It loops every 20 ms, or at once when the native hook pushes a
-  raise (`GameSession.onNative` wakes it). Each poll: `GameSession.invoke*` tasks (`TaskQueue`), the events
-  with `GameTick` after the tick's other events, a `ClientTick` per client cycle, `invokeAtTickEnd` tasks if a tick
-  happened, the frame listener (where the client draws plugin overlays), then the 150 ms poll listener. Event handlers,
-  tasks and overlay rendering all run there. `GameTick` and `ClientTick` are one per step of the game's tick and cycle
-  counters (`Client.tickCount`, `getGameCycle`; logout resets the tick counter to 0, which is not a tick); a raise only
-  makes the read sooner, it never counts a tick itself.
-- `Perspective` (canvas helpers, RuneLite's names) only calls `Client.getCameraProjection()` (the camera, read once)
-  and `WorldView.getTileHeight`, both additions to RuneLite's API. Canvas positions are the client's own pixels
-  (`Client.getCanvasWidth/Height`).
+- No hard-coded offsets: `mapping.Mapping` serves everything from the JSON. `GameSession.attach` picks
+  `mappings/<version>.json` by the exe's version resource and rejects it unless its `sha256` matches.
+  `ClientBuild.version` parses the version the same way as the updater's `pe.py: file_version`; change the two
+  together.
+- One layer, shaped as RuneLite's: concrete classes grouped by domain (`com.kraken.api` for `GameSession`, `Client` and
+  client-wide types; `actor`, `scene`, `collision`, `item`, `definition`, `widgets`, `coords`, `events`, `eventbus`,
+  `gameval`). No interfaces or adapters: each getter reads memory itself or calls a reader that does. Names, types and
+  meanings follow RuneLite's; methods the API can't back are left out, not stubbed. Reads the Lua API has and RuneLite
+  doesn't are added to the matching class. Use Lombok `@Getter`/`@Setter` for plain fields.
+- Plumbing lives in `com.kraken.api.internal`: `reader.*` (`GameReader`, the base, and the per-struct readers),
+  `event.*` (`EventSource`, its trackers, `NativeEvent`), `ConfigTypes` and the decoders that build the compositions,
+  and the records readers return (`MapCoord`, `Loc`…). It is public because Java has no friend packages, as are the
+  hooks the domain packages share (`Client.getActorReader()`, `toWorld`, handle constructors…); their Javadoc says
+  "Internal", and plugins never need them.
+- Readers resolve offsets once in their constructors: `mapping.offset(key)` for required keys (throws
+  `MissingMappingException`), `optionalOffset`/`offsetOr`/`has` for keys older mappings may lack. Reads go through the
+  `safe*` helpers and return fallbacks (-1, "", empty array, null) for unreadable or logged-out state. Chains start at
+  `moduleBase + globals.client`.
+- Identity: actor handles are pinned to an actor's address (plus an NPC's creation cycle or a player's name), one per
+  actor, and keep their last values once it is gone. `TileObject`s are values, `Tile`s read empty once the map base
+  moves, `Widget`s and `Projectile`s are snapshots.
+- Coordinates: actor tiles are scene tiles (relative to the map base), returned as `MapCoord`s; `Client.toWorld` adds
+  the base for a `WorldPoint`. A `LocalPoint` is scene × 128. The client keeps height in `y` and north in `z`; the API
+  uses `y` north, `z` height, so readers that copy Lua's order swap them.
+- Read-only by design. Lua functions that change the client (highlights, camera control, actions) are out of scope.
+- Events (`com.kraken.api.events`) are synthesised by `EventSource`'s trackers, only for events with subscribers. The
+  native hook's raises (`GameSession.onNative`) trigger trackers sooner; ticks still come from the game's counters, so
+  a raise never counts a tick itself. Design and the trigger table: `docs/event-hooks-design.md`. The bus also matches
+  supertypes and interfaces of an event.
+- The `kraken-api-poll` thread is the "client thread": every 20 ms, or at once on a raise, it runs `invoke*` tasks,
+  the events (`GameTick` after the tick's other events, a `ClientTick` per client cycle; with the hook connected only
+  when a raise asks or every 250 ms), `invokeAtTickEnd` tasks, the frame listener (overlays), then the 150 ms poll
+  listener. Event handlers, tasks and overlay rendering all run there.
 - Adding a read the Lua API has: take the handler RVA from `analysis.json` bindings, map each constant it uses to a
-  mapping key (adding a spec recipe if needed), and replay the same steps in Java, in the reader for that struct (or
-  `Client` for its own fields), exposed on the RuneLite-shaped class it belongs to, under RuneLite's name if RuneLite
-  has one. Javadoc names the Lua function and any deliberate divergence from the native
-  handler.
-- Tests: `GameFixture` lays out a fake Client → World → NPC/Player/inventory/scene/camera/interface/projectile graph in `FakeMemory` at the bundled 241.3
-  mapping's real offsets, so tests cover the read plumbing, not whether offsets are correct (the live client verifies
-  that). New reads extend `GameFixture`. Tests sit in the package of the class they test and build the client with
+  mapping key (adding a spec recipe if needed), and replay the same steps in Java in the reader for that struct (or
+  `Client` for its own fields), exposed on the class it belongs to, under RuneLite's name if RuneLite has one. Javadoc
+  names the Lua function and any deliberate divergence from the native handler.
+- `com.kraken.api.gameval` is generated (`generateGameval`) and committed; don't edit it by hand.
+- Tests: `GameFixture` lays out a fake game graph in `FakeMemory` at the bundled 241.3 mapping's real offsets, so tests
+  cover the read plumbing, not whether offsets are correct (the live client verifies that). New reads extend
+  `GameFixture`. Tests sit in the package of the class they test and build the client with
   `new Client(game.memory, game.map)`.
 
 ## Client architecture
 
 - Guice wiring (`KrakenModule`); components are `@Singleton`s created on first use, so the frame is requested on the EDT
-  after `Theme.install()`. Logging is `java.util.logging` via Lombok `@Log(topic = "kraken")`, and shows in the in-app
-  console. `lombok.config` copies `@Named` onto Lombok-generated constructors, so `@AllArgsConstructor(onConstructor_ =
-  @Inject)` with `@Named` fields works.
+  after `Theme.install()`. Logging is `java.util.logging` via Lombok `@Log(topic = "kraken")`, shown in the in-app
+  console. `lombok.config` copies `@Named` onto Lombok-generated constructors.
 - Two injectors. `KrakenModule` binds what exists from launch (frame, panels, config, `EventBus`, `PluginManager`).
-  `ProcessAttacher` reads the exe's `ClientBuild` and mapping once, attaches the API in the background (retrying only
-  the process open while the client boots) with the client's one `EventBus`, then creates the session injector: a
-  child with `SessionModule`, binding the one `GameSession`, its `Client` and `Mapping`, the pid (`@Named("pid")`),
-  and session-only services: `callback.ClientThread` (RuneLite's, which forwards to `GameSession.invoke*`) and
-  `callback.NativeEventServer` (the injected event hook, installed on every launch by `KrakenClient`'s attach
-  listener). Bind such services in `SessionModule` explicitly. Components that exist before the game (frame, dev
-  tools, overlay renderer) don't inject session objects; they follow `ProcessAttacher`'s state, attach, poll (about
-  every 150 ms) and frame listeners, and it posts `events.ApiStateChanged` on each state change.
+  `ProcessAttacher` attaches the API in the background, then creates the session injector (`SessionModule`: the
+  `GameSession`, `Client`, `Mapping`, `@Named("pid")`, and session-only services such as `callback.ClientThread` and
+  `callback.NativeEventServer`; bind such services there explicitly). Components that exist before the game (frame,
+  dev tools, overlay renderer) don't inject session objects; they use `ProcessAttacher`'s state, attach, poll and
+  frame listeners.
 - Plugins (`plugins.Plugin`, `@PluginDescriptor`, `@PluginDependency`) follow RuneLite's. `PluginManager` finds
-  top-level `@PluginDescriptor` classes under `com.kraken.client.plugins` with ClassGraph (one package per plugin, e.g.
-  `plugins.tickcounter`), gives each a child of the injector it's loaded with, the session injector (plugin bound and
-  installed as a module, plus each dependency's `getPublicModule()`), and starts/stops them on the EDT through the `@Named("edt")` executor (tests pass
-  `Runnable::run`). On/off state is `ConfigManager` group `kraken`, key = class simple name lower-cased; a plugin whose
-  `startUp` throws is switched off and keeps its error (`getFailure`). Plugins load and start only once the API
-  attaches, so they always inject the real `GameSession`/`Client`; if it never attaches, none load (`KrakenClient`
-  registers the loader as a `ProcessAttacher` attach listener, which receives the session injector). Tests build the
-  session injector from `new GameSession(memory, mapping, bus)` over a fake memory. `ExitHandler` posts `ClientShutdown`, stops plugins and flushes
-  settings on exit.
-- Config (`client.plugins.config`; Kraken's own `KrakenConfig` sits in the root package) follows RuneLite's: `ConfigManager.getConfig` implements a `@ConfigGroup` interface (getters
-  annotated `@ConfigItem`, defaults in `default` bodies) as a proxy, usually from the plugin's `@Provides` method; every
-  change posts `events.ConfigChanged`. `PluginManager.getPluginConfigProxy` finds a plugin's config among its injector's
-  bindings, and `ui.ConfigPanel` generates the settings page (the Plugins panel's cog; the Settings tab is
-  `KrakenConfig`'s). Supported types are listed on `ConfigManager`.
-- Overlays (`client.ui.overlay`) follow RuneLite's: plugins add `Overlay`s to `OverlayManager`. `OverlayRenderer` draws
-  them on the poll thread (the API's frame listener) at the `KrakenConfig` frame rate into a device-pixel image, scaled
-  so overlays draw in canvas pixels, and hands finished frames to `GameOverlay`, the click-through window over the game,
-  which the EDT paints. `OverlayCompositor` does the layout (tested headless). Differences from RuneLite are in the
-  Javadoc and design doc §12.4. `plugins.npchighlight`, `plugins.objectmarkers` (scene events) and
-  `plugins.tickcounter` are the worked examples.
+  top-level `@PluginDescriptor` classes under `com.kraken.client.plugins` (one package per plugin), gives each a child
+  of the session injector, and starts/stops them on the EDT through the `@Named("edt")` executor (tests pass
+  `Runnable::run`). Plugins load only once the API attaches. On/off state is `ConfigManager` group `kraken`, key =
+  class simple name lower-cased. Tests build the session injector from `new GameSession(memory, mapping, bus)`.
+- Config (`plugins.config`) follows RuneLite's: `ConfigManager.getConfig` proxies a `@ConfigGroup` interface; changes
+  post `events.ConfigChanged`; `ui.ConfigPanel` generates the settings page. Supported types are listed on
+  `ConfigManager`.
+- Overlays (`ui.overlay`) follow RuneLite's: `OverlayRenderer` draws on the poll thread into a device-pixel image,
+  `GameOverlay` (the click-through window over the game) paints it on the EDT, `OverlayCompositor` does the layout.
+  `plugins.npchighlight`, `plugins.objectmarkers` and `plugins.tickcounter` are the worked examples.
 - Dev tools: subclass `DevTool<S>` and list it in `DevToolCatalog.create()`. `read(api)` runs on the poll thread and
-  returns an immutable snapshot; `paintOverlay`/`createView` run on the EDT. A tool reads only while its overlay or
-  window is showing. `PlannedTool` entries hold sidebar spots for features the API can't read yet; replace the entry
-  when its API lands. Tools read through `api.client()`, the API's one layer, and show its values; event-driven tools
-  (Event log, Var inspector) subscribe to `api.eventBus()` only while they show, and only to the kinds they log.
+  returns an immutable snapshot; `paintOverlay`/`createView` run on the EDT. A tool reads only while it is showing.
+  `PlannedTool` entries hold spots for features the API can't read yet. Event-driven tools subscribe to
+  `api.eventBus()` only while they show.
 
 ## Reference
 
 - `docs/updater-design.md`: anchor classes, verdict rules, carry-forward and delta propagation. Read before changing
   `consensus.py`, `carry.py` or `verify.py`.
+- `docs/event-hooks-design.md`: the native raise sites, the hook DLL and its protocol, and how raises trigger trackers.
 - `docs/ghidra-walkthrough.md`: locating offsets by hand in Ghidra, with an x64 assembly primer.
 - `debug/`: a macOS debug build of the client (build 216) with text dumps of its symbols, strings and constants
   (`symbols_table_demangled.txt` is ~80 MB). Grep them for real class and member names; nothing in the code reads them.
 
 ## Formatting
 
-- Prefer not to leave comments in this format `// ---- dispatch (called by the poller) ---------------------------------------------------------` if you encounter comments like this remove them from the codebase
-- Any commits made should NOT reference AI as a co-author
+- Remove banner comments like `// ---- dispatch (called by the poller) -----------------` wherever you find them.
+- Commits must NOT reference AI as a co-author.
 - Comments, Javadoc and test messages say what the code does and never mention RuneLite (it is credited in the
   README's Acknowledgements), even where a class follows RuneLite's design. The exception is the license notice in
-  the generated `gameval` files.
-- Block level Comments should include `@return` and `@param` referencing the params and the return type of the method for javadoc generation.
-- Any block level comments should have proper spacing i.e. prefer this
+  the generated `gameval` files. Javadoc doesn't label extras or call the library "Kraken".
+- Block comments include `@param` and `@return` for the method's params and return type.
+- Block comments are never one-liners, i.e. prefer this
 ```java
 /**
  * This does something

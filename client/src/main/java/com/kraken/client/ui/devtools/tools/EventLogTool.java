@@ -147,7 +147,25 @@ final class EventLogTool extends DevTool<List<String>> {
 
     @Override
     protected ToolView<List<String>> createView() {
-        return new LogView();
+        return new LogView("events", EventLogTool::eventName);
+    }
+
+    /**
+     * The event a log line is for, for the log's event filter.
+     *
+     * @param line a line as {@link #add} queues it: the time, then the event's name, then its details, two spaces
+     *             apart
+     * @return the event's name, or null if the line has none
+     */
+    static String eventName(String line) {
+        int start = line.indexOf("  ");
+        if (start < 0) {
+            return null;
+        }
+        start += 2;
+        int end = line.indexOf("  ", start);
+        String name = (end < 0 ? line.substring(start) : line.substring(start, end)).trim();
+        return name.isEmpty() ? null : name;
     }
 
     /**

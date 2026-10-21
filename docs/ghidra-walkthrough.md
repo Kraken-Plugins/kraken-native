@@ -830,7 +830,8 @@ Do at least one of these checks every time. They take a few seconds each.
    uv run native-updater bindings --binary "C:/Program Files (x86)/Jagex Launcher/Games/Old School RuneScape/Client/osclient.exe" --table ClientOp
    ```
 
-   It prints one line per script function:
+   This reads the build's `program.db`, so run `uv run native-updater export --binary <osclient.exe>` first if the build
+   hasn't been exported yet. It prints one line per script function:
 
    ```
    ClientOp.npcName                                         0x1ec5c0 direct
@@ -1201,7 +1202,7 @@ else:           name = read_bytes(nameObj, 23 - b23)
 When you're unsure what a field is, find the code that creates the object. A constructor writes a starting value
 into most fields, so it shows the object's layout.
 
-All actors share a common constructor, `FUN_14009dcd0` (the updater's `functions.actorCtor`). Right-click it →
+All actors share a common constructor, `FUN_14009dcd0`. Right-click it →
 **References → Show References to**. There are exactly two callers, one per kind of actor:
 
 **Player constructor, `FUN_1400a1110`:**
@@ -1241,10 +1242,9 @@ Compare the two:
 **The same offset can mean different things in different subclasses.** Players and NPCs share everything up to
 about `+0x710`; after that their layouts differ.
 
-> ⚠️ **This affects the current mapping.** `241.3.json` has one shared `Actor.name = 0x710`,
-> and the probe's `localPlayerName` check reads `player + 0x710` as an inline string. That's right for NPCs (as a
-> custom-name override; see Part 7) but not for players. Player names are behind the pointer at `Player+0x718`.
-> Expect that probe check to fail until the spec gets a separate `Player.name` key.
+> **Mapping note.** `241.3.json` has a shared `Actor.name = 0x710` (an inline string, right for NPCs; see Part 7)
+> and a separate `Player.name = 0x718`, the pointer to the `PlayerName` pair `{display, normalised}`. The probe's
+> `localPlayerName` check follows `Player.name`, not `Actor.name`.
 
 ---
 
@@ -1384,7 +1384,8 @@ what the object looks like. This is what turns the gibberish into readable code.
    | `0x3F0` | `int[10]` | `pathX` |
    | `0x418` | `int[10]` | `pathZ` |
    | `0x4A0` | `int` | `worldId` |
-   | `0x710` | `byte[24]` | `npcName` (or `nameCtrl` on players) |
+   | `0x710` | `byte[24]` | `npcName` (NPCs; see Part 6 for players) |
+   | `0x718` | `pointer` | `name` (players only; the name pair from Part 6) |
    | `0x730` | `pointer` | `npcType` |
 
 4. Do the same for `World` (`0x18 plane`, `0x24 baseX`, `0x28 baseZ`, `0x60` player map, `0x90` npc map,
@@ -1433,15 +1434,16 @@ steps above, written down so a program can repeat it:
 | Manual step in this guide | Updater recipe |
 |---|---|
 | Part 3: every handler first reads the same global | `global.client`: `global-load: { in: "ClientOp.*", size: ptr }` |
-| Part 4: `playerCoord` writes `world+0x18` to `out[0]` | `World.plane`: `getter: { in: ClientOp.playerCoord, base: { ret: "@ActorWorld" }, select: { stored_to: { arg: 0, offset: 0 } } }` |
-| Part 4: `playerCoord` writes `player+0x3F0` to `out+4` | `Actor.pathX`: `getter: { in: ClientOp.playerCoord, base: sp_result, select: { stored_to: { arg: 0, offset: 4 } } }` |
+| Part 4: `playerCoord` writes `world+0x18` to `out[0]` | `World.plane`: `getter: { in: ClientOp.playerCoord, base: { ret: "@ActorWorld" }, load: i32, select: { stored_to: { arg: 0, offset: 0 } } }` |
+| Part 4: `playerCoord` writes `player+0x3F0` to `out+4` | `Actor.pathX`: `getter: { in: ClientOp.playerCoord, base: sp_result, load: i32, select: { stored_to: { arg: 0, offset: 4 } } }` |
 | Part 5: `playerFindSelf` compares `client+0xCC4C` with 0 | `Client.localPlayerIndex`: `getter: { in: ClientOp.playerFindSelf, base: client, load: i32, select: { compared_with: 0 } }` |
 
 Read a recipe as "in function X, find the load whose base is Y and which is used like Z". When the updater marks a
 key `FAILED` or `NEEDS_REVIEW` on a new build, open the named function in Ghidra and look at it the way this guide
 does.
 
-The updater can also answer "who uses offset N?" without Ghidra, using its instruction database:
+The updater can also answer "who uses offset N?" without Ghidra, using the build's instruction database (`program.db`,
+written by `export`):
 
 ```bash
 cd updater
@@ -1469,8 +1471,9 @@ cd updater
 uv run native-updater probe --mapping ../api/src/main/resources/mappings/241.3.json --display-name "<your name>"
 ```
 
-It prints PASS/FAIL per check (`localPlayer`, `fineVsPath`, `worldBase`, …). Based on Part 6, expect
-`localPlayerName` to fail on this mapping.
+Run `probe` from Windows: it reads the client's memory through Windows APIs. It prints PASS/FAIL per check
+(`localPlayer`, `fineVsPath`, `worldBase`, …). `localPlayerName` compares the name against `--display-name` when you
+pass it.
 
 **Option B: a memory viewer** such as ReClass.NET or Cheat Engine, attached read-only. Add the pointer
 `"osclient.exe"+E98C18`, then add offsets by hand: `+CC4C` should show your player index; follow `+CA80` to the World
@@ -1525,7 +1528,7 @@ Build `166231c8f6bd05c7`. Addresses are Ghidra addresses (RVA = address − `0x1
 | Actor | `+0x268` / `+0x26C` | fine x / fine z (128 per tile) |
 | Actor | `+0x3F0` / `+0x418` | `pathX[10]` / `pathZ[10]` (`[0]` = current tile) |
 | Actor | `+0x4A0` | world id (0 = main world) |
-| Player | `+0x718` | pointer to name string object |
+| Player | `+0x718` | pointer to the name pair `{display, normalised}` (`Player.name`, `PlayerName`) |
 | Npc | `+0x710` | own name string (usually empty) |
 | Npc | `+0x730` | NpcType pointer |
 | NpcType | `+0x0` / `+0x8` / `+0x140` | id / name string / transform data (non-zero = can change form) |

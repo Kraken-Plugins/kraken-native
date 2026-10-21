@@ -35,10 +35,11 @@ Use at your own risk. The developers are not responsible for any consequences re
 | [`client/`](client) | Proof of concept | Java 21 Swing client that launches `osclient.exe` and embeds its window, with a RuneLite-style sidebar, plugins and log console |
 | [`updater/`](updater) | Working | Python updater that maps a client build and writes the API's `mappings/<version>.json` |
 | [`api/src/main/resources/mappings/`](api/src/main/resources/mappings) | Seed build | One mapping per client version (e.g. `241.3.json`): the offsets the API reads, nothing else. Bundled on the API's classpath |
-| [`api/`](api) | In progress | RuneLite-shaped Java API (`Client`, `NPC`, `WorldPoint`, `Widget`, events…) read from outside the process, each getter replaying what the client's Lua plugin API reads; see [runelite-api-design-opus.md](docs/runelite-api-design-opus.md) |
-| [`docs/`](docs) | | Design documents for the client surface, updater and API |
+| [`api/`](api) | In progress | RuneLite-shaped Java API (`Client`, `NPC`, `WorldPoint`, `Widget`, events…) read from outside the process, each getter replaying what the client's Lua plugin API reads |
+| [`client/src/main/native/kraken_hook/`](client/src/main/native/kraken_hook) | Working | `kraken_hook.dll`, injected into the game to push its native event raises to the API, so events are read the moment they happen |
+| [`docs/`](docs) | | Design documents for the updater and the native event hooks, and a Ghidra walkthrough |
 
-The seed build, client 241.3, maps 253 of 260 keys as PROVEN or ANCHORED (the other 7 are INFERRED), with none failed.
+The seed build, client 241.3, maps 400 of 407 keys as PROVEN or ANCHORED (the other 7 are INFERRED), with none failed.
 
 ## Prerequisites
 
@@ -78,8 +79,8 @@ What you get:
 
 Plugins are written as RuneLite plugins are: a `Plugin` subclass with `@PluginDescriptor`, injected `Client` and
 `ClientThread`, `startUp`/`shutDown`, and `@Subscribe` methods for events such as `GameTick`, `NpcSpawned` or
-`StatChanged` (see [runelite-api-design-opus.md](docs/runelite-api-design-opus.md) and the example
-`TickCounterPlugin`). A plugin package under `com.kraken.client.plugins` is found at launch. To run one from
+`StatChanged` (see the example plugins under `com.kraken.client.plugins`: `tickcounter`, `npchighlight` and
+`objectmarkers`). A plugin package under `com.kraken.client.plugins` is found at launch. To run one from
 elsewhere, pass its class:
 
 ```bash
@@ -160,12 +161,14 @@ uv run python -m unittest discover -s tests -t .
 
 The API is built in sections you can test live with the dev tools. The milestones below are the longer-term plan.
 
-* **A0** Load the mapping, attach to the client and verify its identity, then read `Client` scalars such as the game
+* **A0** (done) Load the mapping, attach to the client and verify its identity, then read `Client` scalars such as the game
   state, tick, skills and varps.
-* **A1** Players, NPCs, inventories, ground items, locs, and a tick loop with events.
-* **A2** Widgets, collision, tile heights and projection, projectiles and graphics objects.
+* **A1** (done) Players, NPCs, inventories, ground items, locs, and a tick loop with events.
+* **A2** (done except graphics objects) Widgets, collision, tile heights and projection, projectiles and graphics
+  objects.
 * **A3** Orientation, hitsplats, overhead text, appearance, chat and other remaining surface.
-* **A4** An in-process backend, injected into the client, for tick hooks, native events and actions.
+* **A4** An in-process backend, injected into the client, for actions. Native events already come from the injected
+  `kraken_hook.dll` (see [event-hooks-design.md](docs/event-hooks-design.md)).
 
 ## Acknowledgements
 

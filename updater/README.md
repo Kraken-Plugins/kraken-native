@@ -40,7 +40,7 @@ Windows too; WSL then reuses it from the shared cache.
 ## Flow
 
 ```
-osclient.exe ──(Ghidra headless, 10-15 min, once per build)──► export/*.tsv.gz ──► program.db (SQLite)
+osclient.exe ──(Ghidra headless, 10-15 min, once per build)──► cache/<sha256>/export/ ──► program.db (SQLite)
 program.db ──► bindings + fingerprints ──► strategies ──► consensus + invariants ──► mappings/<version>.json + analysis.json
 ```
 
@@ -48,6 +48,7 @@ program.db ──► bindings + fingerprints ──► strategies ──► cons
 cd updater
 uv run native-updater lint                                        # check the spec
 uv run native-updater export --binary <osclient.exe> --ghidra <GHIDRA_INSTALL_DIR> --java-home <JDK21>
+uv run native-updater build-model --binary <osclient.exe>         # rebuild program.db from an existing export
 uv run native-updater run --binary <osclient.exe>                 # writes ../api/src/main/resources/mappings/<version>.json
 uv run native-updater run --binary <new.exe> --previous ../api/src/main/resources/mappings/<old>.json   # + carry-forward, diff, repair bundles
 uv run native-updater bindings --binary <osclient.exe> --table osrs.IfType       # dump a Lua binding table
@@ -56,13 +57,14 @@ uv run native-updater probe --mapping ../api/src/main/resources/mappings/<versio
 uv run python -m unittest discover -s tests -t .                  # unit + golden tests (golden skip without the cached model)
 ```
 
-Exit codes: `0` every P0 key PROVEN/ANCHORED, `1` acquisition failure or crash, `2` mapping written but some key is
+Exit codes from `run`: `0` no key FAILED or NEEDS_REVIEW and every P0 key PROVEN/ANCHORED, `1` acquisition failure,
+a missing Ghidra export (with `GHIDRA_INSTALL_DIR` unset) or a crash, `2` mapping written but some key is
 FAILED/NEEDS_REVIEW (and so left out of it) or a P0 key is only INFERRED. The run prints verdict counts, every key
 left out and why, and with `--previous` the values that moved.
 
-The Ghidra export is manual-or-automatic: with `GHIDRA_INSTALL_DIR` (and `JAVA_HOME` pointing at JDK 21) set,
-`run` performs it; otherwise it prints the exact `analyzeHeadless` command. Binaries and models live outside git in
-`~/.kraken-native/{store,cache}/<sha256>/` (override with `KRAKEN_NATIVE_HOME` or `--cache`).
+The Ghidra export is manual-or-automatic: with `GHIDRA_INSTALL_DIR` (and `JAVA_HOME` or `GHIDRA_JAVA_HOME` pointing at
+JDK 21) set, `run` performs it; otherwise it prints the exact `analyzeHeadless` command. Binaries and models live outside
+git in `~/.kraken-native/{store,cache}/<sha256>/` (override with `KRAKEN_NATIVE_HOME` or `--cache`).
 
 ## Output
 
@@ -84,7 +86,7 @@ never applied to a different binary. It holds values only, keyed like the spec:
 }
 ```
 
-`events` lists, per native event id (`enums.events`), the functions the client calls to raise it: hook `fn`,
+`events` lists, per native event (ids in `enums.events`), the functions the client calls to raise it: hook `fn`,
 forward `args` integer register arguments, and take the event id from argument `idArg` (0 = RCX) or as the fixed
 `id`. These feed the client module's injected hook DLL (`docs/event-hooks-design.md`).
 
@@ -102,8 +104,12 @@ reads it for carry-forward. Repair bundles (`repair/<key>.md`) go in the same fo
 | Path | What |
 |---|---|
 | `pyproject.toml`, `uv.lock`, `.python-version` | Project metadata, dependencies and the `native-updater` command; pinned versions; interpreter (see Setup) |
-| `ghidra/ExportProgramModel.java` | Ghidra post-script: functions, instructions (bytes, text, flows) → TSV |
-| `src/native_updater/model.py` | TSV → `program.db`; read-only query API (functions, insns, xrefs, strings, disp/imm indexes) |
+| `ghidra/ExportProgramModel.java` | Ghidra post-script: writes `meta.tsv`, `functions.tsv.gz` and `insns.tsv.gz` (instruction bytes, text, flows) |
+| `src/native_updater/cli.py`, `__main__.py` | The `native-updater` commands and their argument handling |
+| `src/native_updater/pipeline.py` | `run`: identify → program model → bindings and fingerprints → strategy rounds → carry-forward → consensus → verify → emit |
+| `src/native_updater/session.py` | Per-run state: program model, parsed bindings, fingerprints, candidates and resolved values |
+| `src/native_updater/ghidra.py` | Runs (or prints) the Ghidra headless export and builds `program.db` from it |
+| `src/native_updater/model.py` | Export → `program.db`; read-only query API (functions, insns, xrefs, strings, disp/imm indexes) |
 | `src/native_updater/pe.py`, `x86.py` | PE32+ reader (sections, version resource); Ghidra instruction text → structured operands |
 | `src/native_updater/analysis/provenance.py` | Forward abstract interpretation per function: what each register/stack slot holds (`[[client]+0xC9B8]`, `Arg0`, `Ret(fn)`, …). Leaf getters are inlined, tail jumps are calls, registers survive calls (LTCG build). |
 | `src/native_updater/analysis/bindings.py` | sol2 registration parser (name/handler/member-offset pairing by maximum matching) and `.rdata` enum tables |
@@ -118,8 +124,10 @@ reads it for carry-forward. Repair bundles (`repair/<key>.md`) go in the same fo
 | `src/native_updater/consensus.py`, `verify.py` | Verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED); type, relational and uniqueness checks |
 | `src/native_updater/carry.py` | Carry-forward (function matching + re-extraction), delta propagation, repair bundles |
 | `src/native_updater/identity.py` | Build identity (client version, sha256), the binary store, the cache root |
+| `src/native_updater/winpaths.py` | Windows paths for WSL: `C:\` to `/mnt/c`, and the Windows profile for the default cache |
 | `src/native_updater/emit.py` | `mappings/<version>.json`, `analysis.json`, the run summary and the diff |
-| `src/native_updater/probe.py` | Read-only live checks of a mapping against the running client (PASS/FAIL per `live:` check) |
+| `src/native_updater/probe.py` | Read-only live checks of a mapping against the running client (PASS/FAIL/SKIP per `live:` check) |
+| `tests/` | `test_units.py` (unit tests on fixtures from `fake_model.py`) and `test_golden.py` (the corpus builds, when cached) |
 | `corpus/<version>.golden.json` | Accepted values per client version for the golden tests |
 
 ## Writing a recipe
@@ -149,10 +157,10 @@ therefore mostly ANCHORED.
 
 - IfType getter-style properties (`id`, `text`, `children`, `colour`, …) are registered through per-property sol2
   setter templates; the binding parser follows each to its lambda (kind `property`), and recipes read the component
-  through the `sol_self` role. `type` and `isIf3` go through a generic member accessor instead: `type` is mapped from
-  the children helper, `isIf3` (offset 0) is not mapped.
+  through the `sol_self` role. `IfType.type` is mapped from the children helper. `isIf3` (offset 0) is not mapped.
 - Collision record layout and column addressing are mapped; the meaning of the flag bits (the masks lineOfWalk and
-  lineOfSight test) is not. Tile heights, player combat level/index and graphics objects (P1) are not mapped yet.
+  lineOfSight test) is not. Tile heights (`Scene.heights`) and the player's index are mapped. The combat level and
+  graphics objects (P1) are not mapped yet.
 - Pose animation slot order, pitch vs yaw, the two varp arrays and the x/y pair order of the viewport offsets and centres
   (ProjectionCore loads offsetX before centerX, offsetY before centerY) need the live probe.
 - The live probe has not been run against a logged-in client yet.

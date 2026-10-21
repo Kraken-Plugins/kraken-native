@@ -1,312 +1,246 @@
 # Kraken Native Updater: automated offset mapper design
 
-Status: **design, for review.** Nothing here is implemented yet.
-Companion document: [client-surface.md](client-surface.md), the catalog of everything the updater must map.
+Status: implemented in `updater/`. [updater/README.md](../updater/README.md) is the usage guide; this document
+describes the design and what each stage does.
 
 ## 1. Purpose
 
 Jagex ships a new `osclient.exe` every few weeks. Each build moves:
 
-- **Function and global addresses**, every build. Examples: the Client pointer slot, `playerFindSelf`.
-- **Struct field offsets**, sometimes, in blocks. Example: every `Client` field past one point moved by −0x10 between `64d448bb` and `166231c8`.
+- **Function and global addresses**, every build. Example: the Client pointer slot (`global.client`).
+- **Struct field offsets**, sometimes, in blocks.
 
-A RuneLite-style native API needs a correct offset table for the exact build that is running. The updater
-takes a client binary and produces that table automatically.
+The native API needs a correct offset table for the exact build that is running. The updater takes a client
+binary and produces that table automatically.
 
 ### Goals
 
-- **Coverage:** map every key in client-surface.md for any new build without manual reverse engineering. P0 first, then P1 and P2.
+- **Coverage:** map every key in the spec (`updater/src/native_updater/spec/`) for a new build, P0 first, then P1 and P2.
 - **Per-key verdicts:** grade every key with a verdict and evidence. Never emit a silent guess.
 - **Diff reports:** say what moved, what was re-anchored, and what failed.
 - **Build check:** each mapping records the exe's sha256 so the API can confirm it belongs to the loaded binary.
 - **Speed and determinism:** analysis is cached per build, and tests run in seconds.
 
-Keep it as lean as possible, we will be writing a lot of code and I need to review it all. I want the bare minimum, not extremely fancy,
-not everything has to be fully automated or production ready. It does have to be understandable up to a point so I can carry this forward.
+Keep it lean enough to read and carry forward. It does not have to be fully automated or production-ready.
 
-This does need to support everything that would be provided in RuneLites API like widgets, npcs, players, actors, world points, local points, scene information,
-game objects, graphics objects, projectiles, events etc... 
+The keys cover what the API reads: widgets, NPCs, players, actors, world points, local points, scene data,
+game objects, ground items, projectiles, events and the minimenu. Graphics objects are not covered yet.
 
 ### Non-goals
 
 - Building the API, the reader or the injector.
 - Anti-cheat or detection evasion of any kind.
-- Writing to client memory. The optional live verifier is read-only.
+- Writing to client memory. The live probe is read-only.
 - Committing client binaries to git.
 
 ## 2. Why the native client can be mapped automatically
 
-The binary has no symbols and almost no RTTI. It does contain several kinds of anchor that survive
-rebuilds. The table ranks them by how stable they are; each mapping key must be reachable through at least
-two of them.
+The binary has no symbols and almost no RTTI. It does contain several kinds of anchor that survive rebuilds. The
+table ranks them by how stable they are. Each key should be reachable through at least two of them, and a key
+reaches PROVEN only when two anchor classes agree (§4.6).
 
 | Class | Anchor | Why it is stable | Examples |
 |---|---|---|---|
-| **A** | **Lua API binding names.** sol2 registrations pair a public API name with a handler. | Jagex's published plugin API (`api_version`). Renaming breaks plugins. | `getNpcIdAll`, `npcCoord`, `osrs.Entity.isInteracting`, `worldToScreenCoord`, `getVarp`, `osrs.IfType.text` |
-| **A** | **sol2 type-name strings** from `ctti_get_type_name<…>` (`__FUNCSIG__`) | Generated from C++ type names | `jag::oldscape::LuaNpc`, `LuaCollisionMap` |
-| **B** | **Diagnostic strings** | Rarely edited | `"Invalid NPC ID passed to npc_coord."`, `"FATAL - WorldEntity update is bigger than expected"` |
-| **C** | **Cache protocol constants** | The cache format is shared with the Java client | config group ids passed to `FUN_140625a50` (6 loc, 9 npc, 10 obj, 12 seq, 13 spotanim, 14 varbit) |
-| **C** | **Coordinate and bit-packing constants** | Wire and world format | `<<14`, `>>0x1c`, `&0x3fff`, `>>0x14` loc tag, `0x7fffff` 24-bit sign |
-| **D** | **Constructor default signatures** | Defaults come from game semantics | Actor ctor: 14× −1 pose anims, `defaultHeight = 200`, overhead timer `100`, turn speed `32` |
-| **E** | **Call-graph topology from already-resolved functions** | Structure survives recompiles | `setSequence` = the caller of the Seq loader that compares the new id with `[actor+X]` |
-| **F** | **Cross-build carry-forward** (function matching against the last good build) | Most functions change little between builds | Anything mapped last build |
-| **G** | **Delta propagation** (fields shift in blocks) | Observed drift is block-shaped | Predicting `Client.x` from its neighbours' shared −0x10 |
-| **H** | **Byte signatures** generated from the last good build | Fast; breaks on register reallocation | Runtime guards |
+| **A** | **Lua API binding names.** sol2 registrations pair a public API name with a handler. | Jagex's published plugin API. Renaming breaks plugins. | `ClientOp.npcCoord`, `osrs.Entity.isInteracting`, `osrs.IfType.text` |
+| **B** | **Diagnostic strings** | Rarely edited | `"Invalid NPC ID passed to npc_coord."` (anchors `global.client`) |
+| **C** | **Cache protocol constants** | The cache format is shared with the Java client | config group ids passed to the loaders (`ConfigLoader.6`, `.9`, `.10`, `.12`, `.13`, `.14`, `.16`) |
+| **C** | **Coordinate and bit-packing constants** | Wire and world format | the `0x10000` NPC id limit, `0x800` player limit, `0x80` tile fraction |
+| **D** | **Constructor default signatures** | Defaults come from game semantics | Actor ctor: a run of -1 pose animation slots, `defaultHeight = 200`, overhead timer 100 |
+| **E** | **Call-graph topology from already-resolved functions** | Structure survives recompiles | `NpcUpdateDecoder` is the caller of `setSequence` that also calls the NPC type loader |
+| **F** | **Cross-build carry-forward** (function matching against the last good build) | Most functions change little between builds | Anything mapped last build (§4.7) |
+| **G** | **Delta propagation** (fields shift in blocks) | Observed drift is block-shaped | A field between two neighbours that moved by the same amount (§4.7) |
 
-The Lua API is the main anchor. Its handlers are small getters that load exactly the field the API needs.
-The client contains the API code on every build; whether Lua is enabled at runtime (beta worlds only) does
-not matter for static analysis. Keys the Lua API does not expose (animations, spot anims, hitsplats,
-orientation, widgets internals, inventories) fall back to classes C–G.
+The Lua API is the main anchor. Its handlers are small getters that load exactly the field the API needs. The
+client contains the API code on every build; whether Lua is enabled at runtime (beta worlds only) does not matter
+for static analysis. Keys the Lua API does not expose (animations, spot anims, hitsplats, orientation, widget
+internals, inventories) fall back to classes C–G.
 
 ## 3. Pipeline
 
 ```
-           ┌────────────┐   ┌──────────────┐   ┌───────────────────┐
-binary ──► │ 1 Acquire  │──►│ 2 Program    │──►│ 3 Fingerprint      │  functions & globals
-           │  + identify│   │   Model      │   │   (binding parser, │
-           └────────────┘   │ (Ghidra      │   │    loaders, ctors) │
-                            │  export,     │   └─────────┬─────────┘
-                            │  cached)     │             ▼
-                            └──────────────┘   ┌───────────────────┐
-  previous build ─────────────────────────────►│ 4 Extract          │  offsets via strategies
-  (model + mapping + evidence)                 │   (+ carry-forward,│
-                                               │    delta propagate)│
-                                               └─────────┬─────────┘
-                                                         ▼
-           ┌────────────┐   ┌──────────────┐   ┌───────────────────┐
-  publish◄─│ 8 Diff &   │◄──│ 7 Emit       │◄──│ 5 Consensus &      │
-           │   publish  │   │ mapping JSON,│   │   static verify    │
-           └────────────┘   │ analysis     │   └─────────┬─────────┘
-                            └──────────────┘             ▼
-                                               ┌───────────────────┐
-                                               │ 6 Live verify     │ optional, read-only
-                                               │   (probe)         │
-                                               └───────────────────┘
+osclient.exe ─► identify (pe.py, identity.py) ─► archive to <root>/store/<sha256>/
+             ─► Ghidra export (ghidra.py, ghidra/ExportProgramModel.java) ─► program.db (model.py)
+             ─► bindings and fingerprints (analysis/bindings.py, fingerprints.py)
+             ─► strategies, in up to 5 rounds (strategies.py, extractors.py, session.py)
+             ─► with --previous: carry-forward and delta propagation (carry.py)
+             ─► consensus (consensus.py) ─► static verification (verify.py)
+             ─► emit (emit.py): api/.../mappings/<version>.json, cache/<sha256>/analysis.json, run summary, diff
+
+native-updater probe (probe.py): read-only live check of a mapping against the running client, run separately
 ```
 
-Exit codes follow kraken-updater:
+`run` exits with:
 
 | Code | Meaning |
 |---|---|
-| 0 | Every P0 key is PROVEN or ANCHORED. |
-| 1 | Acquisition failure or crash. |
-| 2 | Output was written, but at least one key is FAILED or NEEDS_REVIEW. CI opens a draft PR. |
+| 0 | No key is FAILED or NEEDS_REVIEW, and every P0 key is PROVEN or ANCHORED. |
+| 1 | Acquisition failure, a missing Ghidra export when `GHIDRA_INSTALL_DIR` is not set, or a crash. |
+| 2 | The mapping was written, but some key was left out (FAILED or NEEDS_REVIEW), or a P0 key is only INFERRED. |
 
 ## 4. Components
 
 ### 4.1 Acquire and identify
 
-Ways to get a binary:
+- `--binary` defaults to the Jagex Launcher install, `C:\Program Files (x86)\Jagex Launcher\Games\Old School RuneScape\Client\osclient.exe`.
+  A missing file is reported and the run exits 1.
+- `BinaryStore` (`identity.py`) archives each build the first time it is seen at `<root>/store/<sha256>/osclient.exe`,
+  outside git. The root is `--cache`, else `KRAKEN_NATIVE_HOME`, else `.kraken-native` in the Windows profile.
+- `identify` returns a `BuildIdentity` with the sha256, the version (major.minor of the exe's file version
+  resource, which names the mapping file, e.g. `241.3`) and the PE link time. A binary without a version resource
+  is rejected.
 
-- **`LocalInstallWatcher`** (the default) watches `…\Jagex Launcher\Games\Old School RuneScape\Client\osclient.exe`. The Jagex launcher rewrites it in place.
-- **`--binary <path>`** for manual runs.
-- **A CDN fetcher**, possibly later. The launcher download URL has not been researched (see §10).
+### 4.2 Program model
 
-`BinaryStore` is a content-addressed archive (`<store>/<sha256>/osclient.exe`) kept outside git, for
-example in a private Seaweed bucket. Carry-forward and the regression corpus need old binaries, so every
-build is archived the first time it is seen.
+`ghidra.py` runs Ghidra 12.1 headless (`analyzeHeadless`) with `ghidra/ExportProgramModel.java`. The script writes
+`meta.tsv`, `functions.tsv.gz` and `insns.tsv.gz` to `<root>/cache/<sha256>/export/`. The Ghidra project lives in
+`<root>/cache/<sha256>/ghidra/`. `ghidra.PINNED_GHIDRA` records the version, but nothing checks the install against it.
 
-`BuildIdentity` records:
-
-- sha256, PE timestamp, `SizeOfImage`, section table;
-- the build tag parsed from embedded source paths (`OSRS-ORSM295-BWXF`);
-- the client version, from the `"Client version: %d.%d"` call site.
-
-### 4.2 Program Model
-
-**Backend: Ghidra 12.1.x headless, pinned.** It has already been proven on this binary. It provides
-function boundaries (including leaf functions and thunks), references, defined strings, and P-code and the
-decompiler when needed.
-
-A Ghidra script, runs once per build. It writes a self-contained **SQLite**
-file to `<cache>/<sha256>/program.db`. Analysis and export take about 10–15 minutes; the result is cached.
-Everything after that is pure Java over SQLite and finishes in seconds.
+`model.build` then creates `<root>/cache/<sha256>/program.db` from the export plus the PE file, which supplies the
+sections, `.pdata` and strings. Strings are the printable runs in the PE's non-code sections, plus C strings at
+`lea`/`read` targets that the first pass missed.
 
 | Table | Contents |
 |---|---|
-| `section` | name, rva, sizes, perms |
-| `function` | entry, body ranges, is_thunk, thunk_target, `.pdata` cross-check |
-| `insn` | rva, length, bytes, mnemonic, function, fallthrough, branch targets |
-| `operand` | insn, index, kind (`reg`/`mem`/`imm`/`rel`), reg, base, index, scale, disp, size, resolved RIP target |
-| `string` | rva, value, encoding. Includes a raw scan for strings Ghidra did not define. |
-| `xref` | from_insn, to_addr, kind (`call`/`jump`/`data_read`/`data_lea`/`data_write`) |
-| indexes | by `to_addr`, by `imm`, by `(base_kind, disp)`. This answers "who touches `+0xCC70`", which REA cannot. |
+| `meta` | export metadata (image base, Ghidra version) |
+| `section` | name, rva, sizes, file offsets, perms |
+| `function` | entry, name, end, size, is_thunk, thunk_target, `.pdata` flag, body ranges |
+| `insn` | rva, function, length, bytes, mnemonic, text, branch target, fallthrough, flows |
+| `operand` | memory and immediate operands: kind, base, index, scale, displacement, size, immediate |
+| `string` | rva, value |
+| `xref` | src, dst, kind (`call`, `jump`, `read`, `write`, `lea`), function |
 
-SQLite was chosen because authors can query it ad hoc (`SELECT … WHERE disp = 0x3a8 AND mnemonic LIKE 'MOV%'`),
-it is a single cacheable file, and its readable in many languages. A `DeepAnalysis` interface handles rare
-decompiler or P-code needs by batching requests into one headless run against the retained Ghidra project.
+Indexes cover displacements, immediates, xref targets and string values, so questions such as "who touches
+`+0xCC70`" are one SQL query (`native-updater sql`).
 
-Other backends, such as a Zydis or iced-x86 decoder plus `.pdata`, could fill the same tables later
-without touching the analysis code.
+Once `program.db` exists, the export is not repeated. The export runs only when `GHIDRA_INSTALL_DIR` is set, and
+otherwise `run` prints the `analyzeHeadless` command.
 
-### 4.3 Analysis primitives (`analysis/`)
+### 4.3 Analysis primitives
 
-| Primitive | Responsibility |
+| Module | Responsibility |
 |---|---|
-| `StringIndex` | Exact and regex lookup of strings to RVAs to referencing instructions |
-| `XrefIndex`, `CallGraph` | Callers and callees, through thunks and `std::function` / sol2 wrapper stubs |
-| `ImmediateIndex`, `DisplacementIndex` | Sites using a constant or a `[reg+disp]` offset |
-| `CallArgs` | Recover argument values at a call site from preceding `MOV`/`LEA` into `RCX`/`RDX`/`R8`/`R9`/stack. Example: `MOV R8D, 0xC; CALL loader`. |
-| **`BindingTableParser`** | Parse sol2 registrations into `BindingTable{namespace, name → handlerRva, kind}`. Three shapes are observed: (a) *name → `LEA handler` → register-call*; (b) *`LEA handler` → wrap → name → register-call*; (c) *stateful functor built on the stack → factory call (e.g. `CALL 0x1403C1F10`) → name → register-call*. In shape (c) the handler is found through the factory's callee or vtable. A prototype pairing per register-call window (`map_bindings2.py`) maps 66 ClientOps on the seed build. `playerFindSelf` uses shape (c) and needs the factory follow-through. A fourth shape, (d) *name → call to a setter template made for one `sol::property(lambda)`*, covers the `osrs.IfType` getters: the setter LEAs an index stub no other function references, and the binding behind it calls the lambda, which becomes the handler (kind `property`). Also parses usertype method tables (`osrs.Entity`, `osrs.NpcType`, `osrs.IfType`, …) and enum tables (event name → integer). |
-| **`Provenance`** | Forward abstract interpretation over a function's CFG. Lattice: `Const`, `Global(rva)`, `Arg(i)`, `Ret(fn)`, `Deref(v, off, size)`, `Addr(v, off)`, `Typed(tag, v)`, `Unknown`. Seeds come from the spec, for example "`Client*` = `Deref(Global(global.client))`" or "`FUN_npcLookup` returns `Typed(Npc)`". Extractors ask questions like "which `Deref(Typed(Actor), off)` flows into the sol2 result sink?" |
-| `Patterns` | A small DSL for instruction sequences with wildcards and captures, used for ctor signatures, block copies and loops |
-| `ContainerRecognizers` | Detect EASTL hash_map iteration, list walks, vector loops and `eastl::string` SSO checks, and return their layout. This verifies the container contracts every build. |
-| `StrideDetector` | Array and grid strides from `IMUL` / `SHL` / `LEA` index arithmetic, e.g. `(plane*W + x)*H + z`, `*0x10 + 8` |
-
-Provenance tracking, rather than raw byte patterns, keeps recipes stable when the compiler reallocates
-registers or reorders code. That is the most common change between builds.
+| `model.py` (`ProgramModel`) | Lookups over the program model: functions, instructions, callers and callees, xrefs, string references, displacement and immediate sites |
+| `analysis/bindings.py` | `BindingTableParser` pairs sol2 registration names with handlers (shapes: name then handler, handler then name, factory, member offset, property getter) by maximum matching. Also parses enum tables (`osrs.Events` and friends) from `.rdata`. |
+| `analysis/provenance.py` | `Provenance`: forward abstract interpretation over one function. Values are `Const`, `Global`, `Arg`, `StackAddr`, `Ret`, `Out`, `Deref`, `Add`, `Mul`, `Bin`, `Many`, `Unknown`. Recipes ask structural questions of these facts (which load of 4 bytes has the Actor pointer as its base), so they survive register reallocation and reordering. |
+| `roles.py` | Names for the pointer a load is based on: `client`, `arg0`..`arg5`, `sp_result`, `node_value`, `sol_self`, `{ret: @F}`, `{field: …}` |
+| `strategies.py` | The `getter` selectors and the EASTL `hash_map` recognizer |
+| `events.py`, `hooks.py`, `minimenu.py` | Event raisers, hook targets (ground items, players) and the minimenu, each found from the functions and fields they touch |
+| `x86.py` | Ghidra instruction text to structured operands |
+| `pe.py` | PE32+ reader: headers, sections, `.pdata`, version resource, strings, reads by RVA |
 
 ### 4.4 Spec registry (`spec/*.yaml`)
 
-The spec is the contract: one YAML entry per mapping key, like kraken-updater's `PacketType` registry. Most
-keys are generic and need no code.
+The spec is the contract: one YAML entry per mapping key. `00-tables.yaml` holds the binding table anchors,
+member tables and shared fingerprints. The other files hold keys by area. A key looks like this:
 
 ```yaml
 - key: Actor.interacting
-  struct: Actor
   type: i32
   priority: P0
+  live: interacting
   strategies:
-    - binding-getter: { binding: "osrs.Entity.isInteracting", base: Actor, pick: { load: i32, nth: last } }
-    - carry-forward
-    - delta-propagation
+    - getter: { in: osrs.Entity.isInteracting, base: sp_result, load: i32, select: { returned: true } }
   invariants:
-    - adjacent: { key: Actor.interactingValid, delta: -1 }
-    - live: "v == -1 || (v >= 0 && v < 0x10000 + 2048)"
-
-- key: Actor.anim
-  struct: Actor
-  type: i32
-  priority: P0
-  strategies:
-    - extractor: SetSequenceExtractor  
-    - carry-forward
-  invariants:
-    - live: "v == -1 || seqTypeExists(v)"
-
-- key: global.client
-  type: ptr<Client>
-  priority: P0
-  strategies:
-    - binding-global: { bindings: "ClientOp.*", pick: most-common-rip-qword-load }
-    - extractor: ClientRootFromDiagnostics   # "Invalid NPC ID passed to npc_coord." function
+    - adjacent: { key: Actor.interactingType, delta: -1 }
 ```
 
-Generic strategy kinds:
+Fields: `key` (`Struct.field`, `global.x`, `functions.x`, `enums.x`, `container.x.y`, `events.NAME`), `type`,
+`priority` (P0, P1, P2), `strategies`, `invariants`, `live` (the probe check that covers it; required for P0),
+`doc`, `alias` (may share an offset with a sibling field) and `internal` (resolved and verified, not written to the
+mapping).
 
-- `binding-getter`, `binding-global`, `binding-call-arg`
-- `string-anchored` (diagnostic string → function → pick)
-- `loader-caller` (config group → loader → callers → pick)
-- `ctor-signature`, `pattern`
-- `carry-forward`, `delta-propagation`
+Strategy kinds (`strategies.py`, `extractors.py`): `getter`, `global-load`, `hash-map`, `const`, `member`, `binding`,
+`fingerprint`, `enum-table`, `derive` and `extractor`. Carry-forward and delta propagation are not written in the
+spec; they run for every key when `--previous` is given.
 
-Custom logic goes in Java `Extractor` classes referenced by name.
+`lint` checks duplicate keys, priorities, strategy kinds, that each key has an anchor strategy (classes A–E), that
+P0 keys have a live check, and that `@fingerprint` and `fn:` references exist.
 
-### 4.5 Fingerprinters and extractors
+Authoring guidance is in `updater/README.md` ("Writing a recipe").
 
-These mirror kraken-updater:
+### 4.5 Fingerprints and extractors
 
-- **`Fingerprinter`** locates functions and globals. Interface: `search(session)`, `dependencies()`. It returns `FunctionRef`/`GlobalRef` with a status (`MATCHED`, `NOT_FOUND`, `AMBIGUOUS`), a score and evidence. Examples:
-  - `BindingTableFingerprinter`
-  - `ConfigLoaderFingerprinter` (group id → loader)
-  - `ActorCtorFingerprinter`
-  - `NpcUpdateDecoderFingerprinter` (calls the NpcType loader and `setSequence`; reads a mask byte)
-  - `ProjectileCtorFingerprinter` (calls the SpotAnim loader; allocates `make_shared` 0x310)
-  - `SetSequenceFingerprinter`
-  - `WorldToScreenFingerprinter`
-- **`Extractor`** turns fingerprints into key values. It declares `requiredFingerprints()`, `requiredKeys()` and `providedKeys()`.
-- **Registration and ordering:** classes are registered with Guice `Multibinder` and sorted topologically. Duplicates, missing dependencies and cycles fail fast. An extractor whose prerequisites failed is skipped and its keys are marked `FAILED (blocked by X)`. That makes failures visible, unlike kraken-updater's silent nulls.
+- **Fingerprints** locate functions that are not Lua handlers. They are rules in the spec's `fingerprints:` section,
+  resolved by `fingerprints.py`: `callee_of`, `caller_of`, `common_callee_of`, `binding` and `extractor`, narrowed by
+  filters such as `imm`, `string`, `calls`, `refs_global`, `min_args`, `arg0`, `min_size`/`max_size` and `unique`.
+  A status is MATCHED, NOT_FOUND, AMBIGUOUS or BLOCKED. Specs refer to them as `@Name`.
+- **Extractors** are Python recipes in `extractors.py` (and `events.py`, `hooks.py`, `minimenu.py`). Each returns
+  `{field: (value, evidence, note)}` over provenance facts. Keys pick a field with `extractor: {name, field}`.
+- **Ordering:** a rule whose reference is not yet resolved raises `Blocked`. `pipeline.py` repeats the rounds (up to
+  5) until nothing changes. A key whose dependency never resolves is FAILED with the reason "blocked by X".
+  A strategy that raises is recorded in the run notes and its key is FAILED.
 
 ### 4.6 Consensus and verdicts
 
-Each strategy returns candidates `{value, strategyClass, evidence[]}`. Candidates are grouped by value and
-graded:
+Each strategy returns candidates `{value, strategy, class, evidence}`. Candidates are grouped by value. The value
+backed by the most distinct anchor classes wins, ties going to the value with more candidates. Any second value
+makes the key NEEDS_REVIEW.
 
 | Verdict | Rule |
 |---|---|
-| **PROVEN** | At least 2 independent strategies (different anchor classes) agree, and all static invariants pass. |
-| **ANCHORED** | One class A/B/C strategy, invariants pass, no disagreement. |
-| **INFERRED** | Only D–H strategies (e.g. carry-forward or delta propagation), invariants pass. |
-| **NEEDS_REVIEW** | Strategies disagree, or an invariant fails. All candidates are listed in the report. |
-| **FAILED** | No candidate. |
+| **PROVEN** | Two or more anchor classes agree on the value, and no invariant or uniqueness check fails. |
+| **ANCHORED** | One class A, B or C supports the value, and no invariant or uniqueness check fails. |
+| **INFERRED** | Only classes D–G support the value, and no invariant or uniqueness check fails. |
+| **NEEDS_REVIEW** | Candidates disagree, or an invariant or uniqueness check fails. All candidates are kept in `analysis.json`. |
+| **FAILED** | No candidate. The reason is "no candidate", or "blocked by X" when a dependency is missing. |
 
 Only PROVEN, ANCHORED and INFERRED values reach the mapping (§4.9). The API treats a missing key as "feature
 unavailable for this build" rather than reading a doubtful value.
 
-**Definitions from cache.** Where possible, config definitions (NpcType, LocType, ObjType, SeqType,
-SpotAnimType, VarbitType, enums) are decoded from the local cache. Memory then only needs to supply type
-ids. A cache library such as `osrs-wiki-cache-utils` would provide the decoders. This removes dozens of
-config-struct offsets from the per-build burden and gives the verifier an oracle.
-
 ### 4.7 Carry-forward and delta propagation
 
-These recover keys whose primary anchors broke. Both are always on, so they also cross-check anchored
-results.
+These run only with `--previous <old>.json`. They need the previous build's `program.db` and `analysis.json` in the
+cache, and its binary in the store. If the program model is missing, only delta propagation runs. Carry-forward
+candidates count as class F and delta candidates as class G, and they cross-check the anchored results: a
+disagreement makes the key NEEDS_REVIEW.
 
-1. **Function matching.** Previous build (model + accepted mapping + evidence instruction RVAs) to new build:
-   - Seed pairs are certain: identical binding names, identical anchored strings, identical config-group loaders.
-   - Propagate in the style of BinDiff/Diaphora. Features: masked-byte hash (RIP and disp masked), string-ref set, immediate set, callee and caller pairs already matched, size, CFG shape, and a mnemonic n-gram hash.
-   - Output `FunctionMatch{old, new, score}`.
-2. **Re-extraction.** For a key whose evidence lived in a matched function, re-run its original rule at the corresponding instruction. Instruction correspondence comes from aligning the two bodies by mnemonic sequence.
-3. **Delta propagation.** Within a struct, sort the previous build's fields by offset. Compute deltas for keys already resolved this build. Predict each unresolved key as `old + delta` of its bracketing neighbours, but only when both neighbours agree. The result is `INFERRED` and must pass invariants (live checks for P0). This targets the observed block shifts, such as `Client` −0x10.
+1. **Function matching** (`carry.match_functions`). Seeds are same-named Lua bindings and fingerprints, and
+   functions that reference the same string (12 characters or more) once in each build. Matches spread to the callees of matched
+   callers by aligning their call sequences with `difflib`, for up to four passes.
+2. **Re-extraction** (`carry.reextract`). For a key whose previous evidence is in a matched function, take the
+   corresponding instruction. The bodies must align (mnemonic similarity of at least 0.6), the instruction must still
+   encode the previous value, and the result is a class F candidate.
+3. **Delta propagation** (`carry.apply`). Within a struct, an unresolved field whose nearest resolved neighbours in
+   the previous mapping both moved by the same delta is predicted as `old + delta`. The result is class G.
 
-When the updater fails, it writes a **repair bundle** for a human or agent: the old function and
-instruction, matched candidates in the new build, and the old and new disassembly side by side. It is
-formatted for REA's `compare_functions`, `find_changed_behavior` and `procedure_pseudo_code`, so fixing a
-broken recipe takes minutes.
+When a key stays FAILED or NEEDS_REVIEW and has previous evidence, `carry.repair_bundle` writes
+`<root>/cache/<sha256>/repair/<key>.md`. It holds the previous value and instruction, the matched new function, the
+previous disassembly around the evidence and the candidate disassembly, and points at REA's `compare_functions`
+for the fix.
 
 ### 4.8 Verification
 
-**Static** checks run every time:
+**Static** (`verify.check_all`), run on every build. A failed check makes the key NEEDS_REVIEW.
 
-- **Type and alignment:** offsets suit the type and fall inside a known struct size. Allocation sizes come from `make_shared` / `operator new` sites, e.g. Projectile 0x2F0, GraphicsObject 0x348, LocType 0x1E8.
-- **Relational invariants:**
-  - `pathZ = pathX + 0x28`;
-  - `World.npcs.buckets = World.npcs + 8`;
-  - fields in a struct are unique and do not overlap;
-  - `tag >> 20` agrees between wall and game-object paths.
-- **Container contracts:** re-detected by the recognizers.
+- **Type and alignment:** offsets are aligned to their type's size and fall in a plausible range; pointers are 8-aligned.
+- **Invariants:** `equals` (an expression over other keys, e.g. `Actor.pathZ` = `Actor.pathX + 0x28`), `adjacent`
+  (another key sits `delta` bytes before this one), `range`, `align`, `less_than`, `member_of` and
+  `first_fn_equals` (the first hook site of an `events.*` key).
+- **Uniqueness:** fields of one struct do not share an offset, unless the field is marked `alias`.
 
-**Cache oracle:**
-
-- loader group ids exist in the cache index;
-- enum and event values are consistent with the binding enum table.
-
-**Live probe** (opt-in, read-only) runs against a running, logged-in client whose sha256 matches. It reuses
-the safety model of the earlier native work: PID and path check, module base and image size check, file
-sha256, a `PssCaptureSnapshot` clone, bounded reads, and no writes. Each check covers a group of keys (the spec's `live:` field names it):
-
-| Check | Keys proven |
-|---|---|
-| `level(xp[i]) == base[i]` for all 26 skills; levels in 1..99; xp ≤ 200M | skill arrays |
-| Local player name decodes as printable text and equals the logged-in display name (operator-supplied) | `Actor.name`, local index, player table |
-| `fineX >> 7 == pathX[0]`, `fineZ >> 7 == pathZ[0]` for every actor | fine and tile coords |
-| NPC `typeId` exists in the cache, and the cache NPC name equals the in-memory `NpcType.name`; `NpcType.size` equals the cache size | NPC table, `Npc.type`, NpcType fields |
-| Hash-map structure: every node key hashes to its bucket; counts match | container contracts |
-| Loc `tag >> 20` ids exist in the cache LocType index; game-object origin lies inside the scene | scene keys |
-| Varbit values recomputed from the varp array match the in-memory varbit read | varp arrays, varbit decode |
-| Camera angles lie in [0, 16384); angles change as the operator rotates the camera (scripted prompt) | camera keys, pitch vs yaw |
-| `tickCount` increases by about 1 every 600 ms; `cycle` increases continuously | tick and cycle |
-| `worldToScreen(localPlayer)` lands inside the viewport near screen centre | projection keys |
-| Projectile `endCycle > cycle` while active; `spotAnimId` exists in the cache | projectile keys |
-| Widget tree: root interfaces include known group ids (e.g. inventory 149, chatbox 162); text fields decode | widget keys |
-
-The probe (`native-updater probe`, Python over Windows APIs) prints PASS/FAIL/SKIP per check and exits non-zero
-on a failure. It does not modify the mapping.
+**Live probe** (`native-updater probe --mapping <json> [--display-name <name>]`, Windows only, opt-in). It is
+read-only and checks a running, logged-in client whose process is `osclient.exe` and whose file sha256 matches the
+mapping. Reads go through a `PssCaptureSnapshot` clone when available, with a bounded `ReadProcessMemory` fallback.
+It prints PASS, FAIL or SKIP for each check, named after the spec's `live:` field: `clientRoot`, `gameState`,
+`tick`, `cycle`, `skills`, `varps`, `worlds`, `worldBase`, `players`, `localPlayer`, `localPlayerName`, `npcs`,
+`hashMap`, `fineVsPath`, `interacting`, `anim`, `actorWorld`, `headbars`, `projectiles`, `npcType`, `scene`,
+`groundItems`, `camera`, `viewport`, `inventories`, `widgets` and `minimenu`. Checks that need the cache decoders or
+in-process calls are SKIP. It exits 2 if any check fails and never modifies the mapping.
 
 ### 4.9 Output
 
 Each build produces one file in the repo and one in the cache:
 
-- `api/src/main/resources/mappings/<version>.json`, the contract consumed by the API (bundled on its classpath). `<version>` is major.minor of the exe's file version
-  resource (`241.3`). The API reads that resource to pick the file and checks the recorded `sha256`, so a mapping is
-  never applied to a different binary. It holds values only, for keys with a PROVEN, ANCHORED or INFERRED verdict;
-  NEEDS_REVIEW and FAILED keys, and spec keys marked `internal: true`, are left out.
-- `~/.kraken-native/cache/<sha256>/analysis.json`, next to the build's `program.db`: verdict, anchor classes,
-  evidence and notes per key, fingerprint and binding RVAs, the diff against the previous build and carry-forward
-  stats. It is what a reviewer reads, and the next build's carry-forward input. Repair bundles go to `repair/` beside it.
+- `api/src/main/resources/mappings/<version>.json`, the contract the API reads (bundled on its classpath). The API
+  reads the exe's version resource to pick the file and checks the recorded `sha256`, so a mapping is never applied
+  to a different binary. It holds values only, for keys with a PROVEN, ANCHORED or INFERRED verdict. NEEDS_REVIEW and
+  FAILED keys, and keys marked `internal: true`, are left out.
+- `<root>/cache/<sha256>/analysis.json`, next to `program.db`: the verdict, anchor classes, evidence and notes per
+  key, fingerprint and Lua binding RVAs, the diff against the previous build and the carry-forward stats. A reviewer
+  reads it when a value looks wrong, and the next `--previous` run reads it for carry-forward. Repair bundles go in
+  `repair/` beside it.
 
-Example of the mappings file (real seed-build values, trimmed):
+Example mapping, with values from the 241.3 golden corpus (trimmed):
 
 ```json
 {
@@ -319,135 +253,59 @@ Example of the mappings file (real seed-build values, trimmed):
   },
   "containers": {
     "hash_map": { "buckets": "0x8", "bucketCount": "0x10", "node.key": "0x0", "node.value": "0x10", "node.next": "0x18" },
-    "string":   { "size": "0x18", "ssoCapacity": "0x17", "heapFlagByte": "0x17", "heapFlagMask": "0x80" }
+    "string":   { "size": "0x18", "heapFlagByte": "0x17", "heapFlagMask": "0x80" }
   },
-  "enums":      { "gameState": { "LOGGED_IN": 30 }, "events": { "ON_GAME_TICK": 44 } },
+  "enums":      { "gameState": { "LOGGED_IN": 30 } },
   "functions":  { "worldToScreen": "0x21eb80", "setSequence": "0x9fe50", "dispatchEvent": "0xc44d0" },
-  "events":     { "ON_GAME_TICK": [ { "fn": "0xc44d0", "idArg": 0, "args": 1 } ],
-                  "ON_LOC_LOAD":  [ { "fn": "0xc7b20", "id": 40, "args": 4 } ] }
+  "events":     {
+    "ON_GAME_TICK": [ { "fn": "0xc44d0", "idArg": 0, "args": 1 } ],
+    "ON_LOC_LOAD":  [ { "fn": "0xc7b20", "id": 40, "args": 4 } ]
+  }
 }
 ```
 
-`events` is the hook contract for the client module's injected DLL: per native event, the functions the client
-calls to raise it (`fn`), how many integer register arguments each takes (`args`) and where the event id is (argument
+`events` is the hook contract for the client module's injected DLL: per native event, the functions the client calls
+to raise it (`fn`), how many integer register arguments each takes (`args`) and where the event id is (argument
 `idArg`, or the fixed `id`). The recipe (`events.py`) seeds on the server-tick raise and classifies every wrapper
-that tests the Lua plugin gate; `docs/event-hooks-design.md` covers what the hooks feed.
+that tests the Lua plugin gate. `docs/event-hooks-design.md` covers what the hooks feed.
 
-## 5. Representative recipes
+## 5. Testing
 
-These are written against the seed build to show that each key class can be extracted mechanically. RVAs
-are illustrative; the recipes never hard-code them.
+- **Unit tests** (`updater/tests/test_units.py`) cover x86 parsing, provenance, getter selectors, recipes, event
+  raisers, hook targets, the minimenu, the binding parser, spec lint, file versions, mapping shape and diff, `verify`
+  and Windows path handling. They run on small fixtures from `tests/fake_model.py`, with no Ghidra and no binary.
+- **Golden tests** (`updater/tests/test_golden.py`) run the pipeline against the cached `program.db` and binary of each
+  `updater/corpus/<version>.golden.json` build. They check the accepted keys, fingerprints and bindings, and that the
+  mapping holds exactly the trusted, non-internal values. They skip (`skipTest`) when the build is not in the local
+  cache. `test_carry_forward_reproduces_seed` runs a build against itself with anchors disabled and requires
+  carry-forward to recover most trusted values.
+- Run them from `updater/`: `uv run python -m unittest discover -s tests -t .`.
 
-### 5.1 `global.client`, `Client.worlds`, `World.npcs` (binding-global, binding-call-arg)
+## 6. Authoring workflow
 
-```
-h = bindings["ClientOp.npcCoord"]                     // handler; seed 0x3AE4B0
-g = provenance(h).firstLoad(Global(*), qword)         // MOV RAX,[rip+X] → X = global.client
-call = provenance(h).calls().first(argCount >= 3)     // npc lookup FUN_1401878b0(out, id, mgr)
-Client.worlds = call.arg(2) as Addr(Deref(Global(g)), off) → off    // 0xC9B8
-look = call.target                                    // fingerprint: NpcLookup
-World.npcs = provenance(look).loads(Typed(World)).pair(bucketsOff, countOff)  // 0x98 / 0xA0 → map at 0x90
-invariant: look contains CMP id, 0x10000 (immediate)
-```
+1. Add a spec entry with a generic strategy where possible.
+2. If a custom extractor is needed, look at the facts with `bindings`, `sql`, or `Provenance(model).facts(fn)`
+   in `uv run python`. Encode the rule in terms of provenance and roles, not raw addresses.
+3. Run `uv run native-updater lint`, then `uv run native-updater run --binary <build>`. Read the run summary and
+   `analysis.json`. Update the corpus golden file when a change legitimately moves a value.
+4. For a later failure, start from the repair bundle: old evidence, new candidates and the REA commands it lists.
 
-### 5.2 `Actor.interacting` (binding-getter, sol2 usertype)
-
-```
-h = bindings["osrs.Entity.isInteracting"]             // seed FUN_140219f30
-a = provenance(h).valueOf(call FUN_resolveEntity).as(Typed(Actor))
-sink = provenance(h).resultSinkArg()                  // value pushed to Lua
-Actor.interacting      = sink.provenance == Deref(a, off, i32) → off       // 0x3A8
-Actor.interactingValid = guarding branch: CMP byte [a+off2], 0 → off2      // 0x3A7
-```
-
-### 5.3 `Actor.anim` (loader-caller + topology)
-
-```
-seqLoader = configLoaders[12]                         // MOV R8D,0xC; CALL FUN_140625a50 inside it
-for f in callers(seqLoader):
-    if f has  CMP EDX,[RCX+X] ; JNZ  and  loads [RCX+X-8] (SeqType*) and reads [seq+P] (priority):
-        setSequence = f; Actor.anim = X; Actor.animSeqType = X-8   // 0x4D8 / 0x4D0
-cross-check: setSequence ∈ callees(NpcUpdateDecoder)   // fingerprint E
-```
-
-### 5.4 `Client.projectiles` and `Projectile.*` (binding getter + list walker)
-
-Implemented in `spec/57-projectiles.yaml` and the `projectiles` extractor; offsets are build 241.3's.
-
-```
-Client.projectiles = sentinel load in ClientOp.areProjectilesRendered / renderProjectiles     // 0xCC70
-Projectile.hidden  = [[node] + list.node.value] + X compared with 0 / written there          // 0x1C
-walker = target of a call passing (client + Client.projectiles), found via the imm/disp index
-         P = [[Arg0] + list.node.value]; two P fields compared with [global.cycle]           // 0x288, 0x28C
-step   = walker's call with P as arg0; the field it compares with an argument is startCycle   // 0x288 (end 0x28C)
-started = byte field the step compares with 0 and sets to 1                                    // 0x2C0
-endpoint = the step's callee that calls @WorldBounds; its args are labelled by what it does:
-         x, z rebased into out[0]/out[2] as (c - base) * 128 + 64; actor decremented into an NPC index
-target fields = endpoint call before the started test; source fields = the one after it        // 0x274.., 0x260..
-heights = next field loaded after each endpoint call (subtracted from its height)              // 0x280, 0x26C
-slope   = field loaded into XMM before the 2π/256 constant (read from .rdata); startDistance = the other  // 0x290, 0x294
-fineX/Y/Z = last double field loaded before each store to the step's out[0]/[1]/[2]            // 0x2A0, 0x2A8, 0x2B0
-yaw = stored angle the walker reads (hands to the renderer); pitch = the other                // 0x2B8, 0x2BC
-spotAnimId = arg the SpotAnim loader gets from its caller that clears the started flag (the ctor)  // 0x298
-```
-
-### 5.5 Scene grid (string-anchored + stride detection)
-
-```
-h = bindings["ClientOp.locFind"] → tileLookup (callee with 6 args)        // FUN_1406a2cb0
-stride = StrideDetector(tileLookup): idx = (plane*[S+a] + x)*[S+b] + z; entry = base[S+c] + idx*0x10 + 8
-Scene.sizeX=a, Scene.sizeZ=b, Scene.tiles=c (0x948/0x94C/0x968); plane==-1 branch → Scene.bridgeTiles
-Tile slots: loads [T+d] whose tag (>>0x14) is compared, return code 0x100|layer → layer→offset map
-```
-
-### 5.6 `Actor.poseAnims`, `Actor.defaultHeight` (ctor signature)
-
-```
-actorCtor = function storing ≥7 consecutive qword -1 at [RBX+o..o+0x30] and dword 0xC8 nearby
-Actor.poseAnims = o (count 14)        Actor.defaultHeight = offset of the 0xC8 store
-cross-check: offsets written by NpcUpdateDecoder include [o..o+0x38]
-```
-
-## 7. Testing
-
-- **Golden corpus.** Hash-addressed binaries in `BinaryStore` plus accepted mappings. Seed it with `166231c8` (today's findings) and the two older builds, if their binaries can be recovered (the old Ghidra project may contain one).
-- **Golden tests.** For every corpus build, run the full pipeline against the cached `program.db` and assert each key equals the accepted value. Tests skip via `Assume` when the corpus is absent, matching kraken-updater's jar tests.
-- **Unit tests** run `Provenance`, `BindingTableParser`, `StrideDetector` and the recognizers on small instruction fixtures stored as SQL dumps of real functions, so they need neither Ghidra nor the full binary.
-- **Carry-forward tests:** run build N → N+1 with anchor strategies disabled, and assert that carry-forward plus delta propagation reproduce the accepted N+1 mapping.
-- **Spec lint:** every key has at least 2 strategies of different classes, and every P0 key has a live check.
-
-## 8. Authoring workflow
-
-1. Add a YAML spec entry with a generic strategy where possible.
-2. If a custom extractor is needed, investigate with REA/Ghidra on the cached project, then encode the rule in terms of `Provenance` and `Patterns`, not raw addresses.
-3. Run `updater run --binary <corpus build>` and inspect the report. Add a golden expectation.
-4. On a future failure, start from the generated repair bundle: old evidence, new candidates, and REA diff commands.
-
-## 9. Milestones
-
-| M | Scope | Exit criterion |
-|---|---|---|
-| **M0** | Seed. `ExportProgramModel` + SQLite model; import seed findings as golden mapping for `166231c8`; start `BinaryStore`. | Program model for the seed build; golden file reviewed. |
-| **M1** | Primitives, binding parser, P0 keys reachable from bindings (client root, worlds, NPC/player tables, actor coords/name/type/interacting/headbars, scene/locs, ground items, skills, tick, game state, camera, varps/varbits, worldToScreen), static verification, schema v2, report. | Seed build: all those keys PROVEN or ANCHORED. |
-| **M2** | Live probe. Settle conflicts (`topLevelWorld`, pitch vs yaw). Close the P0 unknowns: inventories, widgets, collision, tile heights, orientation, player index and combat level, run energy. | All P0 keys LIVE_VERIFIED on the seed build. |
-| **M3** | Carry-forward, delta propagation, guards, CI and publishing, repair bundles. | Next Jagex build mapped with exit 0, or exit 2 with only P1/P2 gaps. |
-| **M4** | P1: projectiles, graphics objects, hitsplats, spot anims, appearance, chat, world list, varcs, WorldEntity. P2: event raise sites and action targets. | Capability coverage matches client-surface.md. |
-
-## 10. Risks and open questions
+## 7. Risks and open questions
 
 | Risk | Mitigation |
 |---|---|
-| Jagex strips or renames Lua API strings (class A anchors) | Two or more strategies per key; carry-forward does not need strings; watch `api_version` |
-| More inlining or LTO changes a getter's shape | Provenance-based rules; sink-based picks; carry-forward through instruction alignment |
-| EASTL or container layout changes | Container contracts re-derived and verified per build; the API traverses via `containers` |
-| Ghidra non-determinism or version drift | Pin the Ghidra version in the spec hash; cache the export; golden tests catch drift |
-| The live probe needs a logged-in account and reads game memory | Opt-in only, read-only, operator-run; not in CI |
-| No archived old binaries yet | Start archiving now. Carry-forward starts from the first archived build. |
-| Static-only seed values may be wrong | M2 live verification before any API depends on P0 |
+| Jagex strips or renames Lua API strings (class A and B anchors) | Two or more strategies per key; carry-forward does not need strings |
+| More inlining or LTO changes a getter's shape | Provenance-based rules; sink-based selectors; carry-forward through instruction alignment |
+| Ghidra version drift | `ghidra.PINNED_GHIDRA` is informational only; golden tests catch drift |
+| The live probe needs a logged-in account and reads game memory | Opt-in, read-only, operator-run, not in CI |
+| Static-only values may be wrong | Run the live probe before the API depends on a P0 value |
+| Carry-forward needs the previous build's model and analysis | Both are kept in the cache; without them only delta propagation runs |
 
-**Decisions**
+Open items:
 
-1. **Updater language.** Language choice is up to you. Choose what makes the most sense
-2. **Analysis backend.** Ghidra export to SQLite (if this needs to be a manual process that's okay for now) If this creates a ton of code and complexity manual is okay for the short term. 
-3. **Definitions source.** Decode the cache
-5. **Runtime model** for the future API: external reader or in-process. This only affects how P2 (events, actions) is prioritized. Hasn't been decided yet.
+- The probe has not been run against a logged-in client yet.
+- Automatic download of the client binary is not built. The default is the local Jagex Launcher install, and
+  `--binary` takes any path.
+- Config definitions are not decoded from the cache. The updater maps the config archive's loaders and types by
+  group id; the API reads them from memory.
+- Graphics objects and the combat level are not mapped. See `updater/README.md` for the rest of the known gaps.
