@@ -14,6 +14,7 @@ import com.kraken.client.ui.overlay.OverlayPainter;
 import lombok.Getter;
 import lombok.extern.java.Log;
 
+import java.awt.Component;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -49,6 +50,7 @@ public final class DevToolManager {
         this.overlay = overlay;
         this.view = view;
         for (DevTool<?> tool : tools) {
+            tool.setHost(host(tool));
             tool.setOverlayOn(tool.overlaySupport() == Support.READY && prefs.getBoolean(overlayKey(tool), false));
             for (ToolOption option : tool.options()) {
                 option.setOn(prefs.getBoolean(optionKey(tool, option), option.isDefaultValue()));
@@ -187,6 +189,26 @@ public final class DevToolManager {
                 }
             }
         }
+    }
+
+    /**
+     * What a tool reaches of the window through {@link DevTool#host()}.
+     *
+     * @param tool the tool
+     * @return its host
+     */
+    private DevTool.Host host(DevTool<?> tool) {
+        return new DevTool.Host() {
+            @Override
+            public Component gameArea() {
+                return view;
+            }
+
+            @Override
+            public void setOverlay(boolean on) {
+                DevToolManager.this.setOverlay(tool, on);
+            }
+        };
     }
 
     private static String overlayKey(DevTool<?> tool) {

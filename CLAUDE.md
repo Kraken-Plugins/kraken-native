@@ -156,7 +156,9 @@ other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED
 - Dev tools: subclass `DevTool<S>` and list it in `DevToolCatalog.create()`. `read(api)` runs on the poll thread and
   returns an immutable snapshot; `paintOverlay`/`createView` run on the EDT. A tool reads only while it is showing.
   `PlannedTool` entries hold spots for features the API can't read yet. Event-driven tools subscribe to
-  `api.eventBus()` only while they show.
+  `api.eventBus()` only while they show. `host()` gives a tool the game area and its own overlay switch;
+  `view.GamePicker` lays a click-catching window over the game so the user can point at something (the widget
+  inspector picks widgets with it, and names groups and components from `gameval.InterfaceID` via `WidgetNames`).
 
 ## Reference
 

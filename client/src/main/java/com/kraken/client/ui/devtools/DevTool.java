@@ -9,6 +9,7 @@ import com.kraken.client.ui.overlay.OverlayContext;
 import lombok.Getter;
 import org.kordamp.ikonli.Ikon;
 
+import java.awt.Component;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -48,10 +49,30 @@ public abstract class DevTool<S> {
     private final String description;
     private final List<ToolOption> options = new ArrayList<>();
 
+    /**
+     * What a tool can reach of the window around it: the game area, and its own overlay switch.
+     */
+    public interface Host {
+        /**
+         * The component the game is embedded in, for tools that let the user point at something in the game.
+         *
+         * @return the game area
+         */
+        Component gameArea();
+
+        /**
+         * Turns the tool's overlay on or off, as its eye in the sidebar does. Call on the EDT.
+         *
+         * @param on true to show the overlay
+         */
+        void setOverlay(boolean on);
+    }
+
     // Runtime state, driven by DevToolManager: written on the EDT, read on the poll thread
     private volatile boolean overlayOn;
     private volatile ToolView<S> view;
     private volatile S latest;
+    private volatile Host host;
     private boolean running;
 
     protected DevTool(String id, String name, Category category, Ikon icon, String description) {
@@ -139,6 +160,19 @@ public abstract class DevTool<S> {
     protected static WorldPoint localTile(Client client) {
         Player self = client.getLocalPlayer();
         return self == null ? null : self.getWorldLocation();
+    }
+
+    /**
+     * The window around the tool, set once the dev tools adopt it.
+     *
+     * @return the host, or null before the dev tools adopt the tool
+     */
+    protected final Host host() {
+        return host;
+    }
+
+    final void setHost(Host host) {
+        this.host = host;
     }
 
     final void setOverlayOn(boolean on) {

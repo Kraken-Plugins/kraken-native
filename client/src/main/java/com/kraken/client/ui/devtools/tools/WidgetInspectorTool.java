@@ -5,71 +5,73 @@ import com.kraken.api.GameSession;
 import com.kraken.api.Point;
 import com.kraken.api.widgets.Widget;
 import com.kraken.api.widgets.WidgetType;
-import com.kraken.api.widgets.WidgetUtil;
-import com.kraken.client.ui.Theme;
 import com.kraken.client.ui.devtools.Category;
 import com.kraken.client.ui.devtools.DevTool;
 import com.kraken.client.ui.devtools.ToolOption;
-import com.kraken.client.ui.devtools.view.TableView;
+import com.kraken.client.ui.devtools.tools.WidgetForest.Area;
+import com.kraken.client.ui.devtools.tools.WidgetForest.Draft;
+import com.kraken.client.ui.devtools.tools.WidgetForest.GroupDraft;
+import com.kraken.client.ui.devtools.tools.WidgetForest.Kind;
+import com.kraken.client.ui.devtools.tools.WidgetForest.Row;
+import com.kraken.client.ui.devtools.tools.WidgetForest.WidgetNode;
 import com.kraken.client.ui.devtools.view.ToolView;
 import com.kraken.client.ui.overlay.OverlayContext;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignW;
 
 import java.awt.*;
+import java.text.NumberFormat;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
-import javax.swing.*;
-import javax.swing.border.EmptyBorder;
 
 /**
- * Browses one open interface group as a tree: its static components (nested by their parent) with their dynamic
- * children under them. The selected component is outlined over the game, and optionally every component the client
- * drew this frame. The window also shows the selected component's detail: its id, parent, hidden state with its
- * parents, bounds, item and actions.
+ * Browses every open interface as one tree, with the cache's names for groups and components: each group under the
+ * widget it is drawn in, each widget with its static children, then its dynamic ones. The selected widget's fields are
+ * read fresh every poll and it is outlined over the game; a widget can also be picked by clicking it in the game.
+ *
+ * <p>Reading every open group costs far more than one widget, so whole-tree reads are spaced out to take at most
+ * {@link #READ_SHARE} of the poll thread's time, and repeated at once when a group opens or closes. The selected
+ * widget is read every poll.
  */
 final class WidgetInspectorTool extends DevTool<WidgetInspectorTool.Snapshot> {
-    private static final int MAX_ROWS = 5_000;
-    private static final int DEFAULT_GROUP = 149;
-    private static final Color SELECTED = new Color(0x3cdcff);
-    private static final Color DRAWN = new Color(255, 255, 255, 90);
 
     /**
-     * One component in tree order.
-     *
-     * @param key       the component's path from its static root, unique among the rows, e.g. {@code 162:57/[3]}
-     * @param tree      the id indented by depth
-     * @param type      the widget type's name
-     * @param parent    the parent's id, e.g. {@code 162:57}, or ""
-     * @param x         x relative to the parent
-     * @param y         y relative to the parent
-     * @param width     the width
-     * @param height    the height
-     * @param hidden    hidden by its own flag
-     * @param rendering drawn in the client's latest frame
-     * @param text      the text, with markup
-     * @param item      the item an inventory slot shows ("id xcount"), or ""
-     * @param ops       the non-empty op names
-     * @param screen    the top-left corner on screen, in client pixels
+     * The most widgets one read takes in, so a runaway read can't stall the poll thread.
      */
-    record Row(String key, String tree, String type, String parent, int x, int y, int width, int height,
-               boolean hidden, boolean rendering, String text, String item, String ops, Point screen) {
-    }
+    private static final int MAX_WIDGETS = 25_000;
+
+    /**
+     * How deep dynamic children are followed.
+     */
+    private static final int MAX_DEPTH = 32;
+
+    /**
+     * The share of the poll thread's time the whole-tree reads may take.
+     */
+    private static final double READ_SHARE = 0.1;
+
+    /**
+     * How long text in a tree row's summary may be.
+     */
+    private static final int SUMMARY_TEXT = 48;
+
+    static final Color SELECTED = new Color(0x3cdcff);
+    static final Color HOVERED = new Color(0xffcf40);
+    private static final Color DRAWN = new Color(255, 255, 255, 90);
+    private static final Color SELECTED_FILL = new Color(0x3c, 0xdc, 0xff, 0x22);
 
     /**
      * What the window and overlay show.
      *
-     * @param groups the open groups
-     * @param group  the group shown
-     * @param rows   its components in tree order
-     * @param marks  outlines over the game
-     * @param detail the selected component's detail, or null if none is selected
+     * @param forest    every open group, as last read
+     * @param detail    the selected node's fields, read this poll, or null if nothing is selected
+     * @param marks     outlines over the game
+     * @param overlayOn whether the tool's overlay is on
      */
-    record Snapshot(List<Integer> groups, int group, List<Row> rows, Marks marks, String detail) {
+    record Snapshot(WidgetForest forest, WidgetDetail detail, Marks marks, boolean overlayOn) {
     }
 
     private final ToolOption allDrawn = option("drawn", "Outline everything drawn", false);
@@ -77,14 +79,21 @@ final class WidgetInspectorTool extends DevTool<WidgetInspectorTool.Snapshot> {
     /**
      * Chosen in the window (EDT), read on the poll thread.
      */
-    private volatile int group = -1;
     private volatile String selected;
+    private volatile String hovered;
+    private volatile boolean readWanted;
+
+    /**
+     * Poll thread only.
+     */
+    private WidgetForest forest;
+    private long nextReadAt;
 
     WidgetInspectorTool() {
         super("widgets", "Widget inspector", Category.INTERFACE, MaterialDesignW.WIDGETS_OUTLINE,
-                "Browse an open interface's components as a tree with their type, position, text, item and actions, "
-                        + "and outline the selected one in game. The selected one's id, parent, hidden state, bounds, "
-                        + "item and actions are shown under the list.");
+                "Browse every open interface as a tree with the cache's names (149 is INVENTORY), its widgets' static "
+                        + "and dynamic children, and each widget's fields and the code that fetches it. Pick a widget "
+                        + "by clicking it in the game; the selected one is outlined over the game.");
     }
 
     @Override
@@ -97,201 +106,330 @@ final class WidgetInspectorTool extends DevTool<WidgetInspectorTool.Snapshot> {
         return Support.READY;
     }
 
+    /**
+     * Selects a node: its fields are read and it is outlined from the next poll.
+     *
+     * @param key the node's key, or null for none
+     */
+    void select(String key) {
+        selected = key;
+    }
+
+    /**
+     * The selected node.
+     *
+     * @return its key, or null for none
+     */
+    String selected() {
+        return selected;
+    }
+
+    /**
+     * Outlines a node in a second colour, for the tree row under the pointer.
+     *
+     * @param key the node's key, or null for none
+     */
+    void hover(String key) {
+        hovered = key;
+    }
+
+    /**
+     * Reads the whole tree again at the next poll.
+     */
+    void requestRead() {
+        readWanted = true;
+    }
+
+    /**
+     * Turns the tool's overlay on or off, as its eye in the sidebar does.
+     *
+     * @param on true to outline the selection in the game
+     */
+    void showInGame(boolean on) {
+        Host host = host();
+        if (host != null) {
+            host.setOverlay(on);
+        }
+    }
+
+    /**
+     * The component the game is embedded in.
+     *
+     * @return the game area, or null before the dev tools adopt the tool
+     */
+    Component gameArea() {
+        Host host = host();
+        return host == null ? null : host.gameArea();
+    }
+
     @Override
     protected Snapshot read(GameSession session) {
         Client client = session.client();
         List<Integer> open = client.getOpenWidgetGroups();
-        if (open.isEmpty()) {
-            return null;
+        long now = System.nanoTime();
+        WidgetForest current = forest;
+        if (current == null || readWanted || now >= nextReadAt || !new HashSet<>(open).equals(current.groupIds())) {
+            readWanted = false;
+            current = readForest(client, open);
+            forest = current;
+            nextReadAt = now + (long) ((System.nanoTime() - now) / READ_SHARE);
         }
-        int shown = group;
-        if (!open.contains(shown)) {
-            shown = open.contains(DEFAULT_GROUP) ? DEFAULT_GROUP : open.get(0);
-        }
-        Widget[] components = client.getWidgetGroup(shown);
-        List<Row> rows = new ArrayList<>();
-        Marks.Builder marks = isOverlayOn()
-                ? new Marks.Builder(new Dimension(client.getCanvasWidth(), client.getCanvasHeight())) : null;
-        String[] detail = {null};
-        if (components != null) {
-            new Tree(components, rows, marks, detail).walk();
-        }
-        return new Snapshot(open, shown, List.copyOf(rows), marks == null ? Marks.NONE : marks.build(), detail[0]);
+        String key = selected;
+        WidgetDetail detail = key == null ? null : WidgetDetail.read(client, current, key, WidgetNames.get());
+        Marks marks = isOverlayOn() ? marks(current, detail, key, hovered) : Marks.NONE;
+        return new Snapshot(current, detail, marks, isOverlayOn());
+    }
+
+    @Override
+    protected void onStop() {
+        // Runs on the EDT, so the poll thread's tree is left alone; the next start reads a fresh one
+        readWanted = true;
     }
 
     /**
-     * Lays a group out in tree order. Screen positions are summed on the way down from each root's group offset, which
-     * saves reading each parent again.
-     */
-    private final class Tree {
-        private final Widget[] components;
-        private final List<Row> rows;
-        private final Marks.Builder marks;
-        private final String selectedKey = selected;
-        private final Map<Integer, List<Widget>> staticChildren = new HashMap<>();
-        private final Set<String> seen = new HashSet<>();
-        private final String[] detail;
-
-        /**
-         * Prepares a walk.
-         *
-         * @param components the group's components by index, null where there is none
-         * @param rows       where the rows go
-         * @param marks      where the outlines go, or null
-         * @param detail     receives the selected component's detail, in element 0
-         */
-        Tree(Widget[] components, List<Row> rows, Marks.Builder marks, String[] detail) {
-            this.components = components;
-            this.rows = rows;
-            this.marks = marks;
-            this.detail = detail;
-        }
-
-        void walk() {
-            Set<Integer> ids = new HashSet<>();
-            for (Widget c : components) {
-                if (c != null) {
-                    ids.add(c.getId());
-                }
-            }
-            List<Widget> top = new ArrayList<>();
-            for (Widget c : components) {
-                if (c == null) {
-                    continue;
-                }
-                if (ids.contains(c.getParentId())) {
-                    staticChildren.computeIfAbsent(c.getParentId(), k -> new ArrayList<>()).add(c);
-                } else {
-                    top.add(c);
-                }
-            }
-            for (Widget c : top) {
-                Point origin = origin(c);
-                visit(c, 0, origin, componentKey(c));
-            }
-        }
-
-        /**
-         * A root's origin on screen: the group's offset plus its script offset.
-         *
-         * @param c the root component
-         * @return the origin in canvas pixels
-         */
-        private Point origin(Widget c) {
-            Point offset = c.getGroupOffset();
-            Point script = c.getGroupScriptOffset();
-            int x = (offset == null ? 0 : offset.getX()) + (script == null ? 0 : script.getX());
-            int y = (offset == null ? 0 : offset.getY()) + (script == null ? 0 : script.getY());
-            return new Point(x, y);
-        }
-
-        /**
-         * Adds a component's row, then its children's.
-         *
-         * @param c            the component
-         * @param depth        how deep it is in the tree
-         * @param parentScreen its parent's top-left corner on screen
-         * @param key          its path key
-         */
-        private void visit(Widget c, int depth, Point parentScreen, String key) {
-            if (rows.size() >= MAX_ROWS || !seen.add(key)) {
-                return;
-            }
-            Point screen = new Point(parentScreen.getX() + c.getRelativeX(), parentScreen.getY() + c.getRelativeY());
-            boolean rendering = c.isRendering();
-            String label = c.isStatic() ? component(c.getId()) : "[" + c.getIndex() + "]";
-            rows.add(new Row(key, "  ".repeat(depth) + label, WidgetType.name(c.getType()),
-                    c.getParentId() == -1 ? "" : component(c.getParentId()), c.getRelativeX(), c.getRelativeY(),
-                    c.getWidth(), c.getHeight(), c.isSelfHidden(), rendering, c.getText(), item(c), ops(c), screen));
-            mark(c, key, screen, rendering);
-            if (key.equals(selectedKey)) {
-                detail[0] = describe(c);
-            }
-            if (c.isStatic()) {
-                for (Widget child : staticChildren.getOrDefault(c.getId(), List.of())) {
-                    visit(child, depth + 1, screen, key + "/" + componentKey(child));
-                }
-            }
-            for (Widget child : c.getDynamicChildren()) {
-                visit(child, depth + 1, screen, key + "/[" + child.getIndex() + "]");
-            }
-        }
-
-        private void mark(Widget c, String key, Point screen, boolean rendering) {
-            if (marks == null) {
-                return;
-            }
-            boolean isSelected = key.equals(selectedKey);
-            if (!isSelected && !(rendering && allDrawn.isOn())) {
-                return;
-            }
-            int x = screen.getX();
-            int y = screen.getY();
-            Point[] box = {new Point(x, y), new Point(x + c.getWidth(), y),
-                    new Point(x + c.getWidth(), y + c.getHeight()), new Point(x, y + c.getHeight())};
-            marks.outline(box, isSelected ? SELECTED : DRAWN, null);
-            if (isSelected) {
-                marks.label(key, new Point(x + c.getWidth() / 2, y - 6), SELECTED);
-            }
-        }
-    }
-
-    /**
-     * A static component's key, or a dynamic one's index.
+     * Reads every open group.
      *
-     * @param c the component
-     * @return "group:component" for a static one, "[index]" for a dynamic one
+     * @param client the client
+     * @param open   the open groups' ids
+     * @return the forest
      */
-    private static String componentKey(Widget c) {
-        return c.isStatic() ? component(c.getId()) : "[" + c.getIndex() + "]";
+    private static WidgetForest readForest(Client client, List<Integer> open) {
+        WidgetNames names = WidgetNames.get();
+        int[] budget = {MAX_WIDGETS};
+        List<GroupDraft> groups = new ArrayList<>();
+        for (int groupId : open) {
+            GroupDraft group = new GroupDraft(groupId, names.group(groupId));
+            Widget[] components = client.getWidgetGroup(groupId);
+            if (components != null) {
+                readGroup(group, components, names, budget);
+            }
+            groups.add(group);
+        }
+        Dimension canvas = new Dimension(Math.max(1, client.getCanvasWidth()), Math.max(1, client.getCanvasHeight()));
+        return WidgetForest.assemble(groups, canvas);
     }
 
     /**
-     * The selected component's detail, as one line.
+     * Reads one group's widgets: its static ones nested by parent, then each layer's dynamic children after its static
+     * ones.
      *
-     * @param c the component
-     * @return its id, index, parent, hidden state with its parents, bounds, item and actions
+     * @param group      the group, which receives where it is drawn and its top-level widgets
+     * @param components the group's static widgets by component index, null where there is none
+     * @param names      the cache's names
+     * @param budget     how many more widgets may be read, in element 0
      */
-    private static String describe(Widget c) {
-        StringBuilder text = new StringBuilder("id 0x").append(Integer.toHexString(c.getId())).append(" (")
-                .append(component(c.getId())).append(")");
-        if (c.getIndex() >= 0) {
-            text.append(" [").append(c.getIndex()).append("]");
+    private static void readGroup(GroupDraft group, Widget[] components, WidgetNames names, int[] budget) {
+        Map<Integer, Draft> byId = new HashMap<>();
+        List<Widget> present = new ArrayList<>();
+        for (Widget component : components) {
+            if (component != null && budget[0]-- > 0) {
+                present.add(component);
+                byId.put(component.getId(), draft(component, names));
+            }
         }
-        text.append("  parent ").append(c.getParentId() == -1 ? "none" : component(c.getParentId()));
-        text.append("  hidden ").append(c.isHidden());
-        Rectangle bounds = c.getBounds();
-        text.append("  bounds ").append(bounds == null ? "?"
-                : bounds.x + "," + bounds.y + " " + bounds.width + "×" + bounds.height);
-        if (c.getItemId() >= 0) {
-            text.append("  item ").append(c.getItemId()).append(" ×").append(c.getItemQuantity());
+        group.components = present.size();
+        if (present.isEmpty()) {
+            return;
         }
-        String[] actions = c.getActions();
-        text.append("  actions ").append(actions == null ? "none" : String.join(", ",
-                Arrays.stream(actions).filter(action -> action != null).toList()));
-        return text.toString();
+        Widget any = present.get(0);
+        Rectangle clip = any.getGroupClipBounds();
+        Point offset = any.getGroupOffset();
+        Point script = any.getGroupScriptOffset();
+        group.drawn(clip == null ? null : new Area(clip.x, clip.y, clip.width, clip.height),
+                offset == null ? 0 : offset.getX(), offset == null ? 0 : offset.getY(),
+                script == null ? 0 : script.getX(), script == null ? 0 : script.getY());
+        for (Widget component : present) {
+            Draft draft = byId.get(component.getId());
+            Draft parent = component.getParentId() == component.getId() ? null : byId.get(component.getParentId());
+            if (parent != null) {
+                parent.add(draft);
+            } else {
+                group.add(draft);
+            }
+        }
+        for (Widget component : present) {
+            readDynamic(byId.get(component.getId()), component, names, budget, 0);
+        }
     }
 
-    private static String component(int packedId) {
-        return WidgetUtil.componentToInterface(packedId) + ":" + WidgetUtil.componentToId(packedId);
+    /**
+     * Adds a layer's dynamic children, and theirs.
+     *
+     * @param draft  the layer's draft
+     * @param layer  the layer
+     * @param names  the cache's names
+     * @param budget how many more widgets may be read, in element 0
+     * @param depth  how many dynamic layers deep this is
+     */
+    private static void readDynamic(Draft draft, Widget layer, WidgetNames names, int[] budget, int depth) {
+        if (layer.getType() != WidgetType.LAYER || depth >= MAX_DEPTH) {
+            return;
+        }
+        for (Widget child : layer.getDynamicChildren()) {
+            if (budget[0]-- <= 0) {
+                return;
+            }
+            Draft childDraft = draft(child, names);
+            draft.add(childDraft);
+            readDynamic(childDraft, child, names, budget, depth + 1);
+        }
     }
 
-    private static String item(Widget c) {
-        return c.getItemId() < 0 ? "" : c.getItemId() + " ×" + c.getItemQuantity();
+    /**
+     * A widget's draft: its fields for the tree, from the snapshot it was read in.
+     *
+     * @param widget the widget
+     * @param names  the cache's names
+     * @return the draft, without children
+     */
+    private static Draft draft(Widget widget, WidgetNames names) {
+        boolean dynamic = !widget.isStatic();
+        Draft draft = new Draft(dynamic ? Kind.DYNAMIC : Kind.STATIC, widget.getId(), dynamic ? widget.getIndex() : -1,
+                widget.getType())
+                .at(widget.getRelativeX(), widget.getRelativeY(), widget.getWidth(), widget.getHeight())
+                .scroll(Math.max(0, widget.getScrollX()), Math.max(0, widget.getScrollY()))
+                .state(widget.isSelfHidden(), widget.isRendering());
+        WidgetNames.Name name = dynamic ? null : names.component(widget.getId());
+        String text = WidgetForest.plain(widget.getText());
+        String opBase = WidgetForest.plain(widget.getName());
+        // Op names cost a read each, so they are only read for a widget with nothing else to show
+        String ops = text.isEmpty() && opBase.isEmpty() && widget.getItemId() < 0 ? ops(widget) : "";
+        String summary = summary(widget.getType(), text, opBase, widget.getItemId(), widget.getItemQuantity(), ops,
+                widget.getSpriteId(), widget.getModelId(), names);
+        return draft.text(name == null ? "" : name.field(), summary, text + " " + opBase + " " + ops);
     }
 
-    private static String ops(Widget c) {
-        String[] actions = c.getActions();
+    /**
+     * A tree row's short description of what a widget shows: its item, else its text, else the name its actions act
+     * on, else its actions, else its sprite or model.
+     *
+     * @param type     the widget type
+     * @param text     the text, without markup
+     * @param opBase   the name its actions act on, without markup
+     * @param itemId   the item it shows, or -1
+     * @param quantity the item's quantity
+     * @param ops      its actions, joined, or ""
+     * @param sprite   its sprite, or -1
+     * @param model    its model, or -1
+     * @param names    the cache's names
+     * @return the description, or ""
+     */
+    static String summary(int type, String text, String opBase, int itemId, int quantity, String ops, int sprite,
+                          int model, WidgetNames names) {
+        if (itemId >= 0) {
+            String what = opBase.isEmpty() ? "item " + itemId : opBase;
+            return quantity > 1 ? what + " ×" + NumberFormat.getIntegerInstance(Locale.ROOT).format(quantity) : what;
+        }
+        if (!text.isEmpty()) {
+            return "\"" + (text.length() > SUMMARY_TEXT ? text.substring(0, SUMMARY_TEXT - 1) + "…" : text) + "\"";
+        }
+        if (!opBase.isEmpty()) {
+            return opBase;
+        }
+        if (!ops.isEmpty()) {
+            return ops;
+        }
+        if (type == WidgetType.GRAPHIC && sprite >= 0) {
+            String name = names.sprite(sprite);
+            return "sprite " + (name.isEmpty() ? Integer.toString(sprite) : name.toLowerCase(Locale.ROOT));
+        }
+        if (type == WidgetType.MODEL && model >= 0) {
+            return "model " + model;
+        }
+        return "";
+    }
+
+    /**
+     * A widget's non-empty actions.
+     *
+     * @param widget the widget
+     * @return the actions joined with commas, or ""
+     */
+    static String ops(Widget widget) {
+        String[] actions = widget.getActions();
         if (actions == null) {
             return "";
         }
         List<String> ops = new ArrayList<>();
         for (String op : actions) {
             if (op != null && !op.isEmpty()) {
-                ops.add(op);
+                ops.add(WidgetForest.plain(op));
             }
         }
         return String.join(", ", ops);
+    }
+
+    /**
+     * The outlines over the game: everything drawn if asked, the hovered row's node, then the selection with its name.
+     *
+     * @param forest   the forest
+     * @param detail   the selected node's fresh fields, or null
+     * @param selected the selected node's key, or null
+     * @param hovered  the hovered row's key, or null
+     * @return the marks
+     */
+    private Marks marks(WidgetForest forest, WidgetDetail detail, String selected, String hovered) {
+        Marks.Builder marks = new Marks.Builder(forest.getCanvas());
+        if (allDrawn.isOn()) {
+            for (Row row : forest.drawn()) {
+                marks.outline(box(row.visible()), DRAWN, null);
+            }
+        }
+        WidgetNode hover = forest.node(hovered);
+        if (hover != null && !hover.row().key().equals(selected)) {
+            marks.outline(box(hover.row().bounds()), HOVERED, null);
+        }
+        WidgetNode node = forest.node(selected);
+        Area area = detail != null && detail.bounds() != null ? detail.bounds()
+                : node == null ? null : node.row().bounds();
+        if (area != null) {
+            marks.outline(box(area), SELECTED, SELECTED_FILL);
+            String label = node == null ? selected : title(forest.path(selected));
+            marks.label(label, new Point(area.x() + area.width() / 2, Math.max(8, area.y() - 8)), SELECTED);
+        }
+        return marks.build();
+    }
+
+    /**
+     * A rectangle's corners.
+     *
+     * @param area the rectangle, or null
+     * @return its corners clockwise from the top left, or null
+     */
+    private static Point[] box(Area area) {
+        if (area == null || area.isEmpty()) {
+            return null;
+        }
+        int x = area.x();
+        int y = area.y();
+        return new Point[]{new Point(x, y), new Point(x + area.width(), y),
+                new Point(x + area.width(), y + area.height()), new Point(x, y + area.height())};
+    }
+
+    /**
+     * What to call a node: a group's or static widget's name, a dynamic widget's index after its static root's name.
+     *
+     * @param path the rows from a root down to the node
+     * @return e.g. {@code INVENTORY}, {@code ITEMS} or {@code ITEMS [3]}; its id where it has no name
+     */
+    static String title(List<Row> path) {
+        if (path.isEmpty()) {
+            return "";
+        }
+        Row row = path.get(path.size() - 1);
+        return switch (row.kind()) {
+            case GROUP -> row.name().isEmpty() ? "Interface " + row.id() : row.name();
+            case STATIC -> row.name().isEmpty() ? row.key() : row.name();
+            case DYNAMIC -> {
+                Row base = row;
+                for (int i = path.size() - 1; i >= 0 && base.kind() == Kind.DYNAMIC; i--) {
+                    base = path.get(i);
+                }
+                String root = base.kind() == Kind.STATIC && !base.name().isEmpty() ? base.name()
+                        : WidgetForest.component(row.id());
+                yield root + " [" + row.index() + "]";
+            }
+        };
     }
 
     @Override
@@ -301,76 +439,6 @@ final class WidgetInspectorTool extends DevTool<WidgetInspectorTool.Snapshot> {
 
     @Override
     protected ToolView<Snapshot> createView() {
-        return new InspectorView();
-    }
-
-    /**
-     * A group picker over a table of the group's components, and the selected component's detail under it.
-     */
-    private final class InspectorView implements ToolView<Snapshot> {
-        private final JComboBox<Integer> groups = new JComboBox<>();
-        private final TableView<Row> table = TableView.<Row>builder("components")
-                .column("Component", String.class, 170, Row::tree)
-                .column("Type", String.class, 80, Row::type)
-                .column("Parent", String.class, 90, Row::parent)
-                .column("X", Integer.class, 46, Row::x)
-                .column("Y", Integer.class, 46, Row::y)
-                .column("W", Integer.class, 46, Row::width)
-                .column("H", Integer.class, 46, Row::height)
-                .column("Hidden", Boolean.class, 54, Row::hidden)
-                .column("Drawn", Boolean.class, 54, Row::rendering)
-                .column("Text", String.class, 160, Row::text)
-                .column("Item", String.class, 90, Row::item)
-                .column("Ops", String.class, 160, Row::ops)
-                .key(Row::key)
-                .onSelect(row -> selected = row == null ? null : row.key())
-                .build();
-        private final JLabel detail = new JLabel(" ");
-        private final JPanel root = new JPanel(new BorderLayout());
-        private List<Integer> shownGroups = List.of();
-        private boolean filling;
-
-        InspectorView() {
-            groups.addActionListener(e -> {
-                if (!filling && groups.getSelectedItem() instanceof Integer g) {
-                    group = g;
-                    selected = null;
-                }
-            });
-            JLabel label = new JLabel("Group");
-            label.setForeground(Theme.LIGHT);
-            JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-            bar.setBorder(new EmptyBorder(8, 4, 0, 8));
-            bar.add(label);
-            bar.add(groups);
-            detail.setForeground(Theme.TEXT);
-            detail.setBorder(new EmptyBorder(4, 8, 6, 8));
-            root.add(bar, BorderLayout.NORTH);
-            root.add(table.component(), BorderLayout.CENTER);
-            root.add(detail, BorderLayout.SOUTH);
-            root.setPreferredSize(new Dimension(980, 520));
-        }
-
-        @Override
-        public JComponent component() {
-            return root;
-        }
-
-        @Override
-        public void update(Snapshot snapshot) {
-            filling = true;
-            try {
-                if (!snapshot.groups().equals(shownGroups)) {
-                    shownGroups = snapshot.groups();
-                    groups.removeAllItems();
-                    shownGroups.forEach(groups::addItem);
-                }
-                groups.setSelectedItem(snapshot.group());
-            } finally {
-                filling = false;
-            }
-            detail.setText(snapshot.detail() == null ? " " : snapshot.detail());
-            table.update(snapshot.rows());
-        }
+        return new WidgetInspectorView(this);
     }
 }
