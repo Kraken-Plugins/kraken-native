@@ -1,6 +1,8 @@
 package com.kraken.client.ui;
 
+import com.google.inject.Inject;
 import com.google.inject.Singleton;
+import com.kraken.client.KrakenConfig;
 import lombok.Getter;
 import lombok.Setter;
 import org.kordamp.ikonli.Ikon;
@@ -9,15 +11,15 @@ import org.kordamp.ikonli.swing.FontIcon;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.util.prefs.Preferences;
 import javax.swing.*;
 
 import static com.formdev.flatlaf.FlatClientProperties.*;
 
 /**
  * The sidebar is a strip of tabs on the far right that open one panel at a time. Drag the open panel's left edge to
- * resize it: the game gives up or gets back the width, and every panel shares the width, which is remembered between
- * launches. Double-click the edge to reset it.
+ * resize it: the game gives up or gets back the width, and every panel shares the width. Double-click the edge to
+ * reset it. The width and which panel is open are kept in {@link KrakenConfig}'s hidden items, and the frame reopens
+ * the panel at launch ({@link #restore}).
  */
 @Singleton
 public final class Sidebar extends JPanel {
@@ -26,25 +28,29 @@ public final class Sidebar extends JPanel {
     /** Dragging the panel wider stops when the game would get narrower than this. */
     private static final int MIN_GAME_WIDTH = 320;
     private static final int GRIP_WIDTH = 5;
-    private static final String WIDTH_KEY = "sidebar.width";
 
-    private final Preferences prefs = Preferences.userNodeForPackage(Sidebar.class);
+    private final KrakenConfig config;
     private final CardLayout cardLayout = new CardLayout();
     private final JPanel cards = new JPanel(cardLayout);
     private final JPanel drawer = new JPanel(new BorderLayout());
     private final JPanel tabs = new JPanel();
     private final JPanel strip = new JPanel(new BorderLayout());
     private int panelWidth;
-    /** How much the window grew when the panel opened, given back when it closes. */
+    /**
+     * How much the window grew when the panel opened, given back when it closes.
+     */
+    @Getter
     private int grownBy;
     /** Widen the window when a panel opens, instead of shrinking the game. */
     @Getter
     @Setter
     private boolean growWindow = true;
 
-    Sidebar() {
+    @Inject
+    Sidebar(KrakenConfig config) {
         super(new BorderLayout());
-        panelWidth = Math.max(MIN_WIDTH, prefs.getInt(WIDTH_KEY, MIN_WIDTH));
+        this.config = config;
+        panelWidth = Math.max(MIN_WIDTH, config.sidebarWidth());
         drawer.add(new Grip(), BorderLayout.WEST);
         drawer.add(cards, BorderLayout.CENTER);
         drawer.setPreferredSize(new Dimension(GRIP_WIDTH + panelWidth, 0));
@@ -73,16 +79,34 @@ public final class Sidebar extends JPanel {
         cards.add(content, title);
     }
 
+    /**
+     * Reopens the panel that was open when Kraken last closed, if any.
+     *
+     * @param grownBy how much of the window's width the panel added last time, when the window was given its old
+     *                bounds; null when it was sized afresh, so the panel grows it as on a click
+     * @return true if a panel was reopened
+     */
+    boolean restore(Integer grownBy) {
+        String title = config.sidebarPanel();
+        for (Component component : tabs.getComponents()) {
+            if (component instanceof JToggleButton tab && tab.getName().equals(title)) {
+                if (grownBy != null) {
+                    // The window already has the panel's width: open it in place, and give the width back on close
+                    this.grownBy = Math.max(0, grownBy);
+                    showPanel(tab);
+                } else {
+                    select(tab);
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void select(JToggleButton selected) {
         boolean wasOpen = drawer.isVisible();
         boolean open = selected != null;
-        for (Component tab : tabs.getComponents()) {
-            ((JToggleButton) tab).setSelected(tab == selected);
-        }
-        if (open) {
-            cardLayout.show(cards, selected.getName());
-        }
-        drawer.setVisible(open);
+        showPanel(selected);
 
         // Grow the window for the panel instead of squashing the game, and give it back on close
         JFrame frame = (JFrame) SwingUtilities.getWindowAncestor(this);
@@ -97,6 +121,23 @@ public final class Sidebar extends JPanel {
             grownBy = 0;
         }
         revalidate();
+    }
+
+    /**
+     * Shows a tab's panel, or none, without touching the window's size, and remembers which.
+     *
+     * @param selected the tab, or null to close the panel
+     */
+    private void showPanel(JToggleButton selected) {
+        for (Component tab : tabs.getComponents()) {
+            ((JToggleButton) tab).setSelected(tab == selected);
+        }
+        if (selected != null) {
+            cardLayout.show(cards, selected.getName());
+        }
+        drawer.setVisible(selected != null);
+        revalidate();
+        config.sidebarPanel(selected != null ? selected.getName() : "");
     }
 
     /** Resizes the open panel, taking the width from the game (which keeps at least {@link #MIN_GAME_WIDTH}). */
@@ -164,14 +205,14 @@ public final class Sidebar extends JPanel {
                 public void mouseReleased(MouseEvent e) {
                     dragging = false;
                     repaint();
-                    prefs.putInt(WIDTH_KEY, panelWidth);
+                    config.sidebarWidth(panelWidth);
                 }
 
                 @Override
                 public void mouseClicked(MouseEvent e) {
                     if (e.getClickCount() == 2) {
                         setPanelWidth(MIN_WIDTH);
-                        prefs.putInt(WIDTH_KEY, panelWidth);
+                        config.sidebarWidth(panelWidth);
                     }
                 }
             };

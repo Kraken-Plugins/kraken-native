@@ -9,6 +9,7 @@ import lombok.extern.java.Log;
 
 import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.Rectangle;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -44,8 +45,9 @@ import java.util.stream.Collectors;
  *       {@link #getConfigDescriptor} lists what it declares, for the settings page.
  *   <li><b>Types.</b> {@code boolean}, {@code int}, {@code long}, {@code float}, {@code double}, {@code String},
  *       enums (stored by name), {@code Color} ({@code #AARRGGBB}; a decimal ARGB integer also reads),
- *       {@code Dimension} ({@code WIDTHxHEIGHT}) and {@code Set} of an enum (names, comma-separated). Keybinds aren't
- *       supported: Kraken never sees the game's input.
+ *       {@code Dimension} ({@code WIDTHxHEIGHT}), {@code Rectangle} ({@code X:Y:WIDTH:HEIGHT}; the settings page
+ *       has no control for it, so it suits hidden items) and {@code Set} of an enum (names, comma-separated).
+ *       Keybinds aren't supported: Kraken never sees the game's input.
  *   <li><b>Events.</b> Every change posts {@link ConfigChanged} on the bus, on the thread that made it.
  *   <li><b>Storage.</b> Changes are written shortly after they're made (several changes in a row are written once),
  *       atomically: to a temporary file that then replaces the settings file. {@link #flush} writes at once.
@@ -290,6 +292,14 @@ public class ConfigManager {
             }
             return new Dimension(Integer.parseInt(parts[0].trim()), Integer.parseInt(parts[1].trim()));
         }
+        if (raw == Rectangle.class) {
+            String[] parts = text.split(":");
+            if (parts.length != 4) {
+                throw new IllegalArgumentException("not X:Y:WIDTH:HEIGHT");
+            }
+            return new Rectangle(Integer.parseInt(parts[0].trim()), Integer.parseInt(parts[1].trim()),
+                    Integer.parseInt(parts[2].trim()), Integer.parseInt(parts[3].trim()));
+        }
         if (raw == Set.class && type instanceof ParameterizedType set
                 && set.getActualTypeArguments()[0] instanceof Class<?> element && element.isEnum()) {
             return enumSet(element, text);
@@ -299,7 +309,8 @@ public class ConfigManager {
 
     /**
      * Turns a value into the text it is stored as: {@code #AARRGGBB} for a colour, {@code WIDTHxHEIGHT} for a
-     * dimension, the name for an enum, comma-separated names for a set; anything else's {@code toString}.
+     * dimension, {@code X:Y:WIDTH:HEIGHT} for a rectangle, the name for an enum, comma-separated names for a set;
+     * anything else's {@code toString}.
      *
      * @param value the value
      * @return the text to store
@@ -310,6 +321,9 @@ public class ConfigManager {
         }
         if (value instanceof Dimension dimension) {
             return dimension.width + "x" + dimension.height;
+        }
+        if (value instanceof Rectangle rectangle) {
+            return rectangle.x + ":" + rectangle.y + ":" + rectangle.width + ":" + rectangle.height;
         }
         if (value instanceof Enum<?> constant) {
             return constant.name();

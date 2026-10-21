@@ -93,11 +93,12 @@ The v2 message `{u32 len, u32 seq, i32 eventId, u64 regs[4], u8 nValues, values.
 
 | id | Name | regs |
 |---|---|---|
-| -2 | STATUS | installed slots, requested slots, features (bit 0 = pump hooked, bit 1 = present hooked), protocol version (3) |
+| -2 | STATUS | installed slots, requested slots, features (bit 0 = pump hooked, bit 1 = present hooked, bit 2 = frame rate: sends FPS and honours FRAME_LIMIT), protocol version (3) |
 | -3 | FRAME | framebuffer width, height, GL version (`major << 16 \| minor`), surface generation being drawn (0 = none). Sent when any of them changes, from the first present on; the size is the window's client area, 0 while it is minimized |
 | -4 | CALLS_DONE | batch id, calls run, calls that faulted or were skipped, the last call's return value |
+| -5 | FPS | frames since the last FPS, microseconds since it, the frame cap in force, 1 if presents were counted (0: frame steps, when present isn't hooked). Sent about once a second while the pump or present is hooked |
 
-STATUS and FRAME come from the writer thread straight to the socket; CALLS_DONE from the pump on the game thread, the
+STATUS, FRAME and FPS come from the writer thread straight to the socket; CALLS_DONE from the pump on the game thread, the
 ring's one producer. So the reserved ids' sequence numbers interleave with the raises', and Java leaves them out of
 its drop count. CALLS are only sent once STATUS has the pump bit (without a pump the DLL drops them unanswered); a
 batch id from before a reconnect can still be answered after it.
@@ -128,6 +129,14 @@ draws its frames from the next present; a `nameLen` of 0 stops drawing and unmap
 The DLL checks the magic, the sizes (at most 16384 a side, 1 to 3 slots) and the mapping's length; a surface it
 refuses, or a GL fault while drawing (which turns the overlay off for the session), leaves FRAME's generation at 0.
 Java gives a surface two seconds to show up there, then goes back to its window for the rest of the connection.
+
+**type 3, FRAME_LIMIT**: `u32 fps`, 0 (or anything over 1000) for no cap. The pump holds each frame step until one
+interval (`1/fps`) after the last, on a high-resolution waitable timer, before running the queued calls and the
+original. A step that comes more than an interval late restarts the schedule instead of letting the next ones run
+back to back. The client times its own logic cycles, so a held frame runs more cycles rather than slowing the game. A
+new cap wakes a pump that is waiting, so lifting it takes effect at once. Each connection starts uncapped, and a
+dropped socket lifts the cap, so a Kraken client that closes never leaves the game capped. Java sends it once STATUS
+has the pump and frame-rate bits, and again whenever the cap changes.
 
 ### 2.4 The overlay surface
 
@@ -178,6 +187,10 @@ sizes the surface by the FRAME message's framebuffer and scales its canvas-pixel
   overlays for names, and for tile outlines while the hook isn't connected; Tile Markers marks listed world tiles on a
   tile channel. Each takes its channel in `startUp` and releases it in `shutDown`.
 - Still on the window: the dev tools' overlays, which paint on the EDT from their snapshots.
+- Frame rates: `NativeEventServer` hands FPS reports to the client's `FrameRates`, which also counts the overlay
+  frames `OverlayRenderer` hands over. `FrameRates` decides the cap: `unfocusedFps` while no Kraken window is active
+  and `limitUnfocusedFps` is on, none otherwise; the server sends it to the DLL. The Kraken page shows both rates, and
+  `FpsOverlay` draws them over the game when `showFps` is on.
 
 ## 4. Live checks pending
 
@@ -188,3 +201,7 @@ sizes the surface by the FRAME message's framebuffer and scales its canvas-pixel
   and origin tile, objs by id and tile; `highlightChannelClear` drops them; styles change live.
 - Highlights survive a map rebuild with `ignoreRebuild`, and what happens to them at logout.
 - The overlay costs: upload time per frame at 1080p and 4K, and that an empty overlay costs nothing.
+- FPS matches the game's own frame rate, counted at present and, without the present hook, at the pump.
+- The unfocused cap holds the game at the rate asked, lifts as soon as Kraken is focused again (clicking into the
+  embedded game keeps Kraken's frame the active window), and leaves logic cycles, input and highlights working while
+  held.

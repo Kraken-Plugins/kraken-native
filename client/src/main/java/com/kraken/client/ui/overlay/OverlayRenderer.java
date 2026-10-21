@@ -3,6 +3,7 @@ package com.kraken.client.ui.overlay;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import com.kraken.api.GameSession;
+import com.kraken.client.FrameRates;
 import com.kraken.client.KrakenConfig;
 import com.kraken.client.ProcessAttacher;
 import lombok.extern.java.Log;
@@ -39,6 +40,9 @@ import javax.swing.*;
  * <p>For the game, a frame is drawn into one image the framebuffer's size, and only the rows that hold pixels (and the
  * rows the last frame held, which it clears) are cleared and handed over, so a sparse overlay costs little.
  *
+ * <p>Overlays start each frame with the font, size and panel background the settings give ({@link KrakenConfig}), and
+ * each frame handed over is counted in {@link FrameRates}.
+ *
  * <p>Nothing is read or drawn while no overlay is added or the game area isn't showing.
  */
 @Log(topic = "kraken")
@@ -50,15 +54,28 @@ public final class OverlayRenderer {
      */
     private static final int MAX_FRAME_RATE = 50;
 
+    /**
+     * The bounds on the overlay font size, whatever the settings file holds.
+     */
+    private static final int MIN_FONT_SIZE = 6;
+    private static final int MAX_FONT_SIZE = 72;
+
     private final OverlayManager manager;
     private final GameOverlay window;
     private final GameSurface surface;
     private final KrakenConfig config;
+    private final FrameRates frameRates;
     private final OverlayCompositor compositor;
     private volatile Frame front;
     private Frame back;
     private final FrameSchedule schedule = new FrameSchedule();
     private boolean failing;
+
+    /**
+     * The font and size the compositor was last given. Poll thread only.
+     */
+    private OverlayFont font;
+    private int fontSize;
 
     /**
      * The image frames for the game are drawn into, and the rows its last frame held. Poll thread only.
@@ -74,11 +91,12 @@ public final class OverlayRenderer {
 
     @Inject
     OverlayRenderer(OverlayManager manager, GameOverlay window, GameSurface surface, ProcessAttacher attacher,
-                    KrakenConfig config) {
+                    KrakenConfig config, FrameRates frameRates) {
         this.manager = manager;
         this.window = window;
         this.surface = surface;
         this.config = config;
+        this.frameRates = frameRates;
         Font font = UIManager.getFont("Label.font");
         this.compositor = new OverlayCompositor(font, font.deriveFont(Font.BOLD));
         window.addPainter(new OverlayPainter() {
@@ -144,6 +162,7 @@ public final class OverlayRenderer {
         }
         int width = area.deviceWidth();
         int height = area.deviceHeight();
+        applyStyle();
         Frame frame = back != null && back.fits(width, height) ? back : new Frame(width, height);
         synchronized (frame) {
             Graphics2D g = frame.image.createGraphics();
@@ -160,6 +179,24 @@ public final class OverlayRenderer {
         back = front;
         front = frame;
         window.refresh();
+        frameRates.overlayFrameDrawn();
+    }
+
+    /**
+     * Gives the compositor the settings' font, size and panel background. Poll thread.
+     */
+    private void applyStyle() {
+        OverlayFont nextFont = config.overlayFont();
+        int nextSize = Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, config.overlayFontSize()));
+        if (nextFont != null && (nextFont != font || nextSize != fontSize)) {
+            font = nextFont;
+            fontSize = nextSize;
+            compositor.setFonts(font.panel(fontSize), font.dynamic(fontSize));
+        }
+        Color background = config.overlayBackground();
+        if (background != null) {
+            compositor.setBackground(background);
+        }
     }
 
     /**
@@ -205,6 +242,7 @@ public final class OverlayRenderer {
         } else {
             clearRows(gameImage, gameTop, gameBottom);
         }
+        applyStyle();
         Graphics2D g = gameImage.createGraphics();
         try {
             g.scale(width / (double) canvasWidth, height / (double) canvasHeight);
@@ -219,6 +257,7 @@ public final class OverlayRenderer {
             gameTop = top;
             gameBottom = bottom;
             gameShowing = bottom > top;
+            frameRates.overlayFrameDrawn();
         } else {
             // The surface went away mid-frame: clear the whole image, since the rows drawn weren't recorded
             gameTop = 0;

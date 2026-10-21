@@ -7,6 +7,7 @@ import com.kraken.api.GameSession;
 import com.kraken.api.internal.event.NativeEvent;
 import com.kraken.api.internal.invoke.NativeCall;
 import com.kraken.api.mapping.Mapping;
+import com.kraken.client.FrameRates;
 import com.kraken.client.ui.overlay.GameSurface;
 import lombok.extern.java.Log;
 
@@ -54,7 +55,8 @@ import java.util.logging.Level;
  * <p>The same connection carries the drawing ({@code docs/in-game-drawing.md}). The handshake also names the
  * per-frame step the DLL runs calls in and the present it draws the overlay in. Once the DLL reports its game-thread
  * pump, the API's highlights get a {@link com.kraken.api.internal.invoke.NativeInvoker} that sends their calls here;
- * once it reports the present hook and a framebuffer, {@link GameSurface} hands it overlay frames.
+ * once it reports the present hook and a framebuffer, {@link GameSurface} hands it overlay frames. It also reports the
+ * game's frame rate to {@link FrameRates}, and is told the frame cap to hold the game to from there.
  *
  * <p>Nothing here is hard-coded per client build: every RVA, event id and capture plan comes from the mapping and is
  * handed to the DLL in the handshake. See {@code docs/event-hooks-design.md}.
@@ -85,6 +87,7 @@ public final class NativeEventServer {
     private final Mapping mapping;
     private final long pid;
     private final GameSurface surface;
+    private final FrameRates frameRates;
     private final AtomicBoolean armed = new AtomicBoolean();
     private final List<Tap> taps = new CopyOnWriteArrayList<>();
     private final AtomicInteger batches = new AtomicInteger();
@@ -97,19 +100,28 @@ public final class NativeEventServer {
     private volatile Connection connection;
 
     /**
+     * The connection whose DLL paces frames, which the frame cap goes to; null while there is none.
+     */
+    private volatile Connection pacing;
+
+    /**
      * Creates the server for the attached game.
      *
      * @param session the attached API, which the hook's events are handed to
      * @param mapping the attached build's mapping, which says what to hook
      * @param pid     the {@code osclient.exe} process id to inject into
-     * @param surface the overlay surface, handed to the DLL once it draws
+     * @param surface    the overlay surface, handed to the DLL once it draws
+     * @param frameRates where the game's frame rate goes, and the frame cap comes from
      */
     @Inject
-    NativeEventServer(GameSession session, Mapping mapping, @Named("pid") long pid, GameSurface surface) {
+    NativeEventServer(GameSession session, Mapping mapping, @Named("pid") long pid, GameSurface surface,
+                      FrameRates frameRates) {
         this.session = session;
         this.mapping = mapping;
         this.pid = pid;
         this.surface = surface;
+        this.frameRates = frameRates;
+        frameRates.addFrameLimitListener(this::sendFrameLimit);
     }
 
     /**
@@ -349,6 +361,8 @@ public final class NativeEventServer {
                     log.log(Level.WARNING, "Native event hook connection failed", e);
                 } finally {
                     connection = null;
+                    pacing = null;
+                    frameRates.gameDisconnected();
                     session.setNativeInvoker(null);
                     surface.disconnected();
                     session.setHookConnected(false);
@@ -398,7 +412,7 @@ public final class NativeEventServer {
 
     /**
      * Acts on one of the DLL's status messages: the hooks and features after the handshake, the framebuffer for the
-     * overlay, and the result of a batch of calls.
+     * overlay, the result of a batch of calls, and the game's frame rate.
      *
      * @param event the status message
      * @param open  the connection it came on
@@ -410,14 +424,23 @@ public final class NativeEventServer {
                 log.info("Native event hook installed " + event.reg(NativeEvent.RCX) + " of "
                         + event.reg(NativeEvent.RDX) + " requested hooks (protocol " + event.reg(NativeEvent.R9)
                         + ", calls " + ((features & NativeProtocol.FEATURE_CALLS) != 0) + ", overlay "
-                        + ((features & NativeProtocol.FEATURE_OVERLAY) != 0) + ").");
+                        + ((features & NativeProtocol.FEATURE_OVERLAY) != 0) + ", frame rate "
+                        + ((features & NativeProtocol.FEATURE_FRAME_RATE) != 0) + ").");
                 if ((features & NativeProtocol.FEATURE_CALLS) != 0) {
                     session.setNativeInvoker(batch -> sendCalls(open, batch));
                 }
                 if ((features & NativeProtocol.FEATURE_OVERLAY) != 0) {
                     surface.connected((generation, name) -> sendSurface(open, generation, name), pid);
                 }
+                long pacingFeatures = NativeProtocol.FEATURE_CALLS | NativeProtocol.FEATURE_FRAME_RATE;
+                if ((features & pacingFeatures) == pacingFeatures) {
+                    // The DLL starts each connection uncapped; set first, so a change from here on is sent too
+                    pacing = open;
+                    sendFrameLimit(frameRates.getFrameLimit());
+                }
             }
+            case NativeProtocol.FPS_EVENT_ID -> frameRates.gameFrames(event.reg(NativeEvent.RCX),
+                    event.reg(NativeEvent.RDX));
             case NativeProtocol.FRAME_EVENT_ID -> {
                 int width = (int) event.reg(NativeEvent.RCX);
                 int height = (int) event.reg(NativeEvent.RDX);
@@ -475,6 +498,24 @@ public final class NativeEventServer {
             open.send(NativeProtocol.surface(generation, name));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
+        }
+    }
+
+    /**
+     * Tells the DLL the frame rate to hold the game to, if a DLL that paces frames is connected.
+     *
+     * @param fps frames a second, or 0 for no cap
+     */
+    private void sendFrameLimit(int fps) {
+        Connection open = pacing;
+        if (open == null) {
+            return;
+        }
+        try {
+            open.send(NativeProtocol.frameLimit(fps));
+            log.fine("Native event hook: frame cap " + (fps > 0 ? fps + " fps" : "off"));
+        } catch (IOException e) {
+            log.log(Level.FINE, "Native event hook: could not send the frame cap", e);
         }
     }
 

@@ -1,7 +1,9 @@
 package com.kraken.client.ui.overlay;
 
+import com.kraken.client.ui.overlay.components.ComponentConstants;
 import lombok.extern.java.Log;
 
+import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Graphics2D;
@@ -27,6 +29,9 @@ import java.util.logging.Level;
  *
  * <p>Each overlay draws on its own copy of the graphics, clipped to the canvas, so one can't leave a transform or
  * colour behind for the next. An overlay that throws is logged once (until it draws again) and skipped.
+ *
+ * <p>Panels ({@link OverlayPanel}) get the compositor's background unless they ask for their own
+ * ({@link OverlayPanel#setPreferredColor}).
  */
 @Log(topic = "kraken")
 final class OverlayCompositor {
@@ -48,8 +53,9 @@ final class OverlayCompositor {
 
     private static final OverlayLayer[] LAYERS = OverlayLayer.values();
 
-    private final Font panelFont;
-    private final Font dynamicFont;
+    private Font panelFont;
+    private Font dynamicFont;
+    private Color background = ComponentConstants.STANDARD_BACKGROUND_COLOR;
     private final Set<Overlay> failing = ConcurrentHashMap.newKeySet();
     private final Map<Overlay, Dimension> lastSizes = new WeakHashMap<>();
 
@@ -62,6 +68,26 @@ final class OverlayCompositor {
     OverlayCompositor(Font panelFont, Font dynamicFont) {
         this.panelFont = panelFont;
         this.dynamicFont = dynamicFont;
+    }
+
+    /**
+     * Sets the fonts overlays start with from the next frame.
+     *
+     * @param panelFont   the font anchored overlays start with
+     * @param dynamicFont the font dynamic overlays start with
+     */
+    void setFonts(Font panelFont, Font dynamicFont) {
+        this.panelFont = panelFont;
+        this.dynamicFont = dynamicFont;
+    }
+
+    /**
+     * Sets the background panels are drawn on from the next frame, for those that don't ask for their own.
+     *
+     * @param background the colour
+     */
+    void setBackground(Color background) {
+        this.background = background;
     }
 
     /**
@@ -110,6 +136,10 @@ final class OverlayCompositor {
             g.setFont(position == OverlayPosition.DYNAMIC ? dynamicFont : panelFont);
             g.translate(location.x, location.y);
             bounds.setLocation(location);
+            if (overlay instanceof OverlayPanel panel) {
+                Color colour = panel.getPreferredColor();
+                panel.panelComponent.setBackgroundColor(colour != null ? colour : background);
+            }
             size = overlay.render(g);
             failing.remove(overlay);
         } catch (RuntimeException | LinkageError e) {

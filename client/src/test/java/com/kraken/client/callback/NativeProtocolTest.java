@@ -129,6 +129,19 @@ class NativeProtocolTest {
     }
 
     @Test
+    void frameLimitFramesTheRate() {
+        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.frameLimit(20)).order(ByteOrder.LITTLE_ENDIAN);
+        assertEquals(5, buf.getInt(), "the type byte and a u32");
+        assertEquals(NativeProtocol.COMMAND_FRAME_LIMIT, buf.get());
+        assertEquals(20, buf.getInt());
+        assertEquals(0, buf.remaining());
+
+        ByteBuffer off = ByteBuffer.wrap(NativeProtocol.frameLimit(-3)).order(ByteOrder.LITTLE_ENDIAN);
+        off.position(5);
+        assertEquals(0, off.getInt(), "a negative rate is no cap");
+    }
+
+    @Test
     void parsesIdRegistersAndSequenceWithNoValues() {
         byte[] body = message(7, 44, new long[]{0xAA, 0xBB, 0xCC, 0xDD}, builder -> {
         });

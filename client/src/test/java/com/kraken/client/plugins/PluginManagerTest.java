@@ -11,6 +11,7 @@ import com.kraken.api.eventbus.EventBus;
 import com.kraken.api.eventbus.Subscribe;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.api.memory.Memory;
+import com.kraken.client.KrakenConfig;
 import com.kraken.client.SessionModule;
 import com.kraken.client.events.PluginChanged;
 import com.kraken.client.plugins.config.Config;
@@ -80,6 +81,7 @@ class PluginManagerTest {
         Injector root = Guice.createInjector(binder -> {
             binder.bind(EventBus.class).toInstance(bus);
             binder.bind(ConfigManager.class).toInstance(config);
+            binder.bind(KrakenConfig.class).toInstance(config.getConfig(KrakenConfig.class));
         });
         parent = root.createChildInjector(new SessionModule(attachedSession(), 0));
         return new PluginManager(bus, config, Runnable::run, developerMode);

@@ -46,9 +46,10 @@ Two more functions are hooked with dedicated detours, once each, from the first 
 them:
 
 - **The pump** (`functions.appUpdate`, the client's per-frame step, `void(App*, float)`). Before the
-  original runs, the detour runs every queued call batch on the game thread, each call under an SEH
-  guard, and reports each batch with a `CALLS_DONE` message. The queue is taken with a try-lock, so the
-  game thread never waits on the reader thread.
+  original runs, the detour holds the frame to the frame cap, if one is set, then runs every queued
+  call batch on the game thread, each call under an SEH guard, and reports each batch with a
+  `CALLS_DONE` message. The queue is taken with a try-lock, so the game thread never waits on the
+  reader thread.
 - **Present** (`functions.present`, `void(GlContext*)`, which calls `SwapBuffers`). Before the
   original runs, the detour uploads the newest overlay frame from the surface and draws it over
   framebuffer 0 as one full-screen triangle with premultiplied-alpha blending (GLSL 330 core on GL 3.3+,
@@ -69,12 +70,14 @@ plan entry is `{u8 arg, u8 op}` with ops `RAW, I32, I64, I32X2, CSTR` = 0..4; th
 
 | id | Name | regs |
 |---|---|---|
-| -2 | STATUS | installed slots, requested slots, features (1 = pump hooked, 2 = present hooked), protocol version 3 |
+| -2 | STATUS | installed slots, requested slots, features (1 = pump hooked, 2 = present hooked, 4 = frame rate), protocol version 3 |
 | -3 | FRAME | framebuffer width, height, GL version (`major << 16 \| minor`), surface generation drawn (0 = none) |
 | -4 | CALLS_DONE | batch id, calls run, calls faulted or skipped, last return value |
+| -5 | FPS | frames since the last FPS, microseconds since it, frame cap in force, 1 if presents were counted (0: frame steps) |
 
-STATUS and FRAME are written by the writer thread straight to the socket, so they can arrive out of
-`seq` order with ring messages; CALLS_DONE goes through the ring.
+STATUS, FRAME and FPS are written by the writer thread straight to the socket, so they can arrive out
+of `seq` order with ring messages; CALLS_DONE goes through the ring. FPS goes out about once a second
+while the pump or present is hooked.
 
 **Commands** (Java → DLL, after the handshake): `{u32 len, u8 type, body}`, `len` counting the type
 byte and the body, at most 4 MiB.
@@ -90,6 +93,8 @@ byte and the body, at most 4 MiB.
   read/write, since the DLL writes the `reading` word) and checks its header; the present thread takes
   it over at its next present. `nameLen` 0, a mapping that fails the check, or a dropped connection
   stops the overlay.
+- `3 FRAME_LIMIT`: `u32 fps`, 0 (or over 1000) for none. The pump waits out each frame until it is due
+  (`docs/in-game-drawing.md` §2.3). A new cap wakes a waiting pump; a dropped connection lifts it.
 
 The surface layout and its lock-free triple-buffer handshake are in `docs/in-game-drawing.md` §2.4.
 

@@ -1,15 +1,22 @@
 package com.kraken.client;
 
+import com.kraken.client.plugins.config.Alpha;
 import com.kraken.client.plugins.config.Config;
 import com.kraken.client.plugins.config.ConfigGroup;
 import com.kraken.client.plugins.config.ConfigItem;
 import com.kraken.client.plugins.config.ConfigSection;
 import com.kraken.client.plugins.config.Range;
 import com.kraken.client.plugins.config.Units;
+import com.kraken.client.ui.overlay.OverlayFont;
+import com.kraken.client.ui.overlay.components.ComponentConstants;
+
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Rectangle;
 
 /**
  * Kraken's own settings: the Settings sidebar page is built from it. Group {@value #GROUP}, which also holds the
- * plugins' on/off switches.
+ * plugins' on/off switches, and, in hidden items, the window's layout from the last session.
  */
 @ConfigGroup(KrakenConfig.GROUP)
 public interface KrakenConfig extends Config {
@@ -20,19 +27,58 @@ public interface KrakenConfig extends Config {
     String GROUP = "kraken";
 
     /**
+     * The section for the window.
+     */
+    @ConfigSection(name = "Window", description = "The window's size, place and behaviour", position = 0)
+    String window = "window";
+
+    /**
+     * The section for frame rates.
+     */
+    @ConfigSection(name = "Frame rate", description = "The game's frame rate and the overlays'", position = 20)
+    String frameRate = "frameRate";
+
+    /**
      * The section for plugin overlays.
      */
-    @ConfigSection(name = "Overlays", description = "Plugin overlays drawn over the game", position = 10)
+    @ConfigSection(name = "Overlays", description = "Plugin overlays drawn over the game", position = 30)
     String overlays = "overlays";
 
     /**
-     * Whether the window stays above other windows.
+     * The game's size in screen pixels, which the window is fitted to.
      *
-     * @return true to keep Kraken on top
+     * @return the width and height
      */
-    @ConfigItem(keyName = "alwaysOnTop", name = "Always on top", description = "Keep Kraken above other windows.",
-            position = 0)
-    default boolean alwaysOnTop() {
+    @Range(min = 240, max = 7680)
+    @ConfigItem(keyName = "gameSize", name = "Game size",
+            description = "The game's size in screen pixels. Kraken opens at this size unless it remembers where it "
+                    + "was left, and resizes to it when this changes.",
+            position = 1, section = window)
+    default Dimension gameSize() {
+        return new Dimension(765, 503);
+    }
+
+    /**
+     * Whether Kraken reopens where and how it was last left.
+     *
+     * @return true to restore the last position, size and maximised state
+     */
+    @ConfigItem(keyName = "rememberWindow", name = "Remember size and position",
+            description = "Reopen where Kraken was last left, at the same size, maximised if it was. When off, it "
+                    + "opens centred at the game size.",
+            position = 2, section = window)
+    default boolean rememberWindow() {
+        return true;
+    }
+
+    /**
+     * Whether the window's edges can be dragged to resize it.
+     *
+     * @return true to stop the user resizing the window
+     */
+    @ConfigItem(keyName = "lockWindowSize", name = "Lock window size",
+            description = "Stop the window being resized by dragging its edges.", position = 3, section = window)
+    default boolean lockWindowSize() {
         return false;
     }
 
@@ -42,9 +88,85 @@ public interface KrakenConfig extends Config {
      * @return true to grow the window
      */
     @ConfigItem(keyName = "growWindow", name = "Grow window for panels",
-            description = "Widen the window when a panel opens instead of shrinking the game.", position = 1)
+            description = "Widen the window when a panel opens instead of shrinking the game.", position = 4,
+            section = window)
     default boolean growWindow() {
         return true;
+    }
+
+    /**
+     * Whether the window stays above other windows.
+     *
+     * @return true to keep Kraken on top
+     */
+    @ConfigItem(keyName = "alwaysOnTop", name = "Always on top", description = "Keep Kraken above other windows.",
+            position = 5, section = window)
+    default boolean alwaysOnTop() {
+        return false;
+    }
+
+    /**
+     * Whether the window's title names the logged-in player.
+     *
+     * @return true to add the player's name to the title
+     */
+    @ConfigItem(keyName = "playerNameInTitle", name = "Player name in title",
+            description = "Add the logged-in player's name to the window title, which the taskbar and Alt+Tab show, "
+                    + "to tell several clients apart.",
+            position = 6, section = window)
+    default boolean playerNameInTitle() {
+        return true;
+    }
+
+    /**
+     * When closing the window asks first. Closing Kraken closes the game too.
+     *
+     * @return when to ask
+     */
+    @ConfigItem(keyName = "confirmExit", name = "Confirm before closing",
+            description = "Ask before closing Kraken, which closes the game with it.", position = 7, section = window)
+    default ExitConfirmation confirmExit() {
+        return ExitConfirmation.LOGGED_IN;
+    }
+
+    /**
+     * Whether the game's and the overlays' frame rates are drawn over the game.
+     *
+     * @return true to draw them
+     */
+    @ConfigItem(keyName = "showFps", name = "Show FPS",
+            description = "Draw the game's frame rate and the overlays' at the top of the game. The game's needs the "
+                    + "native hook.",
+            position = 21, section = frameRate)
+    default boolean showFps() {
+        return false;
+    }
+
+    /**
+     * Whether the game is held to a lower frame rate while Kraken isn't the focused window.
+     *
+     * @return true to cap the game while unfocused
+     */
+    @ConfigItem(keyName = "limitUnfocusedFps", name = "Limit FPS when unfocused",
+            description = "Hold the game to a lower frame rate while another app has focus, to save power. Needs the "
+                    + "native hook.",
+            position = 22, section = frameRate)
+    default boolean limitUnfocusedFps() {
+        return false;
+    }
+
+    /**
+     * The frame rate the game is held to while Kraken is unfocused, when {@link #limitUnfocusedFps} is on.
+     *
+     * @return the frame rate
+     */
+    @Range(min = 1, max = 50)
+    @Units(Units.FPS)
+    @ConfigItem(keyName = "unfocusedFps", name = "Unfocused frame rate",
+            description = "The frame rate the game is held to while Kraken is unfocused.", position = 23,
+            section = frameRate)
+    default int unfocusedFps() {
+        return 20;
     }
 
     /**
@@ -57,8 +179,186 @@ public interface KrakenConfig extends Config {
     @ConfigItem(keyName = "overlayFrameRate", name = "Frame rate",
             description = "How often plugin overlays are redrawn. Every frame reads the game, so a higher rate costs "
                     + "more. The API polls about 50 times a second, which caps it.",
-            position = 11, section = overlays)
+            position = 31, section = overlays)
     default int overlayFrameRate() {
         return 30;
     }
+
+    /**
+     * The font overlay panels are drawn in.
+     *
+     * @return the font
+     */
+    @ConfigItem(keyName = "overlayFont", name = "Font",
+            description = "The font overlay panels are drawn in. Labels drawn over the scene use its bold weight.",
+            position = 32, section = overlays)
+    default OverlayFont overlayFont() {
+        return OverlayFont.REGULAR;
+    }
+
+    /**
+     * The size of overlay text, in game pixels.
+     *
+     * @return the size
+     */
+    @Range(min = 8, max = 32)
+    @Units(Units.PIXELS)
+    @ConfigItem(keyName = "overlayFontSize", name = "Font size", description = "The size of overlay text.",
+            position = 33, section = overlays)
+    default int overlayFontSize() {
+        return 12;
+    }
+
+    /**
+     * The background overlay panels are drawn on, unless an overlay asks for its own.
+     *
+     * @return the colour
+     */
+    @Alpha
+    @ConfigItem(keyName = "overlayBackground", name = "Panel background",
+            description = "The colour behind overlay panels.", position = 34, section = overlays)
+    default Color overlayBackground() {
+        return ComponentConstants.STANDARD_BACKGROUND_COLOR;
+    }
+
+    /**
+     * The window's bounds when it was last in its normal (not maximised) state.
+     *
+     * @return the bounds, or null if none were saved
+     */
+    @ConfigItem(keyName = "windowBounds", name = "Window bounds", description = "The window's last normal bounds.",
+            hidden = true)
+    default Rectangle windowBounds() {
+        return null;
+    }
+
+    /**
+     * Saves the window's bounds.
+     *
+     * @param bounds the bounds
+     */
+    @ConfigItem(keyName = "windowBounds", name = "Window bounds", description = "The window's last normal bounds.",
+            hidden = true)
+    void windowBounds(Rectangle bounds);
+
+    /**
+     * How much of {@link #windowBounds}' width the open sidebar panel added when it opened, given back when it
+     * closes.
+     *
+     * @return the width in pixels
+     */
+    @ConfigItem(keyName = "windowPanelGrowth", name = "Window panel growth",
+            description = "How much the open panel widened the saved window.", hidden = true)
+    default int windowPanelGrowth() {
+        return 0;
+    }
+
+    /**
+     * Saves how much the open sidebar panel widened the window.
+     *
+     * @param width the width in pixels
+     */
+    @ConfigItem(keyName = "windowPanelGrowth", name = "Window panel growth",
+            description = "How much the open panel widened the saved window.", hidden = true)
+    void windowPanelGrowth(int width);
+
+    /**
+     * Whether the window was maximised.
+     *
+     * @return true if it was
+     */
+    @ConfigItem(keyName = "windowMaximized", name = "Window maximised",
+            description = "Whether the window was maximised.", hidden = true)
+    default boolean windowMaximized() {
+        return false;
+    }
+
+    /**
+     * Saves whether the window is maximised.
+     *
+     * @param maximized true if it is
+     */
+    @ConfigItem(keyName = "windowMaximized", name = "Window maximised",
+            description = "Whether the window was maximised.", hidden = true)
+    void windowMaximized(boolean maximized);
+
+    /**
+     * The sidebar panels' width.
+     *
+     * @return the width in pixels, 0 for the narrowest
+     */
+    @ConfigItem(keyName = "sidebarWidth", name = "Sidebar width", description = "The sidebar panels' width.",
+            hidden = true)
+    default int sidebarWidth() {
+        return 0;
+    }
+
+    /**
+     * Saves the sidebar panels' width.
+     *
+     * @param width the width in pixels
+     */
+    @ConfigItem(keyName = "sidebarWidth", name = "Sidebar width", description = "The sidebar panels' width.",
+            hidden = true)
+    void sidebarWidth(int width);
+
+    /**
+     * The sidebar panel that was open.
+     *
+     * @return its title, or "" if none was
+     */
+    @ConfigItem(keyName = "sidebarPanel", name = "Sidebar panel", description = "The sidebar panel that was open.",
+            hidden = true)
+    default String sidebarPanel() {
+        return "";
+    }
+
+    /**
+     * Saves which sidebar panel is open.
+     *
+     * @param title its title, or "" if none is
+     */
+    @ConfigItem(keyName = "sidebarPanel", name = "Sidebar panel", description = "The sidebar panel that was open.",
+            hidden = true)
+    void sidebarPanel(String title);
+
+    /**
+     * Whether the console was expanded.
+     *
+     * @return true if it was
+     */
+    @ConfigItem(keyName = "consoleExpanded", name = "Console expanded",
+            description = "Whether the console was expanded.", hidden = true)
+    default boolean consoleExpanded() {
+        return true;
+    }
+
+    /**
+     * Saves whether the console is expanded.
+     *
+     * @param expanded true if it is
+     */
+    @ConfigItem(keyName = "consoleExpanded", name = "Console expanded",
+            description = "Whether the console was expanded.", hidden = true)
+    void consoleExpanded(boolean expanded);
+
+    /**
+     * The expanded console's height.
+     *
+     * @return the height in pixels
+     */
+    @ConfigItem(keyName = "consoleHeight", name = "Console height", description = "The expanded console's height.",
+            hidden = true)
+    default int consoleHeight() {
+        return 160;
+    }
+
+    /**
+     * Saves the expanded console's height.
+     *
+     * @param height the height in pixels
+     */
+    @ConfigItem(keyName = "consoleHeight", name = "Console height", description = "The expanded console's height.",
+            hidden = true)
+    void consoleHeight(int height);
 }

@@ -147,6 +147,10 @@ other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED
 - Config (`plugins.config`) follows RuneLite's: `ConfigManager.getConfig` proxies a `@ConfigGroup` interface; changes
   post `events.ConfigChanged`; `ui.ConfigPanel` generates the settings page. Supported types are listed on
   `ConfigManager`.
+- `KrakenConfig` is the Settings page (window, frame rate, overlay look) and, in hidden items, the layout the next
+  launch restores: `KrakenFrame` saves its bounds a second after it stops moving, and the sidebar and console save
+  their own state. `FrameRates` holds the game's frame rate (the DLL's FPS reports) and the overlays', and decides the
+  frame cap the DLL holds the game to while Kraken is unfocused (`FRAME_LIMIT`, `docs/in-game-drawing.md` §2.3).
 - Overlays (`ui.overlay`) follow RuneLite's: `OverlayRenderer` draws on the poll thread, `OverlayCompositor` does the
   layout. While the DLL draws the `GameSurface` (a shared-memory triple buffer it composites into the game's frame
   before present), frames go there at the framebuffer's size; otherwise `GameOverlay` (the click-through window over

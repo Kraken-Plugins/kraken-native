@@ -13,7 +13,8 @@
 // After the handshake the Kraken client can send commands. A reader thread queues call batches,
 // which the pump detour runs on the game thread at the start of the next frame, and opens the
 // overlay surface (a file mapping holding three frames), which the present detour uploads and draws
-// over the finished frame just before the client presents it.
+// over the finished frame just before the client presents it. A frame cap makes the pump hold each
+// frame back until it is due. The writer thread reports the game's frame rate once a second.
 //
 // Nothing here is hard-coded per client build: every RVA, event id, capture plan, function to call
 // and argument comes from the mapping on the Java side. See README.md, docs/event-hooks-design.md
@@ -64,17 +65,23 @@ static const uint8_t OP_CSTR = 4;  // NUL-terminated bytes at [register], at mos
 // Reserved message ids. STATUS: regs = {installed slots, requested slots, features, protocol}.
 // FRAME: regs = {framebuffer width, height, GL version (major << 16 | minor), surface generation}.
 // CALLS_DONE: regs = {batch id, calls run, calls faulted or skipped, last return value}.
+// FPS: regs = {frames since the last FPS, microseconds since it, frame cap in force, 1 if presents
+// were counted (0: frame steps)}.
 static const int32_t STATUS_EVENT_ID = -2;
 static const int32_t FRAME_EVENT_ID = -3;
 static const int32_t CALLS_DONE_EVENT_ID = -4;
+static const int32_t FPS_EVENT_ID = -5;
 
-// STATUS feature bits.
+// STATUS feature bits. FRAME_RATE: FPS is sent, and FRAME_LIMIT is honoured while the pump is hooked.
 static const uint64_t FEATURE_PUMP = 1;
 static const uint64_t FEATURE_PRESENT = 2;
+static const uint64_t FEATURE_FRAME_RATE = 4;
 
 // Command frames (Java -> DLL): {u32 len, u8 type, body}, len counting the type byte and the body.
 static const uint8_t CMD_CALLS = 1;
 static const uint8_t CMD_SURFACE = 2;
+static const uint8_t CMD_FRAME_LIMIT = 3;
+static const uint32_t MAX_FRAME_LIMIT = 1000; // a higher cap is no cap
 static const uint32_t MAX_FRAME = 4u << 20;   // bytes per command frame
 static const int MAX_ARGS = 8;                // arguments per call
 static const uint32_t MAX_PENDING_CALLS = 4096;
@@ -214,6 +221,17 @@ static std::atomic<uint32_t> g_fbWidth{0};
 static std::atomic<uint32_t> g_fbHeight{0};
 static std::atomic<uint32_t> g_glVersion{0};
 static std::atomic<uint32_t> g_drawnGeneration{0};
+
+// Frames counted for FPS: presents while the present hook is live, frame steps otherwise.
+static std::atomic<uint64_t> g_presents{0};
+static std::atomic<uint64_t> g_frameSteps{0};
+
+// The frame cap the pump holds the game to, frames a second, 0 for none. Set by FRAME_LIMIT and
+// cleared when the connection drops, so a closed Kraken client never leaves the game capped. The
+// event wakes a pump waiting out a frame when the cap changes, so lifting it takes effect at once.
+static std::atomic<uint32_t> g_frameLimit{0};
+static HANDLE g_limitChanged = nullptr;
+static int64_t g_qpcFrequency = 0;
 
 static void installSlot(Slot slot);
 static void installPump(uint64_t rva);
@@ -505,14 +523,73 @@ static void runPendingCalls() {
     }
 }
 
+#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
+#endif
+
 /**
- * The pump detour on the client's per-frame step: runs the queued calls on the game thread, before
- * the frame's logic and rendering, then forwards to the original.
+ * Waits on the game thread for a span of performance-counter ticks, or until the frame cap changes.
+ * Uses a high-resolution waitable timer where Windows has one (10 1803 and later), a plain one
+ * otherwise, and whole milliseconds if neither can be made.
+ *
+ * @param ticks how long to wait, in performance-counter ticks
+ */
+static void waitTicks(int64_t ticks) {
+    static HANDLE timer = [] {
+        HANDLE t = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+        return t != nullptr ? t : CreateWaitableTimerExW(nullptr, nullptr, 0, TIMER_ALL_ACCESS);
+    }();
+    LARGE_INTEGER due;
+    due.QuadPart = -(ticks * 10000000 / g_qpcFrequency); // relative, in 100 ns units
+    if (timer != nullptr && due.QuadPart < 0 && SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE)) {
+        HANDLE handles[2] = {timer, g_limitChanged};
+        if (WaitForMultipleObjects(2, handles, FALSE, INFINITE) != WAIT_OBJECT_0) {
+            CancelWaitableTimer(timer);
+        }
+        return;
+    }
+    DWORD ms = static_cast<DWORD>(ticks * 1000 / g_qpcFrequency);
+    if (ms > 0) {
+        WaitForSingleObject(g_limitChanged, ms);
+    }
+}
+
+/**
+ * Holds the game to the frame cap: each frame step may start one interval after the last, and waits
+ * out the rest of it. A step that comes more than an interval late starts the schedule over rather
+ * than letting the following ones run back to back to catch up. The client times its own logic
+ * cycles, so a held frame runs more of them rather than slowing the game. Game thread only.
+ */
+static void paceFrame() {
+    static int64_t due = 0; // performance counter when the next step may start, 0 while uncapped
+    uint32_t fps = g_frameLimit.load(std::memory_order_relaxed);
+    if (fps == 0 || g_qpcFrequency == 0) {
+        due = 0;
+        return;
+    }
+    int64_t interval = g_qpcFrequency / fps;
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    if (due == 0 || now.QuadPart - due > interval) {
+        due = now.QuadPart + interval;
+        return;
+    }
+    if (now.QuadPart < due) {
+        waitTicks(due - now.QuadPart);
+    }
+    due += interval;
+}
+
+/**
+ * The pump detour on the client's per-frame step: holds the frame to the cap, then runs the queued
+ * calls on the game thread, before the frame's logic and rendering, then forwards to the original.
  *
  * @param self the app object
  * @param dt   the frame's float argument, passed through in XMM1
  */
 static void __fastcall pumpDetour(void *self, float dt) {
+    paceFrame();
+    g_frameSteps.fetch_add(1, std::memory_order_relaxed);
     runPendingCalls();
     using Fn = void(__fastcall *)(void *, float);
     reinterpret_cast<Fn>(g_pumpTrampoline)(self, dt);
@@ -695,6 +772,20 @@ static void openSurface(FrameReader r) {
 }
 
 /**
+ * Sets the frame cap a FRAME_LIMIT command names and wakes a pump waiting out a frame.
+ *
+ * @param r the frame's body after the type byte
+ */
+static void setFrameLimit(FrameReader r) {
+    uint32_t fps = 0;
+    if (!r.get(fps)) {
+        return;
+    }
+    g_frameLimit.store(fps > MAX_FRAME_LIMIT ? 0 : fps, std::memory_order_relaxed);
+    SetEvent(g_limitChanged);
+}
+
+/**
  * Reads exactly len bytes from the socket. Returns false if the connection closed early.
  */
 static bool recvExact(char *buf, int len) {
@@ -748,6 +839,9 @@ static DWORD WINAPI readerThread(LPVOID) {
                 break;
             case CMD_SURFACE:
                 openSurface(r);
+                break;
+            case CMD_FRAME_LIMIT:
+                setFrameLimit(r);
                 break;
             default:
                 break; // an unknown command is skipped, so a newer client can still talk to this DLL
@@ -898,7 +992,10 @@ static bool sendDirect(int32_t id, const uint64_t regs[4]) {
  * @param requested the number of slots the handshake asked for
  */
 static void sendStatus(uint16_t requested) {
-    uint64_t features = (g_pumpHooked.load() ? FEATURE_PUMP : 0) | (g_presentHooked.load() ? FEATURE_PRESENT : 0);
+    bool pump = g_pumpHooked.load();
+    bool present = g_presentHooked.load();
+    uint64_t features = (pump ? FEATURE_PUMP : 0) | (present ? FEATURE_PRESENT : 0)
+                        | (pump || present ? FEATURE_FRAME_RATE : 0);
     uint64_t regs[4] = {static_cast<uint64_t>(g_slotCount.load(std::memory_order_acquire)), requested, features,
                         PROTOCOL_VERSION};
     sendDirect(STATUS_EVENT_ID, regs);
@@ -940,13 +1037,58 @@ static bool sendFrameIfChanged(FrameState &last) {
 }
 
 /**
+ * The frame count and time FPS last measured from on this connection.
+ */
+struct FpsState {
+    bool started = false;
+    uint64_t frames = 0;
+    int64_t ticks = 0;
+};
+
+/**
+ * Sends FPS once a second or more has passed since the last: the frames counted since and how long
+ * that was. Counts presents while the present hook is live, else frame steps; sends nothing while
+ * neither is hooked.
+ *
+ * @param last the count and time last measured from, updated when an FPS goes out
+ * @return false if the send failed
+ */
+static bool sendFpsIfDue(FpsState &last) {
+    bool present = g_presentHooked.load(std::memory_order_acquire);
+    if (!present && !g_pumpHooked.load(std::memory_order_acquire)) {
+        return true;
+    }
+    uint64_t frames = present ? g_presents.load(std::memory_order_relaxed)
+                              : g_frameSteps.load(std::memory_order_relaxed);
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    if (!last.started) {
+        last.started = true;
+        last.frames = frames;
+        last.ticks = now.QuadPart;
+        return true;
+    }
+    int64_t elapsed = now.QuadPart - last.ticks;
+    if (elapsed < g_qpcFrequency) {
+        return true;
+    }
+    uint64_t regs[4] = {frames - last.frames, static_cast<uint64_t>(elapsed * 1000000 / g_qpcFrequency),
+                        g_frameLimit.load(std::memory_order_relaxed), present ? 1u : 0u};
+    last.frames = frames;
+    last.ticks = now.QuadPart;
+    return sendDirect(FPS_EVENT_ID, regs);
+}
+
+/**
  * Drains the ring to the socket, framing each message with its 4-byte length, and sends FRAME when
- * the present thread's values change, until a send fails or the reader thread sees the socket close.
+ * the present thread's values change and FPS once a second, until a send fails or the reader thread
+ * sees the socket close.
  *
  * @return false when the connection should be re-established
  */
 static bool drainRing() {
     FrameState last;
+    FpsState fps;
     for (;;) {
         uint32_t head = g_head.load(std::memory_order_relaxed);
         uint32_t tail = g_tail.load(std::memory_order_acquire);
@@ -960,7 +1102,7 @@ static bool drainRing() {
             g_head.store(head, std::memory_order_release);
             tail = g_tail.load(std::memory_order_acquire);
         }
-        if (!sendFrameIfChanged(last)) {
+        if (!sendFrameIfChanged(last) || !sendFpsIfDue(fps)) {
             return false;
         }
         if (g_connBroken.load(std::memory_order_acquire)) {
@@ -1001,8 +1143,8 @@ static bool connectToJava(int attempts) {
  * The writer thread: connect, read the handshake, start the connection's reader thread, drain the
  * ring to the socket, and reconnect for the life of the process if the socket drops. Hooks stay
  * installed across reconnects; a dropped socket costs the client latency, not events, because the
- * Java side keeps polling as a fallback. A dropped socket also drops the queued calls and stops the
- * overlay, since nothing would keep it current.
+ * Java side keeps polling as a fallback. A dropped socket also drops the queued calls, stops the
+ * overlay, since nothing would keep it current, and lifts the frame cap.
  */
 static DWORD WINAPI writerThread(LPVOID) {
     bool first = true;
@@ -1028,6 +1170,8 @@ static DWORD WINAPI writerThread(LPVOID) {
         }
         clearPendingCalls();
         requestSurface(new SurfaceView());
+        g_frameLimit.store(0, std::memory_order_relaxed);
+        SetEvent(g_limitChanged);
         Sleep(1000); // the writer reconnects every second, then Java re-sends the handshake
     }
 }
@@ -1776,6 +1920,7 @@ static void overlayFrame() {
  * @param self the client's GL context object
  */
 static void __fastcall presentDetour(void *self) {
+    g_presents.fetch_add(1, std::memory_order_relaxed);
     overlayFrame();
     using Fn = void(__fastcall *)(void *);
     reinterpret_cast<Fn>(g_presentTrampoline)(self);
@@ -1798,8 +1943,12 @@ static DWORD WINAPI init(LPVOID) {
     const IMAGE_NT_HEADERS64 *nt = reinterpret_cast<const IMAGE_NT_HEADERS64 *>(g_base + dos->e_lfanew);
     g_imageSize = nt->OptionalHeader.SizeOfImage;
     fillDetours(std::make_index_sequence<MAX_SLOTS>{});
+    LARGE_INTEGER frequency;
+    QueryPerformanceFrequency(&frequency);
+    g_qpcFrequency = frequency.QuadPart;
     g_dataEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-    if (g_dataEvent == nullptr || MH_Initialize() != MH_OK) {
+    g_limitChanged = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    if (g_dataEvent == nullptr || g_limitChanged == nullptr || MH_Initialize() != MH_OK) {
         return 1;
     }
     writerThread(nullptr);

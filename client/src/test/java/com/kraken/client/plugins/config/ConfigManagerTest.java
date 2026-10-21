@@ -9,6 +9,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.Rectangle;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -251,6 +252,16 @@ class ConfigManagerTest {
         assertNull(manager.getConfiguration("example", "missing", int.class));
         manager.setConfiguration("example", "count", "x");
         assertNull(manager.getConfiguration("example", "count", int.class), "doesn't convert");
+    }
+
+    @Test
+    void rectanglesStoreAsXYWidthHeight() {
+        manager.setConfiguration("example", "bounds", new Rectangle(-1920, 40, 800, 600));
+        assertEquals("-1920:40:800:600", manager.getConfiguration("example", "bounds"));
+        assertEquals(new Rectangle(-1920, 40, 800, 600),
+                manager.getConfiguration("example", "bounds", Rectangle.class));
+        manager.setConfiguration("example", "bounds", "1:2:3");
+        assertNull(manager.getConfiguration("example", "bounds", Rectangle.class), "three parts");
     }
 
     @Test

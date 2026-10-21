@@ -65,7 +65,7 @@ import static com.formdev.flatlaf.FlatClientProperties.*;
  *   <tr><td>enum</td><td>drop-down</td></tr>
  *   <tr><td>{@code Set} of an enum</td><td>a checkbox per constant</td></tr>
  *   <tr><td>{@code Color}</td><td>swatch opening a colour picker, with transparency if {@code @Alpha}</td></tr>
- *   <tr><td>{@code Dimension}</td><td>two spinners</td></tr>
+ *   <tr><td>{@code Dimension}</td><td>two spinners, each bounded by {@code @Range}</td></tr>
  * </table>
  *
  * <p>An item with a {@code warning} asks before its value changes. Hidden items aren't shown, and Reset leaves them
@@ -508,15 +508,18 @@ public final class ConfigPanel extends JPanel {
     }
 
     private Control dimension(ConfigItemDescriptor item) {
-        JSpinner width = new JSpinner(new SpinnerNumberModel(0, 0, Integer.MAX_VALUE, 1));
-        JSpinner height = new JSpinner(new SpinnerNumberModel(0, 0, Integer.MAX_VALUE, 1));
+        Range range = item.getRange();
+        int min = range != null ? range.min() : 0;
+        int max = range != null ? range.max() : Integer.MAX_VALUE;
+        JSpinner width = new JSpinner(new SpinnerNumberModel(min, min, max, 1));
+        JSpinner height = new JSpinner(new SpinnerNumberModel(min, min, max, 1));
         for (JSpinner spinner : new JSpinner[]{width, height}) {
             ((JSpinner.DefaultEditor) spinner.getEditor()).getTextField().setColumns(4);
         }
         Runnable load = () -> {
             Dimension value = (Dimension) value(item);
-            width.setValue(value != null ? Math.max(0, value.width) : 0);
-            height.setValue(value != null ? Math.max(0, value.height) : 0);
+            width.setValue(value != null ? Math.max(min, Math.min(max, value.width)) : min);
+            height.setValue(value != null ? Math.max(min, Math.min(max, value.height)) : min);
         };
         Consumer<Object> changed = e -> apply(item, new Dimension((Integer) width.getValue(),
                 (Integer) height.getValue()), load);

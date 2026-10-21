@@ -176,8 +176,15 @@ class ConfigPanelTest {
             ConfigPanel page = new ConfigPanel(manager, new EventBus(), manager.getConfig(KrakenConfig.class),
                     "Settings", null);
             String all = String.join("|", labels(page));
-            assertTrue(all.contains("Overlays"), all);
-            assertEquals(30, find(page, JSpinner.class).get(0).getValue());
+            for (String shown : List.of("Window", "Frame rate", "Overlays", "Game size", "Show FPS")) {
+                assertTrue(all.contains(shown), shown + " in " + all);
+            }
+            assertFalse(all.contains("Window bounds"), "hidden items stay off the page: " + all);
+            List<JSpinner> spinners = find(page, JSpinner.class);
+            assertEquals(List.of(765, 503, 20, 30, 12), spinners.stream().map(JSpinner::getValue).toList(),
+                    "game width and height, unfocused frame rate, overlay frame rate, font size");
+            assertEquals(240, ((SpinnerNumberModel) spinners.get(0).getModel()).getMinimum(),
+                    "the game size's @Range bounds each side");
         });
     }
 }

@@ -7,6 +7,7 @@ import com.kraken.client.plugins.Plugin;
 import com.kraken.client.plugins.PluginManager;
 import com.kraken.client.ui.KrakenFrame;
 import com.kraken.client.ui.Theme;
+import com.kraken.client.ui.overlay.FpsOverlay;
 import com.kraken.client.ui.overlay.OverlayRenderer;
 import lombok.extern.java.Log;
 
@@ -68,8 +69,9 @@ public class KrakenClient {
         log.info("Kraken starting on Java " + Runtime.version());
         options.problems().forEach(log::warning);
 
-        // Draws the plugins' overlays once the API attaches
+        // Draws the plugins' overlays once the API attaches, and the frame rates when the settings ask for them
         injector.getInstance(OverlayRenderer.class);
+        injector.getInstance(FpsOverlay.class);
 
         // Plugins read the game, so they load and start only once the API attaches, under the session injector that
         // binds the attached game; if it never attaches (unsupported build or a failed attach), none load.

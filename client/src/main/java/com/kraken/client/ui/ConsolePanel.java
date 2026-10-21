@@ -1,6 +1,8 @@
 package com.kraken.client.ui;
 
+import com.google.inject.Inject;
 import com.google.inject.Singleton;
+import com.kraken.client.KrakenConfig;
 import lombok.Getter;
 import org.kordamp.ikonli.Ikon;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignA;
@@ -29,16 +31,19 @@ import static com.formdev.flatlaf.FlatClientProperties.*;
 
 /**
  * Collapsible terminal-style log console docked at the bottom. Feed it by adding {@link #handler} to a JUL logger.
- * Collapsed, its header doubles as a status bar showing the latest message and warning/error counts.
+ * Collapsed, its header doubles as a status bar showing the latest message and warning/error counts. Whether it is
+ * expanded, and its height, are kept in {@link KrakenConfig}'s hidden items for the next launch.
  */
 @Singleton
 public final class ConsolePanel extends JPanel {
     private static final int MAX_LINES = 5_000;
+    private static final int MIN_HEIGHT = 60;
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
     private static final Formatter MESSAGE = new SimpleFormatter();
     private static final Color TIMESTAMP = new Color(0x5c6370);
     private static final Color SOURCE = new Color(0x56b6c2);
 
+    private final KrakenConfig config;
     private final JTextPane text = new JTextPane();
     private final JScrollPane scroll = new JScrollPane(text);
     private final JComponent grip = new JPanel();
@@ -68,8 +73,10 @@ public final class ConsolePanel extends JPanel {
         }
     };
 
-    ConsolePanel() {
+    @Inject
+    ConsolePanel(KrakenConfig config) {
         super(new BorderLayout());
+        this.config = config;
 
         text.setEditable(false);
         text.setBackground(Theme.DARKEST);
@@ -79,7 +86,7 @@ public final class ConsolePanel extends JPanel {
         ((DefaultCaret) text.getCaret()).setUpdatePolicy(DefaultCaret.NEVER_UPDATE);
         scroll.setBorder(null);
         scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        scroll.setPreferredSize(new Dimension(0, 160));
+        scroll.setPreferredSize(new Dimension(0, Math.max(MIN_HEIGHT, config.consoleHeight())));
         scroll.getVerticalScrollBar().putClientProperty(STYLE, "track: " + Theme.hex(Theme.DARKEST));
 
         JLabel title = new JLabel("Console", FontIcon.of(MaterialDesignC.CONSOLE_LINE, 16, Theme.ACCENT), SwingConstants.LEFT);
@@ -133,9 +140,14 @@ public final class ConsolePanel extends JPanel {
             @Override
             public void mouseDragged(MouseEvent e) {
                 int max = getParent().getHeight() - 200;
-                int height = Math.max(60, Math.min(max, startHeight + startY - e.getYOnScreen()));
+                int height = Math.max(MIN_HEIGHT, Math.min(max, startHeight + startY - e.getYOnScreen()));
                 scroll.setPreferredSize(new Dimension(0, height));
                 revalidate();
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                config.consoleHeight(scroll.getPreferredSize().height);
             }
         };
         grip.addMouseListener(drag);
@@ -143,7 +155,7 @@ public final class ConsolePanel extends JPanel {
 
         add(header, BorderLayout.NORTH);
         add(scroll, BorderLayout.CENTER);
-        setExpanded(true);
+        setExpanded(config.consoleExpanded());
     }
 
     boolean isExpanded() {
@@ -157,6 +169,7 @@ public final class ConsolePanel extends JPanel {
         chevron.setIcon(FontIcon.of(expanded ? MaterialDesignC.CHEVRON_DOWN : MaterialDesignC.CHEVRON_UP, 16, Theme.LIGHT));
         chevron.setToolTipText(expanded ? "Collapse" : "Expand");
         revalidate();
+        config.consoleExpanded(expanded);
     }
 
     private void append(LogRecord record) {

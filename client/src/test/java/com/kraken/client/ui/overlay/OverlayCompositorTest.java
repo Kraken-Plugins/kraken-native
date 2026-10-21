@@ -1,5 +1,6 @@
 package com.kraken.client.ui.overlay;
 
+import com.kraken.client.ui.overlay.components.LineComponent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -82,6 +83,54 @@ class OverlayCompositorTest {
     private Box add(Box box) {
         manager.add(box);
         return box;
+    }
+
+    /**
+     * A one-line panel.
+     */
+    private static final class Panel extends OverlayPanel {
+        @Override
+        public Dimension render(Graphics2D g) {
+            panelComponent.getChildren().add(LineComponent.builder().left("Line").build());
+            return super.render(g);
+        }
+    }
+
+    /**
+     * The colour of a panel's background, just inside its two edge lines.
+     *
+     * @param panel the panel, drawn
+     * @return the colour there
+     */
+    private Color backgroundOf(Overlay panel) {
+        Rectangle bounds = panel.getBounds();
+        return new Color(image.getRGB(bounds.x + 2, bounds.y + bounds.height - 3), true);
+    }
+
+    @Test
+    void panelsGetTheCompositorsBackgroundUnlessTheyAskForTheirOwn() {
+        Panel plain = new Panel();
+        Panel own = new Panel();
+        own.setPosition(OverlayPosition.TOP_RIGHT);
+        own.setPreferredColor(Color.GREEN);
+        manager.add(plain);
+        manager.add(own);
+        compositor.setBackground(Color.BLUE);
+        frame();
+        assertEquals(Color.BLUE, backgroundOf(plain));
+        assertEquals(Color.GREEN, backgroundOf(own));
+    }
+
+    @Test
+    void fontsSetBetweenFramesApplyToTheNext() {
+        Box panel = add(new Box("panel", OverlayPosition.TOP_LEFT, 10, 10));
+        Box dynamic = add(new Box("dynamic", OverlayPosition.DYNAMIC, 10, 10));
+        Font big = PANEL.deriveFont(20f);
+        Font bigBold = DYNAMIC.deriveFont(20f);
+        compositor.setFonts(big, bigBold);
+        frame();
+        assertEquals(big, panel.font);
+        assertEquals(bigBold, dynamic.font);
     }
 
     @Test

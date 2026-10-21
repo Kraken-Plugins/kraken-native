@@ -18,8 +18,8 @@ import java.util.function.IntFunction;
  * sends one handshake naming the raise functions to hook, their event ids and a capture plan per slot, then the
  * functions the drawing needs; the DLL sends one message per raise with the id, the argument registers and the
  * captured values, and status messages with reserved ids. After the handshake Java sends commands: batches of calls
- * for the game thread, and the overlay surface to draw. Every field and op code here matches the constants in
- * {@code kraken_hook.cpp}; {@code docs/in-game-drawing.md} describes the format.
+ * for the game thread, the overlay surface to draw and the frame cap. Every field and op code here matches the
+ * constants in {@code kraken_hook.cpp}; {@code docs/in-game-drawing.md} describes the format.
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 final class NativeProtocol {
@@ -55,6 +55,12 @@ final class NativeProtocol {
     static final int CALLS_DONE_EVENT_ID = -4;
 
     /**
+     * A reserved event id the DLL sends about once a second: frames the game presented since the last one, how long
+     * that took in microseconds, the frame cap in force, and 1 if it counted presents (0: frame steps).
+     */
+    static final int FPS_EVENT_ID = -5;
+
+    /**
      * The STATUS feature bit for the game-thread pump: the DLL runs calls.
      */
     static final long FEATURE_CALLS = 1;
@@ -65,6 +71,12 @@ final class NativeProtocol {
     static final long FEATURE_OVERLAY = 2;
 
     /**
+     * The STATUS feature bit for frame pacing: the DLL sends {@link #FPS_EVENT_ID} and, with the pump, holds the game
+     * to the cap {@link #COMMAND_FRAME_LIMIT} sets.
+     */
+    static final long FEATURE_FRAME_RATE = 4;
+
+    /**
      * Command type: a batch of calls.
      */
     static final int COMMAND_CALLS = 1;
@@ -73,6 +85,11 @@ final class NativeProtocol {
      * Command type: the overlay surface to draw.
      */
     static final int COMMAND_SURFACE = 2;
+
+    /**
+     * Command type: the frame rate to hold the game to.
+     */
+    static final int COMMAND_FRAME_LIMIT = 3;
 
     /**
      * One capture-plan entry: read argument register {@code arg} ({@link NativeEvent#RCX}…{@link NativeEvent#R9})
@@ -194,6 +211,22 @@ final class NativeProtocol {
         buf.putInt(generation);
         buf.putShort((short) ascii.length);
         buf.put(ascii);
+        return buf.array();
+    }
+
+    /**
+     * Frames the frame cap command: {@code {u32 len, u8 3, u32 fps}}, 0 for no cap. The length counts the bytes after
+     * it.
+     *
+     * @param fps the frames a second to hold the game to, or 0 to let it run free
+     * @return the framed command
+     */
+    static byte[] frameLimit(int fps) {
+        int body = 1 + 4;
+        ByteBuffer buf = ByteBuffer.allocate(4 + body).order(ByteOrder.LITTLE_ENDIAN);
+        buf.putInt(body);
+        buf.put((byte) COMMAND_FRAME_LIMIT);
+        buf.putInt(Math.max(0, fps));
         return buf.array();
     }
 

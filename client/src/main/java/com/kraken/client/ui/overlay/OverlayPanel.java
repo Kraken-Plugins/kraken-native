@@ -5,6 +5,7 @@ import com.kraken.client.ui.overlay.components.PanelComponent;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Graphics2D;
 
@@ -33,6 +34,13 @@ public abstract class OverlayPanel extends Overlay {
     @Getter
     @Setter
     private boolean clearChildren = true;
+
+    /**
+     * The panel's background, instead of the one the settings give every panel; null to use the settings'.
+     */
+    @Getter
+    @Setter
+    private volatile Color preferredColor;
 
     /**
      * A panel overlay that belongs to no plugin.
