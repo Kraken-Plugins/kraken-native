@@ -279,8 +279,9 @@ record WidgetDetail(String key, Area bounds, boolean gone, List<Section> section
     }
 
     /**
-     * Where a widget is on the canvas: its x and y summed up the parent chain, less each parent's scroll, plus where
-     * its group is drawn.
+     * Where a widget is on the canvas: its x and y summed up the parent chain within its group, less each parent's
+     * scroll, plus where its group is drawn. It stops at the group's top rather than going on into the component the
+     * group is opened in, which the group's offset already accounts for.
      *
      * @param widget the widget
      * @return its area, or null if a parent can't be read
@@ -293,7 +294,7 @@ record WidgetDetail(String key, Area bounds, boolean gone, List<Section> section
             x += at.getRelativeX();
             y += at.getRelativeY();
             Widget parent = at.getParent();
-            if (parent == null) {
+            if (parent == null || parent.getId() >>> 16 != at.getId() >>> 16) {
                 Point offset = at.getGroupOffset();
                 Point script = at.getGroupScriptOffset();
                 if (offset != null) {

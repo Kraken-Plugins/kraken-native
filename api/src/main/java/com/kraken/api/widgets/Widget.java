@@ -929,11 +929,13 @@ public final class Widget {
     }
 
     /**
-     * The packed id of the widget's parent (a dynamic widget's static root's).
+     * The packed id of the layer the widget is in, within its group (a dynamic widget's static root's). Unlike
+     * {@link #getParentId()} it doesn't look up the component a group is opened in, so it reads nothing. Mirrors Lua
+     * {@code IfType.layerId}.
      *
-     * @return the parent's id, or -1 for a group's top-level widget
+     * @return the layer's id, or -1 for a group's top-level widget
      */
-    int getLayerId() {
+    public int getLayerId() {
         return i32("layerId");
     }
 

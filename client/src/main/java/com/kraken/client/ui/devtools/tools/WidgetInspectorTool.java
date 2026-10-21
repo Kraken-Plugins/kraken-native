@@ -275,7 +275,7 @@ final class WidgetInspectorTool extends DevTool<WidgetInspectorTool.Snapshot> {
                 script == null ? 0 : script.getX(), script == null ? 0 : script.getY());
         for (Widget component : present) {
             Draft draft = byId.get(component.getId());
-            Draft parent = component.getParentId() == component.getId() ? null : byId.get(component.getParentId());
+            Draft parent = component.getLayerId() == component.getId() ? null : byId.get(component.getLayerId());
             if (parent != null) {
                 parent.add(draft);
             } else {
