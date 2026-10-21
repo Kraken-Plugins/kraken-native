@@ -116,7 +116,7 @@ reads it for carry-forward. Repair bundles (`repair/<key>.md`) go in the same fo
 | `src/native_updater/roles.py` | Names for pointer bases used by recipes: `client`, `sp_result`, `node_value`, `{field: …}` |
 | `src/native_updater/strategies.py` | Generic strategies: `getter`, `global-load`, `hash-map`, `const`, `member`, `binding`, `fingerprint`, `enum-table`, `derive`, `extractor` |
 | `src/native_updater/fingerprints.py` | Function locators: `callee_of`, `caller_of`, `common_callee_of`, `binding`, `extractor` |
-| `src/native_updater/extractors.py` | Custom recipes over provenance facts: config loaders, setSequence, Actor ctor, scene grid, obj piles, containers, projectiles, the cycle and game-state hook targets |
+| `src/native_updater/extractors.py` | Custom recipes over provenance facts: config loaders, setSequence, Actor ctor, scene grid, obj piles, containers, projectiles, keyed projectiles, graphics objects, the cycle and game-state hook targets |
 | `src/native_updater/events.py` | The native event raisers: seeds on the server-tick dispatch, then classifies every wrapper that tests the plugin gate into `events.<NAME>` hook sites |
 | `src/native_updater/hooks.py` | Hook targets without a Lua event: the ground item add/delete/count handlers, player add/remove and the player info decoder, from the fields they write |
 | `src/native_updater/minimenu.py` | The minimenu (right-click menu): its rows, open flag, last-run entry and the entry layout, from the op dispatch that raises the six `ON_*_OP` events, the function that runs an entry, and the `ON_MINIMENU_REBUILD` raiser |

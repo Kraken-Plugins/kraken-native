@@ -6,6 +6,8 @@ import com.kraken.api.events.CanvasSizeChanged;
 import com.kraken.api.events.ClientTick;
 import com.kraken.api.events.GameStateChanged;
 import com.kraken.api.events.GameTick;
+import com.kraken.api.events.GraphicsObjectCreated;
+import com.kraken.api.events.GraphicsObjectDestroyed;
 import com.kraken.api.events.InteractingChanged;
 import com.kraken.api.events.ItemContainerChanged;
 import com.kraken.api.events.MenuEntryAdded;
@@ -47,7 +49,7 @@ import java.util.logging.Logger;
  * as events: the game state, every object and ground item of the scene, every loaded NPC and player as spawned, every
  * actor's target, every skill's stats and every held inventory. From a plugin's point of view the client just logged
  * in. A tracker that starts later takes a silent baseline and sees no spawns until the next scene load. Vars, the
- * canvas size and projectiles already in flight aren't replayed.
+ * canvas size, projectiles already in flight and graphics objects already playing aren't replayed.
  *
  * <p><b>Scene loads.</b> A newly loaded scene posts a spawn for every object and ground item in it, and no despawns
  * for the old scene's: plugins clear on {@code GameStateChanged(LOADING)}. A scene counts as new when the client comes
@@ -57,7 +59,8 @@ import java.util.logging.Logger;
  * <p>Events in one poll are posted in this order: {@link GameStateChanged} (a {@code LOGGED_IN} after the scene's
  * events), object despawns then spawns, ground item despawns, quantity changes then spawns, {@link CanvasSizeChanged},
  * {@link StatChanged}, {@link VarbitChanged}, {@link ItemContainerChanged}, NPC despawns then spawns, player despawns
- * then spawns, {@link InteractingChanged}, {@link ProjectileMoved} per new projectile, {@link MenuOptionClicked},
+ * then spawns, {@link InteractingChanged}, {@link ProjectileMoved} per new or retargeted projectile, graphics objects
+ * destroyed then created ({@link GraphicsObjectDestroyed}, {@link GraphicsObjectCreated}), {@link MenuOptionClicked},
  * {@link MenuEntryRemoved} then {@link MenuEntryAdded}, {@link MenuOpened}, a {@link GameTick} per step of the
  * client's tick counter, then a {@link ClientTick} per step of its cycle counter.
  *
@@ -69,7 +72,7 @@ import java.util.logging.Logger;
  *
  * <p>How often each looks: the scene's objects once per game tick (a whole-scene read, the costly one); ground items
  * and targets on the tick's poll and the one after it, in case the tick's updates land after the counter moves;
- * projectiles and the menu every poll.
+ * projectiles, graphics objects and the menu every poll.
  */
 public final class EventSource {
 
@@ -137,8 +140,8 @@ public final class EventSource {
                         NativeEvent.PLAYER_INFO_DECODE),
                         client::playerIndices, client::player, PlayerDespawned::new, PlayerSpawned::new,
                         PlayerSpawned.class, PlayerDespawned.class),
-                new InteractingTracker(context), new ProjectileTracker(context), new MenuClickTracker(context),
-                new MenuTracker(context));
+                new InteractingTracker(context), new ProjectileTracker(context), new GraphicsObjectTracker(context),
+                new MenuClickTracker(context), new MenuTracker(context));
 
         this.triggerRoutes = new HashMap<>();
         List<Tracker> all = new ArrayList<>();

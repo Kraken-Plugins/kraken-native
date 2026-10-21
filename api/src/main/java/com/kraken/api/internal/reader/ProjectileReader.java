@@ -10,20 +10,29 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.function.ToIntFunction;
 import java.util.stream.IntStream;
 
 /**
- * Reads the client's projectile list ({@code Client.projectiles}): an eastl::list of shared pointers, one node per
- * projectile in flight. {@link Client} uses it for {@code areProjectilesRendered} and {@code getProjectiles}.
+ * Reads the client's projectiles: the list {@code Client.projectiles} (an eastl::list of shared pointers, one node per
+ * projectile in flight) and the map {@code Client.keyedProjectiles} (an eastl::hash_map from the key the server sent a
+ * projectile with to the projectile, for those it can retarget in flight). {@link Client} uses it for
+ * {@code areProjectilesRendered} and {@code getProjectiles}.
  *
- * <p>The projectile keys are optional: with a mapping that lacks them, nothing is in flight.
+ * <p>The projectile keys are optional: with a mapping that lacks the list's, or the map's, those projectiles aren't in
+ * flight.
  */
 public final class ProjectileReader extends GameReader {
 
     /**
-     * Most projectiles walked in one read; the list is never near this long.
+     * Most projectiles walked in one read of the list or the map; neither is ever near this long.
      */
     private static final int MAX_PROJECTILES = 1024;
+
+    /**
+     * Most buckets the keyed map is read with; the client's is far smaller.
+     */
+    private static final int MAX_BUCKETS = 1 << 16;
 
     private final Client client;
     private final int cProjectiles;
@@ -59,6 +68,14 @@ public final class ProjectileReader extends GameReader {
      */
     private final int blockStart;
     private final int blockLength;
+
+    private final int cKeyed;
+    private final int mapBuckets;
+    private final int mapBucketCount;
+    private final int nodeKey;
+    private final int nodeValue;
+    private final int nodeNext;
+    private final KeyedLayout keyed;
 
     /**
      * Resolves the projectile keys.
@@ -104,10 +121,20 @@ public final class ProjectileReader extends GameReader {
                 && cycleRva >= 0;
         this.blockStart = complete ? IntStream.of(block).min().orElse(0) : -1;
         this.blockLength = complete ? IntStream.of(block).max().orElse(0) + 8 - blockStart : 0;
+
+        this.cKeyed = optionalOffset("Client.keyedProjectiles");
+        this.mapBuckets = containerOr("hash_map.buckets", 0x8);
+        this.mapBucketCount = containerOr("hash_map.bucketCount", 0x10);
+        this.nodeKey = containerOr("hash_map.node.key", 0);
+        this.nodeValue = containerOr("hash_map.node.value", 0x10);
+        this.nodeNext = containerOr("hash_map.node.next", 0x18);
+        KeyedLayout layout = new KeyedLayout(this::optionalOffset);
+        this.keyed = cKeyed >= 0 && cycleRva >= 0 && layout.complete() ? layout : null;
     }
 
     /**
-     * Lua's {@code ClientOp.areProjectilesRendered}: walks the list for a projectile without the hidden flag.
+     * Lua's {@code ClientOp.areProjectilesRendered}: walks the list for a projectile without the hidden flag. Like the
+     * Lua handler, it doesn't look at the keyed projectiles.
      *
      * @return true as soon as one projectile in flight is drawn; false for none, or if the list isn't mapped
      */
@@ -124,12 +151,27 @@ public final class ProjectileReader extends GameReader {
     }
 
     /**
-     * Every projectile in flight, in list order.
+     * Every projectile in flight: the list's in list order, then the keyed ones.
+     *
+     * @return one snapshot per projectile; empty when none are in flight or logged out. A part the mapping lacks keys
+     *         for, or that can't be read right now, is left out.
+     */
+    public List<Projectile> projectiles() {
+        List<Projectile> out = new ArrayList<>(listed());
+        List<Projectile> keyedNow = keyed();
+        if (keyedNow != null) {
+            out.addAll(keyedNow);
+        }
+        return out;
+    }
+
+    /**
+     * The projectiles in the client's list, in list order.
      *
      * @return one snapshot per projectile; empty when none are in flight, logged out, or the mapping lacks a projectile
      *         key
      */
-    public List<Projectile> projectiles() {
+    public List<Projectile> listed() {
         if (blockStart < 0) {
             return List.of();
         }
@@ -148,6 +190,49 @@ public final class ProjectileReader extends GameReader {
         return out;
     }
 
+    /**
+     * The keyed projectiles, in the map's bucket order.
+     *
+     * @return one snapshot per projectile (empty when none are in flight, logged out, or the mapping lacks a keyed
+     *         projectile key); null if the map can't be read right now
+     */
+    public List<Projectile> keyed() {
+        if (keyed == null) {
+            return List.of();
+        }
+        long base = clientBase();
+        if (base == 0) {
+            return List.of();
+        }
+        long map = base + cKeyed;
+        long buckets = safePointer(map + mapBuckets);
+        long count = safeLong(map + mapBucketCount, -1);
+        if (count == 0) {
+            return List.of();
+        }
+        if (buckets == 0 || count < 0 || count > MAX_BUCKETS) {
+            return null;
+        }
+        ByteBuffer heads = readBlock(buckets, (int) count * 8);
+        if (heads == null) {
+            return null;
+        }
+        int cycle = safeInt(memory.moduleBase() + cycleRva, 0);
+        List<Projectile> out = new ArrayList<>();
+        for (int b = 0; b < count; b++) {
+            for (long node = heads.getLong(b * 8); node != 0; node = safePointer(node + nodeNext)) {
+                ByteBuffer entry = readBlock(node, Math.max(nodeKey + 4, nodeValue + 8));
+                long projectile = entry == null ? 0 : entry.getLong(nodeValue);
+                Projectile read = projectile == 0 ? null : readKeyed(projectile, entry.getInt(nodeKey), cycle);
+                if (read == null || out.size() == MAX_PROJECTILES) {
+                    return null;
+                }
+                out.add(read);
+            }
+        }
+        return out;
+    }
+
     private Projectile read(long address, int cycle) {
         ByteBuffer b = readBlock(address + blockStart, blockLength);
         if (b == null) {
@@ -157,9 +242,34 @@ public final class ProjectileReader extends GameReader {
                 i32(b, startHeight), i32(b, sourceActor));
         ProjectileEndpoint target = ProjectileEndpoint.decode(i32(b, targetLevel), i32(b, targetX), i32(b, targetZ),
                 i32(b, endHeight), i32(b, targetActor));
-        return new Projectile(client, i32(b, spotAnimId), source, target, i32(b, startCycle), i32(b, endCycle),
-                i32(b, slope), i32(b, startDistance), b.get(started - blockStart) != 0, f64(b, fineX), f64(b, fineZ),
-                f64(b, fineY), i32(b, yaw), i32(b, pitch), safeU8(address + hidden, 0) != 0, cycle);
+        return new Projectile(client, address, -1, i32(b, spotAnimId), source, target, i32(b, startCycle),
+                i32(b, endCycle), i32(b, slope), i32(b, startDistance), b.get(started - blockStart) != 0, f64(b, fineX),
+                f64(b, fineZ), f64(b, fineY), i32(b, yaw), i32(b, pitch), safeU8(address + hidden, 0) != 0, cycle);
+    }
+
+    /**
+     * Reads one keyed projectile.
+     *
+     * @param address where it is
+     * @param key     the key it is filed under
+     * @param cycle   the cycle of the read
+     * @return the snapshot, or null if it can't be read
+     */
+    private Projectile readKeyed(long address, int key, int cycle) {
+        KeyedLayout k = keyed;
+        ByteBuffer b = readBlock(address + k.start, k.length);
+        if (b == null) {
+            return null;
+        }
+        ProjectileEndpoint source = ProjectileEndpoint.decode(k.i32(b, k.sourceLevel), k.i32(b, k.sourceX),
+                k.i32(b, k.sourceZ), k.i32(b, k.sourceOffsetX), k.i32(b, k.startHeight), k.i32(b, k.sourceOffsetZ),
+                k.i32(b, k.sourceActor));
+        ProjectileEndpoint target = ProjectileEndpoint.decode(k.i32(b, k.targetLevel), k.i32(b, k.targetX),
+                k.i32(b, k.targetZ), k.i32(b, k.targetOffsetX), k.i32(b, k.endHeight), k.i32(b, k.targetOffsetZ),
+                k.i32(b, k.targetActor));
+        return new Projectile(client, address, key, k.i32(b, k.spotAnimId), source, target, k.i32(b, k.startCycle),
+                k.i32(b, k.endCycle), 0, 0, b.get(k.started - k.start) != 0, k.f32(b, k.fineX), k.f32(b, k.fineZ),
+                k.f32(b, k.fineY), k.i32(b, k.yaw), k.i32(b, k.pitch), false, cycle);
     }
 
     private int i32(ByteBuffer b, int offset) {
@@ -195,5 +305,95 @@ public final class ProjectileReader extends GameReader {
             node = safePointer(node + listNext);
         }
         return Arrays.copyOf(found, n);
+    }
+
+    /**
+     * Where a keyed projectile keeps what the API reads, resolved from the {@code KeyedProjectile} keys. The fields sit
+     * together, so each projectile is read in one block.
+     */
+    private static final class KeyedLayout {
+
+        final int spotAnimId;
+        final int sourceLevel;
+        final int sourceX;
+        final int sourceZ;
+        final int sourceActor;
+        final int sourceOffsetX;
+        final int startHeight;
+        final int sourceOffsetZ;
+        final int targetLevel;
+        final int targetX;
+        final int targetZ;
+        final int targetActor;
+        final int targetOffsetX;
+        final int endHeight;
+        final int targetOffsetZ;
+        final int startCycle;
+        final int endCycle;
+        final int started;
+        final int fineX;
+        final int fineY;
+        final int fineZ;
+        final int yaw;
+        final int pitch;
+        final int start;
+        final int length;
+
+        /**
+         * Resolves the keys.
+         *
+         * @param offsets the mapping's offset for a key, or -1 if it lacks the key
+         */
+        KeyedLayout(ToIntFunction<String> offsets) {
+            spotAnimId = offsets.applyAsInt("KeyedProjectile.spotAnimId");
+            sourceLevel = offsets.applyAsInt("KeyedProjectile.sourceLevel");
+            sourceX = offsets.applyAsInt("KeyedProjectile.sourceX");
+            sourceZ = offsets.applyAsInt("KeyedProjectile.sourceZ");
+            sourceActor = offsets.applyAsInt("KeyedProjectile.sourceActor");
+            sourceOffsetX = offsets.applyAsInt("KeyedProjectile.sourceOffsetX");
+            startHeight = offsets.applyAsInt("KeyedProjectile.startHeight");
+            sourceOffsetZ = offsets.applyAsInt("KeyedProjectile.sourceOffsetZ");
+            targetLevel = offsets.applyAsInt("KeyedProjectile.targetLevel");
+            targetX = offsets.applyAsInt("KeyedProjectile.targetX");
+            targetZ = offsets.applyAsInt("KeyedProjectile.targetZ");
+            targetActor = offsets.applyAsInt("KeyedProjectile.targetActor");
+            targetOffsetX = offsets.applyAsInt("KeyedProjectile.targetOffsetX");
+            endHeight = offsets.applyAsInt("KeyedProjectile.endHeight");
+            targetOffsetZ = offsets.applyAsInt("KeyedProjectile.targetOffsetZ");
+            startCycle = offsets.applyAsInt("KeyedProjectile.startCycle");
+            endCycle = offsets.applyAsInt("KeyedProjectile.endCycle");
+            started = offsets.applyAsInt("KeyedProjectile.started");
+            fineX = offsets.applyAsInt("KeyedProjectile.fineX");
+            fineY = offsets.applyAsInt("KeyedProjectile.fineY");
+            fineZ = offsets.applyAsInt("KeyedProjectile.fineZ");
+            yaw = offsets.applyAsInt("KeyedProjectile.yaw");
+            pitch = offsets.applyAsInt("KeyedProjectile.pitch");
+            int[] all = fields();
+            start = IntStream.of(all).min().orElse(0);
+            length = IntStream.of(all).max().orElse(0) + 4 - start;
+        }
+
+        private int[] fields() {
+            return new int[]{spotAnimId, sourceLevel, sourceX, sourceZ, sourceActor, sourceOffsetX, startHeight,
+                    sourceOffsetZ, targetLevel, targetX, targetZ, targetActor, targetOffsetX, endHeight, targetOffsetZ,
+                    startCycle, endCycle, started, fineX, fineY, fineZ, yaw, pitch};
+        }
+
+        /**
+         * Whether the mapping has every key.
+         *
+         * @return true if no offset is missing
+         */
+        boolean complete() {
+            return IntStream.of(fields()).allMatch(off -> off >= 0);
+        }
+
+        int i32(ByteBuffer b, int offset) {
+            return b.getInt(offset - start);
+        }
+
+        double f32(ByteBuffer b, int offset) {
+            return b.getFloat(offset - start);
+        }
     }
 }

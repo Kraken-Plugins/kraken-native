@@ -9,7 +9,7 @@ from unittest import mock
 from native_updater import emit, extractors, identity, minimenu, strategies, winpaths, x86, verify
 from native_updater.analysis.bindings import BindingTableParser
 from native_updater.analysis.provenance import (Add, Addr, Arg, Bin, Call, Cmp, Const, Deref, Facts, Global, Load, Mul,
-                                                Provenance, Ret, Store, Unknown)
+                                                Provenance, Ret, StackAddr, State, Store, Unknown)
 from native_updater.consensus import Result
 from native_updater.pe import file_version
 from native_updater.spec import KeySpec, lint, load as load_spec
@@ -277,6 +277,130 @@ class RecipeTests(unittest.TestCase):
         facts = Facts(fn=fn, cmps=[Cmp(0x10, Arg(4), Deref(Arg(0), 0x288, 4), fn)])
         fields = extractors.projectile_step_fields(facts, {0x288: 0x8, 0x28C: 0xC}, 0xA2B70, {}, set())
         self.assertEqual(set(fields), {"Projectile.startCycle", "Projectile.endCycle"})
+
+    def test_keyed_projectile_walk_finds_the_map_the_cycles_the_step_and_the_drawn_angle(self):
+        """The map the walk erases through and reads the buckets of; a node value's two cycle fields; the step."""
+        fn, cycle = 0x735D0, Deref(Global(0xE98C14), 0, 4)
+        node = Deref(Deref(Arg(0), 0xCC90, 8), 0, 8)
+        p = Deref(node, 0x10, 8)
+        facts = Facts(fn=fn,
+                      loads=[Load(0x10, Deref(Arg(0), 0xCC90, 8), "RCX", fn), Load(0x20, Deref(Arg(0), 0xCC98, 8), "RAX", fn),
+                             Load(0x60, Deref(p, 0x318, 4), "R8", fn)],
+                      cmps=[Cmp(0x30, cycle, Deref(p, 0x2B0, 4), fn), Cmp(0x38, cycle, Deref(p, 0x2AC, 4), fn)],
+                      calls=[Call(0x50, 0x31430, None, (p, Arg(9)), fn),
+                             Call(0x90, 0xC37D0, None, (Add(Arg(0), 0xCC88), Arg(9)), fn)])
+        walk = extractors.keyed_projectile_walk_fields(facts, cycle, 8, 0x10, 0x10)
+        self.assertEqual(walk["map"], (0xCC88, 0x90))
+        self.assertEqual(walk["cycles"], {0x2B0: 0x30, 0x2AC: 0x38})
+        self.assertEqual(walk["step"].target, 0x31430)
+        self.assertEqual(walk["drawn"], {0x318})
+        facts.calls.pop()
+        self.assertIsNone(extractors.keyed_projectile_walk_fields(facts, cycle, 8, 0x10, 0x10), "no map to erase through")
+
+    def test_keyed_projectile_step_fields(self):
+        """Start and end from the progress arithmetic, the started test, the returned position, the two angles."""
+        fn, f = 0x31430, (lambda off, size=4: Deref(Arg(0), off, size))
+        unknown = Unknown()
+        facts = Facts(fn=fn,
+                      cmps=[Cmp(0x10, f(0x300, 1), Const(0), fn), Cmp(0x18, f(0x308, 1), Const(0), fn)],
+                      addrs=[Addr(0x40, Bin("-", Arg(4), f(0x2AC)), "RAX", fn), Addr(0x48, Bin("-", f(0x2B0), f(0x2AC)), "RAX", fn)],
+                      stores=[Store(0x20, f(0x304), Const(0), fn), Store(0x60, f(0x2E0), unknown, fn),
+                              Store(0x64, f(0x2E4), unknown, fn), Store(0x68, f(0x2E8), unknown, fn),
+                              Store(0x70, f(0x318), unknown, fn), Store(0x74, f(0x31C), unknown, fn),
+                              Store(0x84, Deref(Arg(1), 0, 4), unknown, fn), Store(0x8C, Deref(Arg(1), 4, 4), unknown, fn),
+                              Store(0x94, Deref(Arg(1), 8, 4), unknown, fn)],
+                      loads=[Load(0x80, f(0x2E0), "RAX", fn), Load(0x88, f(0x2E4), "RAX", fn), Load(0x90, f(0x2E8), "RAX", fn)])
+        fields = extractors.keyed_projectile_step_fields(facts, {0x2AC: 0x38, 0x2B0: 0x30})
+        self.assertEqual({k: v if k == "angles" else v[0] for k, v in fields.items()}, {
+            "KeyedProjectile.startCycle": 0x2AC, "KeyedProjectile.endCycle": 0x2B0, "KeyedProjectile.started": 0x300,
+            "KeyedProjectile.fineX": 0x2E0, "KeyedProjectile.fineY": 0x2E4, "KeyedProjectile.fineZ": 0x2E8,
+            "angles": {0x318: 0x70, 0x31C: 0x74}})
+
+    def test_keyed_projectile_lookup_reads_the_stack_coord_the_actor_and_the_offsets(self):
+        fn, end, f = 0x31370, 0x31A70, (lambda off, size=4: Deref(Arg(0), off, size))
+        state = State(stack={-0x18: f(0x268, 8), -0x10: f(0x270)})
+        facts = Facts(fn=fn, calls=[Call(0x30, end, None, (Arg(0), StackAddr(-0x28), f(0x280), StackAddr(-0x18), Arg(1)), fn)],
+                      loads=[Load(0x10, f(0x268, 8), "XMM0", fn), Load(0x34, f(0x274), "XMM0", fn),
+                             Load(0x40, f(0x278), "XMM1", fn), Load(0x48, f(0x27C), "XMM0", fn)],
+                      states={0x30: state})
+        self.assertEqual(extractors.keyed_projectile_lookup(facts, end), {
+            "coord": 0x268, "coordArg": 3, "actor": 0x280, "offset": 0x274, "rva": 0x30, "offsetRva": 0x34})
+        facts.loads.pop()
+        self.assertIsNone(extractors.keyed_projectile_lookup(facts, end), "needs three offsets")
+
+    def test_keyed_projectile_coord_roles_follow_world_bounds(self):
+        fn, bounds, c = 0x31A70, 0xEC4A0, (lambda off: Deref(Arg(3), off, 4))
+        facts = Facts(fn=fn, calls=[Call(0x20, bounds, None, (Arg(4), c(4), c(8)), fn)],
+                      loads=[Load(0x10, c(0), "RAX", fn), Load(0x14, c(8), "RDI", fn), Load(0x18, c(4), "RSI", fn)])
+        self.assertEqual(extractors.keyed_projectile_coord_roles(facts, bounds, 3), {"Level": 0, "X": 4, "Z": 8})
+        self.assertIsNone(extractors.keyed_projectile_coord_roles(facts, bounds, 2))
+
+    GFX_UPDATE, GFX_STEP, GFX_DRAW = 0x73840, 0x38D70, 0x6A12F0
+
+    def gfx_update_facts(self, draw_args=None):
+        """A miniature of the per-frame update: the level and finished tests, the cycle test, the step, the draw."""
+        fn, obj, world = self.GFX_UPDATE, Deref(Arg(1), 8, 8), Deref(Arg(0), 8, 8)
+        f = lambda off, size=4: Deref(obj, off, size)
+        args = draw_args or (Deref(world, 0x10, 8), f(0x264), f(0x268), f(0x26C), f(0x270))
+        return Facts(fn=fn,
+                     cmps=[Cmp(0x20, f(0x264), Deref(world, 0x18, 4), fn), Cmp(0x2D, f(0x288, 8), Const(0), fn),
+                           Cmp(0x47, Deref(Global(0xE98C14), 0, 4), f(0x260), fn), Cmp(0x6D, f(0x288, 8), Const(0), fn),
+                           Cmp(0x150, f(0x48, 8), Const(0), fn)],
+                     calls=[Call(0x64, self.GFX_STEP, None, (obj, Deref(Deref(Arg(0), 0, 8), 0x26D8, 2)), fn),
+                            Call(0xF2, self.GFX_DRAW, None, args, fn)]), obj
+
+    def gfx_facts_of(self, fn):
+        if fn == self.GFX_STEP:
+            return Facts(fn=fn, cmps=[Cmp(0x4, Deref(Arg(0), 0x288, 8), Const(0), fn)])
+        return Facts(fn=fn)
+
+    def test_graphics_object_update_fields(self):
+        """Level against the world's plane, the finished test, the start cycle, and the draw call's position."""
+        facts, obj = self.gfx_update_facts()
+        fields = extractors.graphics_object_update_fields(facts, obj, Deref(Global(0xE98C14), 0, 4), 0x18, 0x10, self.gfx_facts_of)
+        self.assertEqual({k: v if k == "world" else v[0] for k, v in fields.items()}, {
+            "GraphicsObject.level": 0x264, "GraphicsObject.animSeqType": 0x288, "GraphicsObject.startCycle": 0x260,
+            "GraphicsObject.fineX": 0x268, "GraphicsObject.fineZ": 0x26C, "GraphicsObject.height": 0x270, "world": 8})
+
+    def test_graphics_object_update_needs_the_draw_with_the_world_scene(self):
+        f = lambda off: Deref(Deref(Arg(1), 8, 8), off, 4)
+        facts, obj = self.gfx_update_facts(draw_args=(Deref(Arg(2), 0x10, 8), f(0x264), f(0x268), f(0x26C), f(0x270)))
+        self.assertIsNone(extractors.graphics_object_update_fields(facts, obj, Deref(Global(0xE98C14), 0, 4), 0x18, 0x10, self.gfx_facts_of))
+
+    def test_graphics_object_update_needs_a_step_testing_the_finished_field(self):
+        facts, obj = self.gfx_update_facts()
+        self.assertIsNone(extractors.graphics_object_update_fields(facts, obj, Deref(Global(0xE98C14), 0, 4), 0x18, 0x10,
+                                                                   lambda fn: Facts(fn=fn)))
+
+    def test_graphics_object_ctor_fields(self):
+        """ctor(P, world, id, level, x, z, height, delay, cycle): the vtable, delay + cycle, the id it loads, the AnimState."""
+        fn, loader, setter = 0x38C00, 0x5FEDF0, 0x5E4880
+        a0 = Arg(0)
+        facts = Facts(fn=fn,
+                      stores=[Store(0x10, Deref(a0, 0, 8), Global(0xB95D48), fn),
+                              Store(0x20, Deref(a0, 0x260, 4), Bin("+", Arg(7), Arg(8)), fn),
+                              Store(0x30, Deref(a0, 0x268, 4), Arg(4), fn), Store(0x34, Deref(a0, 0x26C, 4), Arg(5), fn),
+                              Store(0x38, Deref(a0, 0x270, 4), Arg(6), fn), Store(0x3C, Deref(a0, 0x278, 8), Arg(1), fn),
+                              Store(0x40, Deref(a0, 0x274, 4), Arg(2), fn), Store(0x44, Deref(a0, 0x264, 4), Arg(3), fn)],
+                      calls=[Call(0x50, loader, None, (Arg(9), Arg(2)), fn),
+                             Call(0x60, setter, None, (Add(a0, 0x280), Deref(Arg(9), 8, 4)), fn)])
+        fields = {k: v[0] for k, v in extractors.graphics_object_ctor_fields(facts, loader, {setter}).items()}
+        self.assertEqual(fields, {"vtable": 0xB95D48, "GraphicsObject.startCycle": 0x260,
+                                  "GraphicsObject.spotAnimId": 0x274, "GraphicsObject.animState": 0x280})
+
+    def test_graphics_object_ctor_needs_the_start_cycle_sum(self):
+        fn, loader = 0x31120, 0x5FEDF0
+        facts = Facts(fn=fn, stores=[Store(0x40, Deref(Arg(0), 0x264, 4), Arg(2), fn)],
+                      calls=[Call(0x50, loader, None, (Arg(9), Arg(2)), fn)])
+        self.assertIsNone(extractors.graphics_object_ctor_fields(facts, loader, set()))
+
+    def test_graphics_object_model_frame_is_the_word_inside_the_animation_block(self):
+        fn, loader, build = 0x38E00, 0x5FEDF0, 0x5FF510
+        facts = Facts(fn=fn, calls=[Call(0x10, loader, None, (Arg(9), Deref(Arg(0), 0x274, 4)), fn),
+                                    Call(0x20, build, None, (Arg(9), Arg(1), Deref(Arg(0), 0x296, 2)), fn)])
+        self.assertEqual(extractors.graphics_object_model_frame(facts, loader, 0x274, 0x280), (0x296, 0x20))
+        self.assertIsNone(extractors.graphics_object_model_frame(facts, loader, 0x274, 0x2A0))
+        self.assertIsNone(extractors.graphics_object_model_frame(facts, loader, 0x264, 0x280))
 
 
 class EventRaiserTests(unittest.TestCase):

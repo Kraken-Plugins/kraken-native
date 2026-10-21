@@ -6,6 +6,7 @@ import com.kraken.api.Point;
 import com.kraken.api.actor.Actor;
 import com.kraken.api.coords.LocalPoint;
 import com.kraken.api.coords.WorldPoint;
+import com.kraken.api.internal.ProjectileEndpoint;
 import com.kraken.api.scene.Projectile;
 import com.kraken.client.ui.devtools.Category;
 import com.kraken.client.ui.devtools.DevTool;
@@ -23,7 +24,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Projectiles in flight (arrows, spells, cannonballs...): a live table of each one's id, source, target, timing and
+ * Projectiles in flight (arrows, spells, cannonballs...): a live table of each one's id, key, source, target, timing and
  * position, and over the game a marker on each with its id and a line to where it is heading.
  */
 final class ProjectilesTool extends DevTool<Listing<ProjectilesTool.Row>> {
@@ -45,6 +46,7 @@ final class ProjectilesTool extends DevTool<Listing<ProjectilesTool.Row>> {
      *
      * @param key       identifies the projectile across polls
      * @param id        its spot anim id
+     * @param sentKey   the key the server sent it with, or null for one without
      * @param source    where it comes from, e.g. "Player 7 Zezima" or "Tile (3202, 3203, 0)"
      * @param target    where it is going
      * @param x         its local x, or null before it sets off
@@ -56,14 +58,14 @@ final class ProjectilesTool extends DevTool<Listing<ProjectilesTool.Row>> {
      * @param state     "flying", "waiting" (not set off yet) or "hidden"
      * @param yaw       its heading (0-2047), or null before it sets off
      */
-    record Row(String key, int id, String source, String target, Integer x, Integer y, Integer height, int start,
-               int end, int remaining, String state, Integer yaw) {
+    record Row(String key, int id, Integer sentKey, String source, String target, Integer x, Integer y, Integer height,
+               int start, int end, int remaining, String state, Integer yaw) {
     }
 
     ProjectilesTool() {
         super("projectiles", "Projectiles", Category.ACTORS, MaterialDesignB.BULLSEYE_ARROW,
-                "Projectiles in flight: spot anim id, source and target, start and end cycles, cycles left, position "
-                        + "and heading.");
+                "Projectiles in flight: spot anim id, key, source and target, start and end cycles, cycles left, "
+                        + "position and heading.");
     }
 
     @Override
@@ -85,11 +87,13 @@ final class ProjectilesTool extends DevTool<Listing<ProjectilesTool.Row>> {
         List<Row> rows = new ArrayList<>();
         for (Projectile p : client.getProjectiles()) {
             boolean placed = p.isStarted();
-            String identity = p.getId() + ":" + p.getStartCycle() + ":" + p.getEndCycle() + ":" + p.getSourcePoint()
-                    + ":" + p.getTargetPoint();
+            String identity = p.getKey() >= 0 ? "key " + p.getKey() + "@" + Long.toHexString(p.getAddress())
+                    : p.getId() + ":" + p.getStartCycle() + ":" + p.getEndCycle() + ":" + p.getSourcePoint() + ":"
+                    + p.getTargetPoint();
             String key = identity + "#" + keys.merge(identity, 1, Integer::sum);
             String state = p.isHidden() ? "hidden" : placed ? "flying" : "waiting";
-            rows.add(new Row(key, p.getId(), endpoint(p.getSourceActor(), p.getSourcePoint()),
+            rows.add(new Row(key, p.getId(), p.getKey() >= 0 ? p.getKey() : null,
+                    endpoint(p.getSourceActor(), p.getSourcePoint()),
                     endpoint(p.getTargetActor(), p.getTargetPoint()),
                     placed ? (int) Math.round(p.getX()) : null, placed ? (int) Math.round(p.getY()) : null,
                     placed ? (int) Math.round(p.getZ()) : null, p.getStartCycle(), p.getEndCycle(),
@@ -123,7 +127,7 @@ final class ProjectilesTool extends DevTool<Listing<ProjectilesTool.Row>> {
 
     /**
      * Where a projectile is heading, the way the client aims it: the target actor's position while it can be found,
-     * else the target tile's centre, raised by the endpoint's height.
+     * else the target tile's centre, moved by the target's offset (a keyed projectile's) and raised by its height.
      *
      * @param projector this frame's projection
      * @param p         the projectile
@@ -132,14 +136,17 @@ final class ProjectilesTool extends DevTool<Listing<ProjectilesTool.Row>> {
     private static Point aim(Projector projector, Projectile p) {
         Actor actor = p.getTargetActor();
         WorldPoint tile = p.getTargetPoint();
-        if (actor != null && actor.getLocalLocation() != null && tile != null) {
-            return projector.above(tile.getPlane(), actor.getLocalLocation(), p.getEndHeight());
-        }
         if (tile == null) {
             return null;
         }
-        LocalPoint centre = LocalPoint.fromWorld(projector.view(), tile);
-        return centre == null ? null : projector.above(tile.getPlane(), centre, p.getEndHeight());
+        LocalPoint at = actor != null && actor.getLocalLocation() != null ? actor.getLocalLocation()
+                : LocalPoint.fromWorld(projector.view(), tile);
+        if (at == null) {
+            return null;
+        }
+        ProjectileEndpoint target = p.getTarget();
+        LocalPoint aimed = new LocalPoint(at.getX() + target.offsetX(), at.getY() + target.offsetZ(), at.getWorldView());
+        return projector.above(tile.getPlane(), aimed, p.getEndHeight());
     }
 
     /**
@@ -165,6 +172,7 @@ final class ProjectilesTool extends DevTool<Listing<ProjectilesTool.Row>> {
     protected ToolView<Listing<Row>> createView() {
         return new MappedView<>(TableView.<Row>builder("projectiles")
                 .column("Id", Integer.class, 56, Row::id)
+                .column("Key", Integer.class, 50, Row::sentKey)
                 .column("From", String.class, 170, Row::source)
                 .column("To", String.class, 170, Row::target)
                 .column("X", Integer.class, 56, Row::x)

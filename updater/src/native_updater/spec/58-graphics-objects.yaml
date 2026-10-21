@@ -1,0 +1,95 @@
+# Graphics objects: the spot anims the server plays on a tile (a spell's splash, a cannon's smoke...), the client's
+# MapSpotAnim. Each world keeps an eastl::list of jag::shared_ptr<MapSpotAnim>, which the zone update and map-anim
+# packets append to. Every frame the client filters the list: an object on another level than the world's, or whose
+# animation has ended, is dropped; one whose start cycle has come is stepped and drawn. No Lua binding touches them, so
+# the layout comes from that per-frame update (extractor `graphics_objects`) and from the constructor and the model
+# getter it installs (extractor `graphics_object_ctor`).
+fingerprints:
+  # The predicate the world's list is filtered with every frame, the constructor
+  # ctor(object, world, id, level, x, z, height, delay, cycle), and the model getter (vtable slot) that builds the spot
+  # anim's model at the animation's frame.
+  GraphicsObjectUpdate: { extractor: graphics_objects, field: GraphicsObjectUpdate, cls: A }
+  GraphicsObjectCtor:   { extractor: graphics_object_ctor, field: GraphicsObjectCtor, cls: C }
+  GraphicsObjectModel:  { extractor: graphics_object_ctor, field: GraphicsObjectModel, cls: C }
+
+keys:
+  - key: World.graphicsObjects
+    type: eastl.list<jag.shared_ptr<GraphicsObject>>
+    priority: P1
+    live: graphicsObjects
+    doc: The world's graphics objects; each list node's value is one.
+    strategies:
+      - extractor: { name: graphics_objects, field: World.graphicsObjects, cls: A }
+
+  - key: GraphicsObject.spotAnimId
+    type: i32
+    priority: P1
+    live: graphicsObjects
+    doc: The object's id, its SpotAnimType id.
+    strategies:
+      - extractor: { name: graphics_object_ctor, field: GraphicsObject.spotAnimId, cls: C }
+      - getter: { in: "@GraphicsObjectModel", base: arg0, load: i32, select: { passed_to: { fn: "@ConfigLoader.13", arg: 1 } } }
+
+  # Where it plays, as the packet placed it: the level, and the centre of the tile in top-level scene fine units
+  # (tile * 128 + 64). The height is the ground's height there less the height the server sent (more negative is higher).
+  - key: GraphicsObject.level
+    type: i32
+    priority: P1
+    live: graphicsObjects
+    doc: Level it plays on; the client drops it once the world's plane is another.
+    strategies:
+      - extractor: { name: graphics_objects, field: GraphicsObject.level, cls: A }
+  - key: GraphicsObject.fineX
+    type: i32
+    priority: P1
+    live: graphicsObjects
+    doc: Scene x in fine units (the tile's centre).
+    strategies:
+      - extractor: { name: graphics_objects, field: GraphicsObject.fineX, cls: A }
+  - key: GraphicsObject.fineZ
+    type: i32
+    priority: P1
+    live: graphicsObjects
+    doc: Scene z in fine units (the tile's centre).
+    strategies:
+      - extractor: { name: graphics_objects, field: GraphicsObject.fineZ, cls: A }
+  - key: GraphicsObject.height
+    type: i32
+    priority: P1
+    live: graphicsObjects
+    doc: Height it is drawn at (the ground's height less the offset the server sent; more negative is higher).
+    strategies:
+      - extractor: { name: graphics_objects, field: GraphicsObject.height, cls: A }
+
+  - key: GraphicsObject.startCycle
+    type: i32
+    priority: P1
+    live: graphicsObjects
+    doc: Cycle it starts playing on (the cycle the packet arrived plus its delay); until then it isn't stepped or drawn.
+    strategies:
+      - extractor: { name: graphics_objects, field: GraphicsObject.startCycle, cls: A }
+      - extractor: { name: graphics_object_ctor, field: GraphicsObject.startCycle, cls: C }
+
+  # The animation: a block like an actor's (SeqType shared pointer, sequence id, frame, frame cycle, loop count). The
+  # SeqType pointer goes to 0 when the animation ends, and the next frame's update drops the object.
+  - key: GraphicsObject.animState
+    internal: true
+    type: AnimState
+    priority: P1
+    strategies:
+      - extractor: { name: graphics_object_ctor, field: GraphicsObject.animState, cls: C }
+  - key: GraphicsObject.animSeqType
+    type: ptr<SeqType>
+    priority: P1
+    live: graphicsObjects
+    doc: The animation's SeqType; 0 once it has finished playing.
+    strategies:
+      - extractor: { name: graphics_objects, field: GraphicsObject.animSeqType, cls: A }
+      - derive: { expr: "GraphicsObject.animState + Actor.animSeqType - Actor.animState", cls: C }
+  - key: GraphicsObject.animFrame
+    type: i16
+    priority: P1
+    live: graphicsObjects
+    doc: The animation's current frame, the one the model is built at.
+    strategies:
+      - extractor: { name: graphics_object_ctor, field: GraphicsObject.animFrame, cls: C }

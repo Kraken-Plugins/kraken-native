@@ -5,9 +5,10 @@ import com.kraken.api.scene.Projectile;
 import lombok.Data;
 
 /**
- * A projectile is heading for a point. It is posted once, when the projectile first appears in the client's list, with
- * where its target is then. The API can't see the client re-aim the projectile on later cycles (every cycle for one
- * following an actor).
+ * A projectile is heading for a point. It is posted when the projectile first appears, with where its target is then,
+ * and again each time the server retargets a keyed projectile ({@code Projectile.getKey()}), with where the new target
+ * is. The API doesn't post it as the client re-aims a projectile on later cycles (every cycle for one following an
+ * actor).
  */
 @Data
 public class ProjectileMoved {
@@ -18,7 +19,8 @@ public class ProjectileMoved {
     private Projectile projectile;
 
     /**
-     * Where it is heading: its target actor's location, or the centre of its target tile.
+     * Where it is heading: its target actor's location, or the centre of its target tile, moved by the target's offset
+     * for a keyed projectile.
      */
     private LocalPoint position;
 

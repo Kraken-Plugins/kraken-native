@@ -99,7 +99,8 @@ other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED
   `moduleBase + globals.client`.
 - Identity: actor handles are pinned to an actor's address (plus an NPC's creation cycle or a player's name), one per
   actor, and keep their last values once it is gone. `TileObject`s are values, `Tile`s read empty once the map base
-  moves, `Widget`s and `Projectile`s are snapshots.
+  moves, `Widget`s, `Projectile`s and `GraphicsObject`s are snapshots (a graphics object's snapshots are equal across
+  reads: address plus what the server sent).
 - Coordinates: actor tiles are scene tiles (relative to the map base), returned as `MapCoord`s; `Client.toWorld` adds
   the base for a `WorldPoint`. A `LocalPoint` is scene × 128. The client keeps height in `y` and north in `z`; the API
   uses `y` north, `z` height, so readers that copy Lua's order swap them.

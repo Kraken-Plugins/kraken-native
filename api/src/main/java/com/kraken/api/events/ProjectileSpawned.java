@@ -4,8 +4,9 @@ import com.kraken.api.scene.Projectile;
 import lombok.Data;
 
 /**
- * A projectile has appeared in the client's list. The API posts a {@link ProjectileMoved} right after this one, with
- * where the projectile is heading; subscribe to this for the plain fact of a new projectile.
+ * A projectile has appeared: in the client's list, or among its keyed projectiles. The API posts a
+ * {@link ProjectileMoved} right after this one, with where the projectile is heading; subscribe to this for the plain
+ * fact of a new projectile.
  */
 @Data
 public class ProjectileSpawned {

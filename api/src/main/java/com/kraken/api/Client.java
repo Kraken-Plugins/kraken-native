@@ -11,6 +11,7 @@ import com.kraken.api.definition.VarbitComposition;
 import com.kraken.api.internal.reader.ActorReader;
 import com.kraken.api.internal.ConfigTypes;
 import com.kraken.api.internal.reader.GameReader;
+import com.kraken.api.internal.reader.GraphicsObjectReader;
 import com.kraken.api.internal.reader.InventoryReader;
 import com.kraken.api.internal.MapCoord;
 import com.kraken.api.internal.reader.MenuReader;
@@ -21,6 +22,7 @@ import com.kraken.api.item.ItemContainer;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.api.memory.Memory;
 import com.kraken.api.memory.MemoryException;
+import com.kraken.api.scene.GraphicsObject;
 import com.kraken.api.scene.Projectile;
 import com.kraken.api.scene.Scene;
 import com.kraken.api.scene.WorldView;
@@ -90,7 +92,18 @@ public final class Client extends GameReader {
     @Getter
     private final SceneReader sceneReader;
     private final InventoryReader inventories;
-    private final ProjectileReader projectiles;
+
+    /**
+     * The reader the projectiles and their events read through. Internal plumbing for the API's own packages.
+     */
+    @Getter
+    private final ProjectileReader projectileReader;
+
+    /**
+     * The reader the graphics objects read through. Internal plumbing for the API's own packages.
+     */
+    @Getter
+    private final GraphicsObjectReader graphicsObjectReader;
     private final WidgetReader widgets;
 
     /**
@@ -174,7 +187,8 @@ public final class Client extends GameReader {
         this.actorReader = new ActorReader(memory, mapping, configTypes);
         this.sceneReader = new SceneReader(memory, mapping, configTypes, actorReader);
         this.inventories = new InventoryReader(memory, mapping, configTypes);
-        this.projectiles = new ProjectileReader(memory, mapping, this);
+        this.projectileReader = new ProjectileReader(memory, mapping, this);
+        this.graphicsObjectReader = new GraphicsObjectReader(memory, mapping, this, sceneReader);
         this.widgets = new WidgetReader(memory, mapping);
         this.menuReader = new MenuReader(memory, mapping, this);
         this.topLevelWorldView = new WorldView(this);
@@ -752,22 +766,33 @@ public final class Client extends GameReader {
     }
 
     /**
-     * The projectiles in flight, as one read of the client's list (snapshots; see {@link Projectile}).
+     * The projectiles in flight, as one read of the client's list and of its keyed projectiles (snapshots; see
+     * {@link Projectile}).
      *
-     * @return the projectiles in the client's list order; empty if none or if it can't be read
+     * @return the list's projectiles in list order, then the keyed ones; empty if none or if they can't be read
      */
     public Deque<Projectile> getProjectiles() {
-        return new ArrayDeque<>(projectiles.projectiles());
+        return new ArrayDeque<>(projectileReader.projectiles());
     }
 
     /**
      * Whether any projectile in flight is drawn. Mirrors Lua {@code ClientOp.areProjectilesRendered} (the docs say all
-     * of them; the client's handler checks for any).
+     * of them; the client's handler checks for any, and only in its list, not among the keyed projectiles).
      *
-     * @return true if a projectile in flight isn't hidden
+     * @return true if a projectile in the client's list isn't hidden
      */
     public boolean areProjectilesRendered() {
-        return projectiles.anyRendered();
+        return projectileReader.anyRendered();
+    }
+
+    /**
+     * The graphics objects playing in the top-level world. Same as
+     * {@code getTopLevelWorldView().getGraphicsObjects()}.
+     *
+     * @return the graphics objects in the world's list order; empty if none or if it can't be read
+     */
+    public Deque<GraphicsObject> getGraphicsObjects() {
+        return topLevelWorldView.getGraphicsObjects();
     }
 
     /**

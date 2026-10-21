@@ -7,7 +7,7 @@ so it survives register reallocation. Results are cached per run.
 import math
 import struct
 
-from .analysis.provenance import Add, Arg, Bin, Const, Deref, Global, Mul, Ret, Out, contains, walk
+from .analysis.provenance import Add, Arg, Bin, Const, Deref, Global, Mul, Ret, Out, StackAddr, contains, walk
 from .events import event_raisers
 from .hooks import obj_pile_ops, player_lifecycle
 from .minimenu import minimenu
@@ -727,19 +727,26 @@ def _projectile_layout(session, walker, proj, cycle, bounds, loader):
         out.pop("Projectile.yaw", None)
         out.pop("Projectile.pitch", None)
     started = fields.get("Projectile.started")
-    if started is not None:
-        for caller in model.callers(loader):
-            cf = session.prov.facts(caller)
-            if not any(_is_field(s.target, Arg(0), 1) and s.target.off == started[0] and s.value == Const(0) for s in cf.stores):
-                continue
-            for c in cf.calls:
-                if c.target is not None and model.resolve(c.target) == loader and len(c.args) > 1 and _is_field(c.args[1], Arg(0), 4):
-                    out["ProjectileCtor"] = (caller, _ev(session, caller, caller, "rip"), "SpotAnim loader caller clearing the started flag")
-                    out["Projectile.spotAnimId"] = (c.args[1].off, _ev(session, c.rva, caller), "id passed to the SpotAnim loader")
-                    break
-            if "ProjectileCtor" in out:
-                break
+    ctor = _spot_anim_ctor(session, loader, started[0]) if started is not None else None
+    if ctor is not None:
+        caller, spot, rva = ctor
+        out["ProjectileCtor"] = (caller, _ev(session, caller, caller, "rip"), "SpotAnim loader caller clearing the started flag")
+        out["Projectile.spotAnimId"] = (spot, _ev(session, rva, caller), "id passed to the SpotAnim loader")
     return out
+
+
+def _spot_anim_ctor(session, loader, started):
+    """(ctor, spot anim id offset, rva) for the SpotAnim loader caller that clears the started byte [this + started] and
+    passes the loader a 4-byte field of this (the id); None if no caller does."""
+    model = session.model
+    for caller in model.callers(loader):
+        cf = session.prov.facts(caller)
+        if not any(_is_field(s.target, Arg(0), 1) and s.target.off == started and s.value == Const(0) for s in cf.stores):
+            continue
+        for c in cf.calls:
+            if c.target is not None and model.resolve(c.target) == loader and len(c.args) > 1 and _is_field(c.args[1], Arg(0), 4):
+                return caller, c.args[1].off, c.rva
+    return None
 
 
 def _f64_near(model, rva, want):
@@ -871,6 +878,396 @@ def projectile_step_fields(facts, cycles, endpoint, roles, scale):
     return out
 
 
+def keyed_projectiles(session, p):
+    """Client.keyedProjectiles and the KeyedProjectile layout: the projectiles the server sends with a key, so it can
+    retarget one in flight. The client keeps them in an eastl::hash_map from the key to a jag::shared_ptr, and moves
+    each along a curve from its source to its target.
+
+      walk(client)       for each node's value P of the map at client + M, compares global.cycle with two fields of P
+                         (the start and end cycles), erases through client + M, steps P with step(P, out, ...) and
+                         hands [P + yaw] on to the draw
+      step(P, out, ...)  calls init(P, ...) while the byte [P + started] is 0; looks the target up with
+                         endpoint(P, out, [P + targetActor], coord, ...), coord being a stack copy of the 12 bytes at
+                         P + targetCoord; takes [P + startCycle] from its cycle argument and from [P + endCycle] (how
+                         far along the path it is); stores yaw and pitch; returns its position truncated in out[0..2]
+      init(P, ...)       looks the source up the same way, from P + sourceCoord and [P + sourceActor], then sets started
+      endpoint(...)      hands coord.x and coord.z to WorldBounds; the coord's remaining slot is the level
+      offsets            right after each lookup, its caller loads three consecutive 4-byte fields into float
+                         registers: the endpoint's {x, height, z} offset (the height is subtracted, so larger is higher)
+      ctor               the SpotAnim loader caller that clears the started flag passes it [P + spotAnimId]
+    """
+    model, prov = session.model, session.prov
+    cycle_rva = session.value("global.cycle")
+    cycle = Deref(Global(cycle_rva), 0, 4)
+    layout = (session.value("container.hash_map.buckets"), session.value("container.hash_map.bucketCount"),
+              session.value("container.hash_map.node.value"))
+    bounds, loader = session.fn("@WorldBounds"), session.fn("@ConfigLoader.13")
+    matches = []
+    for fn in sorted({fn for _, fn in model.insns_with_disp(cycle_rva) if fn is not None}):
+        walk = keyed_projectile_walk_fields(prov.facts(fn), cycle, *layout)
+        out = _keyed_projectile_layout(session, fn, walk, bounds, loader) if walk else None
+        if out:
+            matches.append(out)
+    return matches[0] if len(matches) == 1 else {}
+
+
+def keyed_projectile_walk_fields(facts, cycle, buckets, count, value):
+    """What the per-frame walk does with the keyed projectile map: {"map": (offset, rva), "cycles": {offset: rva},
+    "step": the call stepping each projectile, "drawn": the other 4-byte fields it reads}, or None when the function
+    isn't the walk. The map is the client field the walk erases through and whose bucket array and count it reads; a
+    projectile is a node's value, two of whose fields are compared with the cycle."""
+    loaded = {l.value.off for l in facts.loads if _is_field(l.value, Arg(0), 8)}
+    maps = {(c.args[0].off, c.rva) for c in facts.calls if c.args and isinstance(c.args[0], Add) and c.args[0].base == Arg(0)
+            and c.args[0].off + buckets in loaded and c.args[0].off + count in loaded}
+    if len({off for off, _ in maps}) != 1:
+        return None
+    obj, cycles = None, {}
+    for c in sorted(facts.cmps, key=lambda c: c.rva):
+        for a, b in ((c.a, c.b), (c.b, c.a)):
+            if a == cycle and isinstance(b, Deref) and b.index is None and b.size in (0, 4) and isinstance(b.base, Deref) \
+                    and b.base.off == value and b.base.index is None and b.base.size in (0, 8) and obj in (None, b.base):
+                obj = b.base
+                cycles.setdefault(b.off, c.rva)
+    if len(cycles) != 2:
+        return None
+    step = next((c for c in sorted(facts.calls, key=lambda c: c.rva) if c.target is not None and c.args and c.args[0] == obj), None)
+    if step is None:
+        return None
+    drawn = {l.value.off for l in facts.loads if _is_field(l.value, obj, 4)} - set(cycles)
+    return {"map": min(maps), "cycles": cycles, "step": step, "drawn": drawn}
+
+
+def _keyed_projectile_layout(session, walker, walk, bounds, loader):
+    model, prov = session.model, session.prov
+    fn = walk["step"].target
+    sf = prov.facts(fn)
+    fields = keyed_projectile_step_fields(sf, walk["cycles"])
+    if "KeyedProjectile.started" not in fields:
+        return None
+    started = fields["KeyedProjectile.started"][0]
+    init = next((c.target for c in sf.calls if c.target is not None and c.args and c.args[0] == Arg(0) and any(
+        _is_field(s.target, Arg(0), 1) and s.target.off == started and s.value == Const(1) for s in prov.facts(c.target).stores)), None)
+    if init is None:
+        return None
+    inf = prov.facts(init)
+    ends = sorted({c.target for c in sf.calls if c.target is not None and bounds in model.callees(c.target)}
+                  & {c.target for c in inf.calls if c.target is not None})
+    if len(ends) != 1:
+        return None
+    target, source = keyed_projectile_lookup(sf, ends[0]), keyed_projectile_lookup(inf, ends[0])
+    if target is None or source is None or target["coordArg"] != source["coordArg"]:
+        return None
+    roles = keyed_projectile_coord_roles(prov.facts(ends[0]), bounds, target["coordArg"])
+    if roles is None:
+        return None
+    notes = {
+        "KeyedProjectile.startCycle": "taken from the step's cycle argument: how long the projectile has been flying",
+        "KeyedProjectile.endCycle": "the start cycle is taken from it: how long the flight lasts",
+        "KeyedProjectile.started": "byte the step compares with 0 before calling the init, which sets it to 1",
+        "KeyedProjectile.fineX": "position float, returned truncated in out[0]",
+        "KeyedProjectile.fineY": "height float, returned truncated in out[1]",
+        "KeyedProjectile.fineZ": "position float, returned truncated in out[2]",
+        "KeyedProjectile.yaw": "the angle the walk hands on to the draw",
+        "KeyedProjectile.pitch": "the angle the step stores that the walk doesn't draw with",
+    }
+    fields = {k: (*v, fn) for k, v in fields.items() if k != "angles"} | {"angles": fields.get("angles", {})}
+    for side, found, where, height in (("source", source, init, "startHeight"), ("target", target, fn, "endHeight")):
+        lookup = f"the {side} lookup ({'the init' if side == 'source' else 'the step'})"
+        for role, k in roles.items():
+            fields[f"KeyedProjectile.{side}{role}"] = (found["coord"] + k, found["rva"], where)
+            notes[f"KeyedProjectile.{side}{role}"] = f"{role.lower()} slot of the coordinate {lookup} copies"
+        fields[f"KeyedProjectile.{side}Actor"] = (found["actor"], found["rva"], where)
+        notes[f"KeyedProjectile.{side}Actor"] = f"the actor reference {lookup} passes"
+        for name, k in ((f"{side}OffsetX", 0), (height, 4), (f"{side}OffsetZ", 8)):
+            fields[f"KeyedProjectile.{name}"] = (found["offset"] + k, found["offsetRva"], where)
+            notes[f"KeyedProjectile.{name}"] = f"slot {k // 4} of the x, height, z offset loaded after {lookup}"
+    angles = fields.pop("angles")
+    yaw = sorted(set(angles) & walk["drawn"])
+    if len(yaw) == 1 and len(angles) == 2:
+        pitch = next(off for off in angles if off != yaw[0])
+        fields["KeyedProjectile.yaw"] = (yaw[0], angles[yaw[0]], fn)
+        fields["KeyedProjectile.pitch"] = (pitch, angles[pitch], fn)
+    out = {name: (value, _ev(session, rva, where), notes[name]) for name, (value, rva, where) in fields.items()}
+    off, rva = walk["map"]
+    out["Client.keyedProjectiles"] = (off, _ev(session, rva, walker), "the map the walk erases through, whose buckets it reads")
+    out["KeyedProjectileWalk"] = (walker, _ev(session, walker, walker, "rip"), "walks Client.keyedProjectiles against the cycle")
+    out["KeyedProjectileStep"] = (fn, _ev(session, walk["step"].rva, walker, "rip"), "called with each projectile whose start cycle came")
+    out["KeyedProjectileInit"] = (init, _ev(session, init, init, "rip"), "called by the step while the started flag is clear")
+    out["KeyedProjectileEndpoint"] = (ends[0], _ev(session, ends[0], ends[0], "rip"), "the step's and the init's callee that calls WorldBounds")
+    ctor = _spot_anim_ctor(session, loader, started)
+    if ctor is not None:
+        caller, spot, at = ctor
+        out["KeyedProjectileCtor"] = (caller, _ev(session, caller, caller, "rip"), "SpotAnim loader caller clearing the started flag")
+        out["KeyedProjectile.spotAnimId"] = (spot, _ev(session, at, caller), "id passed to the SpotAnim loader")
+    return out
+
+
+def keyed_projectile_step_fields(facts, cycles):
+    """The fields the keyed projectile step(P, out, ...) reads and writes, as {key: (offset, rva)} plus "angles":
+    {offset: rva} for the two 4-byte fields it stores apart from its position (yaw and pitch, told apart by the walk).
+
+      start cycle   the walk's cycle field the step subtracts from one of its arguments; the end cycle is the other,
+                    from which the step subtracts the start
+      started       a byte compared with 0
+      position      the step returns its position truncated to ints in out[0], out[1], out[2]: each comes from the last
+                    load, before that store, of a 4-byte field the step also writes (fineX, fineY = height, fineZ)
+    """
+    this, out = Arg(0), {}
+    for a in facts.addrs:
+        v = a.value
+        if isinstance(v, Bin) and v.op == "-" and _is_field(v.b, this, 4) and v.b.off in cycles:
+            if isinstance(v.a, Arg) and v.a.i > 0:
+                out.setdefault("KeyedProjectile.startCycle", (v.b.off, a.rva))
+            elif _is_field(v.a, this, 4) and v.a.off in cycles and v.a.off != v.b.off:
+                out.setdefault("KeyedProjectile.endCycle", (v.a.off, a.rva))
+    if set(out) != {"KeyedProjectile.startCycle", "KeyedProjectile.endCycle"} \
+            or out["KeyedProjectile.startCycle"][0] == out["KeyedProjectile.endCycle"][0]:
+        return {}
+    tests = sorted((c.rva, a.off) for c in facts.cmps for a, b in ((c.a, c.b), (c.b, c.a))
+                   if _is_field(a, this, 1) and a.size == 1 and b == Const(0))
+    if tests:
+        out["KeyedProjectile.started"] = (tests[0][1], tests[0][0])
+    written = {s.target.off: s.rva for s in sorted(facts.stores, key=lambda s: s.rva, reverse=True)
+               if _is_field(s.target, this, 4) and not isinstance(s.value, Const)}
+    loads = sorted((l for l in facts.loads if _is_field(l.value, this, 4) and l.value.off in written), key=lambda l: l.rva)
+    position = set()
+    for k, name in ((0, "fineX"), (4, "fineY"), (8, "fineZ")):
+        st = [s for s in facts.stores if _is_field(s.target, Arg(1), 4) and s.target.off == k]
+        prev = [l for l in loads if st and l.rva < max(s.rva for s in st)]
+        if prev:
+            out[f"KeyedProjectile.{name}"] = (prev[-1].value.off, max(s.rva for s in st))
+            position.add(prev[-1].value.off)
+    out["angles"] = {off: rva for off, rva in written.items() if off not in position and off not in cycles}
+    return out
+
+
+def keyed_projectile_lookup(facts, endpoint):
+    """One endpoint lookup endpoint(this, out, actor, &coord, ...) in a function of this: {"coord": the 12-byte field
+    copied to the stack coord, "coordArg": the argument it is passed as, "actor": the 4-byte field passed as the actor,
+    "offset": the first of the three consecutive 4-byte fields loaded into float registers next, "rva", "offsetRva"},
+    or None."""
+    this = Arg(0)
+    for c in sorted(facts.calls, key=lambda c: c.rva):
+        state = facts.states.get(c.rva)
+        if c.target != endpoint or state is None:
+            continue
+        coord = actor = None
+        for i, a in enumerate(c.args):
+            first = state.stack.get(a.off) if isinstance(a, StackAddr) else None
+            if _is_field(first, this, 8) and state.stack.get(a.off + 8) == Deref(this, first.off + 8, 4):
+                coord = (first.off, i)
+            elif _is_field(a, this, 4) and a.size == 4:
+                actor = a.off
+        if coord is None or actor is None:
+            continue
+        xmm = []
+        for l in sorted(facts.loads, key=lambda l: l.rva):
+            if l.rva > c.rva and l.dest and l.dest.startswith("XMM") and _is_field(l.value, this, 4) and l.value.off not in xmm:
+                xmm.append(l.value.off)
+                if len(xmm) == 3:
+                    break
+        if len(xmm) != 3 or sorted(xmm) != [min(xmm), min(xmm) + 4, min(xmm) + 8]:
+            continue
+        rva = next(l.rva for l in facts.loads if l.rva > c.rva and _is_field(l.value, this, 4) and l.value.off == min(xmm))
+        return {"coord": coord[0], "coordArg": coord[1], "actor": actor, "offset": min(xmm), "rva": c.rva, "offsetRva": rva}
+    return None
+
+
+def keyed_projectile_coord_roles(facts, bounds, coord_arg):
+    """Which slot of the coordinate the endpoint lookup gets (argument coord_arg) is which: x and z are the slots it
+    hands to WorldBounds as its second and third arguments, the level the one other slot it reads.
+    {"Level", "X", "Z"} -> offset in the coordinate, or None."""
+    coord = Arg(coord_arg)
+    for c in facts.calls:
+        if c.target != bounds or len(c.args) < 3 or not (_is_field(c.args[1], coord, 4) and _is_field(c.args[2], coord, 4)):
+            continue
+        x, z = c.args[1].off, c.args[2].off
+        rest = {l.value.off for l in facts.loads if _is_field(l.value, coord, 4)} - {x, z}
+        if len(rest) == 1 and x != z:
+            return {"Level": rest.pop(), "X": x, "Z": z}
+    return None
+
+
+def graphics_objects(session, p):
+    """World.graphicsObjects and where a graphics object (the client's MapSpotAnim: a spot anim the server plays on a
+    tile) keeps its level, position, height, start cycle and animation, from the code that plays them each frame.
+
+      update(ctx, sp)    the predicate a world's list is filtered with every frame: ctx holds the client and the world W,
+                         sp is a node's shared_ptr and P = [sp + shared_ptr.ptr]. It drops P when [P + level] isn't
+                         [W + World.plane] or when the 8-byte [P + animSeqType] is 0 (its animation ended), waits until
+                         global.cycle reaches [P + startCycle], then steps P's animation (the step tests animSeqType
+                         too) and hands [W + World.scene], level, fineX, fineZ and height to the scene's draw call.
+      filter(list, ctx)  calls the update with each node of the list. Its caller passes W + World.graphicsObjects, with
+                         W in the stack context where the update reads it.
+    """
+    model = session.model
+    cycle_rva = session.value("global.cycle")
+    cycle = Deref(Global(cycle_rva), 0, 4)
+    plane, scene = session.value("World.plane"), session.value("World.scene")
+    obj = Deref(Arg(1), session.value("container.shared_ptr.ptr"), 8)
+    notes = {
+        "GraphicsObject.level": "compared with the world's plane; on another level the object is dropped",
+        "GraphicsObject.animSeqType": "8-byte field tested against 0 before the object is stepped and after",
+        "GraphicsObject.startCycle": "compared with the cycle before the object is stepped and drawn",
+        "GraphicsObject.fineX": "drawn at: the argument after the level",
+        "GraphicsObject.fineZ": "drawn at: the argument after fineX",
+        "GraphicsObject.height": "drawn at: the argument after fineZ",
+    }
+    matches = []
+    for fn in sorted({fn for _, fn in model.insns_with_disp(cycle_rva) if fn is not None}):
+        fields = graphics_object_update_fields(session.prov.facts(fn), obj, cycle, plane, scene, session.prov.facts)
+        found = _graphics_object_list(session, fn, fields.pop("world")) if fields else None
+        if found is not None:
+            matches.append((fn, fields, found))
+    if len(matches) != 1:
+        return {}
+    fn, fields, (off, rva, walker) = matches[0]
+    out = {name: (value, _ev(session, at, fn), notes[name]) for name, (value, at) in fields.items()}
+    out["World.graphicsObjects"] = (off, _ev(session, rva, walker), "the list the update filters, at an offset of its world")
+    out["GraphicsObjectUpdate"] = (fn, _ev(session, fn, fn, "rip"), "drops, steps and draws each graphics object")
+    return out
+
+
+def graphics_object_update_fields(facts, obj, cycle, plane, scene, facts_of):
+    """What the per-frame update does with the graphics object `obj`: {key: (offset, rva)}, plus "world", the offset in
+    its first argument where it finds the world; None when the function isn't the update (see graphics_objects).
+    `facts_of(fn)` gives the facts of a callee (the animation step)."""
+    out, world = {}, None
+    for c in sorted(facts.cmps, key=lambda c: c.rva):
+        for a, b in ((c.a, c.b), (c.b, c.a)):
+            if "GraphicsObject.level" not in out and _is_field(a, obj, 4) and isinstance(b, Deref) and b.off == plane \
+                    and b.index is None and b.size in (0, 4) and _is_field(b.base, Arg(0), 8):
+                out["GraphicsObject.level"] = (a.off, c.rva)
+                world = b.base
+            elif "GraphicsObject.startCycle" not in out and a == cycle and _is_field(b, obj, 4):
+                out["GraphicsObject.startCycle"] = (b.off, c.rva)
+            elif "GraphicsObject.animSeqType" not in out and _is_field(a, obj, 8) and b == Const(0):
+                out["GraphicsObject.animSeqType"] = (a.off, c.rva)
+    if world is None or len(out) != 3:
+        return None
+    level, finished = out["GraphicsObject.level"][0], out["GraphicsObject.animSeqType"][0]
+    stepped = any(c.target is not None and c.args and c.args[0] == obj and any(
+        _is_field(x, Arg(0), 8) and x.off == finished and y == Const(0)
+        for k in facts_of(c.target).cmps for x, y in ((k.a, k.b), (k.b, k.a))) for c in facts.calls)
+    if not stepped:
+        return None
+    for c in facts.calls:
+        if len(c.args) < 5 or c.args[0] != Deref(world, scene, 8) or c.args[1] != Deref(obj, level, 4):
+            continue
+        rest = c.args[2:5]
+        if all(_is_field(a, obj, 4) for a in rest) and len({a.off for a in rest} | {level}) == 4:
+            for name, a in zip(("fineX", "fineZ", "height"), rest):
+                out[f"GraphicsObject.{name}"] = (a.off, c.rva)
+            out["world"] = world.off
+            return out
+    return None
+
+
+def _graphics_object_list(session, update, slot):
+    """(offset, rva, walker) of the world's list the update filters: the update's caller (the filter) hands it one of
+    its own arguments as the context; the filter's caller passes it (world + offset) and a stack context holding that
+    world at `slot`, where the update reads it. None if no caller does."""
+    model, prov = session.model, session.prov
+    for filt in model.callers(update):
+        ctx = next((c.args[0] for c in prov.facts(filt).calls if c.target == update and c.args), None)
+        if not isinstance(ctx, Arg):
+            continue
+        for walker in model.callers(filt):
+            wf = prov.facts(walker)
+            for c in wf.calls:
+                if c.target != filt or len(c.args) <= ctx.i:
+                    continue
+                lst, box, state = c.args[0], c.args[ctx.i], wf.states.get(c.rva)
+                if isinstance(lst, Add) and isinstance(box, StackAddr) and state is not None \
+                        and state.stack.get(box.off + slot) == lst.base:
+                    return lst.off, c.rva, walker
+    return None
+
+
+GRAPHICS_OBJECT_VTABLE_SCAN = 8     # vtables sit back to back, so only the first few slots are the object's own
+ANIM_STATE_SIZE = 0x20              # the animation block: SeqType pointer, sequence id, frame, frame cycle, loops
+
+
+def graphics_object_ctor(session, p):
+    """The graphics object constructor ctor(P, world, id, level, x, z, height, delay, cycle) and the model getter it
+    installs.
+
+      ctor      a SpotAnim loader caller that stores the sum of two arguments (cycle + delay, the start cycle), stores
+                an argument it also passes to the loader (the spot anim id), and hands P + animState to a SeqType loader
+                caller (the animation setter) with the spot anim's sequence
+      model(P)  among the first slots of the vtable the ctor stores at [P], the one passing [P + spotAnimId] to the
+                SpotAnim loader; it hands the spot anim the 16-bit [P + animFrame] inside the animation block (the
+                frame to build the model at)
+    """
+    model = session.model
+    loader = session.fn("@ConfigLoader.13")
+    setters = set(model.callers(session.fn("@ConfigLoader.12")))
+    notes = {
+        "GraphicsObject.startCycle": "stored from the sum of two arguments (the cycle plus the delay)",
+        "GraphicsObject.spotAnimId": "the argument stored here is passed to the SpotAnim loader",
+        "GraphicsObject.animState": "animation block handed to the sequence setter",
+    }
+    matches = [(fn, fields) for fn in model.callers(loader)
+               if (fields := graphics_object_ctor_fields(session.prov.facts(fn), loader, setters)) is not None]
+    if len(matches) != 1:
+        return {}
+    fn, fields = matches[0]
+    vtable = fields.pop("vtable", None)
+    out = {name: (off, _ev(session, rva, fn), notes[name]) for name, (off, rva) in fields.items()}
+    out["GraphicsObjectCtor"] = (fn, _ev(session, fn, fn, "rip"), "SpotAnim loader caller storing cycle + delay")
+    anim = fields.get("GraphicsObject.animState", (None,))[0]
+    for slot in range(GRAPHICS_OBJECT_VTABLE_SCAN if vtable else 0):
+        target = model.pe.pointer_rva(vtable[0] + 8 * slot)
+        if target is None:
+            break
+        getter = model.resolve(target)
+        frame = graphics_object_model_frame(session.prov.facts(getter), loader, fields["GraphicsObject.spotAnimId"][0], anim)
+        if frame is not None:
+            out["GraphicsObjectModel"] = (getter, _ev(session, vtable[1], fn), f"slot {slot} of the vtable the ctor installs")
+            out["GraphicsObject.animFrame"] = (frame[0], _ev(session, frame[1], getter), "16-bit animation frame the model is built at")
+            break
+    return out
+
+
+def graphics_object_ctor_fields(facts, loader, setters):
+    """From a SpotAnim loader caller: {key: (offset, rva)} for the start cycle (a store of the sum of two arguments),
+    the spot anim id (an argument stored and passed to the loader) and the animation block (this + N handed to one of
+    `setters`), plus "vtable": (rva, store rva) for a global stored at [this]. None unless it is the graphics object
+    constructor, which has both of the first two."""
+    this, out = Arg(0), {}
+    for s in sorted(facts.stores, key=lambda s: s.rva):
+        v = s.value
+        if _is_field(s.target, this, 4) and isinstance(v, Bin) and v.op == "+" \
+                and all(isinstance(x, Arg) and x.i > 0 for x in (v.a, v.b)):
+            out.setdefault("GraphicsObject.startCycle", (s.target.off, s.rva))
+        elif _is_field(s.target, this, 8) and s.target.off == 0 and isinstance(v, Global):
+            out.setdefault("vtable", (v.rva, s.rva))
+    stored = {s.value: s for s in facts.stores if _is_field(s.target, this, 4) and isinstance(s.value, Arg) and s.value.i > 0}
+    for c in sorted(facts.calls, key=lambda c: c.rva):
+        if c.target == loader and len(c.args) > 1 and c.args[1] in stored:
+            out.setdefault("GraphicsObject.spotAnimId", (stored[c.args[1]].target.off, c.rva))
+        elif c.target in setters and c.args and isinstance(c.args[0], Add) and c.args[0].base == this:
+            out.setdefault("GraphicsObject.animState", (c.args[0].off, c.rva))
+    if "GraphicsObject.startCycle" not in out or "GraphicsObject.spotAnimId" not in out:
+        return None
+    return out
+
+
+def graphics_object_model_frame(facts, loader, spot, anim):
+    """(offset, rva) of the 16-bit field of `this` the model getter hands on with the spot anim it loads by
+    [this + spot], inside the animation block at `anim` when that is known; None if it isn't the getter."""
+    this = Arg(0)
+    if not any(c.target == loader and len(c.args) > 1 and c.args[1] == Deref(this, spot, 4) for c in facts.calls):
+        return None
+    for c in sorted(facts.calls, key=lambda c: c.rva):
+        if c.target == loader:
+            continue
+        for a in c.args:
+            if _is_field(a, this, 2) and a.size == 2 and (anim is None or anim < a.off < anim + ANIM_STATE_SIZE):
+                return a.off, c.rva
+    return None
+
+
 def cycle_function(session, p):
     """The client cycle (RuneLite's client tick): the one function that increments global.cycle. A hook target."""
     cycle = session.value("global.cycle")
@@ -898,6 +1295,8 @@ EXTRACTORS = {
     "event_raisers": event_raisers, "cycle_function": cycle_function, "game_state_setter": game_state_setter,
     "obj_pile_ops": obj_pile_ops, "player_lifecycle": player_lifecycle,
     "projectiles": projectiles, "minimenu": minimenu,
+    "keyed_projectiles": keyed_projectiles,
+    "graphics_objects": graphics_objects, "graphics_object_ctor": graphics_object_ctor,
     "loc_tag_kind": loc_tag_kind, "collision_record": collision_record, "renderer_layout": renderer_layout,
     "config_loader_core": config_loader_core, "config_archive": config_archive, "packet_layout": packet_layout,
     "player_name_pair": player_name_pair, "set_sequence": set_sequence, "actor_ctor": actor_ctor,

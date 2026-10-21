@@ -54,6 +54,10 @@ public final class FakeMemory implements Memory {
         }
     }
 
+    public void putShort(long address, int value) {
+        putBytes(address, new byte[]{(byte) value, (byte) (value >>> 8)});
+    }
+
     public void putByte(long address, int value) {
         Segment segment = segmentFor(address, 1);
         segment.data()[(int) (address - segment.start())] = (byte) value;

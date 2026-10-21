@@ -164,8 +164,7 @@ The API is built in sections you can test live with the dev tools. The milestone
 * **A0** (done) Load the mapping, attach to the client and verify its identity, then read `Client` scalars such as the game
   state, tick, skills and varps.
 * **A1** (done) Players, NPCs, inventories, ground items, locs, and a tick loop with events.
-* **A2** (done except graphics objects) Widgets, collision, tile heights and projection, projectiles and graphics
-  objects.
+* **A2** (done) Widgets, collision, tile heights and projection, projectiles and graphics objects.
 * **A3** Orientation, hitsplats, overhead text, appearance, chat and other remaining surface.
 * **A4** An in-process backend, injected into the client, for actions. Native events already come from the injected
   `kraken_hook.dll` (see [event-hooks-design.md](docs/event-hooks-design.md)).

@@ -13,6 +13,10 @@ import com.kraken.api.internal.CollisionLines;
 import com.kraken.api.internal.reader.SceneReader;
 import lombok.Getter;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.List;
+
 /**
  * One loaded world: the client's {@code World} struct, with its actors, its plane and where its scene sits in the
  * world. The top-level world is the main map; sub-worlds (such as boats) aren't wrapped yet, so
@@ -85,6 +89,16 @@ public final class WorldView {
      */
     public IndexedObjectSet<Player> players() {
         return players;
+    }
+
+    /**
+     * The graphics objects playing in this world, as one read of its list (snapshots; see {@link GraphicsObject}).
+     *
+     * @return the graphics objects in the world's list order; empty if none or if it can't be read
+     */
+    public Deque<GraphicsObject> getGraphicsObjects() {
+        List<GraphicsObject> objects = client.getGraphicsObjectReader().graphicsObjects();
+        return objects == null ? new ArrayDeque<>() : new ArrayDeque<>(objects);
     }
 
     /**

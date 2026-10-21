@@ -10,6 +10,8 @@ import com.kraken.api.events.DecorativeObjectSpawned;
 import com.kraken.api.events.GameObjectDespawned;
 import com.kraken.api.events.GameObjectSpawned;
 import com.kraken.api.events.GameStateChanged;
+import com.kraken.api.events.GraphicsObjectCreated;
+import com.kraken.api.events.GraphicsObjectDestroyed;
 import com.kraken.api.events.GroundObjectSpawned;
 import com.kraken.api.events.InteractingChanged;
 import com.kraken.api.events.ItemDespawned;
@@ -23,6 +25,8 @@ import com.kraken.api.events.TileObjectSpawned;
 import com.kraken.api.events.WallObjectDespawned;
 import com.kraken.api.events.WallObjectSpawned;
 import com.kraken.api.internal.event.EventSource;
+import com.kraken.api.scene.GraphicsObject;
+import com.kraken.api.scene.Projectile;
 import com.kraken.api.scene.TileItem;
 import com.kraken.api.scene.WallObject;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,6 +41,8 @@ import static com.kraken.api.GameFixture.BASE_Z;
 import static com.kraken.api.GameFixture.DECOR_LOC;
 import static com.kraken.api.GameFixture.DOOR_LOC;
 import static com.kraken.api.GameFixture.LAMP_LOC;
+import static com.kraken.api.GameFixture.SMOKE_GRAPHIC;
+import static com.kraken.api.GameFixture.SPLASH_GRAPHIC;
 import static com.kraken.api.GameFixture.TREE_LOC;
 import static com.kraken.api.GameFixture.WALL_LOC;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -48,7 +54,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Object and ground item spawns over the {@link GameFixture}, with the scene-load behaviour (the whole new scene
  * spawns, the old one doesn't despawn, {@code LOGGED_IN} comes after the spawns), loc and pile changes between ticks,
- * {@link InteractingChanged} and {@link ProjectileMoved}.
+ * {@link InteractingChanged}, {@link ProjectileMoved} (keyed projectiles too), and graphics objects being created and
+ * destroyed.
  */
 class SceneEventsTest {
 
@@ -113,6 +120,10 @@ class SceneEventsTest {
                 name += " " + despawned.getTileObject().getId();
             } else if (event instanceof ItemSpawned spawned) {
                 name += " " + spawned.getItem().getId();
+            } else if (event instanceof GraphicsObjectCreated created) {
+                name += " " + created.getGraphicsObject().getId();
+            } else if (event instanceof GraphicsObjectDestroyed destroyed) {
+                name += " " + destroyed.getGraphicsObject().getId();
             }
             names.add(name);
         }
@@ -333,5 +344,104 @@ class SceneEventsTest {
         source.poll();
         assertEquals(1, seen.size(), "the arrow came back: a new one");
         assertNull(((ProjectileMoved) seen.get(0)).getProjectile().getSourceActor());
+    }
+
+    @Test
+    void aKeyedProjectileSpawnsMovesAndMovesAgainWhenRetargeted() {
+        game.setKeyedProjectileInFlight(false);
+        record(ProjectileSpawned.class, ProjectileMoved.class);
+        source.poll();
+        game.setKeyedProjectileInFlight(true);
+        source.poll();
+        assertEquals(2, seen.size(), "a spawn, then the move");
+        Projectile keyed = ((ProjectileSpawned) seen.get(0)).getProjectile();
+        assertEquals(GameFixture.PROJECTILE_KEY, keyed.getKey());
+        ProjectileMoved moved = (ProjectileMoved) seen.get(1);
+        LocalPoint goblin = client.getTopLevelWorldView().npcs().byIndex(5).getLocalLocation();
+        LocalPoint aim = new LocalPoint(goblin.getX() + 8, goblin.getY() - 8, goblin.getWorldView());
+        assertEquals(aim, moved.getPosition(), "its target actor's location, moved by the target's offset");
+        assertEquals(client.getTopLevelWorldView().getTileHeight(aim.getX(), aim.getY(), 0) - 20, moved.getZ());
+
+        seen.clear();
+        game.advanceKeyedProjectile();
+        source.poll();
+        assertEquals(List.of(), seen, "flying on, and held cycles, are not a move");
+
+        game.retargetKeyedProjectile(BASE_X + 6, BASE_Z + 6);
+        source.poll();
+        assertEquals(1, seen.size(), "a retarget is a move, not a new projectile");
+        ProjectileMoved retargeted = (ProjectileMoved) seen.get(0);
+        assertEquals(new LocalPoint(6 * 128 + 64 + 8, 6 * 128 + 64 - 8, -1), retargeted.getPosition());
+        assertEquals(new WorldPoint(BASE_X + 6, BASE_Z + 6, 0), retargeted.getProjectile().getTargetPoint());
+
+        seen.clear();
+        game.setKeyedProjectileInFlight(false);
+        source.poll();
+        assertEquals(List.of(), seen);
+    }
+
+    @Test
+    void aKeyedProjectileReadMidChangeKeepsTheLastOne() {
+        record(ProjectileSpawned.class, ProjectileMoved.class);
+        source.poll();
+        game.setKeyedProjectilesReadable(false);
+        source.poll();
+        game.setKeyedProjectilesReadable(true);
+        source.poll();
+        assertEquals(List.of(), seen, "the keyed projectile was in flight all along");
+    }
+
+    @Test
+    void graphicsObjectsPostDestructionsThenCreations() {
+        record(GraphicsObjectCreated.class, GraphicsObjectDestroyed.class);
+        source.poll();
+        List<GraphicsObject> playing = new ArrayList<>(client.getGraphicsObjects());
+        game.setGraphicsObjectsPlaying();
+        source.poll();
+        assertEquals(List.of("GraphicsObjectDestroyed " + SPLASH_GRAPHIC, "GraphicsObjectDestroyed " + SMOKE_GRAPHIC), names());
+        assertEquals(playing, seen(GraphicsObjectDestroyed.class).stream().map(GraphicsObjectDestroyed::getGraphicsObject).toList());
+
+        seen.clear();
+        game.setGraphicsObjectsPlaying(0);
+        source.poll();
+        game.setGraphicsObjectFrame(0, 9);
+        source.poll();
+        assertEquals(List.of("GraphicsObjectCreated " + SPLASH_GRAPHIC), names(), "a new frame is the same object");
+        GraphicsObject created = seen(GraphicsObjectCreated.class).get(0).getGraphicsObject();
+        assertEquals(new LocalPoint(3 * 128 + 64, 4 * 128 + 64, -1), created.getLocation());
+
+        seen.clear();
+        game.setGraphicsObjectStartCycle(0, 400);
+        source.poll();
+        assertEquals(List.of("GraphicsObjectDestroyed " + SPLASH_GRAPHIC, "GraphicsObjectCreated " + SPLASH_GRAPHIC), names(),
+                "another object played in the old one's memory");
+        GraphicsObject gone = seen(GraphicsObjectDestroyed.class).get(0).getGraphicsObject();
+        assertEquals(created, gone);
+        assertEquals(9, gone.getAnimationFrame(), "the despawn carries the last read");
+        assertEquals(400, seen(GraphicsObjectCreated.class).get(0).getGraphicsObject().getStartCycle());
+    }
+
+    @Test
+    void graphicsObjectsPlayingAtAttachAreNotReplayed() {
+        record(GraphicsObjectCreated.class);
+        source.poll();
+        source.poll();
+        assertEquals(List.of(), seen);
+        game.setGraphicsObjectsPlaying(1);
+        source.poll();
+        game.setGraphicsObjectsPlaying(0, 1);
+        source.poll();
+        assertEquals(List.of("GraphicsObjectCreated " + SPLASH_GRAPHIC), names(), "the splash came back: a new one");
+    }
+
+    @Test
+    void aGraphicsObjectListReadMidChangeKeepsTheLastOne() {
+        record(GraphicsObjectCreated.class, GraphicsObjectDestroyed.class);
+        source.poll();
+        game.breakGraphicsObjectList();
+        source.poll();
+        game.setGraphicsObjectsPlaying(0, 1);
+        source.poll();
+        assertEquals(List.of(), seen, "nothing left or arrived");
     }
 }

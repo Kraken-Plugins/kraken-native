@@ -25,7 +25,9 @@ import static com.kraken.api.GameFixture.ARROW_PROJECTILE;
 import static com.kraken.api.GameFixture.BASE_X;
 import static com.kraken.api.GameFixture.BASE_Z;
 import static com.kraken.api.GameFixture.CYCLE;
+import static com.kraken.api.GameFixture.KEYED_PROJECTILE;
 import static com.kraken.api.GameFixture.MODULE_BASE;
+import static com.kraken.api.GameFixture.PROJECTILE_KEY;
 import static com.kraken.api.GameFixture.SPELL_PROJECTILE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -34,8 +36,9 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The projectiles over the {@link GameFixture}: the client's list, the axes (x, north y, height z), the two endpoints
- * as tiles, actors and heights, the live remaining cycles, and the "any projectile drawn" check.
+ * The projectiles over the {@link GameFixture}: the client's list and its keyed projectiles, the axes (x, north y,
+ * height z), the two endpoints as tiles, actors, heights and offsets, the live remaining cycles, and the "any
+ * projectile drawn" check.
  */
 class ProjectileTest {
 
@@ -54,9 +57,43 @@ class ProjectileTest {
     }
 
     @Test
-    void listsProjectilesInListOrder() {
+    void listsProjectilesInListOrderThenTheKeyedOnes() {
         List<Projectile> projectiles = new ArrayList<>(client.getProjectiles());
-        assertEquals(List.of(SPELL_PROJECTILE, ARROW_PROJECTILE), projectiles.stream().map(Projectile::getId).toList());
+        assertEquals(List.of(SPELL_PROJECTILE, ARROW_PROJECTILE, KEYED_PROJECTILE),
+                projectiles.stream().map(Projectile::getId).toList());
+        assertEquals(List.of(-1, -1, PROJECTILE_KEY), projectiles.stream().map(Projectile::getKey).toList());
+    }
+
+    @Test
+    void readsAKeyedProjectileWithItsOffsets() {
+        Projectile keyed = client.getProjectiles().getLast();
+        assertEquals(new ProjectileEndpoint(new MapCoord(0, BASE_X + 1, BASE_Z + 2), 60, Actor.INTERACTING_PLAYER, 7,
+                16, -16), keyed.getSource());
+        assertEquals(new ProjectileEndpoint(new MapCoord(0, BASE_X + 4, BASE_Z + 4), 20, Actor.INTERACTING_NPC, 5,
+                8, -8), keyed.getTarget());
+        assertSame(client.getLocalPlayer(), keyed.getSourceActor());
+        assertSame(client.getTopLevelWorldView().npcs().byIndex(5), keyed.getTargetActor());
+        assertEquals(60, keyed.getStartHeight());
+        assertEquals(20, keyed.getEndHeight());
+        assertEquals(145, keyed.getStartCycle());
+        assertEquals(185, keyed.getEndCycle());
+        assertEquals(0, keyed.getSlope(), "a keyed projectile follows a curve");
+        assertEquals(0, keyed.getStartPos());
+        assertTrue(keyed.isStarted());
+        assertEquals(250.5, keyed.getX());
+        assertEquals(330.75, keyed.getY(), "north is the client's z");
+        assertEquals(-90.25, keyed.getZ(), "the height is the client's y");
+        assertEquals(1024, keyed.getOrientation());
+        assertEquals(32, keyed.getPitch());
+        assertFalse(keyed.isHidden());
+        assertEquals(185 - CYCLE, keyed.getRemainingCycles());
+    }
+
+    @Test
+    void anUnreadableKeyedMapLeavesTheListsProjectiles() {
+        game.setKeyedProjectilesReadable(false);
+        assertEquals(List.of(SPELL_PROJECTILE, ARROW_PROJECTILE),
+                client.getProjectiles().stream().map(Projectile::getId).toList());
     }
 
     @Test
@@ -96,7 +133,7 @@ class ProjectileTest {
 
     @Test
     void aProjectileThatHasNotSetOffHasNoActorAtItsStart() {
-        Projectile arrow = client.getProjectiles().getLast();
+        Projectile arrow = new ArrayList<>(client.getProjectiles()).get(1);
         assertFalse(arrow.isStarted());
         assertNull(arrow.getSourceActor(), "a tile");
         assertEquals(new WorldPoint(BASE_X + 6, BASE_Z + 6, 0), arrow.getTargetPoint());
@@ -119,11 +156,14 @@ class ProjectileTest {
         assertFalse(client.areProjectilesRendered());
         game.setProjectileHidden(1, false);
         assertTrue(client.areProjectilesRendered());
+        game.setProjectileHidden(1, true);
+        assertFalse(client.areProjectilesRendered(), "the keyed projectile isn't counted, as in the Lua handler");
     }
 
     @Test
     void nothingInFlight() {
         game.clearProjectiles();
+        game.setKeyedProjectileInFlight(false);
         assertTrue(client.getProjectiles().isEmpty());
         assertFalse(client.areProjectilesRendered());
     }
@@ -136,13 +176,22 @@ class ProjectileTest {
             json = new Gson().fromJson(in, JsonObject.class);
         }
         JsonObject structs = json.getAsJsonObject("structs");
+        structs.remove("KeyedProjectile");
+        structs.getAsJsonObject("Client").remove("keyedProjectiles");
+        Client withoutKeyed = new Client(game.memory, Mapping.load(write(dir, json)));
+        assertEquals(List.of(SPELL_PROJECTILE, ARROW_PROJECTILE),
+                withoutKeyed.getProjectiles().stream().map(Projectile::getId).toList());
+
         structs.remove("Projectile");
         structs.getAsJsonObject("Client").remove("projectiles");
-        Path file = dir.resolve(game.map.version() + ".json");
-        Files.writeString(file, json.toString());
-
-        Client older = new Client(game.memory, Mapping.load(file));
+        Client older = new Client(game.memory, Mapping.load(write(dir, json)));
         assertTrue(older.getProjectiles().isEmpty());
         assertFalse(older.areProjectilesRendered());
+    }
+
+    private Path write(Path dir, JsonObject json) throws IOException {
+        Path file = dir.resolve(game.map.version() + ".json");
+        Files.writeString(file, json.toString());
+        return file;
     }
 }

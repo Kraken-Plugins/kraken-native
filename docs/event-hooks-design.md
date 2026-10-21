@@ -96,6 +96,17 @@ The menu events have no hook of their own: `MenuEntryAdded` / `MenuEntryRemoved`
 worth a message), and `MenuOptionClicked` from `Minimenu.clicked` and `Minimenu.clickCycles`, which the op events
 above make the API read right away (`updater/src/native_updater/minimenu.py` maps the layout).
 
+`GraphicsObjectCreated` / `GraphicsObjectDestroyed` have no hook either: they come from a diff of the top-level world's
+`World.graphicsObjects` list on every poll. The client creates graphics objects in its constructor (`0x38c00`, from the
+map-anim cases of the zone update `0x95f10` and the packet handler `0x8e500`), which takes five stack arguments, and
+drops them in a per-frame filter (`0x73840`) that runs once per object every frame, so neither is worth hooking.
+With the hook connected, `clientCycle` wakes a poll every cycle anyway.
+
+Keyed projectiles (`Client.keyedProjectiles`, the ones the server can retarget in flight) have no hook either:
+`ProjectileTracker` reads the map on every poll, posting `ProjectileSpawned` and `ProjectileMoved` for a new key and
+another `ProjectileMoved` when a projectile's target changes. Their constructor (`0x31120`) and step (`0x31430`) could
+be hooked, but a poll a cycle later loses nothing.
+
 ### 2.5 Function hook targets
 
 All under `functions` in the mapping (`hooks.py`, the `projectiles` extractor and two fingerprints). The DLL only
@@ -226,7 +237,8 @@ spawns before `GameTick`.
 | ON_SCREEN_RESIZE | `CanvasTracker` | compares the canvas size now |
 | `clientCycle` | (none) | wakes the poll loop, which posts one `ClientTick` per step of the cycle counter (§4.4) |
 | `npcInfoDecode` / `playerInfoDecode` | `InteractingTracker` | diffs targets right after the packet |
-| `projectileCtor`, `projectileStep` (opt-in) | `ProjectileTracker` | diffs the projectile list now |
+| `projectileCtor`, `projectileStep` (opt-in) | `ProjectileTracker` | diffs the projectile list now; the keyed projectiles are read on every poll (§2.4) |
+| (none) | `GraphicsObjectTracker` | diffs the world's graphics object list on every poll (§2.4) |
 | ON_NPC_OP, ON_LOC_OP, ON_TILE_OP, ON_PLAYER_OP, ON_COMPONENT_OP | `MenuClickTracker` | reads `Minimenu.clicked` now and posts `MenuOptionClicked` if the copy or its cycle count shows a new run; ON_OBJ_OP is not hooked (stack arguments), so ground item clicks come from the poll |
 | `objAdd` / `objDel` / `objCount` | `ItemTracker` | wired, but not hooked (stack arguments); piles are read on the poll |
 

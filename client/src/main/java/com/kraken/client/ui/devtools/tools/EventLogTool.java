@@ -12,6 +12,8 @@ import com.kraken.api.eventbus.Subscriber;
 import com.kraken.api.events.CanvasSizeChanged;
 import com.kraken.api.events.GameStateChanged;
 import com.kraken.api.events.GameTick;
+import com.kraken.api.events.GraphicsObjectCreated;
+import com.kraken.api.events.GraphicsObjectDestroyed;
 import com.kraken.api.events.InteractingChanged;
 import com.kraken.api.events.ItemContainerChanged;
 import com.kraken.api.events.ItemDespawned;
@@ -33,6 +35,7 @@ import com.kraken.api.events.TileObjectSpawned;
 import com.kraken.api.events.VarbitChanged;
 import com.kraken.api.item.Item;
 import com.kraken.api.item.ItemContainer;
+import com.kraken.api.scene.GraphicsObject;
 import com.kraken.api.scene.Tile;
 import com.kraken.api.scene.TileItem;
 import com.kraken.api.scene.TileObject;
@@ -72,6 +75,7 @@ final class EventLogTool extends DevTool<List<String>> {
     private static final String ITEMS = "items";
     private static final String INTERACTING = "interacting";
     private static final String PROJECTILES = "projectiles";
+    private static final String GRAPHICS = "graphics";
     private static final String INVENTORIES = "inventories";
     private static final String STATS = "stats";
     private static final String VARS = "vars";
@@ -87,6 +91,7 @@ final class EventLogTool extends DevTool<List<String>> {
     private final ToolOption itemSpawns = option("itemSpawns", "Ground item spawns", false);
     private final ToolOption interacting = option("interacting", "Interacting changes", false);
     private final ToolOption projectiles = option("projectiles", "Projectiles", true);
+    private final ToolOption graphics = option("graphics", "Graphics objects", true);
     private final ToolOption inventories = option("inventories", "Inventory transmits", true);
     private final ToolOption stats = option("stats", "Stat transmits", true);
     private final ToolOption vars = option("vars", "Var transmits", false);
@@ -106,8 +111,8 @@ final class EventLogTool extends DevTool<List<String>> {
     EventLogTool() {
         super("events", "Event log", Category.DIAGNOSTICS, MaterialDesignL.LIGHTNING_BOLT_OUTLINE,
                 "A live log of the API's events (game state, NPC and player spawns, objects, ground items, targets, "
-                        + "projectiles, inventories, stats, vars, varbits, ticks, resizes, menu clicks and menu "
-                        + "entries) as they're seen.");
+                        + "projectiles, graphics objects, inventories, stats, vars, varbits, ticks, resizes, menu clicks "
+                        + "and menu entries) as they're seen.");
     }
 
     @Override
@@ -182,6 +187,7 @@ final class EventLogTool extends DevTool<List<String>> {
         keep(ITEMS, itemSpawns.isOn(), this::subscribeItems);
         keep(INTERACTING, interacting.isOn(), this::subscribeInteracting);
         keep(PROJECTILES, projectiles.isOn(), this::subscribeProjectiles);
+        keep(GRAPHICS, graphics.isOn(), this::subscribeGraphics);
         keep(INVENTORIES, inventories.isOn(), this::subscribeInventories);
         keep(STATS, stats.isOn(), this::subscribeStats);
         keep(VARS, vars.isOn() || varbits.isOn(), this::subscribeVars);
@@ -277,6 +283,19 @@ final class EventLogTool extends DevTool<List<String>> {
             if (projectiles.isOn()) {
                 add("ProjectileMoved  " + e.getProjectile().getId() + " to " + local(e.getPosition()) + " z "
                         + e.getZ());
+            }
+        });
+    }
+
+    private void subscribeGraphics() {
+        on(GRAPHICS, GraphicsObjectCreated.class, e -> {
+            if (graphics.isOn()) {
+                add("GraphicsObjectCreated  " + graphic(e.getGraphicsObject()));
+            }
+        });
+        on(GRAPHICS, GraphicsObjectDestroyed.class, e -> {
+            if (graphics.isOn()) {
+                add("GraphicsObjectDestroyed  " + graphic(e.getGraphicsObject()));
             }
         });
     }
@@ -452,6 +471,17 @@ final class EventLogTool extends DevTool<List<String>> {
      */
     private static String local(LocalPoint point) {
         return point == null ? "?" : "local (" + point.getX() + ", " + point.getY() + ")";
+    }
+
+    /**
+     * A graphics object, for a line: its id, its tile and the cycle it starts playing on.
+     *
+     * @param object the graphics object
+     * @return e.g. "85 at local (448, 576) level 0 from cycle 145"
+     */
+    private static String graphic(GraphicsObject object) {
+        return object.getId() + " at " + local(object.getLocation()) + " level " + object.getLevel() + " from cycle "
+                + object.getStartCycle();
     }
 
     /**

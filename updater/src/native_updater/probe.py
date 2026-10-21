@@ -111,6 +111,9 @@ class Reader:
             raise OSError(f"read failed at {addr:#x}")
         return buf.raw
 
+    def i16(self, a):
+        return struct.unpack("<h", self.read(a, 2))[0]
+
     def i32(self, a):
         return struct.unpack("<i", self.read(a, 4))[0]
 
@@ -312,6 +315,61 @@ def run_checks(r, log):
         skipped("projectiles", "no projectiles in flight; stand near combat (ranged or magic) and re-run")
     else:
         ok("projectiles", not pj_bad, f"{flying} projectiles: ids, endpoints, cycles and positions plausible" if not pj_bad else f"{pj_bad[:2]}")
+
+    # Keyed projectiles: every entry of the map has a key, a plausible id, endpoints and timing, and a placed one sits
+    # inside the scene.
+    kmap = client + r.off("Client", "keyedProjectiles")
+    kf = lambda name: r.off("KeyedProjectile", name)
+    buckets, nbuckets = r.ptr(kmap + r.const("hash_map", "buckets")), r.i64(kmap + r.const("hash_map", "bucketCount"))
+    keyed, kp_bad = 0, []
+    if not (0 < nbuckets < 0x10000):
+        ok("keyedProjectiles", False, f"keyed projectile map has {nbuckets} buckets")
+    else:
+        for b in range(nbuckets):
+            node, chain = r.ptr(buckets + 8 * b), 0
+            while node and chain < 256:
+                key, p = r.i32(node + r.const("hash_map", "node.key")), r.ptr(node + r.const("hash_map", "node.value"))
+                keyed, chain = keyed + 1, chain + 1
+                spot, start, end = r.i32(p + kf("spotAnimId")), r.i32(p + kf("startCycle")), r.i32(p + kf("endCycle"))
+                ends = [(r.i32(p + kf(f"{side}Level")), r.i32(p + kf(f"{side}X")), r.i32(p + kf(f"{side}Z")),
+                         r.i32(p + kf(f"{side}Actor"))) for side in ("source", "target")]
+                placed = r.u8(p + kf("started"))
+                fx, fz = struct.unpack("<f", r.read(p + kf("fineX"), 4))[0], struct.unpack("<f", r.read(p + kf("fineZ"), 4))[0]
+                if not (0 <= key < 0x10000 and 0 <= spot < 0x10000 and start <= end and end >= cycle - 2 and placed in (0, 1)
+                        and all(0 <= lv <= 3 and 0 <= x < 16384 and 0 <= z < 16384 and -2048 <= a <= 0x10000 for lv, x, z, a in ends)
+                        and (not placed or (0 <= fx < 512 * 128 and 0 <= fz < 512 * 128))):
+                    kp_bad.append((key, spot, start, end, cycle, ends, placed, round(fx), round(fz)))
+                node = r.ptr(node + r.const("hash_map", "node.next"))
+        if not keyed:
+            skipped("keyedProjectiles", "no keyed projectiles in flight; re-run while one is in the air")
+        else:
+            ok("keyedProjectiles", not kp_bad, f"{keyed} keyed projectiles: keys, ids, endpoints, cycles and positions plausible"
+               if not kp_bad else f"{kp_bad[:2]}")
+
+    # Graphics objects: the top-level world's list ends at its sentinel; every object has a plausible id, sits on the
+    # world's plane at the centre of a tile of its scene, and has a SeqType (null only between an animation ending and
+    # the next frame's filter dropping the object).
+    head = top + r.off("World", "graphicsObjects")
+    gf = lambda name: r.off("GraphicsObject", name)
+    node, playing, go_bad = r.ptr(head + r.const("list", "node.next")), 0, []
+    while node and node != head and playing < 256:
+        g = r.ptr(node + r.const("list", "node.value"))
+        playing += 1
+        spot, level, start = r.i32(g + gf("spotAnimId")), r.i32(g + gf("level")), r.i32(g + gf("startCycle"))
+        fx, fz, height = r.i32(g + gf("fineX")), r.i32(g + gf("fineZ")), r.i32(g + gf("height"))
+        seq, frame = r.ptr(g + gf("animSeqType")), r.i16(g + gf("animFrame"))
+        if not (0 <= spot < 0x10000 and level == plane and fx % 128 == 64 and fz % 128 == 64 and 0 <= fx < w * 128
+                and 0 <= fz < h * 128 and -0x4000 < height < 0x4000 and start <= cycle + 0x10000 and (seq == 0 or seq > 0x10000)
+                and -1 <= frame < 0x1000):
+            go_bad.append((playing - 1, spot, level, fx, fz, height, start, cycle, hex(seq), frame))
+        node = r.ptr(node + r.const("list", "node.next"))
+    if node != head:
+        ok("graphicsObjects", False, f"the graphics object list doesn't return to its sentinel after {playing} nodes")
+    elif not playing:
+        skipped("graphicsObjects", "no graphics objects playing; stand near a cannon or a spell's splash and re-run")
+    else:
+        ok("graphicsObjects", not go_bad, f"{playing} graphics objects: ids, tiles, heights, cycles and animations plausible"
+           if not go_bad else f"{go_bad[:2]}")
 
     # NPC types.
     nt_bad = []

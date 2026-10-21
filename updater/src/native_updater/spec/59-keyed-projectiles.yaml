@@ -1,0 +1,195 @@
+# Keyed projectiles: the projectiles the server sends with a key, so it can retarget one in flight. The client keeps
+# them apart from the projectile list, in an eastl::hash_map<int, jag::shared_ptr<KeyedProjectile>> on the Client, and
+# moves each one every cycle along a curve from its source to its target (each a world tile or an NPC or player, with an
+# x, height and z offset), between its start and end cycles; it drops one once the cycle passes its end. A retarget
+# packet replaces the target, and the next step carries on from where the projectile is. No Lua binding touches them, so
+# the layout comes from the per-frame walk, its step, the step's first-cycle init and their endpoint lookup (extractor
+# `keyed_projectiles`).
+fingerprints:
+  # The walk over Client.keyedProjectiles, the per-projectile step it calls, the init the step calls on the first cycle,
+  # the endpoint lookup both call (a tile or an actor -> fine position and height) and the constructor (which loads the
+  # spot anim).
+  KeyedProjectileWalk:     { extractor: keyed_projectiles, field: KeyedProjectileWalk, cls: A }
+  KeyedProjectileStep:     { extractor: keyed_projectiles, field: KeyedProjectileStep, cls: A }
+  KeyedProjectileInit:     { extractor: keyed_projectiles, field: KeyedProjectileInit, cls: A }
+  KeyedProjectileEndpoint: { extractor: keyed_projectiles, field: KeyedProjectileEndpoint, cls: A }
+  KeyedProjectileCtor:     { extractor: keyed_projectiles, field: KeyedProjectileCtor, cls: A }
+
+keys:
+  - key: Client.keyedProjectiles
+    type: eastl.hash_map<i32, jag.shared_ptr<KeyedProjectile>>
+    priority: P1
+    live: keyedProjectiles
+    doc: The keyed projectiles in flight, by the key the server sent each with.
+    strategies:
+      - extractor: { name: keyed_projectiles, field: Client.keyedProjectiles, cls: A }
+  - key: KeyedProjectile.spotAnimId
+    type: i32
+    priority: P1
+    live: keyedProjectiles
+    doc: The projectile's id (its SpotAnimType id).
+    strategies:
+      - extractor: { name: keyed_projectiles, field: KeyedProjectile.spotAnimId, cls: A }
+      - getter: { in: "@KeyedProjectileCtor", base: arg0, load: i32, select: { passed_to: { fn: "@ConfigLoader.13", arg: 1 } } }
+
+  # Timing, in client cycles (20 ms). A hold packet can push both forward while the projectile waits.
+  - key: KeyedProjectile.startCycle
+    type: i32
+    priority: P1
+    live: keyedProjectiles
+    doc: Cycle the projectile sets off on; until then it isn't moved or drawn.
+    strategies:
+      - extractor: { name: keyed_projectiles, field: KeyedProjectile.startCycle, cls: A }
+  - key: KeyedProjectile.endCycle
+    type: i32
+    priority: P1
+    live: keyedProjectiles
+    doc: Cycle the projectile lands on; the client drops it once the cycle passes this.
+    strategies:
+      - extractor: { name: keyed_projectiles, field: KeyedProjectile.endCycle, cls: A }
+
+  # The two endpoints: a world tile (level, x, z), an actor reference (0 for none, n > 0 for NPC index n - 1, n < 0 for
+  # player index -n - 1) and an x, height, z offset from the actor or the tile's centre (the height is subtracted from
+  # the ground's, so larger is higher).
+  - key: KeyedProjectile.sourceLevel
+    type: i32
+    priority: P1
+    live: keyedProjectiles
+    doc: Level of the source tile.
+    strategies:
+      - extractor: { name: keyed_projectiles, field: KeyedProjectile.sourceLevel, cls: A }
+  - key: KeyedProjectile.sourceX
+    type: i32
+    priority: P1
+    live: keyedProjectiles
+    doc: World tile x of the source.
+    strategies:
+      - extractor: { name: keyed_projectiles, field: KeyedProjectile.sourceX, cls: A }
+  - key: KeyedProjectile.sourceZ
+    type: i32
+    priority: P1
+    live: keyedProjectiles
+    doc: World tile z of the source.
+    strategies:
+      - extractor: { name: keyed_projectiles, field: KeyedProjectile.sourceZ, cls: A }
+  - key: KeyedProjectile.sourceActor
+    type: i32
+    priority: P1
+    live: keyedProjectiles
+    doc: Actor reference of the source.
+    strategies:
+      - extractor: { name: keyed_projectiles, field: KeyedProjectile.sourceActor, cls: A }
+  - key: KeyedProjectile.sourceOffsetX
+    type: i32
+    priority: P1
+    live: keyedProjectiles
+    doc: Fine x offset from the source.
+    strategies:
+      - extractor: { name: keyed_projectiles, field: KeyedProjectile.sourceOffsetX, cls: A }
+  - key: KeyedProjectile.startHeight
+    type: i32
+    priority: P1
+    live: keyedProjectiles
+    doc: Height above the source the path starts at.
+    strategies:
+      - extractor: { name: keyed_projectiles, field: KeyedProjectile.startHeight, cls: A }
+  - key: KeyedProjectile.sourceOffsetZ
+    type: i32
+    priority: P1
+    live: keyedProjectiles
+    doc: Fine z offset from the source.
+    strategies:
+      - extractor: { name: keyed_projectiles, field: KeyedProjectile.sourceOffsetZ, cls: A }
+  - key: KeyedProjectile.targetLevel
+    type: i32
+    priority: P1
+    live: keyedProjectiles
+    doc: Level of the target tile.
+    strategies:
+      - extractor: { name: keyed_projectiles, field: KeyedProjectile.targetLevel, cls: A }
+  - key: KeyedProjectile.targetX
+    type: i32
+    priority: P1
+    live: keyedProjectiles
+    doc: World tile x of the target.
+    strategies:
+      - extractor: { name: keyed_projectiles, field: KeyedProjectile.targetX, cls: A }
+  - key: KeyedProjectile.targetZ
+    type: i32
+    priority: P1
+    live: keyedProjectiles
+    doc: World tile z of the target.
+    strategies:
+      - extractor: { name: keyed_projectiles, field: KeyedProjectile.targetZ, cls: A }
+  - key: KeyedProjectile.targetActor
+    type: i32
+    priority: P1
+    live: keyedProjectiles
+    doc: Actor reference of the target.
+    strategies:
+      - extractor: { name: keyed_projectiles, field: KeyedProjectile.targetActor, cls: A }
+  - key: KeyedProjectile.targetOffsetX
+    type: i32
+    priority: P1
+    live: keyedProjectiles
+    doc: Fine x offset from the target.
+    strategies:
+      - extractor: { name: keyed_projectiles, field: KeyedProjectile.targetOffsetX, cls: A }
+  - key: KeyedProjectile.endHeight
+    type: i32
+    priority: P1
+    live: keyedProjectiles
+    doc: Height above the target the path ends at.
+    strategies:
+      - extractor: { name: keyed_projectiles, field: KeyedProjectile.endHeight, cls: A }
+  - key: KeyedProjectile.targetOffsetZ
+    type: i32
+    priority: P1
+    live: keyedProjectiles
+    doc: Fine z offset from the target.
+    strategies:
+      - extractor: { name: keyed_projectiles, field: KeyedProjectile.targetOffsetZ, cls: A }
+
+  # Where the projectile is: written by the step from its first cycle on (until then the flag is clear).
+  - key: KeyedProjectile.started
+    type: u8
+    priority: P1
+    live: keyedProjectiles
+    doc: Nonzero once the step has placed the projectile (on its first cycle at or after startCycle).
+    strategies:
+      - extractor: { name: keyed_projectiles, field: KeyedProjectile.started, cls: A }
+  - key: KeyedProjectile.fineX
+    type: f32
+    priority: P1
+    live: keyedProjectiles
+    doc: Position in top-level scene fine units (a float; the client draws it truncated).
+    strategies:
+      - extractor: { name: keyed_projectiles, field: KeyedProjectile.fineX, cls: A }
+  - key: KeyedProjectile.fineY
+    type: f32
+    priority: P1
+    live: keyedProjectiles
+    doc: Height (a float; more negative is higher).
+    strategies:
+      - extractor: { name: keyed_projectiles, field: KeyedProjectile.fineY, cls: A }
+  - key: KeyedProjectile.fineZ
+    type: f32
+    priority: P1
+    live: keyedProjectiles
+    doc: Position in top-level scene fine units, like fineX.
+    strategies:
+      - extractor: { name: keyed_projectiles, field: KeyedProjectile.fineZ, cls: A }
+  - key: KeyedProjectile.yaw
+    type: i32
+    priority: P1
+    live: keyedProjectiles
+    doc: Heading, 0-2047 (2048 per turn), the angle the client draws the model at.
+    strategies:
+      - extractor: { name: keyed_projectiles, field: KeyedProjectile.yaw, cls: A }
+  - key: KeyedProjectile.pitch
+    type: i32
+    priority: P1
+    live: keyedProjectiles
+    doc: Climb angle of the flight path, 0-2047.
+    strategies:
+      - extractor: { name: keyed_projectiles, field: KeyedProjectile.pitch, cls: A }

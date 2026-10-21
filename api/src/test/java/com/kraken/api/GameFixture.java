@@ -39,8 +39,12 @@ import static com.kraken.api.TestSupport.seedMapping;
  *       loaded). 149 and 162 are open, chained in one bucket of the open-interface map. 149:0 is a layer with dynamic
  *       children [0] (an item slot), [1] (a dynamic layer) and [2] (text inside [1]); 162:0 is a top-level layer
  *       holding 162:1 (text "All", drawn this frame, with an op) and 162:2 (hidden, its text on the heap).
+ *   <li>Two graphics objects in the top-level world: a splash ({@link #SPLASH_GRAPHIC}) on tile (3, 4), playing frame
+ *       3; and a cannon's smoke ({@link #SMOKE_GRAPHIC}) on tile (5, 2), raised 40 above the ground and not started.
  *   <li>Two projectiles in flight: a spell ({@link #SPELL_PROJECTILE}) from player 7 at NPC 5, placed and drawn; and
- *       an arrow ({@link #ARROW_PROJECTILE}) from one tile to another, hidden and not set off yet.
+ *       an arrow ({@link #ARROW_PROJECTILE}) from one tile to another, hidden and not set off yet. And a keyed
+ *       projectile ({@link #KEYED_PROJECTILE}, key {@link #PROJECTILE_KEY}) from player 7 at NPC 5, placed, with
+ *       offsets at both ends.
  *   <li>The minimenu, closed, with one row per entry from {@link #MENU_ATTACK} to {@link #MENU_CANCEL} (top first),
  *       the row of {@link #MENU_USE_ON_GOBLIN} being a submenu group holding it. The last entry run is "Cancel", 100
  *       cycles ago.
@@ -100,6 +104,8 @@ public final class GameFixture {
     public static final long IF_OPEN = 0xc40000000L;
     public static final long IF_HEAP = 0xc50000000L;
     public static final long PROJECTILES = 0xb60000000L;
+    public static final long GRAPHICS_OBJECTS = 0xb70000000L;
+    public static final long KEYED_PROJECTILES = 0xb80000000L;
     /**
      * Piles, nodes and items {@link #setPile} adds are bump-allocated from here.
      */
@@ -165,6 +171,23 @@ public final class GameFixture {
     public static final int SPELL_PROJECTILE = 91;
     public static final int ARROW_PROJECTILE = 10;
 
+    /**
+     * Spot anim id of the keyed projectile, and the key the server sent it with.
+     */
+    public static final int KEYED_PROJECTILE = 1481;
+    public static final int PROJECTILE_KEY = 77;
+
+    /**
+     * Spot anim ids of the two graphics objects: the splash (first in the list) and the smoke.
+     */
+    public static final int SPLASH_GRAPHIC = 85;
+    public static final int SMOKE_GRAPHIC = 53;
+
+    /**
+     * Where the graphics objects' SeqTypes sit; the fixture only stores the pointers.
+     */
+    private static final long GRAPHIC_SEQ_TYPE = 0xb7f000000L;
+
     public final Mapping map;
     public final FakeMemory memory = new FakeMemory();
     private final Map<Integer, Long> invNodes = new HashMap<>();
@@ -196,6 +219,8 @@ public final class GameFixture {
         buildCollision();
         buildInterfaces();
         buildProjectiles();
+        buildKeyedProjectiles();
+        buildGraphicsObjects();
         buildMenu();
     }
 
@@ -1419,6 +1444,212 @@ public final class GameFixture {
 
     private static long projectile(int index) {
         return PROJECTILES + 0x1000L * (index + 1);
+    }
+
+    /**
+     * The keyed projectile map: two buckets, the second holding the one projectile, key {@link #PROJECTILE_KEY}. It
+     * flies from player 7 (actor reference -8) at NPC 5 (reference 6) between cycles 145 and 185 and has been placed;
+     * its source is offset (16, 60, -16) and its target (8, 20, -8) in (x, height, z).
+     */
+    private void buildKeyedProjectiles() {
+        long table = CLIENT + map.offset("Client.keyedProjectiles");
+        long buckets = KEYED_PROJECTILES;
+        long node = KEYED_PROJECTILES + 0x100;
+        long p = keyedProjectile();
+        memory.alloc(KEYED_PROJECTILES, 0x200);
+        memory.alloc(p, 0x400);
+        memory.putLong(table + map.container("hash_map.buckets"), buckets);
+        memory.putLong(table + map.container("hash_map.bucketCount"), 2);
+        memory.putInt(node + map.container("hash_map.node.key"), PROJECTILE_KEY);
+        memory.putLong(node + map.container("hash_map.node.value"), p);
+        memory.putLong(node + map.container("hash_map.node.next"), 0);
+        setKeyedProjectileInFlight(true);
+
+        memory.putInt(p + keyed("spotAnimId"), KEYED_PROJECTILE);
+        putKeyedEndpoint(p, "source", BASE_X + 1, BASE_Z + 2, -8, new int[]{16, 60, -16});
+        putKeyedEndpoint(p, "target", BASE_X + 4, BASE_Z + 4, 6, new int[]{8, 20, -8});
+        memory.putInt(p + keyed("startCycle"), 145);
+        memory.putInt(p + keyed("endCycle"), 185);
+        memory.putByte(p + keyed("started"), 1);
+        memory.putInt(p + keyed("fineX"), Float.floatToRawIntBits(250.5f));
+        memory.putInt(p + keyed("fineY"), Float.floatToRawIntBits(-90.25f));
+        memory.putInt(p + keyed("fineZ"), Float.floatToRawIntBits(330.75f));
+        memory.putInt(p + keyed("yaw"), 1024);
+        memory.putInt(p + keyed("pitch"), 32);
+    }
+
+    private static long keyedProjectile() {
+        return KEYED_PROJECTILES + 0x1000;
+    }
+
+    private int keyed(String field) {
+        return map.offset("KeyedProjectile." + field);
+    }
+
+    /**
+     * Writes one end of the keyed projectile, on level 0.
+     *
+     * @param p      the projectile
+     * @param side   "source" or "target"
+     * @param x      the world tile x
+     * @param z      the world tile z
+     * @param actor  the actor reference
+     * @param offset the x, height and z offset
+     */
+    private void putKeyedEndpoint(long p, String side, int x, int z, int actor, int[] offset) {
+        memory.putInt(p + keyed(side + "Level"), 0);
+        memory.putInt(p + keyed(side + "X"), x);
+        memory.putInt(p + keyed(side + "Z"), z);
+        memory.putInt(p + keyed(side + "Actor"), actor);
+        memory.putInt(p + keyed(side + "OffsetX"), offset[0]);
+        memory.putInt(p + keyed(side.equals("source") ? "startHeight" : "endHeight"), offset[1]);
+        memory.putInt(p + keyed(side + "OffsetZ"), offset[2]);
+    }
+
+    /**
+     * Files the keyed projectile in its bucket or takes it out, as when it is sent or lands.
+     *
+     * @param inFlight whether it is in the map
+     */
+    public void setKeyedProjectileInFlight(boolean inFlight) {
+        memory.putLong(KEYED_PROJECTILES, 0);
+        memory.putLong(KEYED_PROJECTILES + 8, inFlight ? KEYED_PROJECTILES + 0x100 : 0);
+    }
+
+    /**
+     * Retargets the keyed projectile at a tile, as a retarget packet does.
+     *
+     * @param x the world tile x
+     * @param z the world tile z
+     */
+    public void retargetKeyedProjectile(int x, int z) {
+        putKeyedEndpoint(keyedProjectile(), "target", x, z, 0, new int[]{8, 20, -8});
+    }
+
+    /**
+     * Moves the keyed projectile and pushes its cycles forward, which happens every cycle of its flight or while it is
+     * held, without changing where it is going.
+     */
+    public void advanceKeyedProjectile() {
+        long p = keyedProjectile();
+        memory.putInt(p + keyed("fineX"), Float.floatToRawIntBits(260.5f));
+        memory.putInt(p + keyed("startCycle"), 147);
+        memory.putInt(p + keyed("endCycle"), 187);
+    }
+
+    /**
+     * Gives the keyed projectile map a bucket count no read accepts, as a read racing the client's update might see it,
+     * or puts the real one back.
+     *
+     * @param readable whether the map can be read
+     */
+    public void setKeyedProjectilesReadable(boolean readable) {
+        memory.putLong(CLIENT + map.offset("Client.keyedProjectiles") + map.container("hash_map.bucketCount"),
+                readable ? 2 : 1L << 40);
+    }
+
+    /**
+     * The top-level world's graphics object list, sentinel → splash → smoke → sentinel. The splash plays on tile
+     * (3, 4) from cycle 145 and shows frame 3; the smoke on tile (5, 2), 40 above the ground, starts on cycle 160, so
+     * at cycle {@link #CYCLE} it hasn't.
+     */
+    private void buildGraphicsObjects() {
+        memory.alloc(GRAPHICS_OBJECTS, 0x40);
+        memory.alloc(GRAPHIC_SEQ_TYPE, 0x10);
+        long splash = graphicsObject(0);
+        memory.alloc(splash, 0x2c0);
+        putGraphicsObject(splash, SPLASH_GRAPHIC, 3, 4, 0, 145);
+        setGraphicsObjectFrame(0, 3);
+        long smoke = graphicsObject(1);
+        memory.alloc(smoke, 0x2c0);
+        putGraphicsObject(smoke, SMOKE_GRAPHIC, 5, 2, -40, 160);
+        setGraphicsObjectFrame(1, -1);
+        setGraphicsObjectsPlaying(0, 1);
+    }
+
+    private static long graphicsObject(int index) {
+        return GRAPHICS_OBJECTS + 0x1000L * (index + 1);
+    }
+
+    /**
+     * Writes what the server sends for a graphics object, at the centre of a scene tile on level 0, with its animation
+     * running.
+     *
+     * @param g          the graphics object
+     * @param id         its spot anim id
+     * @param x          the scene tile x
+     * @param z          the scene tile z
+     * @param height     the height it is drawn at
+     * @param startCycle the cycle it starts playing on
+     */
+    private void putGraphicsObject(long g, int id, int x, int z, int height, int startCycle) {
+        memory.putInt(g + map.offset("GraphicsObject.spotAnimId"), id);
+        memory.putInt(g + map.offset("GraphicsObject.level"), 0);
+        memory.putInt(g + map.offset("GraphicsObject.fineX"), x * 128 + 64);
+        memory.putInt(g + map.offset("GraphicsObject.fineZ"), z * 128 + 64);
+        memory.putInt(g + map.offset("GraphicsObject.height"), height);
+        memory.putInt(g + map.offset("GraphicsObject.startCycle"), startCycle);
+        memory.putLong(g + map.offset("GraphicsObject.animSeqType"), GRAPHIC_SEQ_TYPE);
+    }
+
+    /**
+     * Relinks the top-level world's graphics object list with some of the two objects, as when one is played or
+     * dropped.
+     *
+     * @param indices 0 for the splash, 1 for the smoke, in list order; none for an empty list
+     */
+    public void setGraphicsObjectsPlaying(int... indices) {
+        int next = map.container("list.node.next");
+        int prev = map.container("list.node.prev");
+        int value = map.container("list.node.value");
+        long sentinel = WORLD + map.offset("World.graphicsObjects");
+        long previous = sentinel;
+        for (int index : indices) {
+            long node = GRAPHICS_OBJECTS + 0x20L * index;
+            memory.putLong(node + value, graphicsObject(index));
+            memory.putLong(previous + next, node);
+            memory.putLong(node + prev, previous);
+            previous = node;
+        }
+        memory.putLong(previous + next, sentinel);
+        memory.putLong(sentinel + prev, previous);
+    }
+
+    /**
+     * Ends or restarts a graphics object's animation: the client clears the SeqType pointer when it ends.
+     *
+     * @param index 0 for the splash, 1 for the smoke
+     * @param ended whether the animation has ended
+     */
+    public void setGraphicsObjectEnded(int index, boolean ended) {
+        memory.putLong(graphicsObject(index) + map.offset("GraphicsObject.animSeqType"), ended ? 0 : GRAPHIC_SEQ_TYPE);
+    }
+
+    /**
+     * Moves a graphics object's animation to a frame.
+     *
+     * @param index 0 for the splash, 1 for the smoke
+     * @param frame the frame, -1 before it has started
+     */
+    public void setGraphicsObjectFrame(int index, int frame) {
+        memory.putShort(graphicsObject(index) + map.offset("GraphicsObject.animFrame"), frame);
+    }
+
+    /**
+     * Gives a graphics object a new start cycle, as when the client frees one and plays another in its memory.
+     *
+     * @param index      0 for the splash, 1 for the smoke
+     * @param startCycle the new start cycle
+     */
+    public void setGraphicsObjectStartCycle(int index, int startCycle) {
+        memory.putInt(graphicsObject(index) + map.offset("GraphicsObject.startCycle"), startCycle);
+    }
+
+    /**
+     * Breaks the graphics object list after its first node, as a read that races the client's update might see it.
+     */
+    public void breakGraphicsObjectList() {
+        memory.putLong(GRAPHICS_OBJECTS + map.container("list.node.next"), 0);
     }
 
     /**

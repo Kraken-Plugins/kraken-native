@@ -15,6 +15,10 @@ import lombok.Getter;
  * where the target is now, so a projectile aimed at an actor follows that actor. It has no position until it has moved
  * once ({@link #isStarted()}).
  *
+ * <p>The server sends some projectiles with a key ({@link #getKey()}), and can then retarget one in flight: the
+ * client carries on from where it is towards the new target. Those follow a curve rather than a slope, so their
+ * {@link #getSlope()} and {@link #getStartPos()} are 0, and a Lua plugin can't hide them.
+ *
  * <p>A snapshot of one read of the client's projectile list: its position and angles are as of that read, so read the
  * list again for fresh ones. {@link #getRemainingCycles()} and the actor getters read the game when called. Cycles are
  * client cycles (20 ms), {@link Client#getGameCycle()}'s clock.
@@ -27,6 +31,17 @@ public final class Projectile {
 
     @Getter(AccessLevel.NONE)
     private final Client client;
+
+    /**
+     * Where the projectile is in the client's memory. Internal: the event source tells keyed projectiles apart by it.
+     */
+    private final long address;
+
+    /**
+     * The key the server sent the projectile with, which lets it retarget the projectile in flight; -1 for a projectile
+     * sent without one.
+     */
+    private final int key;
 
     /**
      * The projectile's id: its spot anim, as in {@code gameval.SpotanimID}.
@@ -54,12 +69,13 @@ public final class Projectile {
     private final int endCycle;
 
     /**
-     * How steeply the projectile climbs at the start, in 1/256 of a turn: larger slopes arc more.
+     * How steeply the projectile climbs at the start, in 1/256 of a turn: larger slopes arc more. 0 for a keyed
+     * projectile.
      */
     private final int slope;
 
     /**
-     * How far along its path from the source the projectile appears, in local units.
+     * How far along its path from the source the projectile appears, in local units. 0 for a keyed projectile.
      */
     private final int startPos;
 
@@ -95,7 +111,8 @@ public final class Projectile {
     private final int pitch;
 
     /**
-     * Whether a Lua plugin hid the projectile ({@code renderProjectiles(false)}), so the client won't draw it.
+     * Whether a Lua plugin hid the projectile ({@code renderProjectiles(false)}), so the client won't draw it. Always
+     * false for a keyed projectile, which {@code renderProjectiles} doesn't reach.
      */
     private final boolean hidden;
 
@@ -108,6 +125,8 @@ public final class Projectile {
      * A snapshot of one projectile. Internal: {@code ProjectileReader} makes them.
      *
      * @param client      the client the actors are looked up in
+     * @param address     where it is in the client's memory
+     * @param key         the key it was sent with, or -1
      * @param id          the spot anim id
      * @param source      where it comes from
      * @param target      where it is going
@@ -124,10 +143,12 @@ public final class Projectile {
      * @param hidden      whether a Lua plugin hid it
      * @param readCycle   the client cycle of the read
      */
-    public Projectile(Client client, int id, ProjectileEndpoint source, ProjectileEndpoint target, int startCycle, int endCycle, int slope,
-               int startPos, boolean started, double x, double y, double z, int orientation, int pitch,
-               boolean hidden, int readCycle) {
+    public Projectile(Client client, long address, int key, int id, ProjectileEndpoint source, ProjectileEndpoint target,
+                      int startCycle, int endCycle, int slope, int startPos, boolean started, double x, double y, double z,
+                      int orientation, int pitch, boolean hidden, int readCycle) {
         this.client = client;
+        this.address = address;
+        this.key = key;
         this.id = id;
         this.source = source;
         this.target = target;

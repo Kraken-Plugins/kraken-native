@@ -50,6 +50,7 @@
       "mapLoader": "0x49a8",
       "minimenu": "0x4133f0",
       "projectiles": "0xcc70",
+      "keyedProjectiles": "0xcc88",
       "pluginGate": "0x418690"
     },
     "Varcs": {
@@ -88,7 +89,8 @@
       "npcIndexCount": "0xd8",
       "objPiles": "0x140",
       "objPiles.stride": "0x18",
-      "objPiles.dataOffset": "0x10"
+      "objPiles.dataOffset": "0x10",
+      "graphicsObjects": "0x160"
     },
     "Actor": {
       "fineX": "0x268",
@@ -362,6 +364,41 @@
       "fineZ": "0x2b0",
       "yaw": "0x2b8",
       "pitch": "0x2bc"
+    },
+    "GraphicsObject": {
+      "spotAnimId": "0x274",
+      "level": "0x264",
+      "fineX": "0x268",
+      "fineZ": "0x26c",
+      "height": "0x270",
+      "startCycle": "0x260",
+      "animSeqType": "0x288",
+      "animFrame": "0x296"
+    },
+    "KeyedProjectile": {
+      "spotAnimId": "0x264",
+      "startCycle": "0x2ac",
+      "endCycle": "0x2b0",
+      "sourceLevel": "0x268",
+      "sourceX": "0x26c",
+      "sourceZ": "0x270",
+      "sourceActor": "0x280",
+      "sourceOffsetX": "0x274",
+      "startHeight": "0x278",
+      "sourceOffsetZ": "0x27c",
+      "targetLevel": "0x290",
+      "targetX": "0x294",
+      "targetZ": "0x298",
+      "targetActor": "0x2a8",
+      "targetOffsetX": "0x29c",
+      "endHeight": "0x2a0",
+      "targetOffsetZ": "0x2a4",
+      "started": "0x300",
+      "fineX": "0x2e0",
+      "fineY": "0x2e4",
+      "fineZ": "0x2e8",
+      "yaw": "0x318",
+      "pitch": "0x31c"
     },
     "Js5Archive": {
       "groupCount": "0x28",
