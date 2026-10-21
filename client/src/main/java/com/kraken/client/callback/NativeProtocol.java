@@ -41,8 +41,7 @@ final class NativeProtocol {
      * @param arg the argument register to read
      * @param op  how to read it (one of the {@code OP_*} ops)
      */
-    record Plan(int arg, int op) {
-    }
+    record Plan(int arg, int op) {}
 
     /**
      * One raise function to hook: where it is and how the DLL should read the event id and payload from it.
@@ -53,8 +52,7 @@ final class NativeProtocol {
      * @param args    how many argument registers to forward (0..4)
      * @param plan    the capture plan: which registers to read and how
      */
-    record Slot(long rva, int fixedId, int idArg, int args, List<Plan> plan) {
-    }
+    record Slot(long rva, int fixedId, int idArg, int args, List<Plan> plan) {}
 
     /**
      * Builds the handshake: magic, a slot count, then each slot's rva, id configuration, argument count and plan.

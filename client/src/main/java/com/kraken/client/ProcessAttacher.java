@@ -9,10 +9,10 @@ import com.kraken.api.GameSession;
 import com.kraken.api.UnsupportedBuildException;
 import com.kraken.api.eventbus.EventBus;
 import com.kraken.api.mapping.Mapping;
-import com.kraken.client.events.ApiStateChanged;
 import lombok.Getter;
 import lombok.extern.java.Log;
 
+import javax.swing.*;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -20,7 +20,6 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 import java.util.logging.Level;
-import javax.swing.*;
 
 /**
  * Attaches a {@link GameSession} to the running osclient.exe. {@link #start} reads the exe's build and its mapping,
@@ -30,7 +29,7 @@ import javax.swing.*;
  * attach listeners, which load the plugins under it, and then hands each API poll to every poll listener.
  *
  * <p>Components that exist before the game does (the frame, the dev tools, the overlay renderer) follow the state and
- * polls through the listeners here. Each state change is also posted on the bus as an {@link ApiStateChanged}.
+ * polls through the listeners here.
  */
 @Log(topic = "kraken")
 @Singleton
@@ -287,7 +286,6 @@ public final class ProcessAttacher {
     private void setState(State state, String detail) {
         this.state = state;
         this.detail = detail;
-        eventBus.post(new ApiStateChanged(state, detail));
         SwingUtilities.invokeLater(() -> stateListeners.forEach(Runnable::run));
     }
 }

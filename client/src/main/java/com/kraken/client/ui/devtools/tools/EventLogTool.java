@@ -2,6 +2,7 @@ package com.kraken.client.ui.devtools.tools;
 
 import com.kraken.api.Client;
 import com.kraken.api.GameSession;
+import com.kraken.api.MenuEntry;
 import com.kraken.api.actor.Actor;
 import com.kraken.api.actor.NPC;
 import com.kraken.api.actor.Player;
@@ -16,6 +17,10 @@ import com.kraken.api.events.ItemContainerChanged;
 import com.kraken.api.events.ItemDespawned;
 import com.kraken.api.events.ItemQuantityChanged;
 import com.kraken.api.events.ItemSpawned;
+import com.kraken.api.events.MenuEntryAdded;
+import com.kraken.api.events.MenuEntryRemoved;
+import com.kraken.api.events.MenuOpened;
+import com.kraken.api.events.MenuOptionClicked;
 import com.kraken.api.events.NpcDespawned;
 import com.kraken.api.events.NpcSpawned;
 import com.kraken.api.events.PlayerDespawned;
@@ -72,6 +77,8 @@ final class EventLogTool extends DevTool<List<String>> {
     private static final String VARS = "vars";
     private static final String TICKS = "ticks";
     private static final String RESIZE = "resize";
+    private static final String MENU_CLICKS = "menuClicks";
+    private static final String MENU_ENTRIES = "menuEntries";
 
     private final ToolOption gameState = option("gameState", "Game state changes", true);
     private final ToolOption npcs = option("npcs", "NPC spawns", true);
@@ -86,6 +93,8 @@ final class EventLogTool extends DevTool<List<String>> {
     private final ToolOption varbits = option("varbits", "Varbit updates", false);
     private final ToolOption ticks = option("ticks", "Game ticks", false);
     private final ToolOption resize = option("resize", "Screen resizes", true);
+    private final ToolOption menuClicks = option("menuClicks", "Menu clicks", true);
+    private final ToolOption menuEntries = option("menuEntries", "Menu entries and opens", false);
 
     private final Queue<String> pending = new ConcurrentLinkedQueue<>();
     /**
@@ -97,7 +106,8 @@ final class EventLogTool extends DevTool<List<String>> {
     EventLogTool() {
         super("events", "Event log", Category.DIAGNOSTICS, MaterialDesignL.LIGHTNING_BOLT_OUTLINE,
                 "A live log of the API's events (game state, NPC and player spawns, objects, ground items, targets, "
-                        + "projectiles, inventories, stats, vars, varbits, ticks and resizes) as they're seen.");
+                        + "projectiles, inventories, stats, vars, varbits, ticks, resizes, menu clicks and menu "
+                        + "entries) as they're seen.");
     }
 
     @Override
@@ -159,6 +169,8 @@ final class EventLogTool extends DevTool<List<String>> {
         keep(VARS, vars.isOn() || varbits.isOn(), this::subscribeVars);
         keep(TICKS, ticks.isOn(), this::subscribeTicks);
         keep(RESIZE, resize.isOn(), this::subscribeResize);
+        keep(MENU_CLICKS, menuClicks.isOn(), this::subscribeMenuClicks);
+        keep(MENU_ENTRIES, menuEntries.isOn(), this::subscribeMenuEntries);
     }
 
     /**
@@ -297,6 +309,33 @@ final class EventLogTool extends DevTool<List<String>> {
         });
     }
 
+    private void subscribeMenuClicks() {
+        on(MENU_CLICKS, MenuOptionClicked.class, e -> {
+            if (menuClicks.isOn()) {
+                add("MenuOptionClicked  " + menu(e.getMenuEntry()));
+            }
+        });
+    }
+
+    private void subscribeMenuEntries() {
+        on(MENU_ENTRIES, MenuEntryAdded.class, e -> {
+            if (menuEntries.isOn()) {
+                add("MenuEntryAdded  " + menu(e.getMenuEntry()));
+            }
+        });
+        on(MENU_ENTRIES, MenuEntryRemoved.class, e -> {
+            if (menuEntries.isOn()) {
+                add("MenuEntryRemoved  " + menu(e.getMenuEntry()));
+            }
+        });
+        on(MENU_ENTRIES, MenuOpened.class, e -> {
+            if (menuEntries.isOn()) {
+                add("MenuOpened  " + e.getMenuEntries().length + " entries, top: "
+                        + (e.getFirstEntry() == null ? "none" : menu(e.getFirstEntry())));
+            }
+        });
+    }
+
     /**
      * Subscribes a handler on the API's event bus, keeping the subscription under a kind.
      *
@@ -317,6 +356,18 @@ final class EventLogTool extends DevTool<List<String>> {
     private void drop(List<Subscriber> held) {
         held.forEach(session.eventBus()::unregister);
         held.clear();
+    }
+
+    /**
+     * A menu entry, for a line.
+     *
+     * @param entry the entry
+     * @return its option, its target without colour tags, its action, identifier and parameters
+     */
+    private static String menu(MenuEntry entry) {
+        String target = entry.getTarget().replaceAll("<[^>]*>", "");
+        return entry.getOption() + (target.isEmpty() ? "" : " " + target) + "  [" + entry.getType() + " id "
+                + entry.getIdentifier() + " params " + entry.getParam0() + ", " + entry.getParam1() + "]";
     }
 
     /**

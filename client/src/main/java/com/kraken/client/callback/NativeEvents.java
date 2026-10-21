@@ -63,6 +63,15 @@ final class NativeEvents {
         map.put("ON_VAR_TRANSMIT", List.of());
         map.put("ON_STAT_TRANSMIT", List.of());
         map.put("ON_INV_TRANSMIT", List.of());
+        // The op events: the client copies the menu entry it runs into the minimenu, then raises one of these, so the
+        // click tracker reads the copy instead of a payload. ON_OBJ_OP is left out: its raiser takes its fifth and
+        // sixth arguments (the obj's count and tile) on the stack, which the generic four-register detour can't
+        // forward, so calling it through the detour would corrupt the ground item op. Those clicks come from the poll.
+        map.put("ON_NPC_OP", List.of());
+        map.put("ON_LOC_OP", List.of());
+        map.put("ON_TILE_OP", List.of());
+        map.put("ON_PLAYER_OP", List.of());
+        map.put("ON_COMPONENT_OP", List.of());
         return Collections.unmodifiableMap(map);
     }
 
@@ -74,9 +83,10 @@ final class NativeEvents {
 
     private static Map<String, List<Plan>> functions() {
         Map<String, List<Plan>> map = new LinkedHashMap<>();
-        // clientCycle is hooked but routes to no tracker yet: ClientTick stays posted once per timer poll, since a
-        // trigger must not post events itself. Its per-cycle cadence arrives with the poll-loop wake-up, which runs a
-        // poll per cycle. Hooking it now also lets the Event log show the client's cycles.
+        // clientCycle routes to no tracker: its raise wakes the poll loop, and the poll posts a ClientTick per step of
+        // the client's cycle counter. The hook sits on entry, before the function increments the counter, so the poll
+        // waits briefly for the step each raise announces (EventSource.awaitCycle). It also shows the client's cycles
+        // in the Event log.
         map.put(NativeEvent.CLIENT_CYCLE, List.of());
         map.put(NativeEvent.SET_GAME_STATE, List.of(new Plan(NativeEvent.RDX, NativeProtocol.OP_RAW)));
         map.put(NativeEvent.PLAYER_ADD, List.of());

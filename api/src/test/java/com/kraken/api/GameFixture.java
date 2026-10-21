@@ -7,6 +7,7 @@ import com.kraken.api.widgets.WidgetType;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -40,6 +41,9 @@ import static com.kraken.api.TestSupport.seedMapping;
  *       holding 162:1 (text "All", drawn this frame, with an op) and 162:2 (hidden, its text on the heap).
  *   <li>Two projectiles in flight: a spell ({@link #SPELL_PROJECTILE}) from player 7 at NPC 5, placed and drawn; and
  *       an arrow ({@link #ARROW_PROJECTILE}) from one tile to another, hidden and not set off yet.
+ *   <li>The minimenu, closed, with one row per entry from {@link #MENU_ATTACK} to {@link #MENU_CANCEL} (top first),
+ *       the row of {@link #MENU_USE_ON_GOBLIN} being a submenu group holding it. The last entry run is "Cancel", 100
+ *       cycles ago.
  * </ul>
  */
 public final class GameFixture {
@@ -192,6 +196,7 @@ public final class GameFixture {
         buildCollision();
         buildInterfaces();
         buildProjectiles();
+        buildMenu();
     }
 
     public void setGameState(int state) {
@@ -204,6 +209,15 @@ public final class GameFixture {
 
     public void setTick(int tick) {
         memory.putInt(CLIENT + map.offset("Client.tickCount"), tick);
+    }
+
+    /**
+     * Sets the client's cycle counter (the {@code cycle} global), which starts at {@link #CYCLE}.
+     *
+     * @param cycle the client cycle
+     */
+    public void setCycle(int cycle) {
+        memory.putInt(MODULE_BASE + map.global("cycle"), cycle);
     }
 
     public void setStatsSent(boolean sent) {
@@ -1435,5 +1449,171 @@ public final class GameFixture {
         memory.putInt(p + map.offset("Projectile.endCycle"), endCycle);
         memory.putInt(p + map.offset("Projectile.slope"), slope);
         memory.putInt(p + map.offset("Projectile.startDistance"), distance);
+    }
+
+    /**
+     * The minimenu's entries, by the row they show in from the top. {@link #MENU_ATTACK} (NPC 5's second op) is the
+     * left-click entry. Targets too long to sit inline (the NPC entries') sit in the entry's own buffer.
+     */
+    public static final int MENU_ATTACK = 0;
+    public static final int MENU_CHOP = 1;
+    public static final int MENU_TAKE = 2;
+    public static final int MENU_DROP = 3;
+    public static final int MENU_TRADE = 4;
+    public static final int MENU_EXAMINE = 5;
+    public static final int MENU_USE_ON_GOBLIN = 6;
+    public static final int MENU_WALK = 7;
+    public static final int MENU_CANCEL = 8;
+    public static final int MENU_ROWS = 9;
+
+    public static final long MENU = 0xb70000000L;
+    private static final long MENU_LIST = 0xb71000000L;
+    private static final long MENU_ENTRIES = 0xb72000000L;
+    private static final long MENU_NODES = 0xb73000000L;
+    private static final long MENU_CHILDREN = 0xb74000000L;
+
+    /**
+     * One native minimenu entry as the fixture writes it.
+     *
+     * @param option  the option text
+     * @param target  the target text
+     * @param subject the subject kind's name in {@code enums.minimenuSubject}, or null for none
+     * @param op      the op index
+     * @param typeId  the type id
+     * @param index   the subject index
+     * @param x       the world tile x
+     * @param z       the world tile z
+     */
+    private record MenuSpec(String option, String target, String subject, int op, int typeId, int index, int x, int z) {
+    }
+
+    /**
+     * Sets the menu's rows to plain rows showing these entries (top first).
+     *
+     * @param entries the entries, e.g. {@link #MENU_WALK}
+     */
+    public void setMenuRows(int... entries) {
+        int nodeSize = map.container("minimenu.node.size");
+        for (int i = 0; i < entries.length; i++) {
+            putMenuNode(MENU_NODES + (long) i * nodeSize, MENU_LIST, entries[i], 0);
+        }
+        long rows = MENU + map.offset("Minimenu.rows");
+        memory.putLong(rows, MENU_NODES);
+        memory.putLong(rows + 8, MENU_NODES + (long) entries.length * nodeSize);
+    }
+
+    /**
+     * Runs an entry, as a click does: copies it into the minimenu's last-run entry and zeroes the cycle count.
+     *
+     * @param entry the entry, e.g. {@link #MENU_CHOP}
+     */
+    public void clickMenuEntry(int entry) {
+        putMenuEntry(MENU + map.offset("Minimenu.clicked"), menuSpecs().get(entry));
+        setMenuClickCycles(0);
+    }
+
+    /**
+     * Sets the cycles since an entry last ran, as the client cycle increments them.
+     *
+     * @param cycles the count
+     */
+    public void setMenuClickCycles(int cycles) {
+        memory.putInt(MENU + map.offset("Minimenu.clickCycles"), cycles);
+    }
+
+    /**
+     * Opens or closes the menu.
+     *
+     * @param open whether the menu is open
+     */
+    public void setMenuOpen(boolean open) {
+        memory.putLong(MENU + map.offset("Minimenu.open"), open ? MENU + 0x140 : 0);
+    }
+
+    private List<MenuSpec> menuSpecs() {
+        int examine = map.enumValue("minimenuOp", "EXAMINE", 0);
+        int targeted = map.enumValue("minimenuOp", "TARGET", -1);
+        return List.of(
+                new MenuSpec("Attack", "<col=ffff00>Goblin<col=ff00>  (level-2)", "NPC", 2, 3029, 5, -1, -1),
+                new MenuSpec("Chop down", "<col=00ffff>Oak", "LOC", 1, TREE_LOC, -1, BASE_X + 5, BASE_Z + 5),
+                new MenuSpec("Take", "<col=ff9040>Coins", "OBJ", 3, 995, 100, BASE_X + 3, BASE_Z + 3),
+                new MenuSpec("Drop", "<col=ff9040>Coins", "COMPONENT", 2, 149 << 16, 0, -1, -1),
+                new MenuSpec("Trade with", "<col=ffffff>Bob", "PLAYER", 4, -1, 9, -1, -1),
+                new MenuSpec("Examine", "<col=ffff00>Goblin<col=ff00>  (level-2)", "NPC", examine, 3029, 5, -1, -1),
+                new MenuSpec("Use", "<col=ff9040>Coins<col=ffffff> -> <col=ffff00>Goblin", "NPC", targeted, 3029, 5,
+                        -1, -1),
+                new MenuSpec("Walk here", "", "TILE", Integer.MAX_VALUE, -1, -1, BASE_X + 2, BASE_Z + 3),
+                new MenuSpec("Cancel", "", null, Integer.MAX_VALUE, -1, -1, -1, -1));
+    }
+
+    private void buildMenu() {
+        int entrySize = map.offset("MinimenuEntry.size");
+        int nodeSize = map.container("minimenu.node.size");
+        memory.alloc(MENU, 0x900);
+        memory.alloc(MENU_LIST, 0x40);
+        memory.alloc(MENU_ENTRIES, MENU_ROWS * entrySize);
+        memory.alloc(MENU_NODES, MENU_ROWS * nodeSize);
+        memory.alloc(MENU_CHILDREN, 0x40);
+        memory.putLong(CLIENT + map.offset("Client.minimenu"), MENU);
+        memory.putLong(MENU_LIST + map.container("minimenu.list.entries"), MENU_ENTRIES);
+        List<MenuSpec> specs = menuSpecs();
+        for (int i = 0; i < specs.size(); i++) {
+            putMenuEntry(MENU_ENTRIES + (long) i * entrySize, specs.get(i));
+        }
+        int[] rows = new int[MENU_ROWS];
+        for (int i = 0; i < MENU_ROWS; i++) {
+            rows[i] = i;
+        }
+        setMenuRows(rows);
+        // The use-on row is a submenu group: no list, and a children vector holding the one node that shows the entry
+        long child = MENU_CHILDREN + 0x20;
+        putMenuNode(MENU_NODES + (long) MENU_USE_ON_GOBLIN * nodeSize, 0, 0, MENU_CHILDREN);
+        memory.putLong(MENU_CHILDREN, child);
+        memory.putLong(MENU_CHILDREN + 8, child + nodeSize);
+        putMenuNode(child, MENU_LIST, MENU_USE_ON_GOBLIN, 0);
+        putMenuEntry(MENU + map.offset("Minimenu.clicked"), specs.get(MENU_CANCEL));
+        setMenuClickCycles(100);
+        setMenuOpen(false);
+    }
+
+    private void putMenuNode(long node, long list, long index, long children) {
+        memory.putLong(node + map.container("minimenu.node.list"), list);
+        memory.putLong(node + map.container("minimenu.node.index"), index);
+        memory.putLong(node + map.container("minimenu.node.children"), children);
+    }
+
+    private void putMenuEntry(long entry, MenuSpec spec) {
+        putMenuString(entry, map.offset("MinimenuEntry.option"), spec.option());
+        putMenuString(entry, map.offset("MinimenuEntry.target"), spec.target());
+        int kind = spec.subject() == null ? 0 : map.enumValue("minimenuSubject", spec.subject(), -1);
+        memory.putByte(entry + map.offset("MinimenuEntry.subjectType"), kind);
+        memory.putInt(entry + map.offset("MinimenuEntry.opIndex"), spec.op());
+        memory.putInt(entry + map.offset("MinimenuEntry.typeId"), spec.typeId());
+        memory.putInt(entry + map.offset("MinimenuEntry.subjectIndex"), spec.index());
+        memory.putInt(entry + map.offset("MinimenuEntry.level"), 0);
+        memory.putInt(entry + map.offset("MinimenuEntry.x"), spec.x());
+        memory.putInt(entry + map.offset("MinimenuEntry.z"), spec.z());
+    }
+
+    /**
+     * Writes a minimenu string: inline when it fits, else in heap form pointing at a buffer inside the entry right
+     * after the string object, as the client's fixed-capacity strings do.
+     *
+     * @param entry  the entry
+     * @param offset where the string object sits in it
+     * @param text   the text
+     */
+    private void putMenuString(long entry, int offset, String text) {
+        long string = entry + offset;
+        memory.putBytes(string, new byte[0x18]);
+        if (text.length() < map.container("string.ssoCapacity")) {
+            memory.putSsoString(string, text);
+            return;
+        }
+        long buffer = string + 0x28;
+        memory.putBytes(buffer, text.getBytes(StandardCharsets.UTF_8));
+        memory.putLong(string, buffer);
+        memory.putLong(string + 8, text.length());
+        memory.putByte(string + map.container("string.heapFlagByte"), map.container("string.heapFlagMask"));
     }
 }

@@ -13,6 +13,7 @@ import com.kraken.api.internal.ConfigTypes;
 import com.kraken.api.internal.reader.GameReader;
 import com.kraken.api.internal.reader.InventoryReader;
 import com.kraken.api.internal.MapCoord;
+import com.kraken.api.internal.reader.MenuReader;
 import com.kraken.api.internal.reader.ProjectileReader;
 import com.kraken.api.internal.reader.SceneReader;
 import com.kraken.api.internal.reader.WidgetReader;
@@ -30,6 +31,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
@@ -41,8 +43,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * The game client: the root of the API. Get it from {@code GameSession.client()}.
  *
  * <p>Every getter follows the mapped offset chains in the live process, replaying what the client's own Lua handlers
- * read; a getter's Javadoc names the Lua function it mirrors. The API only reads, so menus, input, models and setters
- * are not exposed. Reads are tolerant: an unreadable or logged-out state gives -1, false, "", null or an empty list
+ * read; a getter's Javadoc names the Lua function it mirrors. The API only reads, so input, models and setters are not
+ * exposed, and the menu is read but never changed. Reads are tolerant: an unreadable or logged-out state gives -1, false, "", null or an empty list
  * rather than an exception.
  *
  * <p>It keeps one handle per actor ({@link #npc}, {@link #player}), so asking twice for the same actor gives the same
@@ -90,6 +92,12 @@ public final class Client extends GameReader {
     private final InventoryReader inventories;
     private final ProjectileReader projectiles;
     private final WidgetReader widgets;
+
+    /**
+     * The reader the menu and the menu events read through. Internal plumbing for the API's own packages.
+     */
+    @Getter
+    private final MenuReader menuReader;
 
     /**
      * The top-level world: the main map, its actors and its sceneReader.
@@ -168,6 +176,7 @@ public final class Client extends GameReader {
         this.inventories = new InventoryReader(memory, mapping, configTypes);
         this.projectiles = new ProjectileReader(memory, mapping, this);
         this.widgets = new WidgetReader(memory, mapping);
+        this.menuReader = new MenuReader(memory, mapping, this);
         this.topLevelWorldView = new WorldView(this);
 
         this.cGameState = mapping.offset("Client.gameState");
@@ -241,8 +250,19 @@ public final class Client extends GameReader {
      * @return the tick count, or 0 if it can't be read
      */
     public int getTickCount() {
+        return Math.max(tickCount(), 0);
+    }
+
+    /**
+     * The tick counter, telling a failed read apart from a counter at 0: logout resets the counter to 0, and the
+     * event source must not take a read that failed for that reset.
+     * Internal: used by the API's own packages; plugins don't need it.
+     *
+     * @return the tick count, or -1 if it can't be read
+     */
+    public int tickCount() {
         long client = clientBase();
-        return client == 0 ? 0 : safeInt(client + cTick, 0);
+        return client == 0 ? -1 : safeInt(client + cTick, -1);
     }
 
     /**
@@ -707,6 +727,28 @@ public final class Client extends GameReader {
      */
     public List<Integer> getOpenWidgetGroups() {
         return widgets.getOpenGroups();
+    }
+
+    /**
+     * The entries of the menu, read now (snapshots; see {@link MenuEntry}). While the menu is closed these are the
+     * options for what the mouse is over, which the client rebuilds every cycle; while it is open, the open menu's.
+     * The last entry is the top row, the one a left click runs, so the array is in reverse of the order on screen.
+     *
+     * @return the entries, bottom row ("Cancel") first; empty if the menu can't be read
+     */
+    public MenuEntry[] getMenuEntries() {
+        List<MenuEntry> rows = new ArrayList<>(menuReader.rows());
+        Collections.reverse(rows);
+        return rows.toArray(new MenuEntry[0]);
+    }
+
+    /**
+     * Whether the menu is open (right-clicked open, until it closes).
+     *
+     * @return true while it is open; false if it can't be read
+     */
+    public boolean isMenuOpen() {
+        return menuReader.isOpen();
     }
 
     /**

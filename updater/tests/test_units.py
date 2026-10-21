@@ -6,7 +6,7 @@ from pathlib import Path, PurePath
 from types import SimpleNamespace
 from unittest import mock
 
-from native_updater import emit, extractors, identity, strategies, winpaths, x86, verify
+from native_updater import emit, extractors, identity, minimenu, strategies, winpaths, x86, verify
 from native_updater.analysis.bindings import BindingTableParser
 from native_updater.analysis.provenance import (Add, Addr, Arg, Bin, Call, Cmp, Const, Deref, Facts, Global, Load, Mul,
                                                 Provenance, Ret, Store, Unknown)
@@ -392,6 +392,48 @@ class HookTargetTests(unittest.TestCase):
         }, {"Player.index": 0x79c, "Actor.worldId": 0x4a0}, {"@ActorCtor": 0x1000, "@NpcInfoDecode": 0x2500})
         out = {k: v[0] for k, v in extractors.run(s, "player_lifecycle", {}).items()}
         self.assertEqual(out, {"PlayerCtor": 0x1200, "PlayerAdd": 0x2100, "PlayerRemove": 0x2300, "PlayerInfoDecode": 0x2400})
+
+
+class MinimenuTests(unittest.TestCase):
+    """The minimenu recipe's entry run (minimenu.py) over a miniature of the code that runs a clicked entry."""
+
+    def program(self):
+        copy = []
+        for off, reg in ((0x8, "RAX"), (0x120, "RAX"), (0x128, "EAX"), (0x12c, "EAX"), (0x130, "EAX"), (0x134, "EAX"),
+                         (0x138, "RAX"), (0x140, "EAX")):
+            size = "qword" if reg == "RAX" else "dword"
+            copy += [f"MOV {reg},{size} ptr [RDX + {off:#x}]", f"MOV {size} ptr [RCX + {off + 0x298:#x}],{reg}"]
+        return {
+            # run(view, path): find the node, divide the children vector by the node size, run the entry
+            0x1000: ["MOV R13,RCX", "LEA RCX,[R13 + 0x140]", "CALL 0x140001800", "MOV RSI,RAX",
+                     "MOV R9,0x2aaaaaaaaaaaaaab", "MOV RAX,qword ptr [RSI + 0x10]", "MOV R8,qword ptr [RAX]",
+                     "MOV RCX,qword ptr [RAX + 0x8]", "SUB RCX,R8", "MOV RAX,R9", "IMUL RCX", "SAR RDX,0x2",
+                     "MOV RAX,qword ptr [RSI]", "IMUL RBP,qword ptr [RSI + 0x8],0x150", "ADD RBP,qword ptr [RAX + 0x18]",
+                     "MOV RDX,RBP", "MOV RCX,R13", "CALL 0x140002000", "MOV RDX,RBP", "MOV RCX,R13", "CALL 0x140003000",
+                     "RET"],
+            0x1800: ["CALL 0x140001900", "RET"],                                    # the path lookup
+            0x1900: ["RET"],
+            0x2000: [*copy, "MOV byte ptr [RCX + 0x3f0],R9B", "MOV dword ptr [RCX + 0x3f4],0x0", "CALL 0x140001900",
+                     "RET"],                                                        # copy into the view
+            0x3000: ["RET"],                                                        # the op dispatch
+        }
+
+    def test_run_layout(self):
+        s = GetterSelectorTests.session(self.program())
+        s.notes = []
+        out = {k: v[0] for k, v in minimenu._run_layout(s, 0x1000, 0x3000).items()}
+        self.assertEqual(out, {
+            "MinimenuEntry.size": 0x150, "container.minimenu.list.entries": 0x18, "container.minimenu.node.index": 0x8,
+            "container.minimenu.node.list": 0x0, "container.minimenu.node.children": 0x10,
+            "container.minimenu.node.size": 0x18, "MinimenuView.rows": 0x140, "MinimenuView.clicked": 0x298,
+            "MinimenuView.clickCycles": 0x3f4, "MinimenuRun": 0x1000})
+
+    def test_entry_shape_needs_one_node_for_index_and_list(self):
+        node, other = Deref(Arg(0), 0, 8), Deref(Arg(1), 0, 8)
+        entry = Bin("+", Mul(Deref(node, 8, 8), Const(0x150)), Deref(Deref(node, 0, 8), 0x18, 8))
+        self.assertEqual(minimenu._entry_shape(entry), (0x150, 0x18, 0x8, 0x0))
+        mixed = Bin("+", Mul(Deref(node, 8, 8), Const(0x150)), Deref(Deref(other, 0, 8), 0x18, 8))
+        self.assertIsNone(minimenu._entry_shape(mixed))
 
 
 class BindingParserTests(unittest.TestCase):

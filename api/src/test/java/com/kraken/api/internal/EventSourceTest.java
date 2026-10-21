@@ -1,5 +1,7 @@
 package com.kraken.api.internal;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import com.kraken.api.Client;
 import com.kraken.api.GameFixture;
 import com.kraken.api.GameState;
@@ -21,13 +23,22 @@ import com.kraken.api.events.StatChanged;
 import com.kraken.api.events.VarbitChanged;
 import com.kraken.api.gameval.InventoryID;
 import com.kraken.api.internal.event.EventSource;
+import com.kraken.api.internal.event.NativeEvent;
 import com.kraken.api.item.Item;
+import com.kraken.api.mapping.Mapping;
+import com.kraken.api.memory.Memory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static com.kraken.api.GameFixture.BASE_X;
 import static com.kraken.api.GameFixture.BASE_Z;
@@ -78,6 +89,41 @@ class EventSourceTest {
 
     private <T> List<T> seen(Class<T> type) {
         return seen.stream().filter(type::isInstance).map(type::cast).toList();
+    }
+
+    /**
+     * Reads through to the fixture, but once armed steps the cycle counter right after its next read: the client
+     * incrementing it just after a read that a {@code clientCycle} raise woke.
+     */
+    private final class LateIncrement implements Memory {
+
+        private boolean armed;
+
+        @Override
+        public byte[] read(long address, int length) {
+            byte[] bytes = game.memory.read(address, length);
+            long counter = GameFixture.MODULE_BASE + game.map.global("cycle");
+            if (armed && address == counter) {
+                armed = false;
+                game.memory.putInt(counter, game.memory.readInt(counter) + 1);
+            }
+            return bytes;
+        }
+
+        @Override
+        public long moduleBase() {
+            return game.memory.moduleBase();
+        }
+
+        @Override
+        public long moduleSize() {
+            return game.memory.moduleSize();
+        }
+
+        @Override
+        public boolean isValid() {
+            return game.memory.isValid();
+        }
     }
 
     @Test
@@ -272,6 +318,7 @@ class EventSourceTest {
     @Test
     void gameTickComesAfterTheTicksOtherEventsAndClientTickLast() {
         recordLate(NpcDespawned.class, StatChanged.class, GameTick.class, ClientTick.class);
+        game.setCycle(GameFixture.CYCLE + 1);
         assertFalse(source.poll(), "no tick");
         assertEquals(List.of(ClientTick.class), seen.stream().map(Object::getClass).toList());
 
@@ -279,9 +326,143 @@ class EventSourceTest {
         game.setNpcLoaded(6, false);
         game.setStat(0, 13_100_000, 99, 99);
         game.setTick(124);
+        game.setCycle(GameFixture.CYCLE + 2);
         assertTrue(source.poll());
         assertEquals(List.of(StatChanged.class, NpcDespawned.class, GameTick.class, ClientTick.class),
                 seen.stream().map(Object::getClass).toList());
+    }
+
+    @Test
+    void gameTickFollowsTheTickCounterNotThePolls() {
+        recordLate(GameTick.class);
+        source.poll();
+        source.poll();
+        assertEquals(List.of(), seen, "polls without a new tick post no GameTick");
+
+        game.setTick(124);
+        source.poll();
+        source.poll();
+        assertEquals(1, seen.size(), "one GameTick per tick, however many polls see it");
+    }
+
+    @Test
+    void everyTickBetweenTwoPollsPostsAGameTick() {
+        recordLate(GameTick.class);
+        game.setTick(126);
+        assertTrue(source.poll());
+        assertEquals(3, seen.size(), "123 -> 126 is three ticks");
+
+        seen.clear();
+        game.setTick(126 + 100);
+        source.poll();
+        assertEquals(10, seen.size(), "a long stall posts ten, not a burst");
+    }
+
+    @Test
+    void theLogoutResetOfTheTickCounterPostsNoGameTick() {
+        recordLate(GameTick.class);
+        game.setTick(0);
+        assertFalse(source.poll(), "logout sets the counter to 0: not a tick");
+        assertEquals(List.of(), seen);
+
+        game.setTick(1);
+        assertTrue(source.poll(), "the first tick after login");
+        assertEquals(1, seen.size());
+    }
+
+    @Test
+    void aFailedTickReadPostsNoGameTick() {
+        recordLate(GameTick.class);
+        long clientSlot = GameFixture.MODULE_BASE + game.map.global("client");
+        game.memory.putLong(clientSlot, 0);
+        source.poll();
+        game.memory.putLong(clientSlot, GameFixture.CLIENT);
+        source.poll();
+        assertEquals(List.of(), seen, "a read that failed is not a reset to 0, so nothing moved");
+    }
+
+    @Test
+    void aClientCycleRaiseWaitsForTheStepItAnnounced() {
+        LateIncrement memory = new LateIncrement();
+        EventSource hooked = new EventSource(new Client(memory, game.map), bus);
+        record(ClientTick.class);
+        hooked.poll();
+
+        memory.armed = true;
+        hooked.poll();
+        assertEquals(List.of(), seen, "without a raise the poll takes the read it got, before the step");
+        hooked.poll();
+        assertEquals(1, seen.size(), "and posts the step on the next poll");
+
+        seen.clear();
+        memory.armed = true;
+        hooked.onNative(new NativeEvent(NativeEvent.CLIENT_CYCLE, 1000, new long[4], Map.of(), 1));
+        hooked.poll();
+        assertEquals(1, seen.size(), "the raise makes the poll wait for the step, so it posts it now");
+    }
+
+    @Test
+    void aClientCycleRaiseWhoseStepAlreadyCountedPostsNothingMore() {
+        record(ClientTick.class);
+        source.poll();
+        game.setCycle(GameFixture.CYCLE + 1);
+        source.poll();
+        assertEquals(1, seen.size(), "a poll counted the step before its raise arrived");
+
+        source.onNative(new NativeEvent(NativeEvent.CLIENT_CYCLE, 1000, new long[4], Map.of(), 1));
+        source.poll();
+        assertEquals(1, seen.size(), "the late raise gives up its wait and posts no second ClientTick");
+    }
+
+    @Test
+    void clientTickFollowsTheClientsCycleCounter() {
+        recordLate(ClientTick.class);
+        source.poll();
+        assertEquals(List.of(), seen, "no cycle passed, so no ClientTick");
+
+        game.setCycle(GameFixture.CYCLE + 1);
+        source.poll();
+        assertEquals(1, seen.size());
+
+        seen.clear();
+        game.setCycle(GameFixture.CYCLE + 4);
+        source.poll();
+        assertEquals(3, seen.size(), "one per cycle since the previous poll");
+
+        seen.clear();
+        game.setCycle(GameFixture.CYCLE + 4 + 500);
+        source.poll();
+        assertEquals(50, seen.size(), "a long gap posts a second's worth, not a burst");
+
+        seen.clear();
+        game.setCycle(7);
+        source.poll();
+        assertEquals(1, seen.size(), "a counter that went back is a reset: one cycle");
+    }
+
+    @Test
+    void theFirstPollTakesTheCycleCounterSilently() {
+        record(ClientTick.class);
+        source.poll();
+        assertEquals(List.of(), seen);
+    }
+
+    @Test
+    void aMappingWithoutTheCycleCounterPostsOneClientTickPerPoll(@TempDir Path dir) throws IOException {
+        JsonObject json;
+        try (InputStreamReader in = new InputStreamReader(Mapping.class.getClassLoader()
+                .getResourceAsStream(Mapping.RESOURCE_DIR + game.map.version() + ".json"), StandardCharsets.UTF_8)) {
+            json = new Gson().fromJson(in, JsonObject.class);
+        }
+        json.getAsJsonObject("globals").remove("cycle");
+        Path file = dir.resolve(game.map.version() + ".json");
+        Files.writeString(file, json.toString());
+        EventSource older = new EventSource(new Client(game.memory, Mapping.load(file)), bus);
+
+        record(ClientTick.class);
+        older.poll();
+        older.poll();
+        assertEquals(2, seen.size());
     }
 
     @Test

@@ -1,7 +1,7 @@
 {
   "sha256": "166231c8f6bd05c7542b8f0d35eb64b0aad701a87ba6ba41f60c4706de946944",
   "version": "241.3",
-  "source": "docs/client-surface.md seed values (static analysis, 2026-10-11) plus registrations read directly from the binary on 2026-10-12; section 3/4 keys from static analysis of the handlers on 2026-10-19; section 7 (interfaces) keys from static analysis of the IfType getters, checked against the live client on 2026-10-19; projectile keys from static analysis of the list walker, step and constructor on 2026-10-19; events.* hook sites, functions.clientCycle/setGameState and Client.pluginGate from the event raiser recipe (events.py), checked against the hand analysis of the raise wrappers on 2026-10-20; player/ground-item/projectile hook targets (hooks.py) from the hand analysis of the zone-update and player-info packet paths on 2026-10-20",
+  "source": "docs/client-surface.md seed values (static analysis, 2026-10-11) plus registrations read directly from the binary on 2026-10-12; section 3/4 keys from static analysis of the handlers on 2026-10-19; section 7 (interfaces) keys from static analysis of the IfType getters, checked against the live client on 2026-10-19; projectile keys from static analysis of the list walker, step and constructor on 2026-10-19; events.* hook sites, functions.clientCycle/setGameState and Client.pluginGate from the event raiser recipe (events.py), checked against the hand analysis of the raise wrappers on 2026-10-20; player/ground-item/projectile hook targets (hooks.py) from the hand analysis of the zone-update and player-info packet paths on 2026-10-20; minimenu keys (Client.minimenu, Minimenu.*, MinimenuEntry.*, container.minimenu.*, enums.minimenu*) from the minimenu recipe (minimenu.py), checked against the hand analysis of the op dispatch, the entry run and copy, and the rebuild on 2026-10-20",
   "keys": {
     "global.client": "0xe98c18",
     "global.cycle": "0xe98c14",
@@ -528,7 +528,43 @@
     "functions.objCount": "0x74e30",
     "functions.projectileCtor": "0xa24a0",
     "functions.projectileStep": "0xa2630",
-    "functions.projectileListUpdate": "0xc5e10"
+    "functions.projectileListUpdate": "0xc5e10",
+    "Client.minimenu": "0x4133f0",
+    "Minimenu.view": "0x140",
+    "Minimenu.rows": "0x280",
+    "Minimenu.open": "0x7c0",
+    "Minimenu.clicked": "0x3d8",
+    "Minimenu.clickCycles": "0x534",
+    "MinimenuView.rows": "0x140",
+    "MinimenuView.clicked": "0x298",
+    "MinimenuView.clickCycles": "0x3f4",
+    "container.minimenu.node.list": "0x0",
+    "container.minimenu.node.index": "0x8",
+    "container.minimenu.node.children": "0x10",
+    "container.minimenu.node.size": "0x18",
+    "container.minimenu.list.entries": "0x18",
+    "MinimenuEntry.size": "0x150",
+    "MinimenuEntry.option": "0xb8",
+    "MinimenuEntry.target": "0x50",
+    "MinimenuEntry.typeId": "0x128",
+    "MinimenuEntry.subjectIndex": "0x12c",
+    "MinimenuEntry.opIndex": "0x134",
+    "MinimenuEntry.level": "0x138",
+    "MinimenuEntry.x": "0x13c",
+    "MinimenuEntry.z": "0x140",
+    "MinimenuEntry.subjectType": "0x146",
+    "enums.minimenuSubject": {
+      "TILE": 1,
+      "NPC": 2,
+      "LOC": 3,
+      "OBJ": 4,
+      "PLAYER": 6,
+      "COMPONENT": 7
+    },
+    "enums.minimenuOp": {
+      "TARGET": -1,
+      "EXAMINE": 2147483646
+    }
   },
   "fingerprints": {
     "ScreenRescale": "0x61aa30",
@@ -581,7 +617,9 @@
     "ProjectileUpdate": "0xa2630",
     "ProjectileEndpoint": "0xa2b70",
     "ProjectileCtor": "0xa24a0",
-    "NpcInfoDecode": "0x97ff0"
+    "NpcInfoDecode": "0x97ff0",
+    "MinimenuOpDispatch": "0x3803d0",
+    "MinimenuRun": "0x37d280"
   },
   "bindings": {
     "ClientOp.npcCoord": "0x3ae4b0",

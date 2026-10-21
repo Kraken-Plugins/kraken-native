@@ -58,9 +58,6 @@ public final class NativeEventServer {
     private static final String DLL_PROP = "kraken.hook.dll";
     private static final String STEP_PROP = "kraken.hook.projectileStep";
 
-    /** Classpath location of the bundled DLL, staged into the jar by the {@code buildNativeHook} Gradle task. */
-    private static final String DLL_RESOURCE = "/native/kraken_hook.dll";
-
     /** Synthetic ids for the function hooks, which carry no {@code osrs.Events} id; kept clear of the real ids. */
     private static final int FUNCTION_ID_BASE = 1000;
 
@@ -152,28 +149,15 @@ public final class NativeEventServer {
     }
 
     /**
-     * Finds the DLL to inject: the file {@code -Dkraken.hook.dll} points at if set, otherwise the copy bundled on the
-     * classpath ({@value #DLL_RESOURCE}), extracted to a temporary file because {@code LoadLibraryA} needs a path on
-     * disk. Logs and returns null when neither is available, so the launch falls back to the timer poll.
+     * Finds the DLL to inject.
      *
      * @return the absolute path to the DLL on disk, or null if it could not be found
      */
     private Path locateDll() {
-        String override = System.getProperty(DLL_PROP);
-        if (override != null) {
-            Path dll = Path.of(override).toAbsolutePath();
-            if (!Files.isReadable(dll)) {
-                log.warning("Native event hook: -D" + DLL_PROP + " points at a DLL that is not readable: " + dll
-                        + ". Continuing without it.");
-                return null;
-            }
-            return dll;
-        }
         Path extracted = extractBundledDll();
         if (extracted == null) {
-            log.warning("Native event hook is enabled but kraken_hook.dll was not found on the classpath "
-                    + "(build and bundle it with ./gradlew :client:buildNativeHook, or point -D" + DLL_PROP
-                    + " at a built DLL). Continuing without it.");
+            log.warning("kraken_hook.dll was not found on the classpath "
+                    + "(build and bundle it with ./gradlew :client:buildNativeHook) Game Events will not be received.");
         }
         return extracted;
     }
@@ -185,7 +169,7 @@ public final class NativeEventServer {
      * @return the absolute path to the extracted DLL, or null if it is not on the classpath or could not be written
      */
     private Path extractBundledDll() {
-        try (InputStream in = NativeEventServer.class.getResourceAsStream(DLL_RESOURCE)) {
+        try (InputStream in = NativeEventServer.class.getResourceAsStream("/native/kraken_hook.dll")) {
             if (in == null) {
                 return null;
             }
@@ -205,8 +189,7 @@ public final class NativeEventServer {
      * @param slots    the hooks to install
      * @param idToName an event id to its name, for both the real {@code enums.events} ids and the function hooks
      */
-    private record Build(List<NativeProtocol.Slot> slots, Map<Integer, String> idToName) {
-    }
+    private record Build(List<NativeProtocol.Slot> slots, Map<Integer, String> idToName) {}
 
     /**
      * Builds the slot table and id-to-name map from the mapping: a slot per distinct raiser of each wanted event in

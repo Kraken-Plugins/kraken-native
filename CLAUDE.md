@@ -133,10 +133,13 @@ rounds (keys can depend on other keys) → consensus verdicts (PROVEN/ANCHORED/I
   is held until those spawns are posted. Objects are a whole-scene read once per tick (costly); items and targets are
   read on the tick's poll and the next. The bus also matches supertypes and interfaces of an event, unlike RuneLite's
   (`TileObjectSpawned` takes all four object spawns).
-- The `kraken-api-poll` thread is the "client thread". Each poll: `GameSession.invoke*` tasks (`TaskQueue`), the events
-  with `GameTick` after the tick's other events, `ClientTick`, `invokeAtTickEnd` tasks if a tick
+- The `kraken-api-poll` thread is the "client thread". It loops every 20 ms, or at once when the native hook pushes a
+  raise (`GameSession.onNative` wakes it). Each poll: `GameSession.invoke*` tasks (`TaskQueue`), the events
+  with `GameTick` after the tick's other events, a `ClientTick` per client cycle, `invokeAtTickEnd` tasks if a tick
   happened, the frame listener (where the client draws plugin overlays), then the 150 ms poll listener. Event handlers,
-  tasks and overlay rendering all run there.
+  tasks and overlay rendering all run there. `GameTick` and `ClientTick` are one per step of the game's tick and cycle
+  counters (`Client.tickCount`, `getGameCycle`; logout resets the tick counter to 0, which is not a tick); a raise only
+  makes the read sooner, it never counts a tick itself.
 - `Perspective` (canvas helpers, RuneLite's names) only calls `Client.getCameraProjection()` (the camera, read once)
   and `WorldView.getTileHeight`, both additions to RuneLite's API. Canvas positions are the client's own pixels
   (`Client.getCanvasWidth/Height`).

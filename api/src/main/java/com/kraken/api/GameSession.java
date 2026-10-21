@@ -22,12 +22,13 @@ import java.util.logging.Logger;
  * {@code NPC}, {@code WorldPoint}…): each getter follows the mapped offset chains in the live process, replaying what
  * the client's own Lua handlers read.
  *
- * <p>{@link #start()} runs the poll loop on the {@code kraken-api-poll} thread, which acts as the client thread. About
- * every 20 ms it:
+ * <p>{@link #start()} runs the poll loop on the {@code kraken-api-poll} thread, which acts as the client thread. Every
+ * 20 ms, or as soon as the native hook pushes a raise ({@link #onNative}), it:
  * <ol>
  *   <li>runs the tasks handed to {@link #invoke(Runnable)} and friends;
  *   <li>synthesises the game events on {@link #eventBus()}, with {@code GameTick} after the tick's other events, then
- *       {@code ClientTick};
+ *       a {@code ClientTick} per client cycle: every iteration without a native hook; with one, on each iteration a
+ *       raise woke, and at least every 250 ms as a safety net for ticks and dropped raises;
  *   <li>runs the {@link #invokeAtTickEnd} tasks if a game tick happened;
  *   <li>calls the {@link #setFrameListener frame listener}, where the client renders plugin overlays;
  *   <li>calls the {@link #setPollListener poll listener}, at most every 150 ms.
@@ -44,11 +45,29 @@ public final class GameSession implements AutoCloseable {
     private static final long RENDER_INTERVAL_MS = 150;
 
     /**
-     * How often the events are synthesised while a native hook is connected: the hook drives the reads through
-     * {@link #onNative}, so the timer poll only needs to run slowly as a safety net. Without a hook it stays at
-     * {@link #POLL_INTERVAL_MS}.
+     * The longest gap between event reads while a native hook is connected. Each raise the hook pushes through
+     * {@link #onNative} wakes the loop and reads at once; this timer is the safety net for ticks ({@code GameTick} and
+     * {@code ClientTick}, which no tracker owns) and for raises the hook dropped. Without a hook the events are read on
+     * every iteration, every {@link #POLL_INTERVAL_MS}.
      */
     private static final long HOOKED_EVENT_POLL_MS = 250;
+
+    /**
+     * How long the loop waits between iterations when no raise wakes it: {@link #POLL_INTERVAL_MS}, or longer in tests
+     * so that only a raise moves it.
+     */
+    private final long pollIntervalMs;
+
+    /**
+     * Guards {@link #wakeRequested}; the loop waits on it between iterations and {@link #wake} notifies it.
+     */
+    private final Object wakeLock = new Object();
+
+    /**
+     * Whether a raise arrived since the loop last waited, so its next wait returns at once. Guarded by
+     * {@link #wakeLock}.
+     */
+    private boolean wakeRequested;
 
     private final Memory memory;
     private final Mapping mapping;
@@ -63,6 +82,13 @@ public final class GameSession implements AutoCloseable {
     private volatile boolean hookConnected;
 
     /**
+     * Whether a native raise arrived since the last event read, so the next loop iteration reads instead of waiting
+     * for the safety timer. Only the poll thread touches it: the {@link #onNative} task sets it and the poll loop
+     * clears it, so it needs no volatile or locking.
+     */
+    private boolean eventPollRequested;
+
+    /**
      * A callback run on the poll thread after events are dispatched, at most every 150 ms. The dev tools use it to
      * refresh their views. It may read the game; it must hand any UI work to its own thread.
      */
@@ -70,8 +96,9 @@ public final class GameSession implements AutoCloseable {
     private volatile Runnable pollListener;
 
     /**
-     * A callback run on the poll thread at the end of every poll (about every 20 ms), after the tick-end tasks and
-     * before the poll listener. The client renders plugin overlays from it, deciding itself whether a frame is due.
+     * A callback run on the poll thread at the end of every loop iteration (every 20 ms, and after each native raise),
+     * after the tick-end tasks and before the poll listener. The client renders plugin overlays from it, deciding
+     * itself whether a frame is due.
      */
     @Setter
     private volatile Runnable frameListener;
@@ -88,9 +115,23 @@ public final class GameSession implements AutoCloseable {
      * @throws com.kraken.api.mapping.Mapping.MissingMappingException if the mapping lacks a key every build has
      */
     public GameSession(Memory memory, Mapping mapping, EventBus eventBus) {
+        this(memory, mapping, eventBus, POLL_INTERVAL_MS);
+    }
+
+    /**
+     * Like {@link #GameSession(Memory, Mapping, EventBus)}, with the loop's wait between iterations set. Tests set it
+     * long, so the loop only moves when a raise wakes it.
+     *
+     * @param memory         the client process's memory; closed with the session if it is a {@link ProcessMemory}
+     * @param mapping        the client build's mapping
+     * @param eventBus       the bus to post the game events on
+     * @param pollIntervalMs how long the loop waits between iterations when no raise wakes it
+     */
+    GameSession(Memory memory, Mapping mapping, EventBus eventBus, long pollIntervalMs) {
         this.memory = memory;
         this.mapping = mapping;
         this.eventBus = eventBus;
+        this.pollIntervalMs = pollIntervalMs;
         this.client = new Client(memory, mapping);
         this.source = new EventSource(client, eventBus);
     }
@@ -287,17 +328,23 @@ public final class GameSession implements AutoCloseable {
 
     /**
      * Delivers a native event raise, pushed by the hook in the game process, to the event source on the client thread.
-     * It runs at the start of the next poll iteration, just before the events are synthesised, so the trackers read
-     * and post for it in their usual order. Posts nothing itself; the trackers do, as they do from the timer poll.
-     * Safe to call from any thread.
+     * It wakes the poll loop, which runs it at once and then reads the events, so the trackers read and post for it in
+     * their usual order without waiting out the loop's sleep or the safety timer. Posts nothing itself; the trackers
+     * do, as they do from the timer poll, and the tick events still come from the game's counters. Safe to call from
+     * any thread.
      *
-     * <p>The hook is optional: without it this is never called and the events come from the timer poll alone. When it
-     * is connected, {@link #setHookConnected} slows that poll to a safety-net rate.
+     * <p>The hook is optional: without it this is never called and the events are read every 20 ms. While it is
+     * connected ({@link #setHookConnected}), each raise wakes a read, and the timer reads at least every 250 ms as a
+     * safety net for ticks ({@code GameTick} and {@code ClientTick}, which no tracker owns) and for dropped raises.
      *
      * @param event the parsed raise
      */
     public void onNative(NativeEvent event) {
-        invoke(() -> source.onNative(event));
+        invoke(() -> {
+            source.onNative(event);
+            eventPollRequested = true;
+        });
+        wake();
     }
 
     /**
@@ -346,7 +393,7 @@ public final class GameSession implements AutoCloseable {
         long lastEventPoll = 0;
         while (running) {
             try {
-                Thread.sleep(POLL_INTERVAL_MS);
+                awaitNextIteration();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
@@ -357,10 +404,12 @@ public final class GameSession implements AutoCloseable {
             }
             tasks.runPending();
             long now = System.currentTimeMillis();
-            // The loop, its tasks and the frame listener run every POLL_INTERVAL_MS; only the event synthesis slows
-            // to a safety-net rate while the hook drives the reads (interval 0 means every iteration otherwise).
-            long eventInterval = hookConnected ? HOOKED_EVENT_POLL_MS : 0;
-            if (now - lastEventPoll >= eventInterval) {
+            // The loop, its tasks and the frame listener run every POLL_INTERVAL_MS and on every raise. While the hook
+            // is connected the events are read when a raise asked for it or the safety interval lapsed; without it
+            // (interval 0), every iteration.
+            long safetyInterval = hookConnected ? HOOKED_EVENT_POLL_MS : 0;
+            if (eventPollRequested || now - lastEventPoll >= safetyInterval) {
+                eventPollRequested = false;
                 lastEventPoll = now;
                 boolean[] ticked = {false};
                 if (!step("Event poll", () -> ticked[0] = source.poll())) {
@@ -384,6 +433,32 @@ public final class GameSession implements AutoCloseable {
             }
         }
         running = false;
+    }
+
+    /**
+     * Waits out the poll interval between two loop iterations, or returns as soon as {@link #onNative} pushes a raise
+     * (at once if one came during the last iteration), so a raise is read when it arrives rather than after the sleep.
+     * Without raises it waits like a plain sleep.
+     *
+     * @throws InterruptedException if the session is closing
+     */
+    private void awaitNextIteration() throws InterruptedException {
+        synchronized (wakeLock) {
+            if (!wakeRequested) {
+                wakeLock.wait(pollIntervalMs);
+            }
+            wakeRequested = false;
+        }
+    }
+
+    /**
+     * Ends the poll loop's current or next wait, so its next iteration starts now. Safe to call from any thread.
+     */
+    private void wake() {
+        synchronized (wakeLock) {
+            wakeRequested = true;
+            wakeLock.notifyAll();
+        }
     }
 
     /**

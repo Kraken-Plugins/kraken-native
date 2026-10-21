@@ -48,6 +48,7 @@
       "interfaceStore": "0x413bd8",
       "renderCycle": "0x4133fc",
       "mapLoader": "0x49a8",
+      "minimenu": "0x4133f0",
       "projectiles": "0xcc70",
       "pluginGate": "0x418690"
     },
@@ -320,6 +321,24 @@
       "baseX": "0x54bc",
       "baseZ": "0x54c0"
     },
+    "Minimenu": {
+      "rows": "0x280",
+      "open": "0x7c0",
+      "clicked": "0x3d8",
+      "clickCycles": "0x534"
+    },
+    "MinimenuEntry": {
+      "size": "0x150",
+      "option": "0xb8",
+      "target": "0x50",
+      "typeId": "0x128",
+      "subjectIndex": "0x12c",
+      "opIndex": "0x134",
+      "level": "0x138",
+      "x": "0x13c",
+      "z": "0x140",
+      "subjectType": "0x146"
+    },
     "Projectile": {
       "hidden": "0x1c",
       "startCycle": "0x288",
@@ -375,6 +394,13 @@
     }
   },
   "containers": {
+    "minimenu": {
+      "node.list": "0x0",
+      "node.index": "0x8",
+      "node.children": "0x10",
+      "node.size": "0x18",
+      "list.entries": "0x18"
+    },
     "hash_map": {
       "buckets": "0x8",
       "bucketCount": "0x10",
@@ -400,6 +426,18 @@
   "enums": {
     "gameState": {
       "LOGGED_IN": 30
+    },
+    "minimenuSubject": {
+      "TILE": 1,
+      "NPC": 2,
+      "LOC": 3,
+      "OBJ": 4,
+      "PLAYER": 6,
+      "COMPONENT": 7
+    },
+    "minimenuOp": {
+      "TARGET": -1,
+      "EXAMINE": 2147483646
     },
     "events": {
       "NULL_EVENT": -1,

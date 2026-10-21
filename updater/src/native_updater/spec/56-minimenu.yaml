@@ -1,0 +1,206 @@
+# The minimenu (the right-click menu). The client keeps one Minimenu object, behind Client.minimenu, holding the menu
+# view it shows. While the menu is closed the client rebuilds the view every cycle from what the mouse is over, and
+# raises ON_MINIMENU_REBUILD; while it is open (Minimenu.open set) the view stays as it was opened.
+#
+# The view's rows are an eastl::vector of 24-byte nodes {list, index, children}: the entry a row shows is
+# [list + entries] + index * MinimenuEntry.size; a node with no list is a submenu group whose children (a vector of
+# nodes) hold its entries. Row 0 is the top row, the entry a left click runs.
+#
+# Running an entry (a left click, or a click on an open menu's row) copies it into Minimenu.clicked, zeroes
+# Minimenu.clickCycles (the client cycle increments it) and raises the op event of its subject kind (ON_NPC_OP,
+# ON_LOC_OP, ...; enums.minimenuSubject). The Lua API has no minimenu reads, so everything here comes from that code
+# (minimenu.py).
+fingerprints:
+  MinimenuOpDispatch: { extractor: minimenu, field: MinimenuOpDispatch, cls: A }
+  MinimenuRun:        { extractor: minimenu, field: MinimenuRun, cls: A }
+
+keys:
+  - key: Client.minimenu
+    type: ptr
+    priority: P1
+    live: minimenu
+    doc: The Minimenu object. The rebuild's caller hands it to the rebuild; the op code reaches it through the same field.
+    strategies:
+      - extractor: { name: minimenu, field: Client.minimenu, cls: A }
+  - key: Minimenu.view
+    type: MinimenuView
+    priority: P1
+    internal: true
+    doc: The menu view the rebuild rebuilds and a click runs entries of (an embedded object).
+    strategies:
+      - extractor: { name: minimenu, field: Minimenu.view, cls: A }
+  - key: Minimenu.rows
+    type: eastl.vector<MinimenuNode>
+    priority: P1
+    live: minimenu
+    doc: The rows of the menu, top (the left-click entry) first; begin and end pointers, nodes of container.minimenu.node.size bytes.
+    strategies:
+      - extractor: { name: minimenu, field: Minimenu.rows, cls: A }
+    invariants:
+      - equals: "Minimenu.view + MinimenuView.rows"
+  - key: Minimenu.open
+    type: ptr
+    priority: P1
+    live: minimenu
+    doc: The open menu view, null while the menu is closed. The rebuild skips while it is set, so the rows hold the opened menu.
+    strategies:
+      - extractor: { name: minimenu, field: Minimenu.open, cls: A }
+  - key: Minimenu.clicked
+    type: MinimenuEntry
+    priority: P1
+    live: minimenu
+    doc: A copy of the last entry the client ran, taken right before the op event is raised.
+    strategies:
+      - extractor: { name: minimenu, field: Minimenu.clicked, cls: A }
+    invariants:
+      - equals: "Minimenu.view + MinimenuView.clicked"
+  - key: Minimenu.clickCycles
+    type: i32
+    priority: P1
+    live: minimenu
+    doc: Client cycles since an entry last ran; running one zeroes it and every client cycle increments it.
+    strategies:
+      - extractor: { name: minimenu, field: Minimenu.clickCycles, cls: A }
+    invariants:
+      - equals: "Minimenu.view + MinimenuView.clickCycles"
+
+  - key: MinimenuView.rows
+    type: eastl.vector<MinimenuNode>
+    priority: P1
+    internal: true
+    doc: The rows within the view; the path lookup of a click searches them and the rebuild's tree builder fills them.
+    strategies:
+      - extractor: { name: minimenu, field: MinimenuView.rows, cls: A }
+  - key: MinimenuView.clicked
+    type: MinimenuEntry
+    priority: P1
+    internal: true
+    strategies:
+      - extractor: { name: minimenu, field: MinimenuView.clicked, cls: A }
+  - key: MinimenuView.clickCycles
+    type: i32
+    priority: P1
+    internal: true
+    strategies:
+      - extractor: { name: minimenu, field: MinimenuView.clickCycles, cls: A }
+
+  - key: container.minimenu.node.list
+    type: ptr
+    priority: P1
+    doc: A row's entry list, null for a submenu group.
+    strategies:
+      - extractor: { name: minimenu, field: container.minimenu.node.list, cls: A }
+  - key: container.minimenu.node.index
+    type: u64
+    priority: P1
+    doc: A row's entry index in its list.
+    strategies:
+      - extractor: { name: minimenu, field: container.minimenu.node.index, cls: A }
+  - key: container.minimenu.node.children
+    type: ptr
+    priority: P1
+    doc: Pointer to a group's vector of child nodes (begin, end).
+    strategies:
+      - extractor: { name: minimenu, field: container.minimenu.node.children, cls: A }
+  - key: container.minimenu.node.size
+    type: size
+    priority: P1
+    strategies:
+      - extractor: { name: minimenu, field: container.minimenu.node.size, cls: A }
+  - key: container.minimenu.list.entries
+    type: ptr
+    priority: P1
+    doc: The entry array in an entry list.
+    strategies:
+      - extractor: { name: minimenu, field: container.minimenu.list.entries, cls: A }
+
+  # One menu entry. option and target are eastl strings (the target with colour tags); subjectType says what the
+  # entry is about (enums.minimenuSubject), opIndex which of its ops it runs.
+  - key: MinimenuEntry.size
+    type: size
+    priority: P1
+    live: minimenu
+    strategies:
+      - extractor: { name: minimenu, field: MinimenuEntry.size, cls: A }
+  - key: MinimenuEntry.option
+    type: eastl.string
+    priority: P1
+    live: minimenu
+    doc: The option text ("Walk here", "Attack"); the text every op event gets.
+    strategies:
+      - extractor: { name: minimenu, field: MinimenuEntry.option, cls: A }
+  - key: MinimenuEntry.target
+    type: eastl.string
+    priority: P1
+    live: minimenu
+    doc: The target text with colour tags ("<col=ffff00>Goblin<col=ff00>  (level-2)"), empty when there is none.
+    strategies:
+      - extractor: { name: minimenu, field: MinimenuEntry.target, cls: A }
+  - key: MinimenuEntry.typeId
+    type: i32
+    priority: P1
+    live: minimenu
+    doc: The subject's type id (loc, obj or NPC type id), or for a component its packed interface id.
+    strategies:
+      - extractor: { name: minimenu, field: MinimenuEntry.typeId, cls: A }
+  - key: MinimenuEntry.subjectIndex
+    type: i32
+    priority: P1
+    live: minimenu
+    doc: The subject's index (NPC or player index), an obj's count, or a component's sub id (-1 for none).
+    strategies:
+      - extractor: { name: minimenu, field: MinimenuEntry.subjectIndex, cls: A }
+  - key: MinimenuEntry.opIndex
+    type: i32
+    priority: P1
+    live: minimenu
+    doc: Which op the entry runs, 1-based for NPCs, locs, objs and players, 0-based for components;
+      enums.minimenuOp has the targeted (-1) and Examine values.
+    strategies:
+      - extractor: { name: minimenu, field: MinimenuEntry.opIndex, cls: A }
+  - key: MinimenuEntry.level
+    type: i32
+    priority: P1
+    live: minimenu
+    doc: The subject's world tile, level first (then x, z), as the tile, loc and obj op events get it.
+    strategies:
+      - extractor: { name: minimenu, field: MinimenuEntry.level, cls: A }
+  - key: MinimenuEntry.x
+    type: i32
+    priority: P1
+    live: minimenu
+    doc: World tile x of the subject.
+    strategies:
+      - extractor: { name: minimenu, field: MinimenuEntry.x, cls: A }
+    invariants:
+      - adjacent: { key: MinimenuEntry.level, delta: -4 }
+  - key: MinimenuEntry.z
+    type: i32
+    priority: P1
+    live: minimenu
+    doc: World tile z of the subject.
+    strategies:
+      - extractor: { name: minimenu, field: MinimenuEntry.z, cls: A }
+    invariants:
+      - adjacent: { key: MinimenuEntry.x, delta: -4 }
+  - key: MinimenuEntry.subjectType
+    type: u8
+    priority: P1
+    live: minimenu
+    doc: What the entry is about (enums.minimenuSubject); 0 for none (Cancel).
+    strategies:
+      - extractor: { name: minimenu, field: MinimenuEntry.subjectType, cls: A }
+
+  - key: enums.minimenuSubject
+    type: table
+    priority: P1
+    doc: MinimenuEntry.subjectType values, from the op dispatch's jump table (the kind whose op event each case raises).
+    strategies:
+      - extractor: { name: minimenu, field: enums.minimenuSubject, cls: A }
+  - key: enums.minimenuOp
+    type: table
+    priority: P1
+    doc: Special MinimenuEntry.opIndex values. TARGET (-1) is an entry aimed by a selected item or spell ("Use X -> Y");
+      EXAMINE is the Examine op of NPCs, locs and objs.
+    strategies:
+      - extractor: { name: minimenu, field: enums.minimenuOp, cls: A }

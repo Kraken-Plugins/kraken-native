@@ -200,9 +200,8 @@ In `client/.../callback`, the server socket, injection and reader thread move fr
 - Builds the slot table from the mapping: every event in `NativeEvents` (below) that the mapping has hooks for, plus
   `clientCycle` and `setGameState`. Logs each event it could not hook (older mapping, no raise site) and goes on.
 - The reader thread parses messages into a `NativeEvent(name, id, long[] regs, Map<Integer, Object> values, seq)`
-  and hands each one to the API on the client thread with `GameSession.invoke`, which runs it at the start of the
-  next poll iteration (≤ 20 ms away, before `EventSource.poll()`), or to a new `GameSession.pushNative` that wakes the
-  poll loop immediately (§4.4). Nothing is posted from the hook thread.
+  and hands each one to the API with `GameSession.onNative`, which queues it for the client thread with `invoke` and
+  wakes the poll loop, so it runs at once, before `EventSource.poll()` (§4.4). Nothing is posted from the hook thread.
 - `NativeEvents` is the Java-side catalogue of payload shapes by event name: for `ON_NPC_LOAD`
   `{R8: I32}`, for `ON_LOC_LOAD` `{RDX: I32, R8: CSTR, R9: I32}`, for `ON_VARBIT_UPDATE` `{RDX: I32x2, R8: I32}`,
   for `ON_GAME_STATE_CHANGED` `{RDX: I32}`, for `setGameState` `{RDX: RAW}` and `{RCX: RAW}`, none for the rest.
@@ -233,7 +232,7 @@ arrives instead of on the 20 ms timer, and reads only what the payload points at
 | ON_INV_TRANSMIT | `ContainerTracker` | re-read the item containers now |
 | `setGameState` hook, ON_GAME_STATE_CHANGED | `GameStateTracker` | take the new state from the payload; the holding of `LOGGED_IN` and the scene-load logic are unchanged |
 | ON_SCREEN_RESIZE | `CanvasTracker` | compare the canvas size now |
-| `clientCycle` hook | `ClientTick` | one `ClientTick` per real client cycle (about 50 a second) instead of one per poll |
+| `clientCycle` hook | `ClientTick` | wakes the poll loop; the poll posts one `ClientTick` per move of the cycle counter (about 50 a second), instead of one per poll |
 | `playerAdd` / `playerRemove` hooks | player `ActorTracker` | re-read just that index (R8D) and post the spawn, or post the despawn with the pinned handle before the client drops it |
 | `npcInfoDecode` / `playerInfoDecode` hooks | `InteractingTracker`, both `ActorTracker`s | diff targets and actor sets right after the packet is applied, instead of on the next tick poll |
 | `objAdd` / `objDel` / `objCount` hooks | `ItemTracker` | re-read the pile at the given tile (to confirm the coordinate base live; until then, all piles) and post the spawn, despawn or quantity change |
@@ -252,10 +251,20 @@ usual order with the queued triggers applied, so a tick arriving together with N
 - The detour runs on the game thread for about a microsecond (capture + ring push). The socket write is on the
   DLL's writer thread.
 - The Java reader thread does nothing but parse and enqueue.
-- Dispatch is on `kraken-api-poll`, the client thread. With `GameSession.invoke` the worst case is one 20 ms sleep.
-  To get rid of that, the poll loop's `Thread.sleep` becomes a wait on a condition the native queue signals
-  (`pushNative`), bounded by the poll interval. That is a small change to `GameSession.pollLoop` and is the second
-  step, not the first.
+- Dispatch is on `kraken-api-poll`, the client thread. The poll loop waits on a monitor between iterations, bounded by
+  the 20 ms poll interval, and `GameSession.onNative` notifies it, so a raise is read as soon as it arrives instead of
+  after a sleep.
+- `GameTick` and `ClientTick` still come from the game's tick and cycle counters, one per step; a raise only makes
+  the read happen sooner, so a dropped or repeated raise can't lose or double a tick. Every hook is an entry hook (the
+  DLL queues the message before calling the original), and the two counters sit on opposite sides of their raise
+  (241.3):
+  - The server-tick handler (`0x8e500`) runs `INC [client+tickCount]` at `0x95638` and raises `ON_GAME_TICK` (ECX
+    `0x2c`) right after, so the read that raise wakes already sees the new tick. Logout (`0x8ca70`) calls
+    `setGameState(LOGIN_SCREEN)` and then sets `tickCount` to 0; the API counts only forward steps, so that reset is no
+    tick.
+  - `clientCycle` increments `global.cycle` at `0x58bb4`, after a task-queue drain, so its message leaves before the
+    step. The poll counts the raises and, when they announce more steps than the counter shows, re-reads it for up to
+    2 ms; a step that comes later is counted then.
 - Everything else (handlers, overlays, tasks) already runs on the client thread and does not change.
 
 ### 4.5 Safety and scope
@@ -324,7 +333,7 @@ object. The DLL never copies whole objects: its job is a dozen bytes per event, 
 4. **Function hook targets.** `clientCycle` and `setGameState` (`ClientTick` per cycle, every state write), then the
    §2.5 set: players, ground items, the two info decoders, the projectile constructor. After this every event class
    in `com.kraken.api.events` has a push trigger; only the 250 ms safety poll remains timer-driven.
-5. **Poll-loop wake-up** (`pushNative`) once the rest is stable.
+5. **Poll-loop wake-up.** Done: `GameSession.onNative` wakes the loop, and `ClientTick` follows the cycle counter.
 
 ## 6. Carry-forward
 

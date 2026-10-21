@@ -395,6 +395,29 @@ def run_checks(r, log):
                 node = r.ptr(node + r.off("IfGroupNode", "next"))
                 steps += 1
     ok("widgets", any(g in (149, 162, 548, 161, 164) for g in groups), f"{len(groups)} interface groups open; known root ids present: {sorted(set(groups) & {149, 162, 548, 161, 164})}")
+
+    # The minimenu: the rows of what the mouse is over (or of the open menu), top first; the bottom row is "Cancel".
+    if "Minimenu" not in m["structs"]:
+        skipped("minimenu", "the mapping has no Minimenu keys")
+        return results
+    menu = r.ptr(client + r.off("Client", "minimenu"))
+    begin, end = r.ptr(menu + r.off("Minimenu", "rows")), r.ptr(menu + r.off("Minimenu", "rows") + 8)
+    node_size = r.const("minimenu", "node.size")
+    rows = []
+    if menu and begin and end >= begin and (end - begin) % node_size == 0 and (end - begin) // node_size <= 500:
+        for k in range((end - begin) // node_size):
+            node = begin + k * node_size
+            lst = r.ptr(node + r.const("minimenu", "node.list"))
+            if not lst:
+                rows.append(("<submenu>", "", -1))
+                continue
+            entry = r.ptr(lst + r.const("minimenu", "list.entries")) + r.i64(node + r.const("minimenu", "node.index")) * r.off("MinimenuEntry", "size")
+            rows.append((r.string(entry + r.off("MinimenuEntry", "option")), r.string(entry + r.off("MinimenuEntry", "target")),
+                         r.u8(entry + r.off("MinimenuEntry", "subjectType"))))
+    is_open = r.ptr(menu + r.off("Minimenu", "open")) != 0 if menu else False
+    clicks = r.i32(menu + r.off("Minimenu", "clickCycles")) if menu else -1
+    ok("minimenu", bool(rows) and rows[-1][0] == "Cancel",
+       f"{len(rows)} rows (open={is_open}, {clicks} cycles since the last click): {rows[:4]}")
     return results
 
 
