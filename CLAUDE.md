@@ -12,7 +12,7 @@ by one contract, `api/src/main/resources/mappings/<version>.json`:
   the offset chains in the mapping. `GameSession.client()` is a RuneLite-shaped API (`Client`, `NPC`, `WorldPoint`…)
   whose getters replay what the client's own Lua plugin API (`osrs.ClientOp`, `osrs.ClientState`…) reads.
 - `client/` (Java 21 Swing + Guice): launches `osclient.exe`, embeds its window in a RuneLite-style frame, injects
-  `kraken_hook.dll` for native events, and hosts plugins and dev tools.
+  `kraken_hook.dll` for native events and drawing in the game, and hosts plugins and dev tools.
 
 ## Commands
 
@@ -67,7 +67,8 @@ other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED
 - `src/native_updater/spec/*.yaml` is the source of truth for what gets mapped: one entry per key with strategies,
   invariants and a `live` probe check. Key names map to mapping sections: `Struct.field` → `structs`, `global.x` →
   `globals`, `functions.x` → `functions`, `enums.x` → `enums`, `container.x.y` → `containers`, `events.ON_X` →
-  `events` (the client's native event raise sites; `events.py`, see `docs/event-hooks-design.md`).
+  `events` (the client's native event raise sites; `events.py`, see `docs/event-hooks-design.md`). The highlight
+  functions, `HighlightConfig` layout and the DLL's pump/present hook sites are `spec/90-draw.yaml` (`highlights.py`).
 - The mapping JSON holds only PROVEN/ANCHORED/INFERRED, non-`internal` keys. The evidence behind each value, plus every
   Lua binding's handler RVA, goes to `~/.kraken-native/cache/<sha256>/analysis.json`; read that when a value looks
   wrong.
@@ -104,7 +105,11 @@ other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED
 - Coordinates: actor tiles are scene tiles (relative to the map base), returned as `MapCoord`s; `Client.toWorld` adds
   the base for a `WorldPoint`. A `LocalPoint` is scene × 128. The client keeps height in `y` and north in `z`; the API
   uses `y` north, `z` height, so readers that copy Lua's order swap them.
-- Read-only by design. Lua functions that change the client (highlights, camera control, actions) are out of scope.
+- Read-only by design, with one exception: highlights. `com.kraken.api.highlight` (`Client.getHighlights()`) keeps
+  each `HighlightChannel`'s style and targets and turns them into `internal.invoke.NativeCall`s, which the hook DLL
+  runs on the game thread (`GameSession.setNativeInvoker`); it re-applies everything when the hook reconnects.
+  Design: `docs/in-game-drawing.md`. Other Lua functions that change the client (camera control, actions) are out of
+  scope.
 - Events (`com.kraken.api.events`) are synthesised by `EventSource`'s trackers, only for events with subscribers. The
   native hook's raises (`GameSession.onNative`) trigger trackers sooner; ticks still come from the game's counters, so
   a raise never counts a tick itself. Design and the trigger table: `docs/event-hooks-design.md`. The bus also matches
@@ -142,9 +147,12 @@ other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED
 - Config (`plugins.config`) follows RuneLite's: `ConfigManager.getConfig` proxies a `@ConfigGroup` interface; changes
   post `events.ConfigChanged`; `ui.ConfigPanel` generates the settings page. Supported types are listed on
   `ConfigManager`.
-- Overlays (`ui.overlay`) follow RuneLite's: `OverlayRenderer` draws on the poll thread into a device-pixel image,
-  `GameOverlay` (the click-through window over the game) paints it on the EDT, `OverlayCompositor` does the layout.
-  `plugins.npchighlight`, `plugins.objectmarkers` and `plugins.tickcounter` are the worked examples.
+- Overlays (`ui.overlay`) follow RuneLite's: `OverlayRenderer` draws on the poll thread, `OverlayCompositor` does the
+  layout. While the DLL draws the `GameSurface` (a shared-memory triple buffer it composites into the game's frame
+  before present), frames go there at the framebuffer's size; otherwise `GameOverlay` (the click-through window over
+  the game) paints them on the EDT. Dev tool overlays always use the window. `plugins.npchighlight`,
+  `plugins.objectmarkers`, `plugins.tilemarkers` (game highlights plus a fallback overlay) and `plugins.tickcounter`
+  are the worked examples.
 - Dev tools: subclass `DevTool<S>` and list it in `DevToolCatalog.create()`. `read(api)` runs on the poll thread and
   returns an immutable snapshot; `paintOverlay`/`createView` run on the EDT. A tool reads only while it is showing.
   `PlannedTool` entries hold spots for features the API can't read yet. Event-driven tools subscribe to
@@ -155,6 +163,8 @@ other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED
 - `docs/updater-design.md`: anchor classes, verdict rules, carry-forward and delta propagation. Read before changing
   `consensus.py`, `carry.py` or `verify.py`.
 - `docs/event-hooks-design.md`: the native raise sites, the hook DLL and its protocol, and how raises trigger trackers.
+- `docs/in-game-drawing.md`: the highlight functions, the pump and present hooks, protocol v3's commands and the
+  overlay surface layout; its last section lists the live checks still pending.
 - `docs/ghidra-walkthrough.md`: locating offsets by hand in Ghidra, with an x64 assembly primer.
 - `debug/`: a macOS debug build of the client (build 216) with text dumps of its symbols, strings and constants
   (`symbols_table_demangled.txt` is ~80 MB). Grep them for real class and member names; nothing in the code reads them.

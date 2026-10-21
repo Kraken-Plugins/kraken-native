@@ -8,6 +8,7 @@ import com.kraken.api.definition.ItemComposition;
 import com.kraken.api.definition.NPCComposition;
 import com.kraken.api.definition.ObjectComposition;
 import com.kraken.api.definition.VarbitComposition;
+import com.kraken.api.highlight.Highlights;
 import com.kraken.api.internal.reader.ActorReader;
 import com.kraken.api.internal.ConfigTypes;
 import com.kraken.api.internal.reader.GameReader;
@@ -45,9 +46,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * The game client: the root of the API. Get it from {@code GameSession.client()}.
  *
  * <p>Every getter follows the mapped offset chains in the live process, replaying what the client's own Lua handlers
- * read; a getter's Javadoc names the Lua function it mirrors. The API only reads, so input, models and setters are not
- * exposed, and the menu is read but never changed. Reads are tolerant: an unreadable or logged-out state gives -1, false, "", null or an empty list
- * rather than an exception.
+ * read; a getter's Javadoc names the Lua function it mirrors. The API reads, so input, models and setters are not
+ * exposed, and the menu is read but never changed. The one thing it changes is what the client highlights
+ * ({@link #getHighlights()}), through the client's native hook. Reads are tolerant: an unreadable or logged-out state
+ * gives -1, false, "", null or an empty list rather than an exception.
  *
  * <p>It keeps one handle per actor ({@link #npc}, {@link #player}), so asking twice for the same actor gives the same
  * object, and a handle's identity holds as long as the actor does. A handle is replaced when another actor takes its
@@ -111,6 +113,13 @@ public final class Client extends GameReader {
      */
     @Getter
     private final MenuReader menuReader;
+
+    /**
+     * The client's own highlights: model and tile outlines and fills drawn inside the 3D scene. Changes reach the
+     * client while its native hook is connected.
+     */
+    @Getter
+    private final Highlights highlights;
 
     /**
      * The top-level world: the main map, its actors and its sceneReader.
@@ -192,6 +201,7 @@ public final class Client extends GameReader {
         this.widgets = new WidgetReader(memory, mapping);
         this.menuReader = new MenuReader(memory, mapping, this);
         this.topLevelWorldView = new WorldView(this);
+        this.highlights = new Highlights(mapping);
 
         this.cGameState = mapping.offset("Client.gameState");
         this.cLoginToken = mapping.offset("Client.loginToken");

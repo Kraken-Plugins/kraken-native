@@ -6,7 +6,8 @@ from pathlib import Path, PurePath
 from types import SimpleNamespace
 from unittest import mock
 
-from native_updater import emit, extractors, identity, minimenu, strategies, winpaths, x86, verify
+from native_updater import (emit, extractors, fingerprints, highlights, identity, minimenu, strategies, winpaths,
+                            x86, verify)
 from native_updater.analysis.bindings import BindingTableParser
 from native_updater.analysis.provenance import (Add, Addr, Arg, Bin, Call, Cmp, Const, Deref, Facts, Global, Load, Mul,
                                                 Provenance, Ret, StackAddr, State, Store, Unknown)
@@ -558,6 +559,103 @@ class MinimenuTests(unittest.TestCase):
         self.assertEqual(minimenu._entry_shape(entry), (0x150, 0x18, 0x8, 0x0))
         mixed = Bin("+", Mul(Deref(node, 8, 8), Const(0x150)), Deref(Deref(other, 0, 8), 0x18, 8))
         self.assertIsNone(minimenu._entry_shape(mixed))
+
+
+class DrawTests(unittest.TestCase):
+    """The draw recipes (highlights.py and the string fingerprint) over miniatures of the client's code."""
+
+    CLIENT = 0xe98c18
+    MANAGER = 0x89680
+    CORES = {"@HighlightNpcOn": 0x5100, "@HighlightNpcOff": 0x5200, "@HighlightNpcTypeOn": 0x5300,
+             "@HighlightNpcTypeOff": 0x5400, "@HighlightObjTypeOn": 0x5500, "@HighlightObjTypeOff": 0x5600,
+             "@HighlightPlayerOn": 0x5700, "@HighlightPlayerOff": 0x5800, "@HighlightTileOn": 0x5900,
+             "@HighlightTileOff": 0x5a00, "@HighlightConfigStore": 0x5b00,
+             "ClientOp.highlightObjOn": 0x5c00, "ClientOp.highlightObjOff": 0x5d00}
+    LOC_ON, LOC_OFF, CLEAR = 0x6100, 0x6200, 0x6300
+
+    def session(self, functions, strings=None, data=None, values=None, fns=None):
+        model = FakeModel(functions, strings, data)
+        s = SimpleNamespace(model=model, prov=Provenance(model), values=dict(values or {}), notes=[],
+                            fingerprints={}, fp_evidence={})
+        refs = dict(fns or {})
+        s.fn = lambda ref: refs[ref] if not (isinstance(ref, str) and ref.startswith("@") and ref[1:] in s.fingerprints)             else s.fingerprints[ref[1:]]
+        s.value = lambda key: s.values[key]
+        s.evidence = lambda rva, fn=None, slot="disp": {"insn": rva, "fn": fn, "text": "", "slot": slot}
+        return s
+
+    def script_ops(self, swap_npc=False):
+        """A dispatcher over two and a half categories (NPC, NPCTYPE, LOC): a jump table on arg1 - 7000, five cases per
+        category, each calling its function with client + manager."""
+        def manager_call(target, category=None):
+            setup = ["MOV RCX,qword ptr [0x140e98c18]", f"ADD RCX,{self.MANAGER:#x}"]
+            if category is not None:
+                setup.append(f"MOV EDX,{category:#x}")
+            return setup + [f"CALL {0x140000000 + target:#x}", "JMP 0x140001ffc"]
+        cores = self.CORES
+        npc_on, npc_off = cores["@HighlightNpcOn"], cores["@HighlightNpcOff"]
+        if swap_npc:
+            npc_on, npc_off = npc_off, npc_on
+        cases = [
+            manager_call(cores["@HighlightConfigStore"], 0), manager_call(npc_on),
+            manager_call(npc_off), ["JMP 0x140001ffc"], manager_call(self.CLEAR, 0),
+            manager_call(cores["@HighlightConfigStore"], 1), manager_call(cores["@HighlightNpcTypeOn"]),
+            manager_call(cores["@HighlightNpcTypeOff"]), ["JMP 0x140001ffc"], manager_call(self.CLEAR, 1),
+            manager_call(cores["@HighlightConfigStore"], 2), manager_call(self.LOC_ON),
+            manager_call(self.LOC_OFF), ["JMP 0x140001ffc"], manager_call(self.CLEAR, 2),
+        ]
+        head = ["MOV R15,qword ptr [0x140e98c18]", "ADD EDX,0xffffe4a8", f"CMP EDX,{len(cases) - 1:#x}",
+                "JA 0x140001ffc", "MOVSXD RAX,EDX", "LEA RCX,[0x140000000]",
+                "MOV EDX,dword ptr [RCX + RAX*0x4 + 0x9000]", "ADD RDX,RCX", "JMP RDX"]
+        body, starts = list(head), []
+        for case in cases:
+            starts.append(0x1000 + 4 * len(body))
+            body += case
+        body += ["NOP"] * ((0xffc - 4 * len(body)) // 4) + ["RET"]
+        functions = {0x1000: body}
+        for target in list(cores.values()) + [self.LOC_ON, self.LOC_OFF, self.CLEAR]:
+            functions[target] = ["RET"]
+        functions[0x7000] = [f"CALL {0x140000000 + cores['@HighlightNpcOn']:#x}", "RET"]     # the Lua handler
+        table = b"".join(s.to_bytes(4, "little") for s in starts)
+        values = {"global.client": self.CLIENT, "Client.highlightManager": self.MANAGER,
+                  "enums.highlightCategory": {"NPC": 0, "NPCTYPE": 1, "LOC": 2, "NUM_CATEGORIES": 3}}
+        return self.session(functions, data={0x9000: table}, values=values, fns=cores)
+
+    def test_script_ops_name_the_loc_and_clear_functions(self):
+        s = self.script_ops()
+        out = {k: v[0] for k, v in highlights.highlight_script_ops(s, {}).items()}
+        self.assertEqual(out, {"HighlightScriptOps": 0x1000, "HighlightLocOn": self.LOC_ON, "HighlightLocOff": self.LOC_OFF,
+                               "HighlightChannelClear": self.CLEAR}, s.notes)
+
+    def test_script_ops_refuse_a_case_that_disagrees_with_the_lua_handler(self):
+        s = self.script_ops(swap_npc=True)
+        self.assertEqual(highlights.highlight_script_ops(s, {}), {})
+        self.assertIn("NPC: case 7001 does not call 0x5100", s.notes[0])
+
+    def test_config_fields_pair_each_name_with_its_offset(self):
+        strings = {0x900000: "osrs.ClientOp.HighlightConfig", 0x900020: "highlightColour", 0x900040: "outlineWidth",
+                   0x900060: "enableModelOutline", 0x900080: "isEnabled"}
+        s = self.session({0x1000: [
+            "LEA R8,[0x140900000]", "CALL 0x140002000", "XOR R13D,R13D",
+            "LEA RAX,[0x140900020]", "MOV dword ptr [RBP + 0x67],R13D", "CALL 0x140002000",
+            "LEA RAX,[0x140900040]", "MOV dword ptr [RBP + 0x67],0x4", "CALL 0x140002000",
+            "MOV dword ptr [RBP + 0x67],0x6", "LEA RDX,[RBP + 0x67]", "LEA RAX,[0x140900060]", "CALL 0x140002000",
+            "MOV qword ptr [RBP + 0x67],RAX", "LEA RAX,[0x140900080]", "CALL 0x140002000", "RET"],
+            0x2000: ["RET"]}, strings=strings)
+        out = {k: v[0] for k, v in highlights.highlight_config_fields(s, {}).items()}
+        self.assertEqual(out, {"HighlightConfig.colour": 0, "HighlightConfig.outlineWidth": 4,
+                               "HighlightConfig.enableModelOutline": 6})
+
+    def test_references_finds_the_function_logging_a_string(self):
+        s = self.session({0x1000: ["LEA RCX,[0x140900000]", "CALL 0x140003000", "RET"],
+                          0x2000: ["CALL 0x140001000", "MOV EAX,0x3b9aca00", "RET"],
+                          0x2100: ["CALL 0x140001000", "RET"], 0x3000: ["RET"]},
+                         strings={0x900000: "SwapBuffers"})
+        rva, ev = fingerprints.resolve(s, "Present", {"references": "SwapBuffers"})
+        self.assertEqual((rva, ev["cls"]), (0x1000, "B"))
+        s.fingerprints["Present"], s.fp_evidence["Present"] = rva, ev
+        rva, ev = fingerprints.resolve(s, "AppUpdate", {"caller_of": "@Present", "imm": 0x3b9aca00})
+        self.assertEqual((rva, ev["cls"]), (0x2000, "B"))
+        self.assertIsNone(fingerprints.resolve(s, "Missing", {"references": "nowhere"})[0])
 
 
 class BindingParserTests(unittest.TestCase):

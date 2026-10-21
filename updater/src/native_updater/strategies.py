@@ -7,7 +7,7 @@
   member        the data-member offset a sol2 property binding was registered with
   binding       a binding handler's RVA (function keys)
   fingerprint   a fingerprinted function's RVA (function keys)
-  enum-table    a whole {name: value} enum table
+  enum-table    a whole {name: value} enum table (only_matching: true keeps just the names `match` matches)
   extractor     one field of a custom extractor's output (see extractors.py)
 
 Selectors for `getter` (all optional, combined with AND):
@@ -24,6 +24,8 @@ Other `getter` parameters:
   add N                  added to the offset read. For a base that is itself a sub-object (the rescaler is called with
                          renderer + 0x10), N is that base's offset in the parent struct.
 """
+import re
+
 from . import roles
 from .analysis.bindings import select_enum_table
 from .analysis.provenance import Add, Arg, Bin, Const, Deref, Global, Many, Mul, Ret, Out, contains, walk
@@ -349,10 +351,16 @@ def fingerprint(session, p, key):
 
 
 def enum_table(session, p, key):
+    """The enum table most of whose names match `match`. With `only_matching: true`, keeps just the matching names: two
+    enum arrays laid out back to back in .rdata parse as one run (HighlightCategory runs into the worn slots)."""
     t = select_enum_table(session.enum_tables, p["match"])
     if t is None:
         return []
-    return [Candidate(dict(t.entries), "enum-table", "A", [{"insn": t.rva, "fn": None, "text": f"{len(t.entries)} records", "slot": "data"}])]
+    entries = dict(t.entries)
+    if p.get("only_matching"):
+        rx = re.compile(p["match"])
+        entries = {name: value for name, value in entries.items() if rx.search(name)}
+    return [Candidate(entries, "enum-table", "A", [{"insn": t.rva, "fn": None, "text": f"{len(entries)} records", "slot": "data"}])]
 
 
 def extractor(session, p, key):

@@ -51,7 +51,8 @@
       "minimenu": "0x4133f0",
       "projectiles": "0xcc70",
       "keyedProjectiles": "0xcc88",
-      "pluginGate": "0x418690"
+      "pluginGate": "0x418690",
+      "highlightManager": "0x89680"
     },
     "Varcs": {
       "entries": "0x48",
@@ -419,6 +420,37 @@
       "length": "0x8",
       "data": "0x10"
     },
+    "HighlightManager": {
+      "npcs": "0x1258",
+      "npcTypes": "0x12b8",
+      "players": "0x1288",
+      "objTypes": "0x1318",
+      "categoryCount": "0x9",
+      "channelMax": "0x1f"
+    },
+    "HighlightIdNode": {
+      "mask": "0x8",
+      "next": "0x10"
+    },
+    "HighlightNameNode": {
+      "mask": "0x18",
+      "next": "0x20"
+    },
+    "HighlightConfig": {
+      "colour": "0x0",
+      "outlineWidth": "0x4",
+      "enableModelOutline": "0x6",
+      "enableTileOutline": "0x7",
+      "enableModelFill": "0x8",
+      "enableTileFill": "0x9",
+      "alwaysOnTop": "0xa",
+      "showInsideEdges": "0xb",
+      "saveToFile": "0xc",
+      "snapToGrid": "0xd",
+      "swOnly": "0xe",
+      "ignoreRebuild": "0xf",
+      "disableModel": "0x10"
+    },
     "InterfaceCoordinates": {
       "offX": "0x10",
       "offY": "0x14",
@@ -557,6 +589,18 @@
       "PVP_ARENA": 3,
       "QUEST_SPEEDRUNNING": 4,
       "SEASONAL": 5
+    },
+    "highlightCategory": {
+      "NPC": 0,
+      "NPCTYPE": 1,
+      "LOC": 2,
+      "LOCTYPE": 3,
+      "OBJ": 4,
+      "OBJTYPE": 5,
+      "PLAYER": 6,
+      "TILE": 7,
+      "OPGROUP": 8,
+      "NUM_CATEGORIES": 9
     }
   },
   "functions": {
@@ -580,7 +624,27 @@
     "objCount": "0x74e30",
     "projectileCtor": "0xa24a0",
     "projectileStep": "0xa2630",
-    "projectileListUpdate": "0xc5e10"
+    "projectileListUpdate": "0xc5e10",
+    "highlightNpcOn": "0x1b9ef0",
+    "highlightNpcOff": "0x1bbdf0",
+    "highlightNpcTypeOn": "0x1ba460",
+    "highlightNpcTypeOff": "0x1bc2e0",
+    "highlightTileOn": "0x1ba2e0",
+    "highlightTileOff": "0x1bc0d0",
+    "highlightPlayerOn": "0x1ba210",
+    "highlightPlayerOff": "0x1bc070",
+    "highlightLocOn": "0x1b9fb0",
+    "highlightLocOff": "0x1bbe50",
+    "highlightLocTypeOn": "0x1ba780",
+    "highlightLocTypeOff": "0x1bc330",
+    "highlightObjOn": "0x1ba0e0",
+    "highlightObjOff": "0x1bbf60",
+    "highlightObjTypeOn": "0x1bae10",
+    "highlightObjTypeOff": "0x1bc380",
+    "highlightChannelClear": "0x1b9550",
+    "highlightChannelConfigure": "0x3ad8c0",
+    "present": "0xa555c0",
+    "appUpdate": "0x918950"
   },
   "events": {
     "ON_GAME_TICK": [

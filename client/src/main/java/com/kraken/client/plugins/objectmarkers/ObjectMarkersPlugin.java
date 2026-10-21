@@ -15,6 +15,10 @@ import com.kraken.api.events.GroundObjectDespawned;
 import com.kraken.api.events.GroundObjectSpawned;
 import com.kraken.api.events.WallObjectDespawned;
 import com.kraken.api.events.WallObjectSpawned;
+import com.kraken.api.highlight.HighlightCategory;
+import com.kraken.api.highlight.HighlightChannel;
+import com.kraken.api.highlight.HighlightConfig;
+import com.kraken.api.highlight.HighlightTarget;
 import com.kraken.api.scene.Scene;
 import com.kraken.api.scene.TileObject;
 import com.kraken.client.callback.ClientThread;
@@ -33,7 +37,9 @@ import java.util.Set;
 
 /**
  * The scene example plugin: marks the objects whose names or ids are listed in its settings. Kraken has no right-click
- * menus, so the settings choose the objects instead. Its state and threading:
+ * menus, so the settings choose the objects instead. The outlines are the game's own highlights, on an object
+ * {@link HighlightChannel} the plugin holds while it runs; the names, and the tile outlines while the native hook isn't
+ * connected, come from its overlay. Its state and threading:
  *
  * <ul>
  *   <li>objects are learnt from the spawn events, which also fire for every object of a newly loaded scene, and
@@ -88,6 +94,11 @@ public class ObjectMarkersPlugin extends Plugin {
 
     private volatile Targets targets = Targets.NONE;
 
+    /**
+     * The game's highlight channel the outlines are drawn on, held from {@code startUp} to {@code shutDown}.
+     */
+    private volatile HighlightChannel channel;
+
     @Provides
     ObjectMarkersConfig provideConfig(ConfigManager configManager) {
         return configManager.getConfig(ObjectMarkersConfig.class);
@@ -96,6 +107,9 @@ public class ObjectMarkersPlugin extends Plugin {
     @Override
     protected void startUp() {
         targets = Targets.parse(config.objects());
+        HighlightChannel taken = client.getHighlights().channel(HighlightCategory.LOC);
+        taken.configure(style());
+        channel = taken;
         overlayManager.add(overlay);
         clientThread.invoke(this::rebuild);
     }
@@ -103,10 +117,24 @@ public class ObjectMarkersPlugin extends Plugin {
     @Override
     protected void shutDown() {
         overlayManager.remove(overlay);
+        HighlightChannel held = channel;
+        channel = null;
+        if (held != null) {
+            held.release();
+        }
         clientThread.invoke(() -> {
             marked.clear();
             listed.clear();
         });
+    }
+
+    /**
+     * Whether the game draws the outlines now, so the overlay only adds the names.
+     *
+     * @return true while the native hook is connected
+     */
+    boolean isDrawnInGame() {
+        return client.getHighlights().isAvailable();
     }
 
     @Subscribe
@@ -116,7 +144,7 @@ public class ObjectMarkersPlugin extends Plugin {
 
     @Subscribe
     public void onGameObjectDespawned(GameObjectDespawned event) {
-        marked.remove(event.getGameObject());
+        forget(event.getGameObject());
     }
 
     @Subscribe
@@ -126,7 +154,7 @@ public class ObjectMarkersPlugin extends Plugin {
 
     @Subscribe
     public void onWallObjectDespawned(WallObjectDespawned event) {
-        marked.remove(event.getWallObject());
+        forget(event.getWallObject());
     }
 
     @Subscribe
@@ -136,7 +164,7 @@ public class ObjectMarkersPlugin extends Plugin {
 
     @Subscribe
     public void onDecorativeObjectDespawned(DecorativeObjectDespawned event) {
-        marked.remove(event.getDecorativeObject());
+        forget(event.getDecorativeObject());
     }
 
     @Subscribe
@@ -146,13 +174,17 @@ public class ObjectMarkersPlugin extends Plugin {
 
     @Subscribe
     public void onGroundObjectDespawned(GroundObjectDespawned event) {
-        marked.remove(event.getGroundObject());
+        forget(event.getGroundObject());
     }
 
     @Subscribe
     public void onGameStateChanged(GameStateChanged event) {
         if (event.getGameState() == GameState.LOADING) {
             marked.clear();
+            HighlightChannel held = channel;
+            if (held != null) {
+                held.clear();
+            }
         }
     }
 
@@ -160,8 +192,27 @@ public class ObjectMarkersPlugin extends Plugin {
     public void onConfigChanged(ConfigChanged event) {
         if (event.getGroup().equals(ObjectMarkersConfig.GROUP)) {
             targets = Targets.parse(config.objects());
+            HighlightChannel held = channel;
+            if (held != null) {
+                held.configure(style());
+            }
             clientThread.invoke(this::rebuild);
         }
+    }
+
+    /**
+     * The game's highlight style from the settings.
+     *
+     * @return the style
+     */
+    private HighlightConfig style() {
+        return HighlightConfig.DEFAULT
+                .withHighlightColour(config.colour())
+                // The settings page keeps the width in range; a hand-edited settings file might not
+                .withOutlineWidth(Math.max(1, Math.min(config.width(), 16)))
+                .withEnableModelOutline(config.outlineModel())
+                .withEnableTileOutline(config.outlineTile())
+                .withAlwaysOnTop(config.alwaysOnTop());
     }
 
     /**
@@ -183,18 +234,33 @@ public class ObjectMarkersPlugin extends Plugin {
     private void rebuild() {
         marked.clear();
         listed.clear();
-        if (targets.isEmpty() || client.getGameState() != GameState.LOGGED_IN) {
-            return;
-        }
-        Scene scene = client.getScene();
+        Scene scene = targets.isEmpty() || client.getGameState() != GameState.LOGGED_IN ? null : client.getScene();
         if (scene != null) {
-            scene.getTileObjects().forEach(this::consider);
+            scene.getTileObjects().forEach(object -> {
+                if (listed.computeIfAbsent(object.getId(), this::isListed)) {
+                    marked.add(object);
+                }
+            });
+        }
+        HighlightChannel held = channel;
+        if (held != null) {
+            held.set(marked.stream().map(HighlightTarget::loc).toList());
         }
     }
 
     private void consider(TileObject object) {
-        if (listed.computeIfAbsent(object.getId(), this::isListed)) {
-            marked.add(object);
+        if (listed.computeIfAbsent(object.getId(), this::isListed) && marked.add(object)) {
+            HighlightChannel held = channel;
+            if (held != null) {
+                held.add(HighlightTarget.loc(object));
+            }
+        }
+    }
+
+    private void forget(TileObject object) {
+        HighlightChannel held = channel;
+        if (marked.remove(object) && held != null) {
+            held.remove(HighlightTarget.loc(object));
         }
     }
 

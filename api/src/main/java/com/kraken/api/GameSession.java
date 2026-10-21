@@ -3,6 +3,7 @@ package com.kraken.api;
 import com.kraken.api.eventbus.EventBus;
 import com.kraken.api.internal.event.EventSource;
 import com.kraken.api.internal.event.NativeEvent;
+import com.kraken.api.internal.invoke.NativeInvoker;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.api.memory.Memory;
 import com.kraken.api.memory.MemoryException;
@@ -35,7 +36,9 @@ import java.util.logging.Logger;
  * </ol>
  * Events are only synthesised while something subscribes to them.
  *
- * <p>Read-only throughout: it never writes to or calls into the game.
+ * <p>It reads the game and never writes to it. The client's highlights ({@link Client#getHighlights()}) are the one
+ * thing it changes, by having the client's native hook call the game's own highlight functions
+ * ({@link #setNativeInvoker}).
  */
 public final class GameSession implements AutoCloseable {
 
@@ -345,6 +348,17 @@ public final class GameSession implements AutoCloseable {
             eventPollRequested = true;
         });
         wake();
+    }
+
+    /**
+     * Hands the API a connection to the native hook that runs calls on the game thread, or takes it away. While it is
+     * set, {@link Client#getHighlights()} draws in the game, and every highlight set so far is applied through it.
+     * Internal: the client's native hook calls this as its connection comes up and drops.
+     *
+     * @param invoker the connection, or null while there is none
+     */
+    public void setNativeInvoker(NativeInvoker invoker) {
+        client.getHighlights().setInvoker(invoker);
     }
 
     /**

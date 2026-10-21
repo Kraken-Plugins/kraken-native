@@ -1,13 +1,19 @@
-# kraken_hook.dll — push-based native events
+# kraken_hook.dll — native events, client calls and in-game drawing
 
-A DLL injected into `osclient.exe` that turns the client's own event raises into **push** events for
-the Kraken client, replacing `EventSource`'s poll-and-diff as the thing that decides when the API
-reads. It inline-hooks the raise functions named in a handshake and signals the Kraken client the
-instant the client raises one.
+A DLL injected into `osclient.exe`. It does three things for the Kraken client:
+
+- turns the client's own event raises into **push** events, replacing `EventSource`'s poll-and-diff as
+  the thing that decides when the API reads: it inline-hooks the raise functions named in a handshake
+  and signals the Kraken client the instant the client raises one;
+- runs the client functions the Kraken client asks for (the highlight functions) **on the game
+  thread**, at the start of each frame;
+- draws the Kraken client's overlay **inside the game's own OpenGL frame**, just before it is
+  presented. See `docs/in-game-drawing.md`.
 
 It is installed on every launch, once the API attaches (`NativeEventServer`, created by the session
 injector). It is the one place the client writes to the game process. If the DLL can't be found or
-injected, the launch carries on and the API's timer poll drives the reads alone.
+injected, the launch carries on: the API's timer poll drives the reads alone and overlays fall back to
+the transparent window.
 
 ## Why a socket, not a JNI/JNA callback
 
@@ -34,16 +40,58 @@ planned values, pushes a message, then forwards to the original unchanged.
 > until the DLL grows a stack-preserving detour; the API's `ItemTracker` reads the piles on its safety
 > poll meanwhile. See `docs/event-hooks-design.md` §2.5.
 
-## Protocol v2 (little-endian)
+### The pump and present hooks
 
-**Handshake** (Java → DLL): magic `KRK2`, a `u16` slot count, then per slot
+Two more functions are hooked with dedicated detours, once each, from the first handshake that names
+them:
+
+- **The pump** (`functions.appUpdate`, the client's per-frame step, `void(App*, float)`). Before the
+  original runs, the detour runs every queued call batch on the game thread, each call under an SEH
+  guard, and reports each batch with a `CALLS_DONE` message. The queue is taken with a try-lock, so the
+  game thread never waits on the reader thread.
+- **Present** (`functions.present`, `void(GlContext*)`, which calls `SwapBuffers`). Before the
+  original runs, the detour uploads the newest overlay frame from the surface and draws it over
+  framebuffer 0 as one full-screen triangle with premultiplied-alpha blending (GLSL 330 core on GL 3.3+,
+  150 on 3.2, 130 on 3.0 and 3.1; nothing below 3.0). It saves every piece of GL state it changes and
+  restores it after, under SEH guards; a fault turns the overlay off for the session. It also reports
+  the framebuffer size, GL version and the surface it draws in `FRAME` messages.
+
+## Protocol v3 (little-endian)
+
+**Handshake** (Java → DLL): magic `KRK3`, a `u16` slot count, then per slot
 `{u64 rva, i32 fixedId (-1 = read idArg), u8 idArg, u8 args, u8 planLen, plan[planLen]}`, where a
-plan entry is `{u8 arg, u8 op}` with ops `RAW, I32, I64, I32X2, CSTR` = 0..4.
+plan entry is `{u8 arg, u8 op}` with ops `RAW, I32, I64, I32X2, CSTR` = 0..4; then
+`u64 clientGlobal, u64 pumpFn, u64 presentFn` (RVAs; 0 = none).
 
-**Message** (DLL → Java): a `u32` length frame, then
+**Messages** (DLL → Java): a `u32` length frame, then
 `{u32 seq, i32 eventId, u64 regs[4], u8 nValues, values...}`, where a value is `{u8 arg, u8 op, payload}`.
-`seq` climbs by one per raise, so the Kraken client sees a ring-buffer drop as a gap. A reserved
-`eventId` of `-2` is a status message reporting how many hooks installed.
+`seq` climbs by one per message, so the Kraken client sees a ring-buffer drop as a gap. Reserved ids:
+
+| id | Name | regs |
+|---|---|---|
+| -2 | STATUS | installed slots, requested slots, features (1 = pump hooked, 2 = present hooked), protocol version 3 |
+| -3 | FRAME | framebuffer width, height, GL version (`major << 16 \| minor`), surface generation drawn (0 = none) |
+| -4 | CALLS_DONE | batch id, calls run, calls faulted or skipped, last return value |
+
+STATUS and FRAME are written by the writer thread straight to the socket, so they can arrive out of
+`seq` order with ring messages; CALLS_DONE goes through the ring.
+
+**Commands** (Java → DLL, after the handshake): `{u32 len, u8 type, body}`, `len` counting the type
+byte and the body, at most 4 MiB.
+
+- `1 CALLS`: `u32 batch, u16 count`, then per call
+  `{u64 rva, u8 argc (≤ 8), argc × {u8 kind, i64 value}, u16 dataLen, data}`. Kinds: `0 IMM` (the
+  value), `1 CLIENT` (the `Client*` at `base + clientGlobal` plus the value; the call is skipped while
+  it is null), `2 DATA` (a pointer to `data + value`, in a 16-byte-aligned copy). A call whose rva lies
+  outside the module, or whose data offset is out of range, is skipped. A malformed frame, or one that
+  would take the queue past 4096 calls, is answered with every call skipped. Batches are dropped while
+  no pump is hooked, and when the connection closes.
+- `2 SURFACE`: `u32 generation, u16 nameLen, name`. Opens the named file mapping (`OpenFileMappingA`,
+  read/write, since the DLL writes the `reading` word) and checks its header; the present thread takes
+  it over at its next present. `nameLen` 0, a mapping that fails the check, or a dropped connection
+  stops the overlay.
+
+The surface layout and its lock-free triple-buffer handshake are in `docs/in-game-drawing.md` §2.4.
 
 ## Flow
 
@@ -54,13 +102,19 @@ plan entry is `{u8 arg, u8 op}` with ops `RAW, I32, I64, I32X2, CSTR` = 0..4.
   ServerSocket 127.0.0.1:42069
   inject kraken_hook.dll  ──────────────────► DllMain -> init thread
      (CreateRemoteThread + LoadLibraryA)         connect() back to :42069
-  send handshake (slot table)  ───────────────► MinHook: hook each base+rva
+  send handshake (slots, pump, present) ──────► MinHook: hook each base+rva, the pump, present
   read messages -> GameSession.onNative() ◄───── detour(id, regs): capture plan, ring, writer thread
+  send CALLS ─────────────────────────────────► reader thread -> queue -> pump (game thread) -> CALLS_DONE
+  write overlay frames to the surface, SURFACE ► reader thread maps it -> present hook uploads + draws
 ```
 
 - The detour runs on the game thread for about a microsecond: capture the id and planned values and
   push a message into a lock-free single-producer ring. A writer thread drains the ring to the
   socket, so a slow reader never stalls the game. Pointer dereferences in the plan are SEH-guarded.
+- After the handshake a reader thread reads command frames: it queues call batches for the pump and
+  hands opened surfaces to the present thread through an atomic swap (the present thread unmaps the
+  old one). Only the writer thread writes to the socket, and only the game thread (raise detours and
+  the pump) pushes into the ring.
 - Hooks stay installed for the life of the process. If the socket drops, the writer thread reconnects
   every second; the Kraken client re-sends the handshake and the DLL only adds slots it lacks. A
   second injection is refused by a named mutex.
@@ -68,7 +122,8 @@ plan entry is `{u8 arg, u8 op}` with ops `RAW, I32, I64, I32X2, CSTR` = 0..4.
 - `client/.../callback/NativeEventServer.java` — the server, handshake builder, message reader and the
   read-only `onEvent` tap; bound in `SessionModule` and installed by `KrakenClient`'s attach listener.
 - `client/.../callback/NativeProtocol.java`, `NativeEvents.java` — the wire format and the capture plans.
-- `kraken_hook.cpp` — connects back, reads the handshake, installs the MinHook hooks, pushes messages.
+- `kraken_hook.cpp` — connects back, reads the handshake, installs the MinHook hooks, pushes messages,
+  runs call batches in the pump and draws the overlay in the present hook.
 
 ## Build
 
@@ -113,3 +168,6 @@ safety-net rate and the hook drives the reads.
 - Live checks are still pending for some payloads and hook sites (see `docs/event-hooks-design.md` §7).
   The trackers keep their whole-read fallback, so an unconfirmed payload costs latency, not a missed
   event.
+- The pump, the calls and the overlay are not checked against a running client yet (see
+  `docs/in-game-drawing.md` §4). Under MinGW the calls, the capture plans and the GL drawing run
+  without SEH guards; build with MSVC for anything but local testing.

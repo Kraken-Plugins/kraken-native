@@ -6,19 +6,26 @@ IMAGE_BASE = 0x140000000
 
 
 class FakePE:
-    def __init__(self, code_ranges=((0x1000, 0x800000),)):
+    def __init__(self, code_ranges=((0x1000, 0x800000),), data=None):
         self.code_ranges = code_ranges
+        self.data = data or {}          # {rva: bytes}: data blocks read() serves (jump tables, constants)
 
     def is_code(self, rva):
         return any(lo <= rva < hi for lo, hi in self.code_ranges)
+
+    def read(self, rva, n):
+        for start, blob in self.data.items():
+            if start <= rva and rva + n <= start + len(blob):
+                return blob[rva - start: rva - start + n]
+        return None
 
 
 class FakeModel:
     """functions: {entry_rva: ["MOV RAX,qword ptr [0x140e98c18]", ...]} with 4-byte instructions laid out in order."""
 
-    def __init__(self, functions, strings=None):
+    def __init__(self, functions, strings=None, data=None):
         self.image_base = IMAGE_BASE
-        self.pe = FakePE()
+        self.pe = FakePE(data=data)
         self._insns = {}
         self._functions = {}
         self._strings = strings or {}
@@ -81,3 +88,12 @@ class FakeModel:
                 if i.mnem == "LEA" and len(i.ops) == 2 and i.ops[1].base == "RIP" and i.ops[1].disp == rva]
         refs += [(i.rva, entry, "jump") for entry, body in self._insns.items() for i in body if i.is_jump and i.target == rva]
         return [r for r in refs if kinds is None or r[2] in kinds]
+
+    def string_refs(self, value):
+        """(src, fn) of the LEAs of every string with exactly this text."""
+        return sorted((src, fn) for rva, text in self._strings.items() if text == value
+                      for src, fn, _ in self.xrefs_to(rva, ("lea",)))
+
+    def insns_with_imm(self, imm, mnem=None):
+        return [(i.rva, entry) for entry, body in self._insns.items() for i in body
+                if (mnem is None or i.mnem == mnem) and any(op.kind == "imm" and op.imm == imm for op in i.ops)]

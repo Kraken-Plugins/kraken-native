@@ -9,6 +9,7 @@ import struct
 
 from .analysis.provenance import Add, Arg, Bin, Const, Deref, Global, Mul, Ret, Out, StackAddr, contains, walk
 from .events import event_raisers
+from .highlights import highlight_config_fields, highlight_script_ops
 from .hooks import obj_pile_ops, player_lifecycle
 from .minimenu import minimenu
 from .session import Blocked
@@ -1302,4 +1303,5 @@ EXTRACTORS = {
     "player_name_pair": player_name_pair, "set_sequence": set_sequence, "actor_ctor": actor_ctor,
     "scene_grid": scene_grid, "tile_game_objects": tile_game_objects, "obj_pile_grid": obj_pile_grid,
     "operator_new": operator_new, "alloc_sizes": alloc_sizes, "string_sso": string_sso, "shared_layouts": shared_layouts,
+    "highlight_script_ops": highlight_script_ops, "highlight_config_fields": highlight_config_fields,
 }

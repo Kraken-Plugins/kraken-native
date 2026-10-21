@@ -15,8 +15,9 @@ import java.awt.Polygon;
 import java.awt.Stroke;
 
 /**
- * Outlines the highlighted NPCs' tiles, and writes their names over them if the setting is on. Runs on the client
- * thread, like the plugin's event handlers, so it reads {@link NpcHighlightPlugin#getHighlighted()} without locking.
+ * Writes the highlighted NPCs' names over them if the setting is on, and outlines their tiles while the game can't (the
+ * native hook isn't connected). Runs on the client thread, like the plugin's event handlers, so it reads
+ * {@link NpcHighlightPlugin#getHighlighted()} without locking.
  */
 class NpcHighlightOverlay extends Overlay {
 
@@ -38,8 +39,12 @@ class NpcHighlightOverlay extends Overlay {
         // The settings page keeps the width in range; a hand-edited settings file might not
         Stroke stroke = new BasicStroke(Math.max(1, config.width()));
         boolean showNames = config.showNames();
+        boolean outlineTiles = !plugin.isDrawnInGame();
+        if (!outlineTiles && !showNames) {
+            return null;
+        }
         for (NPC npc : plugin.getHighlighted()) {
-            Polygon tile = npc.getCanvasTilePoly();
+            Polygon tile = outlineTiles ? npc.getCanvasTilePoly() : null;
             if (tile != null) {
                 OverlayUtil.renderPolygon(graphics, tile, colour, stroke);
             }

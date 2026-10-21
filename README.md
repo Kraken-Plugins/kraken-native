@@ -36,8 +36,8 @@ Use at your own risk. The developers are not responsible for any consequences re
 | [`updater/`](updater) | Working | Python updater that maps a client build and writes the API's `mappings/<version>.json` |
 | [`api/src/main/resources/mappings/`](api/src/main/resources/mappings) | Seed build | One mapping per client version (e.g. `241.3.json`): the offsets the API reads, nothing else. Bundled on the API's classpath |
 | [`api/`](api) | In progress | RuneLite-shaped Java API (`Client`, `NPC`, `WorldPoint`, `Widget`, events…) read from outside the process, each getter replaying what the client's Lua plugin API reads |
-| [`client/src/main/native/kraken_hook/`](client/src/main/native/kraken_hook) | Working | `kraken_hook.dll`, injected into the game to push its native event raises to the API, so events are read the moment they happen |
-| [`docs/`](docs) | | Design documents for the updater and the native event hooks, and a Ghidra walkthrough |
+| [`client/src/main/native/kraken_hook/`](client/src/main/native/kraken_hook) | Working | `kraken_hook.dll`, injected into the game to push its native event raises to the API, so events are read the moment they happen, and to draw in the game: the client's own highlights, and the plugins' overlays inside its frame |
+| [`docs/`](docs) | | Design documents for the updater, the native event hooks and drawing in the game, and a Ghidra walkthrough |
 
 The seed build, client 241.3, maps 400 of 407 keys as PROVEN or ANCHORED (the other 7 are INFERRED), with none failed.
 
@@ -79,9 +79,9 @@ What you get:
 
 Plugins are written as RuneLite plugins are: a `Plugin` subclass with `@PluginDescriptor`, injected `Client` and
 `ClientThread`, `startUp`/`shutDown`, and `@Subscribe` methods for events such as `GameTick`, `NpcSpawned` or
-`StatChanged` (see the example plugins under `com.kraken.client.plugins`: `tickcounter`, `npchighlight` and
-`objectmarkers`). A plugin package under `com.kraken.client.plugins` is found at launch. To run one from
-elsewhere, pass its class:
+`StatChanged` (see the example plugins under `com.kraken.client.plugins`: `tickcounter`, `npchighlight`,
+`objectmarkers` and `tilemarkers`). A plugin package under `com.kraken.client.plugins` is found at launch. To run one
+from elsewhere, pass its class:
 
 ```bash
 ./gradlew :client:run --args="--plugin com.example.MyPlugin"
@@ -89,6 +89,12 @@ elsewhere, pass its class:
 
 or start Kraken from your own `main` with `KrakenClient.launch(args, MyPlugin.class)`. `--developer-mode` also loads
 plugins marked `developerPlugin = true`.
+
+Overlays are drawn inside the game's own frame while the native hook is connected, and in a window over the game
+otherwise. For outlines, use the game's highlights instead: take a channel with
+`client.getHighlights().channel(HighlightCategory.NPC)`, give it a `HighlightConfig` and `set` the
+`HighlightTarget`s to light. The game draws them in the scene, with its depth, following the camera
+(see [in-game-drawing.md](docs/in-game-drawing.md)).
 
 ### Logging In With a Jagex Account
 
@@ -167,7 +173,8 @@ The API is built in sections you can test live with the dev tools. The milestone
 * **A2** (done) Widgets, collision, tile heights and projection, projectiles and graphics objects.
 * **A3** Orientation, hitsplats, overhead text, appearance, chat and other remaining surface.
 * **A4** An in-process backend, injected into the client, for actions. Native events already come from the injected
-  `kraken_hook.dll` (see [event-hooks-design.md](docs/event-hooks-design.md)).
+  `kraken_hook.dll` (see [event-hooks-design.md](docs/event-hooks-design.md)), which also draws highlights and
+  overlays in the game ([in-game-drawing.md](docs/in-game-drawing.md)).
 
 ## Acknowledgements
 

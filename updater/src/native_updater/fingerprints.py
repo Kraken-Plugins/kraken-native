@@ -3,6 +3,7 @@
   callee_of:   {callee_of: REF, imm: N, min_args: N, calls: REF, arg0: ROLE}   a callee of REF with extra filters
   common_callee_of: [REF, ...]                                                 the callee shared by all of them
   caller_of:   {caller_of: REF, ...filters}                                    a caller of REF
+  references:  {references: "text", ...filters}                               the function referencing this exact string
   binding:     {binding: "Table.name"}                                         a handler (for function keys)
   extractor:   {extractor: name}                                               custom logic in extractors.py
 Filters: imm (an immediate used in the function), min_args (call site passes at least N arguments),
@@ -75,6 +76,14 @@ def resolve(session, name, rule):
         fn = session.fn(rule["caller_of"])
         found = {c for c in session.model.callers(fn) if _filters_ok(session, c, rule, None)}
         return _pick(session, name, found, rule)
+    if "references" in rule:
+        # A string the function references, typically a diagnostic it logs: a class B anchor.
+        found = {fn for _, fn in session.model.string_refs(rule["references"])
+                 if fn is not None and _filters_ok(session, fn, rule, None)}
+        rva, evidence = _pick(session, name, found, rule)
+        if rva is not None:
+            evidence["cls"] = "B"
+        return rva, evidence
     raise ValueError(f"fingerprint {name}: unknown rule {rule}")
 
 

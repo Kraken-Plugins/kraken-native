@@ -5,13 +5,16 @@ import com.google.inject.Singleton;
 import com.google.inject.name.Named;
 import com.kraken.api.GameSession;
 import com.kraken.api.internal.event.NativeEvent;
+import com.kraken.api.internal.invoke.NativeCall;
 import com.kraken.api.mapping.Mapping;
+import com.kraken.client.ui.overlay.GameSurface;
 import lombok.extern.java.Log;
 
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
@@ -26,7 +29,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.logging.Level;
 
@@ -46,6 +51,11 @@ import java.util.logging.Level;
  * instead. If neither can be found the launch continues without the hook, and the events come from the timer poll
  * alone.
  *
+ * <p>The same connection carries the drawing ({@code docs/in-game-drawing.md}). The handshake also names the
+ * per-frame step the DLL runs calls in and the present it draws the overlay in. Once the DLL reports its game-thread
+ * pump, the API's highlights get a {@link com.kraken.api.internal.invoke.NativeInvoker} that sends their calls here;
+ * once it reports the present hook and a framebuffer, {@link GameSurface} hands it overlay frames.
+ *
  * <p>Nothing here is hard-coded per client build: every RVA, event id and capture plan comes from the mapping and is
  * handed to the DLL in the handshake. See {@code docs/event-hooks-design.md}.
  */
@@ -53,19 +63,38 @@ import java.util.logging.Level;
 @Singleton
 public final class NativeEventServer {
 
-    /** Loopback port the injected DLL connects back on; must match {@code KRAKEN_PORT} in kraken_hook.cpp. */
+    /**
+     * Loopback port the injected DLL connects back on; must match {@code KRAKEN_PORT} in kraken_hook.cpp.
+     */
     static final int PORT = 42069;
     private static final String DLL_PROP = "kraken.hook.dll";
     private static final String STEP_PROP = "kraken.hook.projectileStep";
 
-    /** Synthetic ids for the function hooks, which carry no {@code osrs.Events} id; kept clear of the real ids. */
+    /**
+     * Synthetic ids for the function hooks, which carry no {@code osrs.Events} id; kept clear of the real ids.
+     */
     private static final int FUNCTION_ID_BASE = 1000;
+
+    /**
+     * How long Kraken waits on exit for the DLL to run the calls it sent last (the plugins turning their highlights
+     * off), since the DLL drops queued calls when the connection closes.
+     */
+    private static final long EXIT_FLUSH_MS = 1000;
 
     private final GameSession session;
     private final Mapping mapping;
     private final long pid;
+    private final GameSurface surface;
     private final AtomicBoolean armed = new AtomicBoolean();
     private final List<Tap> taps = new CopyOnWriteArrayList<>();
+    private final AtomicInteger batches = new AtomicInteger();
+
+    /**
+     * The batch last sent and the last one the DLL reported run, for the exit flush. Guarded by {@code this}.
+     */
+    private int lastSent;
+    private int lastDone;
+    private volatile Connection connection;
 
     /**
      * Creates the server for the attached game.
@@ -73,12 +102,14 @@ public final class NativeEventServer {
      * @param session the attached API, which the hook's events are handed to
      * @param mapping the attached build's mapping, which says what to hook
      * @param pid     the {@code osclient.exe} process id to inject into
+     * @param surface the overlay surface, handed to the DLL once it draws
      */
     @Inject
-    NativeEventServer(GameSession session, Mapping mapping, @Named("pid") long pid) {
+    NativeEventServer(GameSession session, Mapping mapping, @Named("pid") long pid, GameSurface surface) {
         this.session = session;
         this.mapping = mapping;
         this.pid = pid;
+        this.surface = surface;
     }
 
     /**
@@ -123,12 +154,13 @@ public final class NativeEventServer {
             return;
         }
         Build build = build();
-        if (build.slots.isEmpty()) {
+        NativeProtocol.Drawing drawing = drawing();
+        if (build.slots.isEmpty() && drawing.pumpFn() == 0 && drawing.presentFn() == 0) {
             log.warning("Native event hook: mapping " + mapping.version()
-                    + " has no hookable events; continuing on the timer poll.");
+                    + " has no hookable events or drawing functions; continuing on the timer poll.");
             return;
         }
-        byte[] handshake = NativeProtocol.handshake(build.slots);
+        byte[] handshake = NativeProtocol.handshake(build.slots, drawing);
         ServerSocket server = null;
         try {
             server = new ServerSocket();
@@ -142,6 +174,7 @@ public final class NativeEventServer {
             log.info("Injecting native event hook into pid " + pid + " (" + build.slots.size() + " slots for client "
                     + mapping.version() + ")");
             CallbackInjector.inject((int) pid, dll);
+            Runtime.getRuntime().addShutdownHook(new Thread(this::flushOnExit, "kraken-hook-flush"));
         } catch (IOException | RuntimeException e) {
             log.log(Level.WARNING, "Could not install the native event hook", e);
             closeQuietly(server);
@@ -181,6 +214,27 @@ public final class NativeEventServer {
             log.log(Level.WARNING, "Native event hook: could not extract kraken_hook.dll from the classpath", e);
             return null;
         }
+    }
+
+    /**
+     * The drawing functions the handshake names, from the mapping. A function the mapping lacks is sent as 0, and the
+     * DLL leaves that part off: no calls without the pump, no overlay without the present.
+     *
+     * @return the client pointer, the pump and the present
+     */
+    private NativeProtocol.Drawing drawing() {
+        long client = mapping.hasGlobal("client") ? mapping.global("client") : 0;
+        long pump = mapping.hasFunction("appUpdate") ? mapping.function("appUpdate") : 0;
+        long present = mapping.hasFunction("present") ? mapping.function("present") : 0;
+        if (pump == 0) {
+            log.info("Native event hook: no appUpdate in mapping " + mapping.version()
+                    + "; highlights won't show in the game.");
+        }
+        if (present == 0) {
+            log.info("Native event hook: no present in mapping " + mapping.version()
+                    + "; overlays stay in the window over the game.");
+        }
+        return new NativeProtocol.Drawing(client, pump, present);
     }
 
     /**
@@ -279,12 +333,13 @@ public final class NativeEventServer {
             while (!Thread.currentThread().isInterrupted()) {
                 try (Socket socket = server.accept();
                      InputStream in = socket.getInputStream()) {
-                    OutputStream out = socket.getOutputStream();
-                    out.write(handshake);
-                    out.flush();
+                    socket.setTcpNoDelay(true);
+                    Connection open = new Connection(socket.getOutputStream());
+                    open.send(handshake);
+                    connection = open;
                     session.setHookConnected(true);
                     log.info("Native event hook connected from " + socket.getRemoteSocketAddress());
-                    read(new DataInputStream(in), idToName);
+                    read(new DataInputStream(in), idToName, open);
                     log.info("Native event hook disconnected; back on the timer poll until it reconnects.");
                 } catch (IOException e) {
                     log.log(Level.FINE, "Native event hook connection ended", e);
@@ -293,7 +348,13 @@ public final class NativeEventServer {
                     // DLL to reconnect, polling meanwhile.
                     log.log(Level.WARNING, "Native event hook connection failed", e);
                 } finally {
+                    connection = null;
+                    session.setNativeInvoker(null);
+                    surface.disconnected();
                     session.setHookConnected(false);
+                    synchronized (this) {
+                        notifyAll();
+                    }
                 }
             }
         } catch (IOException e) {
@@ -302,34 +363,159 @@ public final class NativeEventServer {
     }
 
     /**
-     * Reads framed messages from one connection, parses each and hands it to the API and the taps, until EOF.
+     * Reads framed messages from one connection, parses each and hands it to the API and the taps, until EOF. The
+     * DLL's status messages (reserved negative ids) set up the drawing instead.
      *
      * @param in       the connection's input
      * @param idToName an event id to its name
+     * @param open     the connection, for the drawing's commands
      * @throws IOException if the connection breaks
      */
-    private void read(DataInputStream in, Map<Integer, String> idToName) throws IOException {
+    private void read(DataInputStream in, Map<Integer, String> idToName, Connection open) throws IOException {
         long expectedSeq = -1;
         for (int len = readLength(in); len >= 0; len = readLength(in)) {
             byte[] body = new byte[len];
             in.readFully(body);
             NativeEvent event = NativeProtocol.parse(body, idToName::get);
+            if (event.id() < 0) {
+                // Status messages skip the DLL's ring, so their sequence numbers interleave with the raises'
+                status(event, open);
+                continue;
+            }
             if (expectedSeq >= 0 && event.seq() != expectedSeq) {
                 log.fine("Native event hook: " + (event.seq() - expectedSeq) + " message(s) dropped before seq "
                         + event.seq());
             }
             expectedSeq = event.seq() + 1;
-            if (event.id() == NativeProtocol.STATUS_EVENT_ID) {
-                log.info("Native event hook installed " + event.reg(NativeEvent.RCX) + " of "
-                        + event.reg(NativeEvent.RDX) + " requested hooks.");
-                continue;
-            }
             session.onNative(event);
             for (Tap tap : taps) {
                 if (tap.name() == null || tap.name().equals(event.name())) {
                     deliver(tap, event);
                 }
             }
+        }
+    }
+
+    /**
+     * Acts on one of the DLL's status messages: the hooks and features after the handshake, the framebuffer for the
+     * overlay, and the result of a batch of calls.
+     *
+     * @param event the status message
+     * @param open  the connection it came on
+     */
+    private void status(NativeEvent event, Connection open) {
+        switch (event.id()) {
+            case NativeProtocol.STATUS_EVENT_ID -> {
+                long features = event.reg(NativeEvent.R8);
+                log.info("Native event hook installed " + event.reg(NativeEvent.RCX) + " of "
+                        + event.reg(NativeEvent.RDX) + " requested hooks (protocol " + event.reg(NativeEvent.R9)
+                        + ", calls " + ((features & NativeProtocol.FEATURE_CALLS) != 0) + ", overlay "
+                        + ((features & NativeProtocol.FEATURE_OVERLAY) != 0) + ").");
+                if ((features & NativeProtocol.FEATURE_CALLS) != 0) {
+                    session.setNativeInvoker(batch -> sendCalls(open, batch));
+                }
+                if ((features & NativeProtocol.FEATURE_OVERLAY) != 0) {
+                    surface.connected((generation, name) -> sendSurface(open, generation, name), pid);
+                }
+            }
+            case NativeProtocol.FRAME_EVENT_ID -> {
+                int width = (int) event.reg(NativeEvent.RCX);
+                int height = (int) event.reg(NativeEvent.RDX);
+                long version = event.reg(NativeEvent.R8);
+                int generation = (int) event.reg(NativeEvent.R9);
+                log.fine("Native event hook: framebuffer " + width + "x" + height + ", GL " + (version >>> 16) + "."
+                        + (version & 0xffff) + ", drawing surface " + generation);
+                surface.frame(width, height, (int) version, generation);
+            }
+            case NativeProtocol.CALLS_DONE_EVENT_ID -> {
+                int batch = (int) event.reg(NativeEvent.RCX);
+                long failed = event.reg(NativeEvent.R8);
+                if (failed != 0) {
+                    log.warning("Native event hook: " + failed + " of the calls in batch " + batch
+                            + " faulted or were skipped (" + event.reg(NativeEvent.RDX) + " ran)");
+                }
+                synchronized (this) {
+                    lastDone = batch;
+                    notifyAll();
+                }
+            }
+            default -> log.fine("Native event hook: unknown status " + event.id());
+        }
+    }
+
+    /**
+     * Sends a batch of calls on a connection.
+     *
+     * @param open  the connection
+     * @param calls the calls
+     * @throws UncheckedIOException if the connection broke
+     */
+    private void sendCalls(Connection open, List<NativeCall> calls) {
+        int batch = batches.incrementAndGet();
+        try {
+            open.send(NativeProtocol.calls(batch, calls));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        synchronized (this) {
+            lastSent = batch;
+        }
+    }
+
+    /**
+     * Tells the DLL which overlay surface to draw.
+     *
+     * @param open       the connection
+     * @param generation the surface's generation
+     * @param name       its file mapping's name
+     * @throws UncheckedIOException if the connection broke
+     */
+    private static void sendSurface(Connection open, int generation, String name) {
+        try {
+            open.send(NativeProtocol.surface(generation, name));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /**
+     * Waits, as Kraken exits, for the DLL to run the calls sent last: the plugins turn their highlights off as they
+     * stop, and the DLL drops calls still queued when the connection closes.
+     */
+    private void flushOnExit() {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(EXIT_FLUSH_MS);
+        synchronized (this) {
+            while (connection != null && lastDone - lastSent < 0) {
+                long left = deadline - System.nanoTime();
+                if (left <= 0) {
+                    log.fine("Native event hook: exiting before the last calls ran");
+                    return;
+                }
+                try {
+                    TimeUnit.NANOSECONDS.timedWait(this, left);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        }
+    }
+
+    /**
+     * One connection's output. Writes are whole frames, from whichever thread sends (the handshake, highlights from
+     * plugins, the overlay surface), so they never interleave.
+     */
+    private static final class Connection {
+
+        private final OutputStream out;
+
+        Connection(OutputStream out) {
+            this.out = out;
+        }
+
+        synchronized void send(byte[] frame) throws IOException {
+            out.write(frame);
+            out.flush();
         }
     }
 

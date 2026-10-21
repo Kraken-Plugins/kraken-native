@@ -6,8 +6,8 @@ raise functions the mapping names and pushes a message per raise; `NativeEventSe
 `com.kraken.api.events` classes they post without a hook. Without the DLL (not found, injection failed, an older
 mapping) the trackers run on the 20 ms poll alone.
 
-Built: the updater side (`events.py`, the mapping's `events` section, the function hooks), the DLL (protocol v2,
-generic slots), the Java server and the API seam. Several payloads and hook sites still need a live check (§7).
+Built: the updater side (`events.py`, the mapping's `events` section, the function hooks), the DLL (generic slots;
+protocol v3 since the drawing, `docs/in-game-drawing.md`, rides on the same socket), the Java server and the API seam. Several payloads and hook sites still need a live check (§7).
 Build and run steps are in `client/src/main/native/kraken_hook/README.md`.
 
 ## 2. What the client gives us
@@ -175,7 +175,8 @@ scene rebuild replaying the zone; hooking the functions catches both paths.
 
 ### 4.1 The DLL: a table of generic hooks
 
-- **Handshake v2** (Java → DLL, little-endian): magic `KRK2`, then `u16 count`, then per slot
+- **Handshake** (Java → DLL, little-endian; v3 changes the magic to `KRK3` and appends the drawing's three RVAs,
+  `docs/in-game-drawing.md` §2.1): magic `KRK2`, then `u16 count`, then per slot
   `{u64 rva, i32 fixedId (-1 = read idArg), u8 idArg, u8 args, u8 planLen, plan[planLen]}`. A plan entry is
   `{u8 arg, u8 op}` with ops `RAW`, `I32`, `I64`, `I32x2` (two ints at the pointer), `CSTR` (NUL-terminated, at most
   64 bytes). Java builds the table from `Mapping.eventHooks` for the events in `NativeEvents` plus the function
@@ -269,8 +270,8 @@ so a dropped message costs latency, not an event. Without a hook they are read e
 ### 4.5 Safety and scope
 
 - Installed on every launch, and still the only thing that writes to the game process: MinHook's entry
-  patches and trampolines. Read-only semantics of the API are unchanged; hooks observe, they never call into the
-  client.
+  patches and trampolines. The event hooks observe and never call into the client; the only calls the DLL makes are
+  the highlight functions the API asks for, on the game thread (`docs/in-game-drawing.md`).
 - The DLL guards each detour with `__try/__except` around the plan (a bad pointer must not take the client down)
   and forwards to the trampoline unconditionally.
 - After the handshake the DLL sends a status message with how many hooks installed; events without a hook fall back

@@ -1,6 +1,8 @@
 package com.kraken.client.callback;
 
 import com.kraken.api.internal.event.NativeEvent;
+import com.kraken.api.internal.invoke.NativeCall;
+import com.kraken.client.callback.NativeProtocol.Drawing;
 import com.kraken.client.callback.NativeProtocol.Plan;
 import com.kraken.client.callback.NativeProtocol.Slot;
 import org.junit.jupiter.api.Test;
@@ -16,8 +18,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
- * The wire format {@link NativeProtocol} shares with {@code kraken_hook.dll}: the handshake it builds and the messages
- * it parses, field for field and op for op.
+ * The wire format {@link NativeProtocol} shares with {@code kraken_hook.dll}: the handshake and commands it builds and
+ * the messages it parses, field for field and op for op.
  */
 class NativeProtocolTest {
 
@@ -29,11 +31,12 @@ class NativeProtocolTest {
                         new Plan(NativeEvent.RDX, NativeProtocol.OP_I32),
                         new Plan(NativeEvent.R8, NativeProtocol.OP_CSTR),
                         new Plan(NativeEvent.R9, NativeProtocol.OP_I32))));
-        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.handshake(slots)).order(ByteOrder.LITTLE_ENDIAN);
+        Drawing drawing = new Drawing(0xe98c18L, 0x918950L, 0xa555c0L);
+        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.handshake(slots, drawing)).order(ByteOrder.LITTLE_ENDIAN);
 
         byte[] magic = new byte[4];
         buf.get(magic);
-        assertArrayEquals("KRK2".getBytes(StandardCharsets.US_ASCII), magic);
+        assertArrayEquals("KRK3".getBytes(StandardCharsets.US_ASCII), magic);
         assertEquals(2, buf.getShort(), "slot count");
 
         assertEquals(0xc44d0L, buf.getLong());
@@ -53,7 +56,76 @@ class NativeProtocolTest {
         assertEquals(NativeProtocol.OP_CSTR, buf.get());
         assertEquals(NativeEvent.R9, buf.get());
         assertEquals(NativeProtocol.OP_I32, buf.get());
+        assertEquals(0xe98c18L, buf.getLong(), "the client pointer's slot");
+        assertEquals(0x918950L, buf.getLong(), "the pump");
+        assertEquals(0xa555c0L, buf.getLong(), "the present");
         assertEquals(0, buf.remaining(), "no trailing bytes");
+    }
+
+    @Test
+    void aHandshakeWithoutDrawingEndsInZeros() {
+        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.handshake(List.of(), Drawing.NONE))
+                .order(ByteOrder.LITTLE_ENDIAN);
+        buf.position(4);
+        assertEquals(0, buf.getShort());
+        assertEquals(0, buf.getLong());
+        assertEquals(0, buf.getLong());
+        assertEquals(0, buf.getLong());
+        assertEquals(0, buf.remaining());
+    }
+
+    @Test
+    void callsFrameEachCallWithItsArgumentsAndData() {
+        NativeCall configure = NativeCall.to(0x3ad8c0L).imm(0).imm(7).imm(31).data(new byte[]{1, 2, 3}).build();
+        NativeCall clear = NativeCall.to(0x1b9550L).client(0x89680).imm(7).imm(-1).build();
+        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.calls(42, List.of(configure, clear)))
+                .order(ByteOrder.LITTLE_ENDIAN);
+
+        assertEquals(buf.capacity() - 4, buf.getInt(), "the length counts the type and the body");
+        assertEquals(NativeProtocol.COMMAND_CALLS, buf.get());
+        assertEquals(42, buf.getInt(), "batch id");
+        assertEquals(2, buf.getShort(), "call count");
+
+        assertEquals(0x3ad8c0L, buf.getLong());
+        assertEquals(4, buf.get(), "argc");
+        long[][] args = {{0, 0}, {0, 7}, {0, 31}, {2, 0}};
+        for (long[] arg : args) {
+            assertEquals(arg[0], buf.get(), "kind");
+            assertEquals(arg[1], buf.getLong(), "value");
+        }
+        assertEquals(3, buf.getShort(), "data length");
+        assertEquals(1, buf.get());
+        assertEquals(2, buf.get());
+        assertEquals(3, buf.get());
+
+        assertEquals(0x1b9550L, buf.getLong());
+        assertEquals(3, buf.get());
+        assertEquals(1, buf.get(), "CLIENT");
+        assertEquals(0x89680, buf.getLong());
+        assertEquals(0, buf.get());
+        assertEquals(7, buf.getLong());
+        assertEquals(0, buf.get());
+        assertEquals(-1, buf.getLong(), "negative values go as two's complement");
+        assertEquals(0, buf.getShort(), "no data");
+        assertEquals(0, buf.remaining());
+    }
+
+    @Test
+    void surfaceFramesTheGenerationAndName() {
+        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.surface(3, "Local\\KrakenOverlay-12-3"))
+                .order(ByteOrder.LITTLE_ENDIAN);
+        assertEquals(buf.capacity() - 4, buf.getInt());
+        assertEquals(NativeProtocol.COMMAND_SURFACE, buf.get());
+        assertEquals(3, buf.getInt());
+        int length = buf.getShort();
+        byte[] name = new byte[length];
+        buf.get(name);
+        assertEquals("Local\\KrakenOverlay-12-3", new String(name, StandardCharsets.US_ASCII));
+        assertEquals(0, buf.remaining());
+
+        ByteBuffer stop = ByteBuffer.wrap(NativeProtocol.surface(0, "")).order(ByteOrder.LITTLE_ENDIAN);
+        stop.position(9);
+        assertEquals(0, stop.getShort(), "an empty name stops the drawing");
     }
 
     @Test

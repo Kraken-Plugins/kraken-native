@@ -2,6 +2,7 @@ package com.kraken.client.plugins.objectmarkers;
 
 import com.google.inject.Inject;
 import com.kraken.api.Client;
+import com.kraken.api.Point;
 import com.kraken.api.scene.TileObject;
 import com.kraken.api.scene.WorldView;
 import com.kraken.client.ui.overlay.Overlay;
@@ -14,9 +15,9 @@ import java.awt.Dimension;
 import java.awt.Graphics2D;
 
 /**
- * Outlines the marked objects on the plane you're on (a game object's whole footprint), with their names if the
- * setting is on. Runs on the client thread, like the plugin's event handlers, so it reads
- * {@link ObjectMarkersPlugin#getMarked()} without locking.
+ * Writes the marked objects' names on them if the setting is on, and outlines their tiles (a game object's whole
+ * footprint) on the plane you're on while the game can't (the native hook isn't connected). Runs on the client thread,
+ * like the plugin's event handlers, so it reads {@link ObjectMarkersPlugin#getMarked()} without locking.
  */
 class ObjectMarkersOverlay extends Overlay {
 
@@ -43,9 +44,22 @@ class ObjectMarkersOverlay extends Overlay {
         int plane = view.getPlane();
         Color colour = config.colour();
         boolean showNames = config.showNames();
+        boolean outlineTiles = !plugin.isDrawnInGame();
+        if (!outlineTiles && !showNames) {
+            return null;
+        }
         for (TileObject object : plugin.getMarked()) {
-            if (object.getPlane() == plane) {
-                OverlayUtil.renderTileOverlay(graphics, object, showNames ? plugin.nameOf(object) : null, colour);
+            if (object.getPlane() != plane) {
+                continue;
+            }
+            String name = showNames ? plugin.nameOf(object) : null;
+            if (outlineTiles) {
+                OverlayUtil.renderTileOverlay(graphics, object, name, colour);
+            } else {
+                Point location = object.getCanvasTextLocation(graphics, name, 0);
+                if (location != null) {
+                    OverlayUtil.renderTextLocation(graphics, location, name, colour);
+                }
             }
         }
         return null;

@@ -1,0 +1,311 @@
+# Drawing in the game (docs/in-game-drawing.md): the client's highlight system and the two hook sites the DLL draws
+# through.
+#
+# Highlights (ClientOp.highlight*): the manager every function works on, the native function behind each handler, the
+# loc and loc type functions only clientscript reaches (highlights.py), the channel clear, the style struct
+# highlightChannelConfigure reads, the per-category stores the *ChannelActive getters read, and the HighlightCategory
+# enum. Each On/Off handler reads its Lua arguments, then calls one function with RCX = Client +
+# Client.highlightManager; the DLL calls those functions directly. Handlers read their arguments last-first (the
+# script ops share them and pop their stack), so the Lua order is the documented one:
+# highlightNpcOn(npcIndex, creationCycle, channel).
+#
+# Hook sites: the GL present (the function calling SwapBuffers) and the per-frame main loop step that calls it, which
+# runs on the game thread.
+fingerprints:
+  HighlightNpcOn:          { callee_of: ClientOp.highlightNpcOn, arg0: { addr: client } }
+  HighlightNpcOff:         { callee_of: ClientOp.highlightNpcOff, arg0: { addr: client } }
+  HighlightNpcTypeOn:      { callee_of: ClientOp.highlightNpcTypeOn, arg0: { addr: client } }
+  HighlightNpcTypeOff:     { callee_of: ClientOp.highlightNpcTypeOff, arg0: { addr: client } }
+  HighlightTileOn:         { callee_of: ClientOp.highlightTileOn, arg0: { addr: client } }
+  HighlightTileOff:        { callee_of: ClientOp.highlightTileOff, arg0: { addr: client } }
+  HighlightPlayerOn:       { callee_of: ClientOp.highlightPlayerOn, arg0: { addr: client } }
+  HighlightPlayerOff:      { callee_of: ClientOp.highlightPlayerOff, arg0: { addr: client } }
+  HighlightObjOn:          { callee_of: ClientOp.highlightObjOn, arg0: { addr: client } }
+  HighlightObjOff:         { callee_of: ClientOp.highlightObjOff, arg0: { addr: client } }
+  HighlightObjTypeOn:      { callee_of: ClientOp.highlightObjTypeOn, arg0: { addr: client } }
+  HighlightObjTypeOff:     { callee_of: ClientOp.highlightObjTypeOff, arg0: { addr: client } }
+  # The channel store highlightChannelConfigure calls after packing the colour:
+  # store(mgr, category, channel, u16 colour, u16 width, u8 alpha, u16 flags)
+  HighlightConfigStore:    { callee_of: ClientOp.highlightChannelConfigure, arg0: { addr: client } }
+  # The 21-byte category/channel check highlightChannelConfigure runs first: cat < 9, channel <= 31
+  HighlightChannelValid:   { callee_of: ClientOp.highlightChannelConfigure, max_size: 24 }
+  # Adds a channel to an entity's channel mask (mgr, &mask, channel, category)
+  HighlightMaskAdd:        { common_callee_of: ["@HighlightNpcOn", "@HighlightTileOn", "@HighlightPlayerOn"] }
+  # The clientscript op dispatcher (ops 7000..7044, a jump table) and what its loc, loc type and clear cases call
+  HighlightScriptOps:      { extractor: highlight_script_ops, field: HighlightScriptOps, cls: A }
+  HighlightLocOn:          { extractor: highlight_script_ops, field: HighlightLocOn, cls: A }
+  HighlightLocOff:         { extractor: highlight_script_ops, field: HighlightLocOff, cls: A }
+  HighlightLocTypeOn:      { extractor: highlight_script_ops, field: HighlightLocTypeOn, cls: A }
+  HighlightLocTypeOff:     { extractor: highlight_script_ops, field: HighlightLocTypeOff, cls: A }
+  HighlightChannelClear:   { extractor: highlight_script_ops, field: HighlightChannelClear, cls: A }
+  # present(GlContext*): sets the swap interval, then SwapBuffers; it logs "SwapBuffers" when that fails
+  Present:                 { references: SwapBuffers }
+  # jag::BaseApp::Update(float): times the frame in nanoseconds, runs the logic cycles, renders and presents
+  AppUpdate:               { caller_of: "@Present", imm: 0x3b9aca00 }
+
+keys:
+  - key: Client.highlightManager
+    type: HighlightManager
+    priority: P1
+    doc: The highlight manager inside the Client; every ClientOp.highlight* function takes Client + this as RCX.
+    strategies:
+      - getter: { in: ClientOp.highlightNpcOn, base: client, kind: addr, select: { passed_to: { fn: "@HighlightNpcOn", arg: 0 } } }
+      - getter: { in: ClientOp.highlightTileOn, base: client, kind: addr, select: { passed_to: { fn: "@HighlightTileOn", arg: 0 } } }
+      - getter: { in: ClientOp.highlightChannelConfigure, base: client, kind: addr, select: { passed_to: { fn: "@HighlightConfigStore", arg: 0 } } }
+
+  - key: HighlightManager.npcs
+    type: "eastl.hash_map<u64 (creationCycle << 32 | index), u32 channels>"
+    priority: P1
+    doc: Highlighted NPCs. Key is the creation cycle in the high word and the NPC index in the low word.
+    strategies:
+      - getter: { in: "@HighlightNpcOn", base: arg0, kind: addr, select: { nth: 0 } }
+      - getter: { in: "@HighlightNpcOff", base: arg0, kind: addr, select: { nth: 0 } }
+  - key: HighlightManager.npcTypes
+    type: "eastl.hash_map<u64 typeId, u32 channels>"
+    priority: P1
+    strategies:
+      - getter: { in: "@HighlightNpcTypeOn", base: arg0, kind: addr, select: { nth: 0 } }
+      - getter: { in: "@HighlightNpcTypeOff", base: arg0, kind: addr, select: { nth: 0 } }
+  - key: HighlightManager.players
+    type: "eastl.hash_map<eastl.string name, u32 channels>"
+    priority: P1
+    doc: Highlighted players, by display name (FNV-1a hashed).
+    strategies:
+      - getter: { in: "@HighlightPlayerOn", base: arg0, kind: addr, select: { nth: 0 } }
+      - getter: { in: "@HighlightPlayerOff", base: arg0, kind: addr, select: { nth: 0 } }
+  - key: HighlightManager.objTypes
+    type: "eastl.hash_map<u64 typeId, u32 channels>"
+    priority: P1
+    strategies:
+      - getter: { in: "@HighlightObjTypeOn", base: arg0, kind: addr, select: { nth: 0 } }
+      - getter: { in: "@HighlightObjTypeOff", base: arg0, kind: addr, select: { nth: 0 } }
+
+  - key: HighlightIdNode.mask
+    type: u32
+    priority: P1
+    doc: The channel mask (bit n = channel n) in a node of the id-keyed maps (npcs, npcTypes, objTypes), after the u64 key.
+    strategies:
+      - getter: { in: "@HighlightNpcOn", kind: addr, select: { passed_to: { fn: "@HighlightMaskAdd", arg: 1 } } }
+      - getter: { in: ClientOp.highlightNpcChannelActive, base: hash_node, load: u32 }
+  - key: HighlightIdNode.next
+    type: ptr<HighlightIdNode>
+    priority: P1
+    doc: The bucket chain pointer of an id-keyed node; highlightNpcChannelActive walks it.
+    strategies:
+      - hash-map: { in: ClientOp.highlightNpcChannelActive, base: client, part: node_next }
+  - key: HighlightNameNode.mask
+    type: u32
+    priority: P1
+    doc: The channel mask in a node of the players map, after the 24-byte eastl::string key.
+    strategies:
+      - getter: { in: "@HighlightPlayerOn", kind: addr, select: { passed_to: { fn: "@HighlightMaskAdd", arg: 1 } } }
+  - key: HighlightNameNode.next
+    type: ptr<HighlightNameNode>
+    priority: P1
+    doc: The bucket chain pointer of a players node, the next 8-byte slot after the mask.
+    strategies:
+      - derive: { expr: "HighlightNameNode.mask + 8" }
+
+  - key: HighlightManager.categoryCount
+    type: const
+    priority: P1
+    doc: Categories 0 .. categoryCount - 1 are valid (HighlightCategory.NUM_CATEGORIES).
+    strategies:
+      - const: { in: "@HighlightChannelValid", arg: 1 }
+  - key: HighlightManager.channelMax
+    type: const
+    priority: P1
+    doc: The highest channel; each category has channels 0 .. channelMax.
+    strategies:
+      - const: { in: "@HighlightChannelValid", arg: 2 }
+
+  - key: enums.highlightCategory
+    type: table
+    priority: P1
+    doc: osrs.ClientOp.HighlightCategory, the category argument of highlightChannelConfigure and highlightChannelClear.
+    strategies:
+      - enum-table: { match: "^(NPC|NPCTYPE|LOC|LOCTYPE|OBJ|OBJTYPE|PLAYER|TILE|OPGROUP|NUM_CATEGORIES)$", only_matching: true }
+
+  # The style highlightChannelConfigure reads (osrs.ClientOp.HighlightConfig): the member offsets its sol2 registration
+  # stores, and for the colour and width the loads the configure function makes from its argument.
+  - key: HighlightConfig.colour
+    type: "u8[4] {r, g, b, a}"
+    priority: P1
+    doc: The outline and fill colour; the alpha is the fill's opacity.
+    strategies:
+      - extractor: { name: highlight_config_fields, field: HighlightConfig.colour, cls: A }
+      - getter: { in: ClientOp.highlightChannelConfigure, base: arg3, load: u8, select: { nth: 0 } }
+  - key: HighlightConfig.outlineWidth
+    type: u16
+    priority: P1
+    strategies:
+      - extractor: { name: highlight_config_fields, field: HighlightConfig.outlineWidth, cls: A }
+      - getter: { in: ClientOp.highlightChannelConfigure, base: arg3, load: u16 }
+  - key: HighlightConfig.enableModelOutline
+    type: bool
+    priority: P1
+    strategies:
+      - extractor: { name: highlight_config_fields, field: HighlightConfig.enableModelOutline, cls: A }
+  - key: HighlightConfig.enableTileOutline
+    type: bool
+    priority: P1
+    strategies:
+      - extractor: { name: highlight_config_fields, field: HighlightConfig.enableTileOutline, cls: A }
+  - key: HighlightConfig.enableModelFill
+    type: bool
+    priority: P1
+    strategies:
+      - extractor: { name: highlight_config_fields, field: HighlightConfig.enableModelFill, cls: A }
+  - key: HighlightConfig.enableTileFill
+    type: bool
+    priority: P1
+    strategies:
+      - extractor: { name: highlight_config_fields, field: HighlightConfig.enableTileFill, cls: A }
+  - key: HighlightConfig.alwaysOnTop
+    type: bool
+    priority: P1
+    strategies:
+      - extractor: { name: highlight_config_fields, field: HighlightConfig.alwaysOnTop, cls: A }
+  - key: HighlightConfig.showInsideEdges
+    type: bool
+    priority: P1
+    strategies:
+      - extractor: { name: highlight_config_fields, field: HighlightConfig.showInsideEdges, cls: A }
+  - key: HighlightConfig.saveToFile
+    type: bool
+    priority: P1
+    strategies:
+      - extractor: { name: highlight_config_fields, field: HighlightConfig.saveToFile, cls: A }
+  - key: HighlightConfig.snapToGrid
+    type: bool
+    priority: P1
+    strategies:
+      - extractor: { name: highlight_config_fields, field: HighlightConfig.snapToGrid, cls: A }
+  - key: HighlightConfig.swOnly
+    type: bool
+    priority: P1
+    strategies:
+      - extractor: { name: highlight_config_fields, field: HighlightConfig.swOnly, cls: A }
+  - key: HighlightConfig.ignoreRebuild
+    type: bool
+    priority: P1
+    strategies:
+      - extractor: { name: highlight_config_fields, field: HighlightConfig.ignoreRebuild, cls: A }
+  - key: HighlightConfig.disableModel
+    type: bool
+    priority: P1
+    strategies:
+      - extractor: { name: highlight_config_fields, field: HighlightConfig.disableModel, cls: A }
+
+  - key: functions.highlightNpcOn
+    type: "void(HighlightManager*, int index, int creationCycle, int channel)"
+    priority: P1
+    strategies:
+      - fingerprint: { name: HighlightNpcOn }
+  - key: functions.highlightNpcOff
+    type: "void(HighlightManager*, int index, int creationCycle, int channel)"
+    priority: P1
+    strategies:
+      - fingerprint: { name: HighlightNpcOff }
+  - key: functions.highlightNpcTypeOn
+    type: "void(HighlightManager*, int typeId, int channel, bool)"
+    priority: P1
+    strategies:
+      - fingerprint: { name: HighlightNpcTypeOn }
+  - key: functions.highlightNpcTypeOff
+    type: "void(HighlightManager*, int typeId, int channel)"
+    priority: P1
+    strategies:
+      - fingerprint: { name: HighlightNpcTypeOff }
+  - key: functions.highlightTileOn
+    type: "void(HighlightManager*, const CoordGrid*, int channel, bool useSourceCoord)"
+    priority: P1
+    strategies:
+      - fingerprint: { name: HighlightTileOn }
+  - key: functions.highlightTileOff
+    type: "void(HighlightManager*, const CoordGrid*, int channel, bool useSourceCoord)"
+    priority: P1
+    strategies:
+      - fingerprint: { name: HighlightTileOff }
+  - key: functions.highlightPlayerOn
+    type: "void(HighlightManager*, const eastl::string* name, int channel, bool)"
+    priority: P1
+    strategies:
+      - fingerprint: { name: HighlightPlayerOn }
+  - key: functions.highlightPlayerOff
+    type: "void(HighlightManager*, const eastl::string* name, int channel)"
+    priority: P1
+    strategies:
+      - fingerprint: { name: HighlightPlayerOff }
+  - key: functions.highlightLocOn
+    type: "void(HighlightManager*, int locId, const CoordGrid*, int channel, bool useSourceCoord)"
+    priority: P1
+    doc: No Lua binding; clientscript op 7011 calls it. The fifth argument is on the stack.
+    strategies:
+      - fingerprint: { name: HighlightLocOn }
+  - key: functions.highlightLocOff
+    type: "void(HighlightManager*, int locId, const CoordGrid*, int channel, bool useSourceCoord)"
+    priority: P1
+    doc: No Lua binding; clientscript op 7012 calls it.
+    strategies:
+      - fingerprint: { name: HighlightLocOff }
+  - key: functions.highlightLocTypeOn
+    type: "void(HighlightManager*, int typeId, int channel, bool)"
+    priority: P1
+    doc: No Lua binding; clientscript op 7016 calls it.
+    strategies:
+      - fingerprint: { name: HighlightLocTypeOn }
+  - key: functions.highlightLocTypeOff
+    type: "void(HighlightManager*, int typeId, int channel)"
+    priority: P1
+    doc: No Lua binding; clientscript op 7017 calls it.
+    strategies:
+      - fingerprint: { name: HighlightLocTypeOff }
+  - key: functions.highlightObjOn
+    type: "void(HighlightManager*, int objId, const CoordGrid*, int channel, bool useSourceCoord)"
+    priority: P1
+    doc: The fifth argument is on the stack.
+    strategies:
+      - fingerprint: { name: HighlightObjOn }
+  - key: functions.highlightObjOff
+    type: "void(HighlightManager*, int objId, const CoordGrid*, int channel, bool useSourceCoord)"
+    priority: P1
+    strategies:
+      - fingerprint: { name: HighlightObjOff }
+  - key: functions.highlightObjTypeOn
+    type: "void(HighlightManager*, int typeId, int channel, bool)"
+    priority: P1
+    strategies:
+      - fingerprint: { name: HighlightObjTypeOn }
+  - key: functions.highlightObjTypeOff
+    type: "void(HighlightManager*, int typeId, int channel)"
+    priority: P1
+    strategies:
+      - fingerprint: { name: HighlightObjTypeOff }
+  - key: functions.highlightChannelClear
+    type: "void(HighlightManager*, int category, int channel)"
+    priority: P1
+    doc: Drops every highlight on one channel of one category; the clientscript clear ops call it.
+    strategies:
+      - fingerprint: { name: HighlightChannelClear }
+  - key: functions.highlightChannelConfigure
+    type: "void(void* unused, int category, int channel, const HighlightConfig*)"
+    priority: P1
+    doc: The Lua function itself, a plain C++ function sol2 wraps. It checks the channel, packs the colour into the
+      client's 16-bit form and stores the style (HighlightConfigStore).
+    strategies:
+      - binding: { in: ClientOp.highlightChannelConfigure }
+
+  - key: functions.present
+    type: "void(GlContext*)"
+    priority: P1
+    doc: Presents a finished frame (SwapBuffers on the context's HDC), with the GL context current. Runs on the thread
+      that owns the GL device, which is not always the game thread.
+    strategies:
+      - fingerprint: { name: Present }
+  - key: functions.appUpdate
+    type: "void(App*, float dt)"
+    priority: P1
+    doc: jag::BaseApp::Update, the main loop's per-frame step on the game thread. dt arrives in XMM1.
+    strategies:
+      - fingerprint: { name: AppUpdate }
