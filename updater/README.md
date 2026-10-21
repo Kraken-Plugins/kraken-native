@@ -113,6 +113,7 @@ reads it for carry-forward. Repair bundles (`repair/<key>.md`) go in the same fo
 | `src/native_updater/extractors.py` | Custom recipes over provenance facts: config loaders, setSequence, Actor ctor, scene grid, obj piles, containers, projectiles, the cycle and game-state hook targets |
 | `src/native_updater/events.py` | The native event raisers: seeds on the server-tick dispatch, then classifies every wrapper that tests the plugin gate into `events.<NAME>` hook sites |
 | `src/native_updater/hooks.py` | Hook targets without a Lua event: the ground item add/delete/count handlers, player add/remove and the player info decoder, from the fields they write |
+| `src/native_updater/minimenu.py` | The minimenu (right-click menu): its rows, open flag, last-run entry and the entry layout, from the op dispatch that raises the six `ON_*_OP` events, the function that runs an entry, and the `ON_MINIMENU_REBUILD` raiser |
 | `src/native_updater/spec/*.yaml` | The contract: tables, fingerprints, one entry per key (strategies, invariants, live check) |
 | `src/native_updater/consensus.py`, `verify.py` | Verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED); type, relational and uniqueness checks |
 | `src/native_updater/carry.py` | Carry-forward (function matching + re-extraction), delta propagation, repair bundles |

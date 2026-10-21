@@ -76,8 +76,9 @@ payload interpretations marked "to confirm" need the live check in §7):
 | ON_VARBIT_UPDATE (46) | `0xc6ca0` fixed | 3 | RDX → `{int varbitId, int previous}`, R8 → `int` new value; only for varbits the client watches, inside the var packet handler |
 | ON_IF_LOAD (47) | `0x1b2030` fixed | 3 | RDX → `int` interface id (high 16 bits of the component key), R8 → `int` low 16 bits |
 | ON_TARGET_ENTER (21), ON_TARGET_LEAVE (22) | `0x3902b0` id in RCX | 2 | RDX → an object (not decoded) |
-| ON_NPC_OP (23), ON_PLAYER_OP (26), ON_COMPONENT_OP (28) | `0x3924f0` id in RCX | 4 | menu op arguments (not decoded) |
-| ON_LOC_OP (24), ON_TILE_OP (25), ON_OBJ_OP (27) | dedicated fixed wrappers | 3–4 | menu op arguments (not decoded) |
+| ON_NPC_OP (23), ON_PLAYER_OP (26), ON_COMPONENT_OP (28) | `0x3924f0` id in RCX | 4 | raised by the op dispatch (`0x3803d0`) for the menu entry being run, right after it is copied to `Minimenu.clicked`: RDX → `char*` option text, R8 → `int` (for an entry aimed by a selected item or spell, a field of the selection; else -1; to confirm), R9 → `int` the entry's `subjectIndex` (NPC or player index, component sub id) |
+| ON_LOC_OP (24), ON_TILE_OP (25) | `0x3926e0` / `0x3922f0` fixed | 4 / 3 | same dispatch: RDX → `char*` option; loc: R8 → `int` loc id, R9 → the world tile `{level, x, z}`; tile: R8 → the tile |
+| ON_OBJ_OP (27) | `0x3928e0` fixed | 4, plus 2 on the stack | same dispatch: RDX → `char*` option, R8 → `int` as for NPCs, R9 → `int` obj id, then the obj count and the tile on the stack. `events.py` counts register arguments only, so the mapping says 4; the generic detour can't forward the stack arguments, so it is not hooked (§4.3) |
 | ON_CLIENTSCRIPT (38) | `0xc69a0` fixed | 3 | script id and arguments (not decoded) |
 | ON_VAR_TRANSMIT (11), ON_INV_TRANSMIT (12), ON_STAT_TRANSMIT (13), run energy/weight, reboot, friends, clans, stock, offers | `0x520b0` id in RCX, deferred | 1 | none in the arguments; the data is in the client's transmit state and the normal fields |
 | ON_CHAT_TRANSMIT (14), ON_FRIEND_CHANNEL_TRANSMIT (20), and second raisers for friends (15) and clan records (18) | dedicated deferred wrappers | 1 | RCX = client |
@@ -99,6 +100,11 @@ RuneLite events the client raises no Lua event for: `PlayerSpawned` / `PlayerDes
 `ItemDespawned` / `ItemQuantityChanged`, `InteractingChanged`, `ProjectileMoved` and Kraken's `ProjectileSpawned`.
 For these the mapping carries plain function hook targets (§2.5), found from the struct fields they write rather than
 from an event id.
+
+The menu events have no hook of their own: `MenuEntryAdded` / `MenuEntryRemoved` / `MenuOpened` come from a diff of
+`Minimenu.rows` on every poll (ON_MINIMENU_REBUILD fires every client cycle while the menu is closed, so it is not
+worth a message), and `MenuOptionClicked` from `Minimenu.clicked` and `Minimenu.clickCycles`, which the op events
+above make the API read right away (`updater/src/native_updater/minimenu.py` maps the layout).
 
 ### 2.5 Function hook targets
 
@@ -238,6 +244,7 @@ arrives instead of on the 20 ms timer, and reads only what the payload points at
 | `objAdd` / `objDel` / `objCount` hooks | `ItemTracker` | re-read the pile at the given tile (to confirm the coordinate base live; until then, all piles) and post the spawn, despawn or quantity change |
 | `projectileCtor` hook | `ProjectileTracker` | read the projectile at RCX and post `ProjectileSpawned` then `ProjectileMoved`; the per-poll list diff becomes the fallback |
 | `projectileStep` hook (optional) | `ProjectileTracker` | one `ProjectileMoved` per cycle per projectile, matching RuneLite's cadence, at about 50 messages a second per projectile; off by default |
+| ON_NPC_OP, ON_LOC_OP, ON_TILE_OP, ON_PLAYER_OP, ON_COMPONENT_OP | `MenuClickTracker` | read `Minimenu.clicked` now (the dispatch copied the entry just before the raise) and post `MenuOptionClicked` if the copy or its cycle count shows a new run; ON_OBJ_OP is not hooked (stack arguments), so ground item clicks come from the poll |
 
 The 20 ms poll keeps running as a safety net at a slower rate (say 250 ms) while the hook is connected, so a
 dropped message costs latency, not an event. When the hook disconnects the poll goes back to 20 ms.

@@ -35,11 +35,12 @@ final class MenuClickTracker extends Tracker {
     @Override
     boolean baseline(boolean replay) {
         int cycles = reader.clickCycles();
-        if (cycles < 0) {
+        MenuEntry clicked = reader.clicked();
+        if (cycles < 0 || clicked == null) {
             return false;
         }
         lastCycles = cycles;
-        lastClicked = reader.clicked();
+        lastClicked = clicked;
         return true;
     }
 

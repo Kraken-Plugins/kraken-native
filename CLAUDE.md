@@ -86,7 +86,8 @@ rounds (keys can depend on other keys) → consensus verdicts (PROVEN/ANCHORED/I
   by the exe's version resource and rejects it unless its `sha256` matches the exe. `ClientBuild.version` parses the
   version the same way as the updater's `pe.py: file_version`; change the two together.
 - One layer, shaped as RuneLite's: concrete classes, grouped by domain. `com.kraken.api` holds `GameSession`, `Client`
-  and the client-wide types (`GameState`, `Skill`, `WorldType`, `Point`, `Perspective`, `CameraProjection`…); `actor`
+  and the client-wide types (`GameState`, `Skill`, `WorldType`, `Point`, `Perspective`, `CameraProjection`,
+  `MenuEntry`, `MenuAction`…); `actor`
   (`Actor`, `NPC`, `Player`, `IndexedObjectSet`), `scene` (`WorldView`, `Scene`, `Tile`, `TileObject` and its four
   subclasses, `TileItem`, `Projectile`), `collision`, `item` (`Item`, `ItemContainer`, `EquipmentInventorySlot`),
   `definition` (the compositions), `widgets`, `coords`, `events`, `eventbus`, `gameval`. There are no interfaces or
@@ -99,6 +100,8 @@ rounds (keys can depend on other keys) → consensus verdicts (PROVEN/ANCHORED/I
   call the library "Kraken". Use Lombok `@Getter`/`@Setter` for plain fields.
 - All plumbing lives in `com.kraken.api.internal`: `GameReader` (the base) and `StructReader`, `ActorReader` (actors by
   address), `SceneReader` (locs, piles, collision, map base), `ProjectileReader`, `InventoryReader`, `WidgetReader`,
+  `MenuReader` (the minimenu's rows, open flag and last-run entry; works a `MenuAction` out of an entry's subject kind
+  and op),
   `ConfigTypes` (the config archive and its decoders, `ItemDecoder`/`NpcDecoder`/`ObjectDecoder` with their builders,
   which build the compositions), `EventSource`, and the records readers return (`MapCoord`, `FineCoord`, `Loc`,
   `GroundObj`, `ProjectileEndpoint`). Java has no friend packages, so it is public, as are the hooks the domain
@@ -128,7 +131,7 @@ rounds (keys can depend on other keys) → consensus verdicts (PROVEN/ANCHORED/I
   handles, vars follow the client's working copy and every raw game state counts. The Lua API's own events
   (`osrs.Events`) aren't mirrored: each has a RuneLite event that covers it. Tracking that starts on
   the API's first poll replays the current state (game state, the scene's objects and ground items, NPC/player spawns,
-  targets, stats, inventories); later it takes a silent baseline. As in RuneLite, a scene load (back to logged in, or
+  targets, stats, inventories, menu entries); later it takes a silent baseline. As in RuneLite, a scene load (back to logged in, or
   a moved map base) spawns every object and item of the new scene and despawns none of the old, and the `LOGGED_IN`
   is held until those spawns are posted. Objects are a whole-scene read once per tick (costly); items and targets are
   read on the tick's poll and the next. The bus also matches supertypes and interfaces of an event, unlike RuneLite's

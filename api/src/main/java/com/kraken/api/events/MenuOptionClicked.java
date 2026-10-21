@@ -12,8 +12,7 @@ import lombok.Value;
  * <p>The client copies every entry it runs and counts the cycles since; the API reads the copy when the count starts
  * over or the copy changes, and right away when the native hook pushes the op event the client raises for it
  * ({@code ON_NPC_OP}, {@code ON_LOC_OP}, {@code ON_TILE_OP}, {@code ON_PLAYER_OP}, {@code ON_COMPONENT_OP}). Two runs
- * between polls post once, for the later entry; without the hook, the same entry run twice within a cycle or two of a
- * poll can post once.
+ * between polls post once, for the later entry, and the same entry run twice within a cycle or two can post once.
  *
  * <p>Posted after the client ran the entry: the API only reads, so the click can't be consumed. Not provided:
  * {@code consume}, {@code isConsumed}, {@code isItemOp}, {@code getItemOp}, and the deprecated getters.
