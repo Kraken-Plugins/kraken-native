@@ -176,7 +176,8 @@ scene rebuild replaying the zone; hooking the functions catches both paths.
 ### 4.1 The DLL: a table of generic hooks
 
 - **Handshake** (Java → DLL, little-endian; v3 changes the magic to `KRK3` and appends the drawing's three RVAs,
-  `docs/in-game-drawing.md` §2.1): magic `KRK2`, then `u16 count`, then per slot
+  `docs/in-game-drawing.md` §2.1; v4 changes it to `KRK4` and adds two call argument kinds, `docs/menu-actions.md`
+  §2): magic `KRK2`, then `u16 count`, then per slot
   `{u64 rva, i32 fixedId (-1 = read idArg), u8 idArg, u8 args, u8 planLen, plan[planLen]}`. A plan entry is
   `{u8 arg, u8 op}` with ops `RAW`, `I32`, `I64`, `I32x2` (two ints at the pointer), `CSTR` (NUL-terminated, at most
   64 bytes). Java builds the table from `Mapping.eventHooks` for the events in `NativeEvents` plus the function

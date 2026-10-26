@@ -40,7 +40,9 @@ public class PanelComponent implements LayoutableRenderableEntity {
     private Point preferredLocation = new Point();
 
     /**
-     * The size to lay the children out in: their width, for a vertical panel. It grows to fit a wider child.
+     * The size to lay the children out in. For a vertical panel the width is the children's width, and grows to fit a
+     * wider child; the height is the least the panel takes, and grows to fit the children (0 to fit them exactly). A
+     * horizontal panel is the same with the two swapped.
      */
     @Getter
     @Setter
@@ -90,8 +92,10 @@ public class PanelComponent implements LayoutableRenderableEntity {
             measure.dispose();
         }
         int fitted = Math.max(inner, vertical ? content.width : content.height);
-        Dimension dimension = new Dimension(border.x + (vertical ? fitted : content.width) + border.width,
-                border.y + (vertical ? content.height : fitted) + border.height);
+        int along = vertical ? Math.max(content.height, preferredSize.height - border.y - border.height)
+                : Math.max(content.width, preferredSize.width - border.x - border.width);
+        Dimension dimension = new Dimension(border.x + (vertical ? fitted : along) + border.width,
+                border.y + (vertical ? along : fitted) + border.height);
 
         if (backgroundColor != null) {
             BackgroundComponent background = new BackgroundComponent();

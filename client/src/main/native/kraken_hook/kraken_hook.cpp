@@ -11,7 +11,8 @@
 // original; a writer thread drains the ring to the socket.
 //
 // After the handshake the Kraken client can send commands. A reader thread queues call batches,
-// which the pump detour runs on the game thread at the start of the next frame, and opens the
+// which the pump detour runs on the game thread at the start of the next frame (each batch with a
+// scratch block its calls can share, so a sequence of calls can build one object), and opens the
 // overlay surface (a file mapping holding three frames), which the present detour uploads and draws
 // over the finished frame just before the client presents it. A frame cap makes the pump hold each
 // frame back until it is due. The writer thread reports the game's frame rate once a second.
@@ -33,6 +34,7 @@
 #include <cstdint>
 #include <cstring>
 #include <cstddef>
+#include <algorithm>
 #include <atomic>
 #include <utility>
 #include <vector>
@@ -46,8 +48,8 @@
 // Must match NativeEventServer.PORT on the Java side.
 static const unsigned short KRAKEN_PORT = 42069;
 
-// Protocol v3 limits and op codes. Must match NativeProtocol on the Java side.
-static const uint32_t PROTOCOL_VERSION = 3;
+// Protocol v4 limits and op codes. Must match NativeProtocol on the Java side.
+static const uint32_t PROTOCOL_VERSION = 4;
 static const int MAX_SLOTS = 64;   // distinct raise functions we can hook
 static const int MAX_PLAN = 8;     // capture-plan entries per slot
 static const int MAX_MSG = 512;    // bytes per queued message body
@@ -88,9 +90,12 @@ static const uint32_t MAX_PENDING_CALLS = 4096;
 static const uint32_t MAX_PENDING_BATCHES = 4096;
 
 // Call argument kinds.
-static const uint8_t ARG_IMM = 0;    // the value
-static const uint8_t ARG_CLIENT = 1; // the Client* read from base + clientGlobal, plus the value
-static const uint8_t ARG_DATA = 2;   // a pointer to data + value
+static const uint8_t ARG_IMM = 0;      // the value
+static const uint8_t ARG_CLIENT = 1;   // the Client* read from base + clientGlobal, plus the value
+static const uint8_t ARG_DATA = 2;     // a pointer to data + value
+static const uint8_t ARG_SCRATCH = 3;  // a pointer to the batch's scratch block + value
+static const uint8_t ARG_INDIRECT = 4; // the pointer at Client* + (value & 0xffffffff), plus (value >> 32)
+static const uint32_t SCRATCH_SIZE = 4096; // bytes of zeroed scratch a batch's calls share
 
 // Overlay surface layout (docs/in-game-drawing.md section 2.4).
 static const uint32_t SURFACE_MAGIC = 0x31564F4B; // "KOV1"
@@ -441,13 +446,29 @@ static bool guardedCall(uintptr_t target, const int64_t args[MAX_ARGS], int64_t 
 }
 
 /**
+ * Reads a pointer-sized value from the game's memory, guarding the read.
+ *
+ * @param address where to read
+ * @param out     receives the value
+ * @return false if the read faulted
+ */
+static bool readPointer(uint64_t address, uint64_t *out) {
+    bool faulted = false;
+    uint64_t value = 0;
+    GUARD_BEGIN value = *reinterpret_cast<const volatile uint64_t *>(address); GUARD_END
+    *out = value;
+    return !faulted;
+}
+
+/**
  * Resolves one call's arguments and runs it.
  *
- * @param call the call
- * @param ret  receives the return value when it ran
- * @return 1 if it ran, 0 if it was skipped (bad target, no Client*, bad data offset), -1 if it faulted
+ * @param call    the call
+ * @param scratch the batch's scratch block, SCRATCH_SIZE bytes, 16-byte aligned
+ * @param ret     receives the return value when it ran
+ * @return 1 if it ran, 0 if it was skipped (bad target, no Client*, null pointer, bad offset), -1 if it faulted
  */
-static int runCall(Call &call, int64_t *ret) {
+static int runCall(Call &call, uint8_t *scratch, int64_t *ret) {
     if (call.rva == 0 || call.rva >= g_imageSize || call.argc > MAX_ARGS) {
         return 0;
     }
@@ -476,6 +497,26 @@ static int runCall(Call &call, int64_t *ret) {
                 }
                 args[i] = static_cast<int64_t>(reinterpret_cast<uintptr_t>(data + call.values[i]));
                 break;
+            case ARG_SCRATCH:
+                if (call.values[i] < 0 || static_cast<uint64_t>(call.values[i]) >= SCRATCH_SIZE) {
+                    return 0;
+                }
+                args[i] = static_cast<int64_t>(reinterpret_cast<uintptr_t>(scratch + call.values[i]));
+                break;
+            case ARG_INDIRECT: {
+                uint64_t client = readClient();
+                if (client == 0) {
+                    return 0;
+                }
+                uint64_t offset = static_cast<uint64_t>(call.values[i]) & 0xffffffffu;
+                int64_t add = call.values[i] >> 32;
+                uint64_t pointer = 0;
+                if (!readPointer(client + offset, &pointer) || pointer == 0) {
+                    return 0;
+                }
+                args[i] = static_cast<int64_t>(pointer + static_cast<uint64_t>(add));
+                break;
+            }
             default:
                 return 0;
         }
@@ -486,7 +527,8 @@ static int runCall(Call &call, int64_t *ret) {
 /**
  * Runs every queued call batch, in order, and reports each with CALLS_DONE. Runs on the game thread
  * in the pump detour. Takes the queue with a try-lock, so a reader thread that holds it costs one
- * frame's delay rather than a stall.
+ * frame's delay rather than a stall. Each batch gets a fresh, zeroed scratch block its calls can
+ * build an object in and hand on to each other.
  */
 static void runPendingCalls() {
     if (g_pendingBatches.load(std::memory_order_acquire) == 0) {
@@ -501,13 +543,17 @@ static void runPendingCalls() {
     g_pendingBatches.store(0, std::memory_order_release);
     ReleaseSRWLockExclusive(&g_queueLock);
 
+    std::vector<uint8_t> scratchStorage(SCRATCH_SIZE + 16);
     for (Batch &batch : work) {
         uint64_t run = 0;
         uint64_t failed = batch.skipped;
         int64_t last = 0;
+        std::fill(scratchStorage.begin(), scratchStorage.end(), 0);
+        uintptr_t raw = reinterpret_cast<uintptr_t>(scratchStorage.data());
+        uint8_t *scratch = reinterpret_cast<uint8_t *>((raw + 15) & ~static_cast<uintptr_t>(15));
         for (Call &call : batch.calls) {
             int64_t ret = 0;
-            int outcome = runCall(call, &ret);
+            int outcome = runCall(call, scratch, &ret);
             if (outcome > 0) {
                 run++;
                 last = ret;
@@ -855,7 +901,7 @@ static DWORD WINAPI readerThread(LPVOID) {
 }
 
 /**
- * Reads the handshake and installs any hooks not installed yet. The handshake is: magic "KRK3", a
+ * Reads the handshake and installs any hooks not installed yet. The handshake is: magic "KRK4", a
  * u16 slot count, each slot's rva, id configuration, argument count and capture plan, then the
  * Client* slot, the pump function and the present function. A slot whose rva is already hooked is
  * left alone, so a re-handshake after a reconnect only adds new ones; the pump and present hooks
@@ -865,7 +911,7 @@ static DWORD WINAPI readerThread(LPVOID) {
  */
 static bool readHandshake() {
     char magic[4];
-    if (!recvExact(magic, 4) || std::memcmp(magic, "KRK3", 4) != 0) {
+    if (!recvExact(magic, 4) || std::memcmp(magic, "KRK4", 4) != 0) {
         return false;
     }
     uint16_t count = 0;

@@ -36,7 +36,7 @@ class NativeProtocolTest {
 
         byte[] magic = new byte[4];
         buf.get(magic);
-        assertArrayEquals("KRK3".getBytes(StandardCharsets.US_ASCII), magic);
+        assertArrayEquals("KRK4".getBytes(StandardCharsets.US_ASCII), magic);
         assertEquals(2, buf.getShort(), "slot count");
 
         assertEquals(0xc44d0L, buf.getLong());
@@ -108,6 +108,21 @@ class NativeProtocolTest {
         assertEquals(-1, buf.getLong(), "negative values go as two's complement");
         assertEquals(0, buf.getShort(), "no data");
         assertEquals(0, buf.remaining());
+    }
+
+    @Test
+    void scratchAndIndirectArgumentsGoAsTheirKindAndPackedValue() {
+        NativeCall create = NativeCall.to(0x6795c0L).scratch(0).imm(7).indirect(0x31a0, 0xa08).build();
+        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.calls(1, List.of(create))).order(ByteOrder.LITTLE_ENDIAN);
+        buf.position(4 + 1 + 4 + 2 + 8);
+        assertEquals(3, buf.get(), "argc");
+        assertEquals(3, buf.get(), "SCRATCH");
+        assertEquals(0, buf.getLong());
+        assertEquals(0, buf.get(), "IMM");
+        assertEquals(7, buf.getLong());
+        assertEquals(4, buf.get(), "INDIRECT");
+        assertEquals(0xa08L << 32 | 0x31a0, buf.getLong(), "pointer offset low, addend high");
+        assertEquals(0, buf.getShort(), "no data");
     }
 
     @Test

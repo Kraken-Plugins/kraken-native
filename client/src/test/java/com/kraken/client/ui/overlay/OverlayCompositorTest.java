@@ -19,10 +19,12 @@ import static com.kraken.client.ui.overlay.OverlayCompositor.BORDER;
 import static com.kraken.client.ui.overlay.OverlayCompositor.BORDER_TOP;
 import static com.kraken.client.ui.overlay.OverlayCompositor.PADDING;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The {@link OverlayCompositor}'s layout and drawing, into an image, headless: anchors and stacking, layers and
- * priorities, and one overlay's failure or graphics state not reaching the others.
+ * priorities, placed overlays kept on the canvas, outlines while the user moves overlays, and one overlay's failure or
+ * graphics state not reaching the others.
  */
 class OverlayCompositorTest {
 
@@ -264,6 +266,48 @@ class OverlayCompositorTest {
         placed.setPreferredPosition(OverlayPosition.BOTTOM_LEFT);
         frame();
         assertEquals(new Point(BORDER, HEIGHT - BORDER - 10), placed.getBounds().getLocation());
+    }
+
+    @Test
+    void aPreferredLocationIsKeptOnTheCanvas() {
+        Box placed = add(new Box("placed", OverlayPosition.TOP_LEFT, 100, 40));
+        placed.setPreferredLocation(new Point(WIDTH - 10, -20));
+        frame();
+        frame();
+        assertEquals(new Point(WIDTH - 100, 0), placed.getBounds().getLocation(), "by the size it drew at last");
+    }
+
+    @Test
+    void whileEditingTheMovableOverlaysAreOutlined() {
+        Box panel = add(new Box("panel", OverlayPosition.TOP_LEFT, 50, 20));
+        Box fixed = add(new Box("fixed", OverlayPosition.TOP_RIGHT, 50, 20));
+        fixed.setMovable(false);
+        add(new Box("dynamic", OverlayPosition.DYNAMIC, 50, 20));
+        frame();
+        assertEquals(0, green(BORDER, BORDER_TOP), "no outline while not editing");
+
+        compositor.setEditing(true, null, false);
+        frame();
+        int outline = green(BORDER, BORDER_TOP);
+        assertTrue(outline > 0, "outlined");
+        assertEquals(0, green(BORDER + 10, BORDER_TOP + 10), "only round the edge");
+        assertEquals(0, green(WIDTH - BORDER - 50, BORDER), "an overlay that can't move isn't outlined");
+        assertEquals(0, green(0, 0), "nor is a dynamic one");
+
+        compositor.setEditing(true, panel, false);
+        frame();
+        assertTrue(green(BORDER, BORDER_TOP) > outline, "the one under the pointer stands out");
+    }
+
+    /**
+     * The green in a pixel of the frame: none where the boxes' red is, some where a yellow outline is.
+     *
+     * @param x the pixel's column
+     * @param y its row
+     * @return the green, 0 to 255
+     */
+    private int green(int x, int y) {
+        return (image.getRGB(x, y) >> 8) & 0xFF;
     }
 
     @Test

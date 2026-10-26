@@ -36,9 +36,9 @@ import java.util.logging.Logger;
  * </ol>
  * Events are only synthesised while something subscribes to them.
  *
- * <p>It reads the game and never writes to it. The client's highlights ({@link Client#getHighlights()}) are the one
- * thing it changes, by having the client's native hook call the game's own highlight functions
- * ({@link #setNativeInvoker}).
+ * <p>It reads the game and never writes to it. The client's highlights ({@link Client#getHighlights()}) and the menu
+ * actions it runs ({@link Client#getActions()}) are the two things it changes, by having the client's native hook
+ * call the game's own functions ({@link #setNativeInvoker}).
  */
 public final class GameSession implements AutoCloseable {
 
@@ -352,13 +352,15 @@ public final class GameSession implements AutoCloseable {
 
     /**
      * Hands the API a connection to the native hook that runs calls on the game thread, or takes it away. While it is
-     * set, {@link Client#getHighlights()} draws in the game, and every highlight set so far is applied through it.
-     * Internal: the client's native hook calls this as its connection comes up and drops.
+     * set, {@link Client#getHighlights()} draws in the game, every highlight set so far is applied through it, and
+     * {@link Client#getActions()} runs menu actions. Internal: the client's native hook calls this as its connection
+     * comes up and drops.
      *
      * @param invoker the connection, or null while there is none
      */
     public void setNativeInvoker(NativeInvoker invoker) {
         client.getHighlights().setInvoker(invoker);
+        client.getActions().setInvoker(invoker);
     }
 
     /**

@@ -1,0 +1,83 @@
+# Running a menu action without the menu (docs/menu-actions.md): the functions behind the minimenu's rows, which the
+# hook DLL calls with the arguments a row would have captured, and the packet helpers the mouse click goes out through.
+#
+# A menu row carries a body function and a struct of captured arguments; clicking the row raises the op event and then
+# runs body(context, &captures). The builders of the NPC, loc, obj and player rows (the callers of the subject setters,
+# the functions storing enums.minimenuSubject into MinimenuEntry.subjectType) hand their adders the body addresses, and
+# every op body reaches a sender that builds one packet per op with create(packet*, opcode, connection + outCipher),
+# the writers, send(connection, packet*) and release(buffer*). The network step builds the mouse click packet with the
+# same helpers (menuops.py). No Lua binding touches any of this.
+keys:
+  - key: functions.menuNpcOp
+    type: "void(void* unused, const struct {i32 index, i32 op, i32 flag}* args)"
+    priority: P1
+    doc: The NPC row body. Looks the NPC up by index and sends OPNPC<op> (op 1-5) for it, then faces and paths to it as
+      a click would; a stale index sends nothing. flag is 0 for every row the builder makes.
+    strategies:
+      - extractor: { name: menu_ops, field: functions.menuNpcOp, cls: A }
+  - key: functions.menuLocOp
+    type: "void(void* unused, const struct {i32 level, i32 x, i32 z, i32 locId, i32 op, i32 flag}* args)"
+    priority: P1
+    doc: The loc row body. Sends OPLOC<op> (op 1-5) for the loc of that id at the world tile.
+    strategies:
+      - extractor: { name: menu_ops, field: functions.menuLocOp, cls: A }
+  - key: functions.menuObjOp
+    type: "void(void* unused, const struct {i32 level, i32 x, i32 z, i32 objId, i32 count, i32 op, i32 flag}* args)"
+    priority: P1
+    doc: The ground item row body. Sends OPOBJ<op> (op 1-5) for the item of that id at the world tile; count is the
+      pile's count the builder saw, which only the fifth op's case passes on.
+    strategies:
+      - extractor: { name: menu_ops, field: functions.menuObjOp, cls: A }
+  - key: functions.menuPlayerOp
+    type: "void(void* unused, const struct {i32 index, i32 op}* args)"
+    priority: P1
+    doc: The player row body. Looks the player up by index and sends OPPLAYER<op> (op 1-8) for them.
+    strategies:
+      - extractor: { name: menu_ops, field: functions.menuPlayerOp, cls: A }
+
+  - key: functions.packetCreate
+    type: "Packet*(Packet* out, int opcode, void* outCipher)"
+    priority: P1
+    doc: Starts a client packet in a 0x40-byte struct, taking a buffer from the pool and writing the ISAAC-ciphered
+      opcode; the third argument is Client.connection + Connection.outCipher.
+    strategies:
+      - extractor: { name: menu_ops, field: functions.packetCreate, cls: A }
+  - key: functions.packetWriteShort
+    type: "void(Buffer* buffer, int value)"
+    priority: P1
+    doc: Appends a big-endian u16 to a packet's buffer (packet + 8).
+    strategies:
+      - extractor: { name: menu_ops, field: functions.packetWriteShort, cls: A }
+  - key: functions.packetSend
+    type: "void(Connection* connection, Packet* packet)"
+    priority: P1
+    doc: Queues a packet on the connection for the network thread, taking its buffer's contents.
+    strategies:
+      - extractor: { name: menu_ops, field: functions.packetSend, cls: A }
+  - key: functions.packetRelease
+    type: "void(Buffer* buffer)"
+    priority: P1
+    doc: Returns a packet's buffer (packet + 8) to the pool; every sender calls it once the packet is sent.
+    strategies:
+      - extractor: { name: menu_ops, field: functions.packetRelease, cls: A }
+
+  - key: Client.connection
+    type: ptr<Connection>
+    priority: P1
+    doc: The game connection the packet helpers take.
+    strategies:
+      - extractor: { name: menu_ops, field: Client.connection, cls: A }
+  - key: Connection.outCipher
+    type: Cipher
+    priority: P1
+    doc: The outgoing ISAAC cipher inside the connection, packetCreate's third argument.
+    strategies:
+      - extractor: { name: menu_ops, field: Connection.outCipher, cls: A }
+
+  - key: enums.clientProt
+    type: table
+    priority: P1
+    doc: Client packet opcodes the API sends itself. EVENT_MOUSE_CLICK is the six-byte packet the network step builds
+      from three shorts ((ms since the last click << 1) | right button, x, y) when a click is pending.
+    strategies:
+      - extractor: { name: menu_ops, field: enums.clientProt, cls: A }

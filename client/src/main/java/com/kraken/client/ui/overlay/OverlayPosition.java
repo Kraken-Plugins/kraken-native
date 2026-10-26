@@ -6,8 +6,9 @@ package com.kraken.client.ui.overlay;
  *
  * <p>The anchors are the canvas's own corners. They aren't moved clear of the minimap, the chatbox or the inventory,
  * because Kraken doesn't read where those are yet, so {@code TOP_RIGHT} is the same corner as
- * {@code CANVAS_TOP_RIGHT} (and the two share one stack). Left out: {@code DETACHED} and {@code TOOLTIP} (they need
- * dragging and the mouse, which belong to the game), and {@code ABOVE_CHATBOX_RIGHT} (it needs the chatbox's bounds).
+ * {@code CANVAS_TOP_RIGHT} (and the two share one stack). Left out: {@code DETACHED} (an overlay the user drags keeps
+ * its position and is drawn at its {@linkplain Overlay#getPreferredLocation() preferred location}), {@code TOOLTIP}
+ * (it follows the mouse, which belongs to the game) and {@code ABOVE_CHATBOX_RIGHT} (it needs the chatbox's bounds).
  */
 public enum OverlayPosition {
 

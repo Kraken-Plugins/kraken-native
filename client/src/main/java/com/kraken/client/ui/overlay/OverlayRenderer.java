@@ -41,7 +41,8 @@ import javax.swing.*;
  * rows the last frame held, which it clears) are cleared and handed over, so a sparse overlay costs little.
  *
  * <p>Overlays start each frame with the font, size and panel background the settings give ({@link KrakenConfig}), and
- * each frame handed over is counted in {@link FrameRates}.
+ * each frame handed over is counted in {@link FrameRates}. After each frame the {@link OverlayEditor} hears where the
+ * overlays went, so the user can drag them with Alt held, and while they do, the frames outline them.
  *
  * <p>Nothing is read or drawn while no overlay is added or the game area isn't showing.
  */
@@ -63,6 +64,7 @@ public final class OverlayRenderer {
     private final OverlayManager manager;
     private final GameOverlay window;
     private final GameSurface surface;
+    private final OverlayEditor editor;
     private final KrakenConfig config;
     private final FrameRates frameRates;
     private final OverlayCompositor compositor;
@@ -90,11 +92,12 @@ public final class OverlayRenderer {
     private boolean gameShowing;
 
     @Inject
-    OverlayRenderer(OverlayManager manager, GameOverlay window, GameSurface surface, ProcessAttacher attacher,
-                    KrakenConfig config, FrameRates frameRates) {
+    OverlayRenderer(OverlayManager manager, GameOverlay window, GameSurface surface, OverlayEditor editor,
+                    ProcessAttacher attacher, KrakenConfig config, FrameRates frameRates) {
         this.manager = manager;
         this.window = window;
         this.surface = surface;
+        this.editor = editor;
         this.config = config;
         this.frameRates = frameRates;
         Font font = UIManager.getFont("Label.font");
@@ -149,6 +152,7 @@ public final class OverlayRenderer {
         GameOverlay.Surface area = window.getSurface();
         if (overlays.isEmpty() || area == null) {
             clear();
+            editor.nothingDrawn();
             return;
         }
         if (!due(front == null)) {
@@ -158,6 +162,7 @@ public final class OverlayRenderer {
         int canvasHeight = session.client().getCanvasHeight();
         if (canvasWidth < 1 || canvasHeight < 1) {
             clear();
+            editor.nothingDrawn();
             return;
         }
         int width = area.deviceWidth();
@@ -171,7 +176,7 @@ public final class OverlayRenderer {
                 g.fillRect(0, 0, width, height);
                 g.setComposite(AlphaComposite.SrcOver);
                 g.scale(width / (double) canvasWidth, height / (double) canvasHeight);
-                compositor.render(g, overlays, canvasWidth, canvasHeight);
+                compose(g, overlays, canvasWidth, canvasHeight);
             } finally {
                 g.dispose();
             }
@@ -180,6 +185,21 @@ public final class OverlayRenderer {
         front = frame;
         window.refresh();
         frameRates.overlayFrameDrawn();
+    }
+
+    /**
+     * Draws the overlays, outlined if the user is moving them, and tells the editor where the movable ones went. Poll
+     * thread.
+     *
+     * @param g            where to draw, in canvas pixels
+     * @param overlays     the overlays, in drawing order
+     * @param canvasWidth  the canvas's width
+     * @param canvasHeight the canvas's height
+     */
+    private void compose(Graphics2D g, List<Overlay> overlays, int canvasWidth, int canvasHeight) {
+        compositor.setEditing(editor.isEditing(), editor.getTarget(), editor.isResizing());
+        compositor.render(g, overlays, canvasWidth, canvasHeight);
+        editor.frameDrawn(overlays, canvasWidth, canvasHeight);
     }
 
     /**
@@ -223,6 +243,7 @@ public final class OverlayRenderer {
         int canvasWidth = session.client().getCanvasWidth();
         int canvasHeight = session.client().getCanvasHeight();
         if (overlays.isEmpty() || canvasWidth < 1 || canvasHeight < 1) {
+            editor.nothingDrawn();
             if (gameShowing && gameImage != null) {
                 clearRows(gameImage, gameTop, gameBottom);
                 gameTop = 0;
@@ -246,7 +267,7 @@ public final class OverlayRenderer {
         Graphics2D g = gameImage.createGraphics();
         try {
             g.scale(width / (double) canvasWidth, height / (double) canvasHeight);
-            compositor.render(g, overlays, canvasWidth, canvasHeight);
+            compose(g, overlays, canvasWidth, canvasHeight);
         } finally {
             g.dispose();
         }

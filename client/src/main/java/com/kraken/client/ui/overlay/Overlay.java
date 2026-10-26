@@ -16,8 +16,12 @@ import java.awt.Rectangle;
  * plugin state shared between them needs no locking. It draws in the client's canvas pixels, the units
  * {@code Perspective} and {@code Actor.getCanvasTilePoly} return, so their results draw as they are.
  *
- * <p>Left out, because the overlay window is click-through and the game owns the mouse: dragging, resizing, snapping,
- * menu entries and mouse-over. {@link #setPreferredLocation} and {@link #setPreferredPosition} still work from code.
+ * <p>While the user holds Alt over the game, every {@linkplain #isMovable() movable} overlay that isn't
+ * {@link OverlayPosition#DYNAMIC} is outlined and can be dragged to a new spot, and a {@linkplain #isResizable()
+ * resizable} one resized by its edges; Alt and a right-click puts it back at its anchor and natural size
+ * ({@link OverlayEditor}). Where the user put it is saved and restored whenever it is added again
+ * ({@link OverlayManager}). Left out, because the game owns the mouse: snapping to an anchor, menu entries and
+ * mouse-over.
  */
 public abstract class Overlay implements LayoutableRenderableEntity {
 
@@ -67,7 +71,7 @@ public abstract class Overlay implements LayoutableRenderableEntity {
 
     /**
      * An anchor to use instead of {@link #getPosition()}, or null. Only code sets it; overlays can't be snapped to a
-     * corner by the user.
+     * corner by the user. Dragging an overlay clears it.
      */
     @Getter
     @Setter
@@ -75,7 +79,8 @@ public abstract class Overlay implements LayoutableRenderableEntity {
 
     /**
      * Where to draw a non-{@link OverlayPosition#DYNAMIC} overlay instead of at its anchor (its top-left corner in
-     * canvas pixels), or null. Used unless {@link #getPreferredPosition()} is set.
+     * canvas pixels), or null. Used unless {@link #getPreferredPosition()} is set; kept inside the canvas. The user
+     * sets it by dragging the overlay.
      */
     @Getter
     @Setter
@@ -83,10 +88,28 @@ public abstract class Overlay implements LayoutableRenderableEntity {
 
     /**
      * The size the overlay should draw at, or null for its natural size. {@link OverlayPanel} lays its panel out to it.
+     * The user sets it by resizing the overlay; a height of 0 leaves the height to the overlay.
      */
     @Getter
     @Setter
     private volatile Dimension preferredSize;
+
+    /**
+     * Whether the user can drag the overlay with Alt held. {@link OverlayPosition#DYNAMIC} overlays can't be dragged
+     * whatever this says.
+     */
+    @Getter
+    @Setter
+    private volatile boolean movable = true;
+
+    /**
+     * Whether the user can resize the overlay by its edges with Alt held. The new size goes to
+     * {@link #getPreferredSize()}, so only an overlay that draws at that size should allow it; {@link OverlayPanel}
+     * does.
+     */
+    @Getter
+    @Setter
+    private volatile boolean resizable;
 
     /**
      * Where the overlay goes among those at the same anchor: higher draws first, so nearer the corner. Among

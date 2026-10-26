@@ -1,5 +1,6 @@
 package com.kraken.api;
 
+import com.kraken.api.action.Actions;
 import com.kraken.api.actor.Actor;
 import com.kraken.api.actor.NPC;
 import com.kraken.api.actor.Player;
@@ -48,9 +49,10 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>Every getter follows the mapped offset chains in the live process, replaying what the client's own Lua handlers
  * read; a getter's Javadoc names the Lua function it mirrors. The API reads, so input, models and setters are not
- * exposed, and the menu is read but never changed. The one thing it changes is what the client highlights
- * ({@link #getHighlights()}), through the client's native hook. Reads are tolerant: an unreadable or logged-out state
- * gives -1, false, "", null or an empty list rather than an exception.
+ * exposed, and the menu is read but never changed. Two things it does change, through the client's native hook: what
+ * the client highlights ({@link #getHighlights()}), and the menu actions it runs ({@link #getActions()},
+ * {@link #menuAction}). Reads are tolerant: an unreadable or logged-out state gives -1, false, "", null or an empty
+ * list rather than an exception.
  *
  * <p>It keeps one handle per actor ({@link #npc}, {@link #player}), so asking twice for the same actor gives the same
  * object, and a handle's identity holds as long as the actor does. A handle is replaced when another actor takes its
@@ -121,6 +123,13 @@ public final class Client extends GameReader {
      */
     @Getter
     private final Highlights highlights;
+
+    /**
+     * Menu actions run without the menu, and the mouse click that goes with one. They reach the client while its
+     * native hook is connected.
+     */
+    @Getter
+    private final Actions actions;
 
     /**
      * The top-level world: the main map, its actors and its sceneReader.
@@ -203,6 +212,7 @@ public final class Client extends GameReader {
         this.menuReader = new MenuReader(memory, mapping, this);
         this.topLevelWorldView = new WorldView(this);
         this.highlights = new Highlights(mapping);
+        this.actions = new Actions(this, mapping);
 
         this.cGameState = mapping.offset("Client.gameState");
         this.cLoginToken = mapping.offset("Client.loginToken");
@@ -788,6 +798,24 @@ public final class Client extends GameReader {
      */
     public boolean isMenuOpen() {
         return menuReader.isOpen();
+    }
+
+    /**
+     * Runs a menu action as a click on its entry would, through the client's native hook: the client's own row body
+     * sends the op packet and starts the interaction. Same as {@code getActions().menuAction(p0, p1, action, id)};
+     * {@link Actions#click} sends the mouse click packet first, as a real click does. The native entry carries no
+     * item id, option or target, so those are not used.
+     *
+     * @param p0     the entry's first parameter (a loc's or ground item's scene x)
+     * @param p1     the entry's second parameter (a loc's or ground item's scene y)
+     * @param action the action; see {@link Actions#isSupported}
+     * @param id     the entry's identifier: an NPC's or player's index, a loc's or item's id
+     * @param itemId unused
+     * @param option unused
+     * @param target unused
+     */
+    public void menuAction(int p0, int p1, MenuAction action, int id, int itemId, String option, String target) {
+        actions.menuAction(p0, p1, action, id);
     }
 
     /**

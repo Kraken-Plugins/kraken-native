@@ -74,13 +74,16 @@ What you get:
   client's own output.
 * A Plugins tab, like RuneLite's plugin list: search, and a switch per plugin. Which plugins are on is saved in
   `~/.kraken-native/settings.properties`. A plugin that fails to start is switched off and marked "failed".
+* Movable overlays: hold Alt to outline the overlay panels, then drag one to move it or drag its edges to resize it.
+  Alt and right-click puts it back in its default spot and size. Where you put each one is saved for the next launch.
 
 ### Writing a Plugin
 
 Plugins are written as RuneLite plugins are: a `Plugin` subclass with `@PluginDescriptor`, injected `Client` and
 `ClientThread`, `startUp`/`shutDown`, and `@Subscribe` methods for events such as `GameTick`, `NpcSpawned` or
 `StatChanged` (see the example plugins under `com.kraken.client.plugins`: `tickcounter`, `npchighlight`,
-`objectmarkers` and `tilemarkers`). A plugin package under `com.kraken.client.plugins` is found at launch. To run one
+`objectmarkers`, `tilemarkers` and `npcclicker`). A plugin package under `com.kraken.client.plugins` is found at
+launch. To run one
 from elsewhere, pass its class:
 
 ```bash
@@ -95,6 +98,11 @@ otherwise. For outlines, use the game's highlights instead: take a channel with
 `client.getHighlights().channel(HighlightCategory.NPC)`, give it a `HighlightConfig` and `set` the
 `HighlightTarget`s to light. The game draws them in the scene, with its depth, following the camera
 (see [in-game-drawing.md](docs/in-game-drawing.md)).
+
+A plugin can also run a menu action as a click on the menu would, without the mouse: `client.getActions().click(x, y,
+0, 0, MenuAction.NPC_SECOND_OPTION, npc.getIndex())` sends the mouse click packet and then has the client's own code
+send the op and start the interaction (see [menu-actions.md](docs/menu-actions.md); the `npcclicker` plugin is the
+example).
 
 ### Logging In With a Jagex Account
 

@@ -1,7 +1,11 @@
 package com.kraken.client.ui.overlay;
 
+import com.google.inject.Inject;
 import com.google.inject.Singleton;
+import com.kraken.client.plugins.config.ConfigManager;
 
+import java.awt.Dimension;
+import java.awt.Point;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -13,10 +17,22 @@ import java.util.function.Predicate;
  * every added overlay at the overlay frame rate while the game is attached, and draws nothing (and reads nothing) while
  * none is added.
  *
+ * <p>It also keeps where the user put each overlay ({@link OverlayEditor}): its preferred location and size are saved
+ * in settings group {@value #CONFIG_GROUP}, under the overlay's {@linkplain Overlay#getName() name}, and set again
+ * whenever an overlay of that name is added.
+ *
  * <p>Thread-safe: add and remove on any thread.
  */
 @Singleton
 public class OverlayManager {
+
+    /**
+     * The settings group overlays' placements are saved in.
+     */
+    public static final String CONFIG_GROUP = "overlays";
+
+    private static final String LOCATION_KEY = "_preferredLocation";
+    private static final String SIZE_KEY = "_preferredSize";
 
     /**
      * The order overlays draw in within a layer: by position, then by priority. Higher priority draws first among
@@ -26,15 +42,81 @@ public class OverlayManager {
             new Key(a, effectivePosition(a), a.getPriority()), new Key(b, effectivePosition(b), b.getPriority()));
 
     private final CopyOnWriteArrayList<Overlay> overlays = new CopyOnWriteArrayList<>();
+    private final ConfigManager configManager;
 
     /**
-     * Starts drawing an overlay.
+     * An overlay manager that saves where the user puts overlays.
+     *
+     * @param configManager where placements are saved
+     */
+    @Inject
+    public OverlayManager(ConfigManager configManager) {
+        this.configManager = configManager;
+    }
+
+    /**
+     * An overlay manager that saves no placements.
+     */
+    OverlayManager() {
+        this(null);
+    }
+
+    /**
+     * Starts drawing an overlay, where the user last put it if they moved or resized it.
      *
      * @param overlay the overlay
      * @return true if it was added; false if it was already there
      */
     public boolean add(Overlay overlay) {
-        return overlays.addIfAbsent(overlay);
+        if (!overlays.addIfAbsent(overlay)) {
+            return false;
+        }
+        loadOverlay(overlay);
+        return true;
+    }
+
+    /**
+     * Saves where an overlay is placed now: its preferred location and size, or that it has neither.
+     *
+     * @param overlay the overlay
+     */
+    public void saveOverlay(Overlay overlay) {
+        if (configManager != null) {
+            configManager.setConfiguration(CONFIG_GROUP, overlay.getName() + LOCATION_KEY,
+                    overlay.getPreferredLocation());
+            configManager.setConfiguration(CONFIG_GROUP, overlay.getName() + SIZE_KEY, overlay.getPreferredSize());
+        }
+    }
+
+    /**
+     * Puts an overlay back at its anchor and natural size, and forgets where the user put it.
+     *
+     * @param overlay the overlay
+     */
+    public void resetOverlay(Overlay overlay) {
+        overlay.setPreferredPosition(null);
+        overlay.setPreferredLocation(null);
+        overlay.setPreferredSize(null);
+        saveOverlay(overlay);
+    }
+
+    /**
+     * Sets an overlay's preferred location and size to the saved ones, where there are any.
+     *
+     * @param overlay the overlay
+     */
+    private void loadOverlay(Overlay overlay) {
+        if (configManager == null) {
+            return;
+        }
+        Point location = configManager.getConfiguration(CONFIG_GROUP, overlay.getName() + LOCATION_KEY, Point.class);
+        if (location != null) {
+            overlay.setPreferredLocation(location);
+        }
+        Dimension size = configManager.getConfiguration(CONFIG_GROUP, overlay.getName() + SIZE_KEY, Dimension.class);
+        if (size != null) {
+            overlay.setPreferredSize(size);
+        }
     }
 
     /**

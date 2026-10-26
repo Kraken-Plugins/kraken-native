@@ -18,8 +18,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
- * {@link PanelComponent} and its lines, headless: sizes from the font, a panel that grows for a wide line, a background
- * that fits this frame's lines, and {@link OverlayPanel} clearing its children each frame.
+ * {@link PanelComponent} and its lines, headless: sizes from the font, a panel that grows for a wide line, a preferred
+ * height, a background that fits this frame's lines, and {@link OverlayPanel} clearing its children each frame.
  */
 class PanelComponentTest {
 
@@ -68,6 +68,22 @@ class PanelComponentTest {
         int inner = metrics.stringWidth(wide) + 8 + metrics.stringWidth("2");
         assertEquals(inner + 2 * STANDARD_BORDER, size.width);
         assertEquals(inner, short1.getBounds().width, "every line is laid out at the widest one's width");
+    }
+
+    @Test
+    void aPreferredHeightIsTheLeastThePanelTakes() {
+        PanelComponent panel = new PanelComponent();
+        panel.getChildren().add(LineComponent.builder().left("Line").build());
+        panel.getChildren().add(LineComponent.builder().left("Line").build());
+        panel.setPreferredSize(new Dimension(STANDARD_WIDTH, 200));
+        Dimension tall = panel.render(graphics);
+        assertEquals(new Dimension(STANDARD_WIDTH, 200), tall);
+        assertEquals(ComponentConstants.STANDARD_BACKGROUND_COLOR.getAlpha(), image.getRGB(2, 197) >>> 24,
+                "the background fills the height");
+
+        panel.setPreferredSize(new Dimension(STANDARD_WIDTH, 5));
+        assertEquals(metrics.getHeight() * 2 + 1 + 2 * STANDARD_BORDER, panel.render(graphics).height,
+                "a height below the lines' grows to fit them");
     }
 
     @Test

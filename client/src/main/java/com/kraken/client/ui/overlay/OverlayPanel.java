@@ -10,8 +10,9 @@ import java.awt.Dimension;
 import java.awt.Graphics2D;
 
 /**
- * An overlay that is one {@link PanelComponent}. A subclass adds this frame's lines to {@link #panelComponent} and
- * returns {@code super.render(graphics)}:
+ * An overlay that is one {@link PanelComponent}, which the user can resize: the overlay's
+ * {@linkplain #getPreferredSize() preferred size} is the panel's. A subclass adds this frame's lines to
+ * {@link #panelComponent} and returns {@code super.render(graphics)}:
  *
  * <pre>{@code
  * @Override
@@ -47,6 +48,7 @@ public abstract class OverlayPanel extends Overlay {
      */
     protected OverlayPanel() {
         super();
+        setResizable(true);
     }
 
     /**
@@ -56,6 +58,7 @@ public abstract class OverlayPanel extends Overlay {
      */
     protected OverlayPanel(Plugin plugin) {
         super(plugin);
+        setResizable(true);
     }
 
     @Override

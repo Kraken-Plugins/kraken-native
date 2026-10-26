@@ -3,6 +3,7 @@ package com.kraken.client.ui.overlay;
 import com.kraken.client.ui.overlay.components.ComponentConstants;
 import lombok.extern.java.Log;
 
+import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
@@ -25,7 +26,10 @@ import java.util.logging.Level;
  * frame as if it had no size.
  *
  * <p>Anchors stack across layers: overlays from different layers at one corner are stacked, not overlapped. Every
- * layer is drawn over the game's interfaces, where overlapping would hide one of them.
+ * layer is drawn over the game's interfaces, where overlapping would hide one of them. An overlay placed at a preferred
+ * location instead is kept on the canvas by its last size.
+ *
+ * <p>While the user is moving overlays ({@link #setEditing}), each one they can move is outlined over everything.
  *
  * <p>Each overlay draws on its own copy of the graphics, clipped to the canvas, so one can't leave a transform or
  * colour behind for the next. An overlay that throws is logged once (until it draws again) and skipped.
@@ -51,8 +55,26 @@ final class OverlayCompositor {
      */
     static final int PADDING = 2;
 
+    /**
+     * The outline of an overlay the user can move, while they're moving overlays.
+     */
+    static final Color OUTLINE = new Color(255, 255, 0, 100);
+
+    /**
+     * The outline of the overlay under the pointer or being dragged.
+     */
+    static final Color OUTLINE_ACTIVE = new Color(255, 255, 0, 200);
+
+    /**
+     * The outline of the overlay being resized.
+     */
+    static final Color OUTLINE_RESIZING = new Color(255, 0, 255, 200);
+
     private static final OverlayLayer[] LAYERS = OverlayLayer.values();
 
+    private boolean editing;
+    private Overlay editTarget;
+    private boolean editResizing;
     private Font panelFont;
     private Font dynamicFont;
     private Color background = ComponentConstants.STANDARD_BACKGROUND_COLOR;
@@ -110,6 +132,23 @@ final class OverlayCompositor {
                 }
             }
         }
+        if (editing) {
+            outline(graphics, overlays, width, height);
+        }
+    }
+
+    /**
+     * Sets whether the user is moving overlays, from the next frame. While they are, every overlay they can move is
+     * outlined over everything else.
+     *
+     * @param editing  true while the user is moving overlays
+     * @param target   the overlay under the pointer or being dragged, outlined more strongly; or null
+     * @param resizing true if {@code target} is being resized rather than moved
+     */
+    void setEditing(boolean editing, Overlay target, boolean resizing) {
+        this.editing = editing;
+        this.editTarget = target;
+        this.editResizing = resizing;
     }
 
     private void draw(Graphics2D graphics, Overlay overlay, Corners corners, int width, int height) {
@@ -126,7 +165,9 @@ final class OverlayCompositor {
             Dimension last = lastSizes.getOrDefault(overlay, new Dimension());
             location = new Point(corner.x + offsetX(position, last.width), corner.y + offsetY(position, last.height));
         } else {
-            location = new Point(preferred);
+            // Kept on the canvas, which may have shrunk since the overlay was put there
+            Dimension last = lastSizes.getOrDefault(overlay, new Dimension());
+            location = new Point(clamp(preferred.x, width - last.width), clamp(preferred.y, height - last.height));
         }
 
         Dimension size = null;
@@ -156,6 +197,43 @@ final class OverlayCompositor {
         if (anchored && bounds.width + bounds.height > 0) {
             corners.shift(position, bounds);
         }
+    }
+
+    /**
+     * Outlines every overlay the user can drag, the one under the pointer more strongly.
+     *
+     * @param graphics where to draw, in canvas pixels
+     * @param overlays the overlays, drawn this frame
+     * @param width    the canvas's width
+     * @param height   the canvas's height
+     */
+    private void outline(Graphics2D graphics, List<Overlay> overlays, int width, int height) {
+        Graphics2D g = (Graphics2D) graphics.create();
+        try {
+            g.setClip(0, 0, width, height);
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
+            g.setStroke(new BasicStroke(1));
+            for (Overlay overlay : overlays) {
+                Rectangle bounds = overlay.getBounds();
+                if (OverlayEditor.isMovable(overlay) && !bounds.isEmpty()) {
+                    g.setColor(overlay != editTarget ? OUTLINE : editResizing ? OUTLINE_RESIZING : OUTLINE_ACTIVE);
+                    g.drawRect(bounds.x, bounds.y, bounds.width - 1, bounds.height - 1);
+                }
+            }
+        } finally {
+            g.dispose();
+        }
+    }
+
+    /**
+     * A value kept between 0 and a maximum; 0 if the maximum is below it.
+     *
+     * @param value the value
+     * @param max   the largest it may be
+     * @return the clamped value
+     */
+    private static int clamp(int value, int max) {
+        return Math.max(0, Math.min(value, max));
     }
 
     /**

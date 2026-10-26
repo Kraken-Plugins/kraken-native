@@ -57,9 +57,9 @@ them:
   restores it after, under SEH guards; a fault turns the overlay off for the session. It also reports
   the framebuffer size, GL version and the surface it draws in `FRAME` messages.
 
-## Protocol v3 (little-endian)
+## Protocol v4 (little-endian)
 
-**Handshake** (Java → DLL): magic `KRK3`, a `u16` slot count, then per slot
+**Handshake** (Java → DLL): magic `KRK4`, a `u16` slot count, then per slot
 `{u64 rva, i32 fixedId (-1 = read idArg), u8 idArg, u8 args, u8 planLen, plan[planLen]}`, where a
 plan entry is `{u8 arg, u8 op}` with ops `RAW, I32, I64, I32X2, CSTR` = 0..4; then
 `u64 clientGlobal, u64 pumpFn, u64 presentFn` (RVAs; 0 = none).
@@ -70,7 +70,7 @@ plan entry is `{u8 arg, u8 op}` with ops `RAW, I32, I64, I32X2, CSTR` = 0..4; th
 
 | id | Name | regs |
 |---|---|---|
-| -2 | STATUS | installed slots, requested slots, features (1 = pump hooked, 2 = present hooked, 4 = frame rate), protocol version 3 |
+| -2 | STATUS | installed slots, requested slots, features (1 = pump hooked, 2 = present hooked, 4 = frame rate), protocol version 4 |
 | -3 | FRAME | framebuffer width, height, GL version (`major << 16 \| minor`), surface generation drawn (0 = none) |
 | -4 | CALLS_DONE | batch id, calls run, calls faulted or skipped, last return value |
 | -5 | FPS | frames since the last FPS, microseconds since it, frame cap in force, 1 if presents were counted (0: frame steps) |
@@ -85,8 +85,11 @@ byte and the body, at most 4 MiB.
 - `1 CALLS`: `u32 batch, u16 count`, then per call
   `{u64 rva, u8 argc (≤ 8), argc × {u8 kind, i64 value}, u16 dataLen, data}`. Kinds: `0 IMM` (the
   value), `1 CLIENT` (the `Client*` at `base + clientGlobal` plus the value; the call is skipped while
-  it is null), `2 DATA` (a pointer to `data + value`, in a 16-byte-aligned copy). A call whose rva lies
-  outside the module, or whose data offset is out of range, is skipped. A malformed frame, or one that
+  it is null), `2 DATA` (a pointer to `data + value`, in a 16-byte-aligned copy), `3 SCRATCH` (a pointer
+  to the batch's 4096-byte zeroed scratch block plus the value, which every call of the batch shares),
+  `4 INDIRECT` (the pointer at `Client* + (value & 0xffffffff)` plus `value >> 32`; the call is skipped
+  while either pointer is null). A call whose rva lies outside the module, or whose data or scratch
+  offset is out of range, is skipped. A malformed frame, or one that
   would take the queue past 4096 calls, is answered with every call skipped. Batches are dropped while
   no pump is hooked, and when the connection closes.
 - `2 SURFACE`: `u32 generation, u16 nameLen, name`. Opens the named file mapping (`OpenFileMappingA`,

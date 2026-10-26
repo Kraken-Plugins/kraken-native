@@ -8,8 +8,9 @@ import java.util.Objects;
 /**
  * One call of a client function, which the hook DLL makes on the game thread: the function's RVA, up to
  * {@link #MAX_ARGS} integer arguments and a block of bytes the arguments can point into. The DLL never interprets a
- * call; which function, which arguments and what the bytes hold all come from the API and the mapping.
- * Internal: built by the API's own packages, sent by the client's hook.
+ * call; which function, which arguments and what the bytes hold all come from the API and the mapping. The calls of
+ * one batch also share a zeroed scratch block ({@link Kind#SCRATCH}), so a sequence of calls can build an object in
+ * it and hand it on. Internal: built by the API's own packages, sent by the client's hook.
  *
  * @param rva  the function's RVA (module-base-relative)
  * @param args the arguments in order: RCX, RDX, R8, R9, then the stack
@@ -26,6 +27,11 @@ public record NativeCall(long rva, List<Arg> args, byte[] data) {
      * The largest data block a call can carry.
      */
     public static final int MAX_DATA = 0xffff;
+
+    /**
+     * The bytes of scratch the calls of one batch share.
+     */
+    public static final int SCRATCH_SIZE = 4096;
 
     /**
      * Copies the arguments and data, so a call can't change after it is built.
@@ -99,7 +105,19 @@ public record NativeCall(long rva, List<Arg> args, byte[] data) {
         /**
          * A pointer to the call's data block plus the value.
          */
-        DATA
+        DATA,
+
+        /**
+         * A pointer to the batch's scratch block plus the value: {@link #SCRATCH_SIZE} zeroed bytes every call of the
+         * batch sees, so one call can build what the next one reads.
+         */
+        SCRATCH,
+
+        /**
+         * The pointer read from the {@code Client} object at the low 32 bits of the value, plus the high 32 bits. The
+         * DLL skips the call while the client pointer or the one read is null.
+         */
+        INDIRECT
     }
 
     /**
@@ -149,6 +167,30 @@ public record NativeCall(long rva, List<Arg> args, byte[] data) {
         public static Arg data(long offset) {
             return new Arg(Kind.DATA, offset);
         }
+
+        /**
+         * A pointer into the batch's scratch block.
+         *
+         * @param offset the offset into the block, below {@link #SCRATCH_SIZE}
+         * @return the argument
+         */
+        public static Arg scratch(long offset) {
+            if (offset < 0 || offset >= SCRATCH_SIZE) {
+                throw new IllegalArgumentException("scratch offset must be 0-" + (SCRATCH_SIZE - 1) + ", got " + offset);
+            }
+            return new Arg(Kind.SCRATCH, offset);
+        }
+
+        /**
+         * A pointer the {@code Client} object holds, plus an offset.
+         *
+         * @param pointerOffset the offset of the pointer field in the client
+         * @param add           what to add to the pointer read
+         * @return the argument
+         */
+        public static Arg indirect(int pointerOffset, int add) {
+            return new Arg(Kind.INDIRECT, ((long) add << 32) | (pointerOffset & 0xffffffffL));
+        }
     }
 
     /**
@@ -183,6 +225,29 @@ public record NativeCall(long rva, List<Arg> args, byte[] data) {
          */
         public Builder client(long offset) {
             args.add(Arg.client(offset));
+            return this;
+        }
+
+        /**
+         * Adds a pointer into the batch's scratch block.
+         *
+         * @param offset the offset into the block
+         * @return this builder
+         */
+        public Builder scratch(long offset) {
+            args.add(Arg.scratch(offset));
+            return this;
+        }
+
+        /**
+         * Adds a pointer the {@code Client} object holds, plus an offset.
+         *
+         * @param pointerOffset the offset of the pointer field in the client
+         * @param add           what to add to the pointer read
+         * @return this builder
+         */
+        public Builder indirect(int pointerOffset, int add) {
+            args.add(Arg.indirect(pointerOffset, add));
             return this;
         }
 

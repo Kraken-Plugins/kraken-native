@@ -25,6 +25,19 @@ class NativeCallTest {
     }
 
     @Test
+    void scratchOffsetsStayInTheBlockAndIndirectPacksBothOffsets() {
+        assertEquals(new Arg(NativeCall.Kind.SCRATCH, 8), Arg.scratch(8));
+        assertThrows(IllegalArgumentException.class, () -> Arg.scratch(NativeCall.SCRATCH_SIZE));
+        assertThrows(IllegalArgumentException.class, () -> Arg.scratch(-1));
+        Arg indirect = Arg.indirect(0x31a0, -8);
+        assertEquals(NativeCall.Kind.INDIRECT, indirect.kind());
+        assertEquals(0x31a0, indirect.value() & 0xffffffffL, "the pointer field's offset in the low word");
+        assertEquals(-8, (int) (indirect.value() >> 32), "the signed addend in the high word");
+        assertEquals(List.of(Arg.scratch(0), Arg.indirect(1, 2)),
+                NativeCall.to(1).scratch(0).indirect(1, 2).build().args());
+    }
+
+    @Test
     void callsAreValues() {
         NativeCall a = NativeCall.to(1).imm(2).data(new byte[]{3}).build();
         NativeCall b = NativeCall.to(1).imm(2).data(new byte[]{3}).build();

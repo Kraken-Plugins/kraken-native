@@ -72,12 +72,13 @@ Player names are `eastl::string`s (`container.string.*`): 24 bytes, short string
 
 ## 2. Protocol v3
 
-The event socket (`docs/event-hooks-design.md` §4.1) carries the drawing too. Little-endian throughout.
+The event socket (`docs/event-hooks-design.md` §4.1) carries the drawing too. Little-endian throughout. Protocol v4
+(`docs/menu-actions.md` §2) keeps everything here, changes the magic to `KRK4` and adds two call argument kinds.
 
 ### 2.1 Handshake (Java → DLL)
 
 ```
-"KRK3"
+"KRK3"   ("KRK4" since protocol v4)
 u16 slotCount, then the v2 slots: {u64 rva, i32 fixedId, u8 idArg, u8 args, u8 planLen, plan[planLen]{u8 arg, u8 op}}
 u64 clientGlobal     globals.client (RVA of the Client* slot), 0 if unknown
 u64 pumpFn           functions.appUpdate, 0 = run no calls
@@ -116,6 +117,8 @@ After the handshake Java may send frames `{u32 len, u8 type, body}`, the length 
 | 0 IMM | the value |
 | 1 CLIENT | the `Client*` read from `base + clientGlobal`, plus the value (the call is skipped while the pointer is null) |
 | 2 DATA | a pointer to `data + value`; the data is copied into a 16-byte-aligned buffer that lives for the call |
+| 3 SCRATCH | (v4) a pointer to the batch's 4096-byte zeroed scratch block plus the value, shared by the batch's calls |
+| 4 INDIRECT | (v4) the pointer read from `Client* + (value & 0xffffffff)`, plus `value >> 32`; skipped while either pointer is null |
 
 The reader thread queues the batch; the pump runs every queued call, in order, under an SEH guard (a faulting call is
 counted and the rest still run), then posts CALLS_DONE. The DLL never interprets a call: which function, which
@@ -187,6 +190,10 @@ sizes the surface by the FRAME message's framebuffer and scales its canvas-pixel
   overlays for names, and for tile outlines while the hook isn't connected; Tile Markers marks listed world tiles on a
   tile channel. Each takes its channel in `startUp` and releases it in `shutDown`.
 - Still on the window: the dev tools' overlays, which paint on the EDT from their snapshots.
+- Moving overlays: while Alt is held and a Kraken window is active, `OverlayEditor` lays a nearly clear window over the
+  game that takes the mouse only where the movable overlays are (the game still gets every other click), and the
+  frames outline those overlays. It works the same whichever way the frames reach the screen, since it hears the
+  overlays' canvas bounds from `OverlayRenderer` after each frame and scales them to the game area.
 - Frame rates: `NativeEventServer` hands FPS reports to the client's `FrameRates`, which also counts the overlay
   frames `OverlayRenderer` hands over. `FrameRates` decides the cap: `unfocusedFps` while no Kraken window is active
   and `limitUnfocusedFps` is on, none otherwise; the server sends it to the DLL. The Kraken page shows both rates, and
@@ -205,3 +212,6 @@ sizes the surface by the FRAME message's framebuffer and scales its canvas-pixel
 - The unfocused cap holds the game at the rate asked, lifts as soon as Kraken is focused again (clicking into the
   embedded game keeps Kraken's frame the active window), and leaves logic cycles, input and highlights working while
   held.
+- Alt-dragging overlays: Alt is seen while the game has the keyboard, a click on an overlay leaves the game focused,
+  clicks beside the overlays still reach the game, and a dragged overlay stays under the pointer with UI scaling and
+  in stretched mode.

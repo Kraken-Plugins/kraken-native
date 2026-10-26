@@ -9,6 +9,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.Point;
 import java.awt.Rectangle;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -262,6 +263,15 @@ class ConfigManagerTest {
                 manager.getConfiguration("example", "bounds", Rectangle.class));
         manager.setConfiguration("example", "bounds", "1:2:3");
         assertNull(manager.getConfiguration("example", "bounds", Rectangle.class), "three parts");
+    }
+
+    @Test
+    void pointsStoreAsXY() {
+        manager.setConfiguration("example", "location", new Point(-5, 120));
+        assertEquals("-5:120", manager.getConfiguration("example", "location"));
+        assertEquals(new Point(-5, 120), manager.getConfiguration("example", "location", Point.class));
+        manager.setConfiguration("example", "location", "1:2:3");
+        assertNull(manager.getConfiguration("example", "location", Point.class), "three parts");
     }
 
     @Test

@@ -14,7 +14,7 @@ import java.util.Map;
 import java.util.function.IntFunction;
 
 /**
- * The wire format between {@link NativeEventServer} and {@code kraken_hook.dll} (protocol v3, little-endian). Java
+ * The wire format between {@link NativeEventServer} and {@code kraken_hook.dll} (protocol v4, little-endian). Java
  * sends one handshake naming the raise functions to hook, their event ids and a capture plan per slot, then the
  * functions the drawing needs; the DLL sends one message per raise with the id, the argument registers and the
  * captured values, and status messages with reserved ids. After the handshake Java sends commands: batches of calls
@@ -25,9 +25,9 @@ import java.util.function.IntFunction;
 final class NativeProtocol {
 
     /**
-     * Handshake magic: identifies protocol v3.
+     * Handshake magic: identifies protocol v4.
      */
-    static final byte[] MAGIC = {'K', 'R', 'K', '3'};
+    static final byte[] MAGIC = {'K', 'R', 'K', '4'};
 
     /**
      * Capture-plan ops: how the DLL reads the argument register a plan entry names.
@@ -161,7 +161,8 @@ final class NativeProtocol {
 
     /**
      * Frames a batch of calls: {@code {u32 len, u8 1, u32 batch, u16 count, calls}}, each call
-     * {@code {u64 rva, u8 argc, argc x {u8 kind, i64 value}, u16 dataLen, data}}. The length counts the bytes after it.
+     * {@code {u64 rva, u8 argc, argc x {u8 kind, i64 value}, u16 dataLen, data}}, the kind being the ordinal of the
+     * argument's {@link NativeCall.Kind}. The length counts the bytes after it.
      *
      * @param batch the batch id the DLL reports back when the batch has run
      * @param calls the calls, in order

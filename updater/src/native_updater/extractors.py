@@ -12,6 +12,7 @@ from .events import event_raisers
 from .highlights import highlight_config_fields, highlight_script_ops
 from .hooks import obj_pile_ops, player_lifecycle
 from .minimenu import minimenu
+from .menuops import menu_ops
 from .session import Blocked
 
 _cache = {}
@@ -1295,7 +1296,7 @@ def game_state_setter(session, p):
 EXTRACTORS = {
     "event_raisers": event_raisers, "cycle_function": cycle_function, "game_state_setter": game_state_setter,
     "obj_pile_ops": obj_pile_ops, "player_lifecycle": player_lifecycle,
-    "projectiles": projectiles, "minimenu": minimenu,
+    "projectiles": projectiles, "minimenu": minimenu, "menu_ops": menu_ops,
     "keyed_projectiles": keyed_projectiles,
     "graphics_objects": graphics_objects, "graphics_object_ctor": graphics_object_ctor,
     "loc_tag_kind": loc_tag_kind, "collision_record": collision_record, "renderer_layout": renderer_layout,
