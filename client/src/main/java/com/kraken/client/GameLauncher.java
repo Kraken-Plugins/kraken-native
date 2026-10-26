@@ -3,11 +3,14 @@ package com.kraken.client;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import com.google.inject.name.Named;
+import com.kraken.api.Client;
+import com.kraken.api.GameSession;
 import com.kraken.client.ui.HomePanel;
 import com.sun.jna.platform.win32.WinDef.HWND;
 import lombok.AllArgsConstructor;
 import lombok.extern.java.Log;
 
+import java.awt.Dimension;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
@@ -18,8 +21,9 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Starts osclient.exe, embeds its window in the {@link GameView} and keeps it fitted there until the client exits.
- * When the game exits, Kraken closes through the {@link ExitHandler}.
+ * Starts osclient.exe, embeds its window in the {@link GameView} and keeps it fitted there until the client exits,
+ * resizing it again if the client goes on drawing at an old size ({@link GameSizeCheck}). When the game exits, Kraken
+ * closes through the {@link ExitHandler}.
  */
 @Log(topic = "kraken")
 @Singleton
@@ -68,10 +72,34 @@ public final class GameLauncher {
         // Attach the native API to the running client (read-only; safe if it isn't logged in yet)
         attacher.start(process.pid());
 
-        // The client resizes itself (restoring its saved size, fixed mode, ...), so keep it pinned to the canvas
+        // The client resizes itself (restoring its saved size, fixed mode, ...), so keep it pinned to the canvas, and
+        // resize it again if it went on drawing at an old size
+        GameSizeCheck sizeCheck = new GameSizeCheck();
         while (process.isAlive()) {
             Thread.sleep(250);
             view.fit();
+            Dimension fitted = view.fittedSize();
+            Dimension recorded = recordedSize();
+            if (fitted != null && sizeCheck.needsResize(recorded, fitted)) {
+                log.info("The client is drawing at " + recorded.width + " × " + recorded.height + " in a "
+                        + fitted.width + " × " + fitted.height + " window; resizing it (try " + sizeCheck.getTries()
+                        + " of " + GameSizeCheck.TRIES + ")");
+                view.nudge();
+            }
         }
+    }
+
+    /**
+     * The window size the client's renderer records, once the API is attached and the renderer exists.
+     *
+     * @return the size in physical pixels, or null if it can't be read yet
+     */
+    private Dimension recordedSize() {
+        GameSession session = attacher.attached();
+        if (session == null || !session.isAttached()) {
+            return null;
+        }
+        Client client = session.client();
+        return new Dimension(client.getScreenWidth(), client.getScreenHeight());
     }
 }

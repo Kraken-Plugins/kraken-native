@@ -46,6 +46,7 @@ public final class GameView extends JPanel {
     private final Timer focusCheck = new Timer(FOCUS_CHECK_MS, e -> followGame());
     private volatile String message = "Launching Old School RuneScape…";
     private volatile HWND game;
+    private volatile Dimension fitted;
 
     GameView() {
         super(new BorderLayout());
@@ -120,10 +121,34 @@ public final class GameView extends JPanel {
         RECT have = new RECT();
         User32.INSTANCE.GetClientRect(hostHwnd(), want);
         User32.INSTANCE.GetWindowRect(hwnd, have);
+        fitted = new Dimension(want.right, want.bottom);
         if (have.right - have.left != want.right || have.bottom - have.top != want.bottom) {
             User32.INSTANCE.SetWindowPos(hwnd, null, 0, 0, want.right, want.bottom, SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
             firePropertyChange("gameSize", null, new Dimension(want.right, want.bottom));
         }
+    }
+
+    /**
+     * The size {@link #fit} stretches the game window to: the canvas's client area, in physical pixels.
+     *
+     * @return the size, or null before the game is embedded
+     */
+    Dimension fittedSize() {
+        return fitted;
+    }
+
+    /**
+     * Makes the game window a pixel shorter, so the game handles a resize; the next {@link #fit} puts its height back,
+     * a second resize. Used when the game kept drawing at an old size ({@link GameSizeCheck}).
+     */
+    void nudge() {
+        HWND hwnd = game;
+        Dimension size = fitted;
+        if (hwnd == null || size == null || size.height < 2) {
+            return;
+        }
+        User32.INSTANCE.SetWindowPos(hwnd, null, 0, 0, size.width, size.height - 1,
+                SWP_NOZORDER | SWP_NOMOVE | SWP_NOACTIVATE);
     }
 
     /**
