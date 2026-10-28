@@ -661,6 +661,8 @@ public final class ConfigPanel extends JPanel {
         JSpinner first = new JSpinner(new SpinnerNumberModel(min, min, max, 1));
         JSpinner second = new JSpinner(new SpinnerNumberModel(min, min, max, 1));
         for (JSpinner spinner : new JSpinner[]{first, second}) {
+            // Plain digits: a coordinate reads as 3222, not 3,222
+            spinner.setEditor(new JSpinner.NumberEditor(spinner, "0"));
             ((JSpinner.DefaultEditor) spinner.getEditor()).getTextField().setColumns(4);
         }
         Runnable load = () -> {

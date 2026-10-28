@@ -225,21 +225,29 @@ functions, offsets and opcodes all come from the mapping through Java; nothing i
   from the menu or a menu event runs as it is; a sub-menu row's entry carries its sub-option (`MenuEntry.getSubOp()`)
   and `Widget.getSubOptions(op)` lists an op's sub-options.
 - `NativeCall` has `Kind.SCRATCH` and `Kind.INDIRECT`; `NativeProtocol` sends the kinds as before (the ordinal).
-- The NPC Clicker plugin (`plugins.npcclicker`) is the small example: nearest NPC by name, the op from its
-  composition's actions, the canvas point from `Perspective.localToCanvas`, then `Actions.click`. The Action Tester
-  (`plugins.actiontester`) runs every action and packet from its settings page, one at a time (pick the action, click
-  Run): NPC, player, object, ground item, inventory and widget options by name (with a sub-option after a dot,
-  `Drop.All` or `3.2`), walking, using an item or casting a spell (by name or as group:child) on an NPC, player,
-  object, ground item or inventory item, old-style buttons by component, closing the interface, pause buttons, the
-  four dialog answers, the bare mouse click, and listing or replaying the menu's own entries, with what it sent or
-  why it couldn't in the console. The page shows only the chosen action's settings, and their drop-downs list what
-  is loaded (nearby NPCs, objects and ground items, the inventory, the subject's options, the shown components, the
-  spellbook's spells, the menu's entries). It is the tool for the live checks below.
+- The Action Tester (`plugins.actiontester`) is the worked example. It runs every action and packet from its
+  settings page, one at a time (pick the action, click Run): NPC, player, object, ground item, inventory and widget
+  options by name (with a sub-option after a dot, `Drop.All` or `3.2`; a widget also as `Group.COMPONENT`, e.g.
+  `Orbs.RUNBUTTON`), Walk here near the player or to a world tile in the loaded area, using an item or casting a
+  spell (by name or as group:child) on an NPC, player, object, ground item or inventory item, casting a spell that
+  takes no target (a teleport: the spell component's own op, Cast unless another is chosen), turning a prayer on or
+  off (the prayer book component's op), the run, quick-prayer and special attack orbs (the orb button's first op, by
+  the minimap or without it), old-style buttons by component, closing the interface, pause buttons, the four dialog
+  answers, the bare mouse click, and listing or replaying the menu's own entries, with what it sent or why it
+  couldn't in the console. NPC and player options click above the actor's tile (`Perspective.localToCanvas`), and
+  component ops at the component's middle while it shows. The page shows only the chosen action's settings, and
+  their drop-downs list what is loaded (nearby NPCs, objects and ground items, the inventory, the subject's options,
+  the shown components, the spellbook's spells, the prayer book's prayers, the menu's entries). It is the tool for
+  the live checks below.
 
 ## 4. Live checks pending
 
-- A click on a Moss giant with the NPC Clicker: the OPNPC packet is accepted (the player attacks) and the game's own
-  pathing starts; the mouse click packet before it is accepted.
+- A click on a Moss giant with the Action Tester's NPC option: the OPNPC packet is accepted (the player attacks) and
+  the game's own pathing starts; the mouse click packet before it is accepted.
+- The untargeted component ops: Varrock Teleport cast from the spellbook (its op is Cast, the spell has ops of its
+  own), a prayer turned on and off from the prayer book whether or not its tab is open, and the run, quick-prayer and
+  special attack orbs toggled; the prayer book components show the prayers' names (the suggestions and lookups read
+  them).
 - `packetRelease` leaves nothing behind: the buffer pool count is unchanged after many clicks (no leak, no double
   free).
 - Loc and ground item actions at their world tiles, and player actions by index.

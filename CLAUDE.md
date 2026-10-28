@@ -167,8 +167,8 @@ other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED
   drag to move (`OverlayDrag`), drag an edge to resize (`resizable`, on for `OverlayPanel`), right-click to reset.
   `OverlayManager` saves placements in settings group `overlays` and restores them on `add`. `plugins.npchighlight`,
   `plugins.objectmarkers`, `plugins.tilemarkers` (game highlights plus a fallback overlay), `plugins.tickcounter`
-  `plugins.npcclicker` (menu actions) and `plugins.actiontester` (every action and packet, run from its settings
-  page, which shows only the chosen action's settings and suggests what is loaded) are the worked examples.
+  and `plugins.actiontester` (menu actions: every action and packet, run from its settings page, which shows only
+  the chosen action's settings and suggests what is loaded) are the worked examples.
 - Dev tools: subclass `DevTool<S>` and list it in `DevToolCatalog.create()`. `read(api)` runs on the poll thread and
   returns an immutable snapshot; `paintOverlay`/`createView` run on the EDT. A tool reads only while it is showing.
   `PlannedTool` entries hold spots for features the API can't read yet. Event-driven tools subscribe to

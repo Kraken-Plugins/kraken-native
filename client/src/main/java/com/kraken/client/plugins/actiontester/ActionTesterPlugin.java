@@ -15,6 +15,7 @@ import com.kraken.api.coords.LocalPoint;
 import com.kraken.api.coords.WorldPoint;
 import com.kraken.api.eventbus.Subscribe;
 import com.kraken.api.events.GameTick;
+import com.kraken.api.gameval.InterfaceID;
 import com.kraken.api.scene.TileItem;
 import com.kraken.api.scene.TileObject;
 import com.kraken.api.widgets.Widget;
@@ -36,14 +37,16 @@ import static com.kraken.client.plugins.actiontester.Subjects.INVENTORY;
  * fill in what it acts on and click Run, and the action runs once on the client thread, saying in the console what
  * it sent (the subject it found, the op it worked out, the calls' success) or why it couldn't. An action can also
  * repeat every so many ticks. The actions cover the row bodies (NPC, player, object and ground item options, Walk
- * here, inventory and widget options with their sub-options, using an item or casting a spell on an NPC, player,
- * object, ground item or inventory item, the old-style buttons, closing an interface, a pause button), the dialog
- * answers (count, name, string, item), the bare mouse click packet, and replaying one of the menu's own entries,
- * which goes through the same path a menu event would.
+ * here near the player or to a world tile, inventory and widget options with their sub-options, using an item or
+ * casting a spell on an NPC, player, object, ground item or inventory item, casting a spell that takes no target,
+ * turning a prayer on or off, the run, quick-prayer and special attack orbs, the old-style buttons, closing an
+ * interface, a pause button), the dialog answers (count, name, string, item), the bare mouse click packet, and
+ * replaying one of the menu's own entries, which goes through the same path a menu event would.
  *
  * <p>The settings page shows only the settings the chosen action uses, and their drop-downs list what the game has
  * loaded when they open ({@link Subjects}): nearby NPCs, players, objects and ground items, the inventory's items,
- * the subject's options, the components the action fits, the spellbook's spells, the menu's entries. Subjects are
+ * the subject's options, the components the action fits, the spellbook's spells, the prayer book's prayers, the
+ * menu's entries. Subjects are
  * found by name, nearest to the player first. Options are matched against the subject's own action list (an NPC's or
  * object's composition, an item's inventory actions, a component's ops), or taken as a number; a sub-option after a
  * dot is matched against the op's sub-menu the same way. With the mouse click setting on, the click packet goes first
@@ -146,6 +149,7 @@ public class ActionTesterPlugin extends Plugin {
         return switch (key) {
             case "useItem", "item" -> subjects.inventoryNames();
             case "spell" -> subjects.spellNames();
+            case "prayer" -> subjects.prayerNames();
             case "menuEntry" -> subjects.menuEntryTexts();
             case "npc" -> subjects.npcNames();
             case "player" -> subjects.playerNames();
@@ -181,7 +185,13 @@ public class ActionTesterPlugin extends Plugin {
             case USE_ITEM_ON_NPC, USE_ITEM_ON_PLAYER, USE_ITEM_ON_OBJECT, USE_ITEM_ON_GROUND_ITEM, USE_ITEM_ON_ITEM ->
                     useItem(actions, test);
             case CAST_SPELL_ON_NPC, CAST_SPELL_ON_PLAYER, CAST_SPELL_ON_OBJECT, CAST_SPELL_ON_GROUND_ITEM,
-                 CAST_SPELL_ON_ITEM -> castSpell(actions, test);
+                 CAST_SPELL_ON_ITEM -> castSpellOn(actions, test);
+            case CAST_SPELL -> castSpell(actions);
+            case PRAYER_TOGGLE -> prayer(actions);
+            case QUICK_PRAYERS -> orb(actions, "the quick-prayers orb", InterfaceID.Orbs.PRAYERBUTTON,
+                    InterfaceID.OrbsNomap.PRAYERBUTTON);
+            case SPECIAL_ATTACK -> orb(actions, "the special attack orb", InterfaceID.Orbs.SPECBUTTON,
+                    InterfaceID.OrbsNomap.SPECBUTTON);
             case WIDGET_BUTTON -> widgetButton(actions);
             case PAUSE_BUTTON -> pauseButton(actions);
             case CLOSE_INTERFACE -> report(actions.closeInterface(), "closed the open interface",
@@ -195,6 +205,8 @@ public class ActionTesterPlugin extends Plugin {
             case RESUME_OBJ -> report(actions.resumeObjDialog(config.itemId()), "answered the item dialog with item "
                     + config.itemId(), "the dialog packets aren't mapped for this build");
             case WALK -> walk(actions);
+            case WALK_TO -> walkToTile(actions);
+            case TOGGLE_RUN -> orb(actions, "the run orb", InterfaceID.Orbs.RUNBUTTON, InterfaceID.OrbsNomap.RUNBUTTON);
             case MOUSE_CLICK -> mouseClick(actions);
         };
     }
@@ -316,7 +328,7 @@ public class ActionTesterPlugin extends Plugin {
         if (subOp < 0) {
             return false;
         }
-        return send(actions, MenuAction.CC_OP, slot.getIndex(), INVENTORY, op, slot.getItemId(), subOp,
+        return send(actions, Subjects.componentAction(op), slot.getIndex(), INVENTORY, op, slot.getItemId(), subOp,
                 widgetPoint(slot), config.option() + " on " + config.item() + " (item " + slot.getItemId() + ", slot "
                         + slot.getIndex() + ", op " + op + subOpText(subOp) + ")");
     }
@@ -327,20 +339,97 @@ public class ActionTesterPlugin extends Plugin {
         if (widget == null || blank(config.option(), "an option")) {
             return false;
         }
-        String[] option = Subjects.splitOption(config.option());
-        int op = Subjects.opOf(widget.getActions(), option[0], 10);
-        if (op < 0) {
-            say("component " + config.component() + " has no " + option[0] + " option; it has "
-                    + Subjects.numbered(widget.getActions()));
+        return componentOption(actions, widget, config.option(), "component " + config.component().trim());
+    }
+
+    private boolean castSpell(Actions actions) {
+        if (blank(config.spell(), "a spell")) {
             return false;
         }
-        int subOp = subOpOf(widget, op, option[1]);
-        if (subOp < 0) {
+        int spell = subjects.spell(config.spell());
+        if (spell < 0) {
+            say("no spell called " + config.spell().trim() + " is in the spellbook");
             return false;
         }
-        return send(actions, MenuAction.CC_OP, component[1], component[0], op, widget.getItemId(), subOp,
-                widgetPoint(widget), config.option() + " on component " + config.component() + " (op " + op
-                        + subOpText(subOp) + ")");
+        Widget widget = client.getWidget(spell);
+        if (widget == null) {
+            say("the spellbook isn't loaded");
+            return false;
+        }
+        if (widget.getActions() == null) {
+            say(config.spell().trim() + " has no options of its own: it is cast on something, so use one of the "
+                    + "cast a spell on actions");
+            return false;
+        }
+        return componentOption(actions, widget, config.option(), config.spell().trim());
+    }
+
+    private boolean prayer(Actions actions) {
+        if (blank(config.prayer(), "a prayer")) {
+            return false;
+        }
+        int prayer = subjects.prayer(config.prayer());
+        Widget widget = prayer < 0 ? null : client.getWidget(prayer);
+        if (widget == null) {
+            say("no prayer called " + config.prayer().trim() + " is in the prayer book (is it loaded?)");
+            return false;
+        }
+        return componentOption(actions, widget, "", config.prayer().trim());
+    }
+
+    /**
+     * Clicks a minimap orb's button: runs its first option, which turns it on or off.
+     *
+     * @param actions the actions
+     * @param what    the orb, for the console
+     * @param ids     the button's components, the one beside the minimap first
+     * @return true if it was sent
+     */
+    private boolean orb(Actions actions, String what, int... ids) {
+        Widget widget = subjects.orb(ids);
+        if (widget == null) {
+            say(what + " isn't loaded");
+            return false;
+        }
+        return componentOption(actions, widget, "", what);
+    }
+
+    /**
+     * Runs one of a component's options, saying in the console what was sent or why not.
+     *
+     * @param actions the actions
+     * @param widget  the component
+     * @param option  the option's text or number, with a sub-option after a dot; empty for the first option
+     * @param what    the component, for the console
+     * @return true if it was sent
+     */
+    private boolean componentOption(Actions actions, Widget widget, String option, String what) {
+        String[] names = widget.getActions();
+        int op;
+        int subOp = 0;
+        if (option.isBlank()) {
+            op = Subjects.firstOp(names);
+            if (op < 0) {
+                say(what + " has no options");
+                return false;
+            }
+        } else {
+            String[] parts = Subjects.splitOption(option);
+            op = Subjects.opOf(names, parts[0], 10);
+            if (op < 0) {
+                say(what + " has no " + parts[0] + " option; it has " + Subjects.numbered(names));
+                return false;
+            }
+            subOp = subOpOf(widget, op, parts[1]);
+            if (subOp < 0) {
+                return false;
+            }
+        }
+        String name = names != null && op <= names.length && names[op - 1] != null ? names[op - 1] : "op " + op;
+        int id = widget.getId();
+        return send(actions, Subjects.componentAction(op), widget.getIndex(), id, op, widget.getItemId(), subOp,
+                widgetPoint(widget), name + " on " + what + " (" + (id >>> 16) + ":" + (id & 0xffff)
+                        + (widget.isStatic() ? "" : ":" + widget.getIndex()) + ", op " + op + subOpText(subOp) + ")");
     }
 
     /**
@@ -384,13 +473,13 @@ public class ActionTesterPlugin extends Plugin {
         return report(sent, using, "the use couldn't be sent");
     }
 
-    private boolean castSpell(Actions actions, ActionTest test) {
+    private boolean castSpellOn(Actions actions, ActionTest test) {
         if (blank(config.spell(), "a spell")) {
             return false;
         }
-        int spell = Subjects.spellComponent(config.spell());
+        int spell = subjects.spell(config.spell());
         if (spell < 0) {
-            say("give the spell by name (e.g. High Alchemy) or as group:child, not \"" + config.spell() + "\"");
+            say("no spell called " + config.spell().trim() + " is in the spellbook");
             return false;
         }
         Target target = target(test);
@@ -488,20 +577,52 @@ public class ActionTesterPlugin extends Plugin {
     }
 
     private boolean walk(Actions actions) {
+        WorldPoint here = playerTile();
+        return here != null && walkTo(actions, here.dx(config.walkEast()).dy(config.walkNorth()), here);
+    }
+
+    private boolean walkToTile(Actions actions) {
+        WorldPoint here = playerTile();
+        java.awt.Point tile = config.worldTile();
+        return here != null && walkTo(actions, new WorldPoint(tile.x, tile.y, here.getPlane()), here);
+    }
+
+    /**
+     * The local player's world tile, said in the console when it can't be read.
+     *
+     * @return the tile, or null
+     */
+    private WorldPoint playerTile() {
         Player local = client.getLocalPlayer();
         WorldPoint here = local == null ? null : local.getWorldLocation();
         if (here == null) {
             say("the player's position can't be read");
-            return false;
         }
-        WorldPoint to = here.dx(config.walkEast()).dy(config.walkNorth());
+        return here;
+    }
+
+    /**
+     * Walks to a tile in the loaded area, with the mouse click first when wanted and the tile is on screen.
+     *
+     * @param actions the actions
+     * @param to      the destination
+     * @param here    the player's tile
+     * @return true if the walk was sent
+     */
+    private boolean walkTo(Actions actions, WorldPoint to, WorldPoint here) {
         if (!actions.isSupported(MenuAction.WALK)) {
             say("Walk here isn't mapped for this build");
             return false;
         }
+        int x = sceneX(to);
+        int y = sceneY(to);
+        if (x < 0 || y < 0 || x >= Perspective.SCENE_SIZE || y >= Perspective.SCENE_SIZE) {
+            say(to + " is outside the loaded area, which Walk here can't reach");
+            return false;
+        }
         Point canvas = config.mouseClick() ? tilePoint(LocalPoint.fromWorld(client, to), to) : null;
         boolean sent = canvas != null
-                ? actions.click(canvas.getX(), canvas.getY(), sceneX(to), sceneY(to), MenuAction.WALK, 0)
+                ? actions.click(canvas.getX(), canvas.getY(), x, y, MenuAction.WALK, 0)
                 : actions.walk(to);
         return report(sent, "walked to " + to + " from " + here + (canvas == null ? "" : " with a click at "
                 + canvas.getX() + "," + canvas.getY()), "the walk couldn't be sent");
@@ -646,9 +767,10 @@ public class ActionTesterPlugin extends Plugin {
         if (blank(config.component(), "a component")) {
             return null;
         }
-        int[] component = Subjects.parseComponent(config.component());
+        int[] component = Subjects.component(config.component());
         if (component == null) {
-            say("give the component as group:child or group:child:slot, not \"" + config.component() + "\"");
+            say("give the component as group:child, group:child:slot or Group.COMPONENT, not \""
+                    + config.component() + "\"");
         }
         return component;
     }
@@ -697,8 +819,14 @@ public class ActionTesterPlugin extends Plugin {
         return onCanvas(Perspective.localToCanvas(client, local, world.getPlane()));
     }
 
+    /**
+     * Where to click a component: its middle, on the canvas.
+     *
+     * @param widget the component
+     * @return the canvas point, or null while the component isn't showing
+     */
     private Point widgetPoint(Widget widget) {
-        Rectangle bounds = widget == null ? null : widget.getBounds();
+        Rectangle bounds = widget == null || widget.isHidden() ? null : widget.getBounds();
         return bounds == null ? null : onCanvas(new Point((int) bounds.getCenterX(), (int) bounds.getCenterY()));
     }
 

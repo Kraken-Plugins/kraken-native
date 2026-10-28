@@ -93,6 +93,27 @@ public enum ActionTest {
     CAST_SPELL_ON_ITEM("Inventory: cast a spell on"),
 
     /**
+     * Casts a spell that takes no target, such as a teleport: runs one of the spell's own options (Cast unless
+     * another is chosen) as a click on it in the spellbook would.
+     */
+    CAST_SPELL("Magic: cast a spell"),
+
+    /**
+     * Turns a prayer on or off: runs the prayer's option in the prayer book (Activate or Deactivate).
+     */
+    PRAYER_TOGGLE("Prayer: toggle a prayer"),
+
+    /**
+     * Turns the quick-prayers on or off with the prayer orb by the minimap.
+     */
+    QUICK_PRAYERS("Prayer: toggle quick-prayers"),
+
+    /**
+     * Turns the special attack on or off with the special attack orb by the minimap.
+     */
+    SPECIAL_ATTACK("Combat: toggle special attack"),
+
+    /**
      * Runs an option of a component given as group:child or group:child:slot.
      */
     WIDGET_OPTION("Widget: option"),
@@ -137,6 +158,16 @@ public enum ActionTest {
      * Walks to the tile so many tiles east and north of the player.
      */
     WALK("Walk: to a tile near the player"),
+
+    /**
+     * Walks to a world tile, on the player's plane, in the loaded area.
+     */
+    WALK_TO("Walk: to a world tile"),
+
+    /**
+     * Turns running on or off with the run orb by the minimap.
+     */
+    TOGGLE_RUN("Walk: toggle run"),
 
     /**
      * Sends only the mouse click packet, at the click point.

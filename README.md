@@ -82,7 +82,7 @@ What you get:
 Plugins are written as RuneLite plugins are: a `Plugin` subclass with `@PluginDescriptor`, injected `Client` and
 `ClientThread`, `startUp`/`shutDown`, and `@Subscribe` methods for events such as `GameTick`, `NpcSpawned` or
 `StatChanged` (see the example plugins under `com.kraken.client.plugins`: `tickcounter`, `npchighlight`,
-`objectmarkers`, `tilemarkers` and `npcclicker`). A plugin package under `com.kraken.client.plugins` is found at
+`objectmarkers`, `tilemarkers` and `actiontester`). A plugin package under `com.kraken.client.plugins` is found at
 launch. To run one
 from elsewhere, pass its class:
 
@@ -101,8 +101,8 @@ otherwise. For outlines, use the game's highlights instead: take a channel with
 
 A plugin can also run a menu action as a click on the menu would, without the mouse: `client.getActions().click(x, y,
 0, 0, MenuAction.NPC_SECOND_OPTION, npc.getIndex())` sends the mouse click packet and then has the client's own code
-send the op and start the interaction (see [menu-actions.md](docs/menu-actions.md); the `npcclicker` plugin is the
-example).
+send the op and start the interaction (see [menu-actions.md](docs/menu-actions.md); the `actiontester` plugin runs
+every kind of action from its settings page).
 
 ### Logging In With a Jagex Account
 

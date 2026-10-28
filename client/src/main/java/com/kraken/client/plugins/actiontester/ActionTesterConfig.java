@@ -59,13 +59,29 @@ public interface ActionTesterConfig extends Config {
      *
      * @return the spell's name, or its component as group:child
      */
-    @ShowIf(key = "test", values = {"CAST_SPELL_ON_NPC", "CAST_SPELL_ON_PLAYER", "CAST_SPELL_ON_OBJECT",
+    @ShowIf(key = "test", values = {"CAST_SPELL", "CAST_SPELL_ON_NPC", "CAST_SPELL_ON_PLAYER", "CAST_SPELL_ON_OBJECT",
             "CAST_SPELL_ON_GROUND_ITEM", "CAST_SPELL_ON_ITEM"})
     @Suggestions
     @ConfigItem(keyName = "spell", name = "Spell",
-            description = "The spell to cast, by name (e.g. High Alchemy) or as its spellbook component, "
-                    + "group:child. The list holds the current spellbook's spells.", position = 2)
+            description = "The spell to cast, by its name in the spellbook (e.g. Varrock Teleport), its constant's "
+                    + "name (High Alchemy) or its component, group:child. The list holds the current spellbook's "
+                    + "spells.", position = 2)
     default String spell() {
+        return "";
+    }
+
+    /**
+     * The prayer to turn on or off.
+     *
+     * @return the prayer's name
+     */
+    @ShowIf(key = "test", values = {"PRAYER_TOGGLE"})
+    @Suggestions
+    @ConfigItem(keyName = "prayer", name = "Prayer",
+            description = "The prayer to turn on or off, by its name in the prayer book (e.g. Protect from Melee), "
+                    + "its place (Prayer 19) or its component, group:child. The list holds the prayer book's "
+                    + "prayers.", position = 3)
+    default String prayer() {
         return "";
     }
 
@@ -79,7 +95,7 @@ public interface ActionTesterConfig extends Config {
     @ConfigItem(keyName = "menuEntry", name = "Entry",
             description = "The menu entry to run, by its text (e.g. Attack Goblin) or its row, 0 being the top "
                     + "(left-click) row. The list holds the menu as it is now: hover something in the game first.",
-            position = 3)
+            position = 4)
     default String menuEntry() {
         return "";
     }
@@ -93,7 +109,7 @@ public interface ActionTesterConfig extends Config {
     @Suggestions
     @ConfigItem(keyName = "npc", name = "NPC",
             description = "The NPC to act on, by name; the nearest one with the name is used. The list holds the "
-                    + "NPCs loaded now, nearest first.", position = 4)
+                    + "NPCs loaded now, nearest first.", position = 5)
     default String npc() {
         return "";
     }
@@ -107,7 +123,7 @@ public interface ActionTesterConfig extends Config {
     @Suggestions
     @ConfigItem(keyName = "player", name = "Player",
             description = "The player to act on, by name. The list holds the other players loaded now, nearest "
-                    + "first.", position = 5)
+                    + "first.", position = 6)
     default String player() {
         return "";
     }
@@ -121,7 +137,7 @@ public interface ActionTesterConfig extends Config {
     @Suggestions
     @ConfigItem(keyName = "object", name = "Object",
             description = "The object to act on, by name; the nearest one with the name is used. The list holds "
-                    + "the objects with options loaded now, nearest first.", position = 6)
+                    + "the objects with options loaded now, nearest first.", position = 7)
     default String object() {
         return "";
     }
@@ -135,7 +151,7 @@ public interface ActionTesterConfig extends Config {
     @Suggestions
     @ConfigItem(keyName = "groundItem", name = "Ground item",
             description = "The item on the ground to act on, by name; the nearest one with the name is used. The "
-                    + "list holds the ground items loaded now, nearest first.", position = 7)
+                    + "list holds the ground items loaded now, nearest first.", position = 8)
     default String groundItem() {
         return "";
     }
@@ -149,7 +165,7 @@ public interface ActionTesterConfig extends Config {
     @Suggestions
     @ConfigItem(keyName = "item", name = "Inventory item",
             description = "The inventory item to act on, by name; the first one with the name is used. The list "
-                    + "holds the inventory's items.", position = 8)
+                    + "holds the inventory's items.", position = 9)
     default String item() {
         return "";
     }
@@ -157,14 +173,16 @@ public interface ActionTesterConfig extends Config {
     /**
      * The component the widget actions act on.
      *
-     * @return the component as group:child or group:child:slot, optionally followed by a space and anything
+     * @return the component as group:child, group:child:slot or Group.COMPONENT, optionally followed by a space and
+     * anything
      */
     @ShowIf(key = "test", values = {"WIDGET_OPTION", "WIDGET_BUTTON", "PAUSE_BUTTON"})
     @Suggestions
     @ConfigItem(keyName = "component", name = "Component",
-            description = "The component, as group:child or group:child:slot (e.g. 149:0:3); anything after a "
-                    + "space is ignored. The list holds the shown components the action fits. For click to "
-                    + "continue, leave it empty to click the first one showing.", position = 9)
+            description = "The component, as group:child or group:child:slot (e.g. 149:0:3), or by its name in "
+                    + "InterfaceID (e.g. Orbs.RUNBUTTON); anything after a space is ignored. The list holds the shown "
+                    + "components the action fits. For click to continue, leave it empty to click the first one "
+                    + "showing.", position = 10)
     default String component() {
         return "";
     }
@@ -175,12 +193,13 @@ public interface ActionTesterConfig extends Config {
      * @return the option's text or number, with a sub-option after a dot
      */
     @ShowIf(key = "test", values = {"NPC_OPTION", "PLAYER_OPTION", "OBJECT_OPTION", "GROUND_ITEM_OPTION",
-            "INVENTORY_OPTION", "WIDGET_OPTION"})
+            "INVENTORY_OPTION", "WIDGET_OPTION", "CAST_SPELL"})
     @Suggestions
     @ConfigItem(keyName = "option", name = "Option",
             description = "The option to run, by its text (e.g. Attack, Take, Eat) or its number, 1-based. A "
                     + "player's option is its number. A sub-option goes after a dot, by text or number: Drop.All "
-                    + "or 3.2. The list holds the subject's options.", position = 10)
+                    + "or 3.2. For a spell, empty runs its first option (Cast). The list holds the subject's "
+                    + "options.", position = 11)
     default String option() {
         return "";
     }
@@ -192,7 +211,7 @@ public interface ActionTesterConfig extends Config {
      */
     @ShowIf(key = "test", values = {"RESUME_COUNT"})
     @ConfigItem(keyName = "count", name = "Amount", description = "The amount to answer the dialog with.",
-            position = 11)
+            position = 12)
     default int count() {
         return 1;
     }
@@ -203,7 +222,7 @@ public interface ActionTesterConfig extends Config {
      * @return the text
      */
     @ShowIf(key = "test", values = {"RESUME_NAME", "RESUME_STRING"})
-    @ConfigItem(keyName = "text", name = "Text", description = "The text to answer the dialog with.", position = 12)
+    @ConfigItem(keyName = "text", name = "Text", description = "The text to answer the dialog with.", position = 13)
     default String text() {
         return "";
     }
@@ -215,7 +234,7 @@ public interface ActionTesterConfig extends Config {
      */
     @ShowIf(key = "test", values = {"RESUME_OBJ"})
     @ConfigItem(keyName = "itemId", name = "Item id", description = "The id of the item to answer the dialog with.",
-            position = 13)
+            position = 14)
     default int itemId() {
         return 0;
     }
@@ -228,7 +247,7 @@ public interface ActionTesterConfig extends Config {
     @ShowIf(key = "test", values = {"WALK"})
     @Range(min = -30, max = 30)
     @ConfigItem(keyName = "walkEast", name = "Tiles east",
-            description = "How many tiles east of the player to walk to (negative for west).", position = 14)
+            description = "How many tiles east of the player to walk to (negative for west).", position = 15)
     default int walkEast() {
         return 3;
     }
@@ -241,9 +260,23 @@ public interface ActionTesterConfig extends Config {
     @ShowIf(key = "test", values = {"WALK"})
     @Range(min = -30, max = 30)
     @ConfigItem(keyName = "walkNorth", name = "Tiles north",
-            description = "How many tiles north of the player to walk to (negative for south).", position = 15)
+            description = "How many tiles north of the player to walk to (negative for south).", position = 16)
     default int walkNorth() {
         return 0;
+    }
+
+    /**
+     * The world tile to walk to.
+     *
+     * @return the tile's world x and y
+     */
+    @ShowIf(key = "test", values = {"WALK_TO"})
+    @Range(max = 16383)
+    @ConfigItem(keyName = "worldTile", name = "World tile",
+            description = "The tile's world x, then y; the plane is the player's. It must be in the loaded area "
+                    + "around the player.", position = 17)
+    default Point worldTile() {
+        return new Point(3222, 3218);
     }
 
     /**
@@ -253,7 +286,7 @@ public interface ActionTesterConfig extends Config {
      */
     @ShowIf(key = "test", values = {"MOUSE_CLICK"})
     @ConfigItem(keyName = "clickPoint", name = "Click at", description = "The canvas point to click, x then y.",
-            position = 16)
+            position = 18)
     default Point clickPoint() {
         return new Point(400, 300);
     }
@@ -265,7 +298,7 @@ public interface ActionTesterConfig extends Config {
      */
     @ShowIf(key = "test", values = {"MOUSE_CLICK"})
     @ConfigItem(keyName = "rightClick", name = "Right button", description = "Send a right click instead of a left.",
-            position = 17)
+            position = 19)
     default boolean rightClick() {
         return false;
     }
@@ -276,10 +309,11 @@ public interface ActionTesterConfig extends Config {
      * @return true to send a click at the subject's position first
      */
     @ShowIf(key = "test", values = {"NPC_OPTION", "PLAYER_OPTION", "OBJECT_OPTION", "GROUND_ITEM_OPTION",
-            "INVENTORY_OPTION", "WIDGET_OPTION", "WIDGET_BUTTON", "WALK"})
+            "INVENTORY_OPTION", "WIDGET_OPTION", "WIDGET_BUTTON", "CAST_SPELL", "PRAYER_TOGGLE", "QUICK_PRAYERS",
+            "SPECIAL_ATTACK", "WALK", "WALK_TO", "TOGGLE_RUN"})
     @ConfigItem(keyName = "mouseClick", name = "Send mouse click",
             description = "Send the mouse click packet at the subject's position before the action, as a real click "
-                    + "does, when the subject is on screen.", position = 18)
+                    + "does, when the subject is on screen.", position = 20)
     default boolean mouseClick() {
         return true;
     }
@@ -290,7 +324,7 @@ public interface ActionTesterConfig extends Config {
      * @return true to repeat it
      */
     @ConfigItem(keyName = "repeat", name = "Repeat", description = "Run the action again every so many game ticks.",
-            position = 19)
+            position = 21)
     default boolean repeat() {
         return false;
     }
@@ -304,7 +338,7 @@ public interface ActionTesterConfig extends Config {
     @Range(min = 1, max = 1000)
     @Units(Units.TICKS)
     @ConfigItem(keyName = "interval", name = "Repeat every", description = "Game ticks between runs of the action.",
-            position = 20)
+            position = 22)
     default int interval() {
         return 5;
     }
@@ -315,6 +349,6 @@ public interface ActionTesterConfig extends Config {
      * @return the button
      */
     @ConfigItem(keyName = RUN, name = "Run", description = "Run the action once now; the console says what was sent.",
-            position = 21)
+            position = 23)
     Button run();
 }
