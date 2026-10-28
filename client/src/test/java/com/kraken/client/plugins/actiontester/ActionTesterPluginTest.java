@@ -1,5 +1,6 @@
 package com.kraken.client.plugins.actiontester;
 
+import com.kraken.api.gameval.InterfaceID;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -7,7 +8,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
- * How {@link ActionTesterPlugin} works an op out of an option and reads a component setting.
+ * How {@link ActionTesterPlugin} works an op and a sub-option out of an option, reads a component setting and finds
+ * a spell's component.
  */
 class ActionTesterPluginTest {
 
@@ -32,5 +34,26 @@ class ActionTesterPluginTest {
         assertNull(ActionTesterPlugin.parseComponent(""));
         assertNull(ActionTesterPlugin.parseComponent("149:x"));
         assertNull(ActionTesterPlugin.parseComponent("70000:1"), "a group id is 16 bits");
+    }
+
+    @Test
+    void anOptionSplitsAtItsLastDotIntoOpAndSubOption() {
+        assertArrayEquals(new String[]{"Drop", "All"}, ActionTesterPlugin.splitOption("Drop.All"));
+        assertArrayEquals(new String[]{"3", "2"}, ActionTesterPlugin.splitOption(" 3.2 "));
+        assertArrayEquals(new String[]{"Withdraw-X", "All but one"}, ActionTesterPlugin.splitOption("Withdraw-X.All but one"));
+        assertArrayEquals(new String[]{"Attack", null}, ActionTesterPlugin.splitOption("Attack"));
+        assertArrayEquals(new String[]{"Drop.", null}, ActionTesterPlugin.splitOption("Drop."), "nothing after the dot");
+        assertArrayEquals(new String[]{".All", null}, ActionTesterPlugin.splitOption(".All"), "nothing before the dot");
+        assertEquals(2, ActionTesterPlugin.opOf(new String[]{"One", "All"}, "all", 2), "a sub-option matches like an op");
+    }
+
+    @Test
+    void aSpellIsAComponentOrASpellbookConstantsName() {
+        assertEquals(InterfaceID.MagicSpellbook.HIGH_ALCHEMY, ActionTesterPlugin.spellComponent("High Alchemy"));
+        assertEquals(InterfaceID.MagicSpellbook.HIGH_ALCHEMY, ActionTesterPlugin.spellComponent(" high-alchemy "));
+        assertEquals(InterfaceID.MagicSpellbook.WIND_STRIKE, ActionTesterPlugin.spellComponent("wind_strike"));
+        assertEquals((218 << 16) | 47, ActionTesterPlugin.spellComponent("218:47"), "a component as given");
+        assertEquals(-1, ActionTesterPlugin.spellComponent("Moss giant"));
+        assertEquals(-1, ActionTesterPlugin.spellComponent(""));
     }
 }

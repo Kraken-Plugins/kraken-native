@@ -23,7 +23,10 @@ import java.util.stream.IntStream;
  * <p>While the menu is closed the client rebuilds the rows every cycle from what the mouse is over; while it is open
  * they hold the opened menu. The rows are a vector of nodes {@code {list, index, children}}, top row first: a row's
  * entry is {@code [list + entries] + index * MinimenuEntry.size}, and a node without a list is a submenu group, read as
- * its first entry (the one the client's own left click runs). Each entry is read in one block.
+ * its first entry (the one the client's own left click runs). A component op's node keeps the rows of the sub-menu
+ * the op opens as its children, each a node of the sub-menu's own list whose entry holds the sub-option index as its
+ * op index; they are read as entries of the op with that sub-option, right after the op's row. Each entry is read in
+ * one block.
  *
  * <p>The native entry keeps its subject kind ({@code enums.minimenuSubject}), type id, index, world tile and op index;
  * {@link #entry} works the action, identifier and parameters out of them.
@@ -47,6 +50,11 @@ public final class MenuReader extends GameReader {
      */
     private static final int COMPONENT_OPS = 10;
     private static final int HIGH_PRIORITY_COMPONENT_OPS = 5;
+
+    /**
+     * Most sub-option rows read under one op; a sub-menu holds far fewer.
+     */
+    private static final int MAX_SUB_OPTIONS = 64;
 
     private static final MenuAction[] NPC_OPS = {MenuAction.NPC_FIRST_OPTION, MenuAction.NPC_SECOND_OPTION,
             MenuAction.NPC_THIRD_OPTION, MenuAction.NPC_FOURTH_OPTION, MenuAction.NPC_FIFTH_OPTION};
@@ -177,9 +185,59 @@ public final class MenuReader extends GameReader {
             MenuEntry read = entry == 0 ? null : entry(entry, base);
             if (read != null) {
                 rows.add(read);
+                if (nodes.getLong(i * nodeSize + nodeList) != 0) {
+                    rows.addAll(subOptions(read, nodes.getLong(i * nodeSize + nodeChildren), base));
+                }
             }
         }
         return rows;
+    }
+
+    /**
+     * The sub-option rows under a component op's row: its node's children, each read as the op's entry with the
+     * sub-option the child's entry holds as its op index.
+     *
+     * @param parent   the op's entry
+     * @param children the node's children vector, or 0 for none
+     * @param base     the map base, or null if unknown
+     * @return the sub-option entries, top first; empty if the row isn't a component op or has no children
+     */
+    private List<MenuEntry> subOptions(MenuEntry parent, long children, MapCoord base) {
+        if (children == 0 || parent.getType() != MenuAction.CC_OP && parent.getType() != MenuAction.CC_OP_LOW_PRIORITY) {
+            return List.of();
+        }
+        long first = safePointer(children);
+        long last = safePointer(children + 8);
+        long span = last - first;
+        if (first == 0 || span <= 0 || span % nodeSize != 0 || span / nodeSize > MAX_SUB_OPTIONS) {
+            return List.of();
+        }
+        int count = (int) (span / nodeSize);
+        ByteBuffer nodes = readBlock(first, count * nodeSize);
+        if (nodes == null) {
+            return List.of();
+        }
+        List<MenuEntry> out = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            long entry = leaf(nodes, i * nodeSize);
+            MenuEntry row = entry == 0 ? null : entry(entry, base);
+            if (row != null && row.getParam1() == parent.getParam1() && row.getParam0() == parent.getParam0()) {
+                out.add(new MenuEntry(client, row.getOption(), row.getTarget(), parent.getIdentifier(),
+                        parent.getType(), parent.getParam0(), parent.getParam1(), null, subOp(entry)));
+            }
+        }
+        return out;
+    }
+
+    /**
+     * The sub-option a sub-menu row's entry names: its op index plus one.
+     *
+     * @param entry the entry
+     * @return the sub-option, 1-based, or 0 if it can't be read
+     */
+    private int subOp(long entry) {
+        int index = safeInt(entry + eOpIndex, -1);
+        return index < 0 ? 0 : index + 1;
     }
 
     /**

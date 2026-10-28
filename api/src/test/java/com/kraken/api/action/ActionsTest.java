@@ -5,6 +5,7 @@ import com.kraken.api.GameFixture;
 import com.kraken.api.MenuAction;
 import com.kraken.api.MenuEntry;
 import com.kraken.api.coords.WorldPoint;
+import com.kraken.api.gameval.InterfaceID;
 import com.kraken.api.internal.invoke.NativeCall;
 import com.kraken.api.internal.invoke.NativeCall.Arg;
 import com.kraken.api.internal.invoke.NativeCall.Kind;
@@ -31,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ActionsTest {
 
     private static final int INVENTORY = 149 << 16;
+    private static final int SPELL = InterfaceID.MagicSpellbook.HIGH_ALCHEMY;
 
     private GameFixture game;
     private Mapping map;
@@ -74,11 +76,12 @@ class ActionsTest {
                 MenuAction.GROUND_ITEM_THIRD_OPTION, MenuAction.PLAYER_EIGHTH_OPTION, MenuAction.WALK,
                 MenuAction.CC_OP, MenuAction.CC_OP_LOW_PRIORITY, MenuAction.WIDGET_TARGET, MenuAction.WIDGET_CONTINUE,
                 MenuAction.WIDGET_TARGET_ON_WIDGET, MenuAction.WIDGET_TARGET_ON_NPC, MenuAction.WIDGET_TARGET_ON_PLAYER,
-                MenuAction.WIDGET_TARGET_ON_GAME_OBJECT, MenuAction.WIDGET_TARGET_ON_GROUND_ITEM)) {
+                MenuAction.WIDGET_TARGET_ON_GAME_OBJECT, MenuAction.WIDGET_TARGET_ON_GROUND_ITEM,
+                MenuAction.WIDGET_TYPE_1, MenuAction.WIDGET_TYPE_4, MenuAction.WIDGET_TYPE_5, MenuAction.WIDGET_CLOSE)) {
             assertTrue(actions.isSupported(action), action + " is mapped");
         }
-        for (MenuAction action : List.of(MenuAction.EXAMINE_NPC, MenuAction.WIDGET_TYPE_1, MenuAction.WIDGET_CLOSE,
-                MenuAction.CANCEL, MenuAction.UNKNOWN)) {
+        for (MenuAction action : List.of(MenuAction.EXAMINE_NPC, MenuAction.EXAMINE_OBJECT, MenuAction.CANCEL,
+                MenuAction.UNKNOWN)) {
             assertFalse(actions.isSupported(action), action + " has no row body");
         }
     }
@@ -187,6 +190,88 @@ class ActionsTest {
 
         assertFalse(actions.menuAction(3, INVENTORY, MenuAction.CC_OP, 0, 1511), "a component op is 1-based");
         assertEquals(2, sent.size());
+    }
+
+    @Test
+    void aSubOptionGoesIntoTheComponentOpsCaptures() {
+        assertTrue(actions.menuAction(3, INVENTORY, MenuAction.CC_OP, 2, 1511, 1));
+        assertEquals(fn("menuComponentOp"), sent.get(0).get(0).rva());
+        assertArrayEquals(new int[]{INVENTORY, 3, 2, 1, 1511, 0}, ints(sent.get(0).get(0)),
+                "{component, slot, op, subOp, objId, flag}: the first sub-option of the second op");
+
+        MenuEntry one = null;
+        for (MenuEntry entry : client.getMenuEntries()) {
+            if ("One".equals(entry.getOption())) {
+                one = entry;
+            }
+        }
+        assertTrue(one != null && one.getSubOp() == 1, "the fixture's Drop row has a sub-menu");
+        assertTrue(actions.menuAction(one), "a sub-menu row's entry runs its op with the sub-option");
+        assertArrayEquals(new int[]{INVENTORY, 0, 3, 1, 995, 0}, ints(sent.get(1).get(0)), "the item read from the slot");
+
+        assertTrue(actions.click(10, 20, 3, INVENTORY, MenuAction.CC_OP, 2, 1511, 2));
+        assertEquals(7, sent.get(2).size());
+        assertArrayEquals(new int[]{INVENTORY, 3, 2, 2, 1511, 0}, ints(sent.get(2).get(6)));
+
+        assertFalse(actions.menuAction(3, INVENTORY, MenuAction.CC_OP, 2, 1511, -1), "a sub-option is 1-based");
+        assertEquals(3, sent.size());
+    }
+
+    @Test
+    void oldStyleButtonsCallTheirBodiesWithTheComponent() {
+        int button = 0x1180004;
+        assertTrue(actions.menuAction(-1, button, MenuAction.WIDGET_TYPE_1, 0));
+        NativeCall plain = sent.get(0).get(0);
+        assertEquals(fn("menuComponentButton"), plain.rva());
+        assertEquals(List.of(Arg.imm(0), Arg.data(0)), plain.args(), "(unused, &captures)");
+        assertArrayEquals(new int[]{button}, ints(plain), "{component}: the body looks the component up with no slot");
+
+        assertTrue(actions.menuAction(-1, button, MenuAction.WIDGET_TYPE_4, 0));
+        assertEquals(fn("menuComponentToggle"), sent.get(1).get(0).rva());
+        assertArrayEquals(new int[]{button}, ints(sent.get(1).get(0)));
+        assertTrue(actions.menuAction(-1, button, MenuAction.WIDGET_TYPE_5, 0));
+        assertEquals(fn("menuComponentSet"), sent.get(2).get(0).rva());
+        assertArrayEquals(new int[]{button}, ints(sent.get(2).get(0)));
+
+        assertTrue(actions.menuAction(-1, button, MenuAction.WIDGET_CLOSE, 0));
+        NativeCall close = sent.get(3).get(0);
+        assertEquals(fn("menuComponentClose"), close.rva());
+        assertEquals(List.of(Arg.imm(0), Arg.imm(0)), close.args(), "the close body reads no captures");
+        assertEquals(0, close.data().length);
+        assertTrue(actions.closeInterface());
+        assertEquals(close, sent.get(4).get(0));
+
+        MenuEntry entry = new MenuEntry(client, "Close", "", 0, MenuAction.WIDGET_CLOSE, -1, button, null);
+        assertTrue(actions.click(5, 6, entry));
+        assertEquals(7, sent.get(5).size(), "the click, then the close");
+        assertEquals(fn("menuComponentClose"), sent.get(5).get(6).rva());
+    }
+
+    @Test
+    void castSpellOnSelectsTheSpellThenRunsTheTargetedBody() {
+        assertTrue(actions.castSpellOn(SPELL, 3, INVENTORY, MenuAction.WIDGET_TARGET_ON_WIDGET, 0, 1511),
+                "High Alchemy on an inventory item");
+        List<NativeCall> batch = sent.get(0);
+        assertEquals(2, batch.size());
+        assertEquals(fn("menuComponentSelect"), batch.get(0).rva());
+        assertArrayEquals(new int[]{SPELL, -1, -1}, ints(batch.get(0)),
+                "the spell's component with no slot and no item, as the spellbook's row selects it");
+        assertEquals(fn("menuComponentTargetOp"), batch.get(1).rva());
+        assertArrayEquals(new int[]{INVENTORY, 3, 1511}, ints(batch.get(1)), "the item: {component, slot, objId}");
+
+        MenuEntry npc = new MenuEntry(client, "Attack", "Goblin", 77, MenuAction.NPC_SECOND_OPTION, 0, 0, null);
+        assertTrue(actions.castSpellOn(SPELL, npc), "a plain NPC entry stands for its subject");
+        assertEquals(fn("menuComponentSelect"), sent.get(1).get(0).rva());
+        assertArrayEquals(new int[]{SPELL, -1, -1}, ints(sent.get(1).get(0)));
+        assertEquals(fn("menuNpcTargetOp"), sent.get(1).get(1).rva());
+        assertArrayEquals(new int[]{77}, ints(sent.get(1).get(1)), "{index}");
+
+        assertTrue(actions.castSpellOn(SPELL, 0, 0, MenuAction.WIDGET_TARGET_ON_PLAYER, 9, -1));
+        assertEquals(fn("menuPlayerTargetOp"), sent.get(2).get(1).rva());
+
+        MenuEntry walk = new MenuEntry(client, "Walk here", "", 0, MenuAction.WALK, 50, 52, new WorldPoint(1, 2, 0));
+        assertFalse(actions.castSpellOn(SPELL, walk), "a tile takes no selection");
+        assertEquals(3, sent.size());
     }
 
     @Test
@@ -301,7 +386,7 @@ class ActionsTest {
     @Test
     void unsupportedActionsAndAMissingHookSendNothing() {
         assertFalse(actions.menuAction(0, 0, MenuAction.EXAMINE_NPC, 0));
-        assertFalse(actions.click(1, 1, 0, 0, MenuAction.WIDGET_TYPE_1, 1));
+        assertFalse(actions.click(1, 1, 0, 0, MenuAction.CANCEL, 1));
         assertTrue(sent.isEmpty(), "nothing goes out for an action without a row body");
 
         actions.setInvoker(null);
@@ -309,6 +394,8 @@ class ActionsTest {
         assertFalse(actions.menuAction(0, 0, MenuAction.NPC_FIRST_OPTION, 1));
         assertFalse(actions.walk(new WorldPoint(1, 2, 0)));
         assertFalse(actions.resumeCountDialog(1));
+        assertFalse(actions.closeInterface());
+        assertFalse(actions.castSpellOn(SPELL, 0, 0, MenuAction.NPC_FIRST_OPTION, 1, -1));
         actions.mouseClick(1, 1, false);
         assertTrue(sent.isEmpty(), "actions are for the moment they are asked: nothing is queued for a later hook");
     }

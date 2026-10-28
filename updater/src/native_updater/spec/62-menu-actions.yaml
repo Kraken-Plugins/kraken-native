@@ -8,8 +8,10 @@
 # the writers, send(connection, packet*) and release(buffer*). The network step builds the mouse click packet with the
 # same helpers (menuops.py). The Walk here row's body, the targeted bodies (a selected item or spell used on a subject,
 # which read the selection through one getter) and the component rows' bodies (ops, the select, the pause button) are
-# found the same way; the byte, int and string writers by how they advance a packet buffer. No Lua binding touches any
-# of this.
+# found the same way; the byte, int and string writers by how they advance a packet buffer. The old-style button
+# bodies (plain, toggle, set, close) are told apart by what follows their send, and the component op row builder's
+# sub-option tables (IfType.subOpCount, IfType.subOpNames) by the compare and the indexed load next to IfType.opCount
+# and IfType.opNames. No Lua binding touches any of this.
 keys:
   - key: functions.menuNpcOp
     type: "void(void* unused, const struct {i32 index, i32 op, i32 flag}* args)"
@@ -99,6 +101,49 @@ keys:
       answer is pending, sends the six-byte pause packet and marks the answer pending.
     strategies:
       - extractor: { name: menu_ops, field: functions.menuComponentPause, cls: A }
+
+  - key: functions.menuComponentButton
+    type: "void(void* unused, const struct {i32 component}* args)"
+    priority: P1
+    doc: The component row body of an old-style button of type 1 (a plain button). Looks the component up by packed
+      id, with no slot, checks the op is enabled when the component has ops and sends the four-byte button packet
+      (the packed id); stores nothing after the send.
+    strategies:
+      - extractor: { name: menu_ops, field: functions.menuComponentButton, cls: A }
+  - key: functions.menuComponentToggle
+    type: "void(void* unused, const struct {i32 component}* args)"
+    priority: P1
+    doc: The component row body of an old-style button of type 4 (a toggle). Sends the four-byte button packet for
+      the packed id, then, when the component's first script op names a var, stores 1 - value into that var.
+    strategies:
+      - extractor: { name: menu_ops, field: functions.menuComponentToggle, cls: A }
+  - key: functions.menuComponentSet
+    type: "void(void* unused, const struct {i32 component}* args)"
+    priority: P1
+    doc: The component row body of an old-style button of type 5 (a set). Sends the four-byte button packet for the
+      packed id, then, when the component's first script op names a var, stores the component's own value into it.
+    strategies:
+      - extractor: { name: menu_ops, field: functions.menuComponentSet, cls: A }
+  - key: functions.menuComponentClose
+    type: "void(void* unused, const void* unused)"
+    priority: P1
+    doc: The component row body of an old-style button of type 3 (a close button). Reads no captures; tail-calls the
+      client's close function, which sends the size-0 close packet and closes the modal interface.
+    strategies:
+      - extractor: { name: menu_ops, field: functions.menuComponentClose, cls: A }
+  - key: IfType.subOpCount
+    type: i32
+    priority: P1
+    doc: How many ops of the component have a sub-option list in IfType.subOpNames; an op past the count has none.
+    strategies:
+      - extractor: { name: menu_ops, field: IfType.subOpCount, cls: A }
+  - key: IfType.subOpNames
+    type: ptr<eastl.vector<eastl.string>[]>
+    priority: P1
+    doc: The sub-option names of each op, as an array of vectors of strings indexed by the op (0-based); the rows a
+      sub-menu opens under the op, sent as the sub-option index plus one.
+    strategies:
+      - extractor: { name: menu_ops, field: IfType.subOpNames, cls: A }
 
   - key: functions.packetCreate
     type: "Packet*(Packet* out, int opcode, void* outCipher)"

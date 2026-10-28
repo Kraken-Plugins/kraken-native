@@ -613,6 +613,19 @@ public final class Widget {
     }
 
     /**
+     * The sub-options of one of the widget's actions: the rows of the sub-menu the client opens under the action's
+     * row, in order ({@code IfType.subOpNames}). A menu entry of the action with a sub-option names one of these,
+     * 1-based, and the client sends the op with the sub-option.
+     *
+     * @param op the action, 1-based as {@link #getActions()} numbers them
+     * @return the sub-option names; null if the action has no sub-menu or this build's mapping lacks the table
+     */
+    public String[] getSubOptions(int op) {
+        List<String> names = reader.subOpNames(i32("subOpCount"), i64("subOpNames"), op);
+        return names.isEmpty() ? null : names.toArray(new String[0]);
+    }
+
+    /**
      * The widget's x relative to its parent, as laid out.
      *
      * @return x in canvas pixels

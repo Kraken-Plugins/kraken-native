@@ -38,8 +38,14 @@ public final class WidgetReader extends GameReader {
             "rotate", "tiling", "outline", "shadowColour", "vFlip", "hFlip", "model1Type", "model1Id", "model2Type",
             "model2Id", "modelAnim", "modelAnim2", "modelXOf", "modelYOf", "modelXAn", "modelYAn", "modelZAn",
             "modelZoom", "modelWid", "modelHei", "modelSpin", "orthog", "text", "text2", "overlayId", "baseOpName",
-            "opCount", "opNames", "linkObjType", "linkObjCount", "dynCount", "dynSlots", "renderCycle"
+            "opCount", "opNames", "linkObjType", "linkObjCount", "dynCount", "dynSlots", "renderCycle", "subOpCount",
+            "subOpNames"
     };
+
+    /**
+     * The size of a vector of strings in the sub-option table: its begin, end and capacity pointers.
+     */
+    private static final int STRING_VECTOR_SIZE = 24;
 
     private static final int MAX_SLOTS = 1 << 16;
     private static final int MAX_OPS = 64;
@@ -386,6 +392,33 @@ public final class WidgetReader extends GameReader {
         List<String> out = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
             out.add(structs.string(names + (long) i * structs.stringSize()));
+        }
+        return out;
+    }
+
+    /**
+     * {@code IfType.subOpNames}: the sub-option names of one of a component's ops, the rows the op's sub-menu opens.
+     *
+     * @param count the component's sub-option list count
+     * @param table the address of its sub-option table, one vector of strings per op
+     * @param op    the op, 1-based
+     * @return the sub-option names in order; empty if the op has none or the table can't be read
+     */
+    public List<String> subOpNames(int count, long table, int op) {
+        if (op < 1 || op > count || count > MAX_OPS || table == 0 || table == -1) {
+            return List.of();
+        }
+        long vector = table + (long) (op - 1) * STRING_VECTOR_SIZE;
+        long first = safePointer(vector);
+        long last = safePointer(vector + 8);
+        int size = structs.stringSize();
+        long span = last - first;
+        if (first == 0 || span <= 0 || span % size != 0 || span / size > MAX_OPS) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>((int) (span / size));
+        for (long s = first; s < last; s += size) {
+            out.add(structs.string(s));
         }
         return out;
     }

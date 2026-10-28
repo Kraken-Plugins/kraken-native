@@ -31,10 +31,13 @@ import com.kraken.client.plugins.config.ConfigManager;
 import lombok.extern.java.Log;
 
 import java.awt.Rectangle;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 
@@ -42,15 +45,17 @@ import java.util.function.Function;
  * Exercises every action the client can run without the menu, one at a time, from the settings page: tick Run now
  * and the chosen test runs once on the client thread, saying in the console what it sent (the subject it found, the
  * op it worked out, the calls' success) or why it couldn't. A test can also repeat every so many ticks. The tests
- * cover the row bodies (NPC, player, object and ground item options, Walk here, inventory and widget options, using
- * an item on an item, NPC, object, ground item or player, a pause button), the dialog answers (count, name, string,
- * item), the bare mouse click packet, and replaying one of the menu's own entries, which goes through the same path a
- * menu event would.
+ * cover the row bodies (NPC, player, object and ground item options, Walk here, inventory and widget options with
+ * their sub-options, using an item on an item, NPC, object, ground item or player, casting a spell on an item or an
+ * NPC, the old-style buttons, closing an interface, a pause button), the dialog answers (count, name, string, item),
+ * the bare mouse click packet, and replaying one of the menu's own entries, which goes through the same path a menu
+ * event would.
  *
  * <p>Subjects are found by name among what is loaded, nearest to the player first. Options are matched against the
  * subject's own action list (an NPC's or object's composition, an item's inventory actions, a component's ops), or
- * taken as a number. With the mouse click setting on, the click packet goes first at the subject's canvas position
- * when it is on screen.
+ * taken as a number; a sub-option after a dot is matched against the op's sub-menu the same way. A spell is a
+ * spellbook component, given as group:child or by the name of its {@link InterfaceID.MagicSpellbook} constant. With
+ * the mouse click setting on, the click packet goes first at the subject's canvas position when it is on screen.
  *
  * <p>Threading: the settings page runs {@code onConfigChanged} on the EDT, which hands the run to the client thread
  * and unticks the switch; the tick handler and the runs are on the client thread, so the tick count needs no locking.
@@ -78,6 +83,13 @@ public class ActionTesterPlugin extends Plugin {
      * The button type of a pause ("Click here to continue") component.
      */
     private static final int PAUSE_BUTTON = 6;
+
+    /**
+     * The actions of the old-style button types the button test clicks: a plain button, a close button, a toggle
+     * and a set. Type 2 selects a target (the Use tests) and type 6 is the pause button (its own test).
+     */
+    private static final Map<Integer, MenuAction> BUTTONS = Map.of(1, MenuAction.WIDGET_TYPE_1,
+            3, MenuAction.WIDGET_CLOSE, 4, MenuAction.WIDGET_TYPE_4, 5, MenuAction.WIDGET_TYPE_5);
 
     /**
      * How far above an actor's tile the mouse click lands, in local units: about a model's middle.
@@ -196,6 +208,16 @@ public class ActionTesterPlugin extends Plugin {
             }
             case USE_ITEM_ON_ITEM, USE_ITEM_ON_NPC, USE_ITEM_ON_OBJECT, USE_ITEM_ON_GROUND_ITEM, USE_ITEM_ON_PLAYER -> {
                 return useItem(actions, test);
+            }
+            case CAST_SPELL_ON_ITEM, CAST_SPELL_ON_NPC -> {
+                return castSpell(actions, test);
+            }
+            case WIDGET_BUTTON -> {
+                return widgetButton(actions);
+            }
+            case CLOSE_INTERFACE -> {
+                return report(actions.closeInterface(), "closed the open interface",
+                        "the close button's body isn't mapped for this build");
             }
             case PAUSE_BUTTON -> {
                 return pauseButton(actions);
@@ -342,15 +364,20 @@ public class ActionTesterPlugin extends Plugin {
             return false;
         }
         Widget slot = found.get();
+        String[] option = splitOption(config.option());
         String[] names = itemActions(slot);
-        int op = opOf(names, config.option(), 10);
+        int op = opOf(names, option[0], 10);
         if (op < 0) {
-            say(config.target() + " has no " + config.option() + " option; it has " + list(names));
+            say(config.target() + " has no " + option[0] + " option; it has " + list(names));
             return false;
         }
-        return send(actions, MenuAction.CC_OP, slot.getIndex(), INVENTORY, op, slot.getItemId(), widgetPoint(slot),
+        int subOp = subOpOf(slot, op, option[1]);
+        if (subOp < 0) {
+            return false;
+        }
+        return send(actions, MenuAction.CC_OP, slot.getIndex(), INVENTORY, op, slot.getItemId(), subOp, widgetPoint(slot),
                 config.option() + " on " + config.target() + " (item " + slot.getItemId() + ", slot " + slot.getIndex()
-                        + ", op " + op + ")");
+                        + ", op " + op + subOpText(subOp) + ")");
     }
 
     private boolean widgetOption(Actions actions) {
@@ -364,14 +391,95 @@ public class ActionTesterPlugin extends Plugin {
             say("component " + config.target() + " isn't loaded");
             return false;
         }
-        int op = opOf(widget.getActions(), config.option(), 10);
+        String[] option = splitOption(config.option());
+        int op = opOf(widget.getActions(), option[0], 10);
         if (op < 0) {
-            say("component " + config.target() + " has no " + config.option() + " option; it has "
+            say("component " + config.target() + " has no " + option[0] + " option; it has "
                     + list(widget.getActions()));
             return false;
         }
-        return send(actions, MenuAction.CC_OP, component[1], component[0], op, widget.getItemId(), widgetPoint(widget),
-                config.option() + " on component " + config.target() + " (op " + op + ")");
+        int subOp = subOpOf(widget, op, option[1]);
+        if (subOp < 0) {
+            return false;
+        }
+        return send(actions, MenuAction.CC_OP, component[1], component[0], op, widget.getItemId(), subOp,
+                widgetPoint(widget), config.option() + " on component " + config.target() + " (op " + op
+                        + subOpText(subOp) + ")");
+    }
+
+    /**
+     * The sub-option of an op the option setting names, checked against the component's sub-menu.
+     *
+     * @param widget the component
+     * @param op     the op, 1-based
+     * @param sub    the sub-option's text or number, or null for the op itself
+     * @return the sub-option, 1-based; 0 for the op itself; -1, said in the console, when the op has no such
+     * sub-option
+     */
+    private int subOpOf(Widget widget, int op, String sub) {
+        if (sub == null) {
+            return 0;
+        }
+        String[] subOptions = widget.getSubOptions(op);
+        int subOp = opOf(subOptions, sub, subOptions == null ? 0 : subOptions.length);
+        if (subOp < 0) {
+            say("op " + op + " has no " + sub + " sub-option; it has " + list(subOptions));
+        }
+        return subOp;
+    }
+
+    private static String subOpText(int subOp) {
+        return subOp > 0 ? ", sub-option " + subOp : "";
+    }
+
+    private boolean castSpell(Actions actions, ActionTest test) {
+        int spell = spellComponent(config.target());
+        if (spell < 0) {
+            say("give the spell as group:child or by name (e.g. High Alchemy), not \"" + config.target() + "\"");
+            return false;
+        }
+        String casting = "spell " + (spell >> 16) + ":" + (spell & 0xffff);
+        if (test == ActionTest.CAST_SPELL_ON_ITEM) {
+            Optional<Widget> target = inventorySlot(config.castOn());
+            if (target.isEmpty()) {
+                say("no " + config.castOn() + " in the inventory to cast on (is it open?)");
+                return false;
+            }
+            Widget onto = target.get();
+            return report(actions.castSpellOn(spell, onto.getIndex(), INVENTORY, MenuAction.WIDGET_TARGET_ON_WIDGET, 0,
+                    onto.getItemId()), "cast " + casting + " on " + config.castOn() + " (item " + onto.getItemId()
+                    + ", slot " + onto.getIndex() + ")", "the cast couldn't be sent");
+        }
+        Optional<NPC> npc = nearestNpc(config.castOn());
+        if (npc.isEmpty()) {
+            say("no NPC called " + config.castOn() + " is loaded");
+            return false;
+        }
+        return report(actions.castSpellOn(spell, 0, 0, MenuAction.WIDGET_TARGET_ON_NPC, npc.get().getIndex(), -1),
+                "cast " + casting + " on " + npc.get().getName() + " (index " + npc.get().getIndex() + ")",
+                "the cast couldn't be sent");
+    }
+
+    private boolean widgetButton(Actions actions) {
+        int[] component = parseComponent(config.target());
+        if (component == null) {
+            say("give the button as group:child or group:child:slot, not \"" + config.target() + "\"");
+            return false;
+        }
+        Widget widget = widget(component);
+        if (widget == null) {
+            say("component " + config.target() + " isn't loaded");
+            return false;
+        }
+        int type = widget.getEvent();
+        MenuAction action = BUTTONS.get(type);
+        if (action == null) {
+            say("component " + config.target() + " has button type " + type + ", not a plain, toggle, set or close "
+                    + "button (type 2 selects a target, 6 is a pause button)");
+            return false;
+        }
+        return send(actions, action, component[1], component[0], 0, -1, widgetPoint(widget),
+                "button type " + type + " on component " + config.target());
     }
 
     private boolean walk(Actions actions) {
@@ -494,16 +602,36 @@ public class ActionTesterPlugin extends Plugin {
      */
     private boolean send(Actions actions, MenuAction action, int param0, int param1, int identifier, int itemId,
                          Point canvas, String what) {
+        return send(actions, action, param0, param1, identifier, itemId, 0, canvas, what);
+    }
+
+    /**
+     * Sends a component op with a sub-option, with the mouse click first when wanted and the component is on screen,
+     * and reports it.
+     *
+     * @param actions    the actions
+     * @param action     the action
+     * @param param0     its first parameter
+     * @param param1     its second parameter
+     * @param identifier its identifier
+     * @param itemId     a component's item, or -1
+     * @param subOp      the sub-option, 1-based, or 0 for the op itself
+     * @param canvas     where the subject is on the canvas, or null if it isn't
+     * @param what       what to report
+     * @return true if it was sent
+     */
+    private boolean send(Actions actions, MenuAction action, int param0, int param1, int identifier, int itemId,
+                         int subOp, Point canvas, String what) {
         if (!actions.isSupported(action)) {
             say(action + " isn't mapped for this build");
             return false;
         }
         boolean sent;
         if (config.mouseClick() && canvas != null) {
-            sent = actions.click(canvas.getX(), canvas.getY(), param0, param1, action, identifier, itemId);
+            sent = actions.click(canvas.getX(), canvas.getY(), param0, param1, action, identifier, itemId, subOp);
             what += " with a click at " + canvas.getX() + "," + canvas.getY();
         } else {
-            sent = actions.menuAction(param0, param1, action, identifier, itemId);
+            sent = actions.menuAction(param0, param1, action, identifier, itemId, subOp);
             if (config.mouseClick()) {
                 what += " (off screen, so no click)";
             }
@@ -713,6 +841,53 @@ public class ActionTesterPlugin extends Plugin {
         for (int i = 0; i < actions.length && i < max; i++) {
             if (actions[i] != null && actions[i].toLowerCase(Locale.ROOT).equals(wanted.toLowerCase(Locale.ROOT))) {
                 return i + 1;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * An option setting split into the op and its sub-option: the text after the last dot is the sub-option when
+     * there is text on both sides of it.
+     *
+     * @param text the setting's text
+     * @return {op, sub-option}, the sub-option null when there is none
+     */
+    static String[] splitOption(String text) {
+        String trimmed = text.trim();
+        int dot = trimmed.lastIndexOf('.');
+        if (dot <= 0 || dot == trimmed.length() - 1) {
+            return new String[]{trimmed, null};
+        }
+        String op = trimmed.substring(0, dot).trim();
+        String sub = trimmed.substring(dot + 1).trim();
+        return op.isEmpty() || sub.isEmpty() ? new String[]{trimmed, null} : new String[]{op, sub};
+    }
+
+    /**
+     * A spell's component: a component as {@link #parseComponent} reads it, or the {@link InterfaceID.MagicSpellbook}
+     * constant whose name is the text with its spaces, dashes and case ignored (High Alchemy is HIGH_ALCHEMY).
+     *
+     * @param text the setting's text
+     * @return the packed component id, or -1 if the text names no spell
+     */
+    static int spellComponent(String text) {
+        int[] component = parseComponent(text);
+        if (component != null) {
+            return component[0];
+        }
+        String wanted = text.replaceAll("[^A-Za-z0-9]", "").toLowerCase(Locale.ROOT);
+        if (wanted.isEmpty()) {
+            return -1;
+        }
+        for (Field field : InterfaceID.MagicSpellbook.class.getFields()) {
+            if (Modifier.isStatic(field.getModifiers()) && field.getType() == int.class
+                    && field.getName().replace("_", "").toLowerCase(Locale.ROOT).equals(wanted)) {
+                try {
+                    return field.getInt(null);
+                } catch (IllegalAccessException e) {
+                    return -1;
+                }
             }
         }
         return -1;

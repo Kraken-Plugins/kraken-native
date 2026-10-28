@@ -85,11 +85,12 @@ public interface ActionTesterConfig extends Config {
      * The subject's name, or a component.
      *
      * @return an NPC's, player's, object's or item's name (case doesn't matter), or a component as group:child or
-     * group:child:slot for the widget tests
+     * group:child:slot for the widget tests, or a spell as group:child or by name for the spell tests
      */
     @ConfigItem(keyName = "target", name = "Target",
             description = "The NPC, player, object or item the test acts on, by name (case doesn't matter). For the "
-                    + "widget and pause tests, a component as group:child or group:child:slot, e.g. 149:0:3.",
+                    + "widget, button and pause tests, a component as group:child or group:child:slot, e.g. 149:0:3. "
+                    + "For the spell tests, the spell as group:child or by its name, e.g. High Alchemy.",
             position = 0, section = subject)
     default String target() {
         return "Moss giant";
@@ -98,13 +99,27 @@ public interface ActionTesterConfig extends Config {
     /**
      * The option to run on the subject.
      *
-     * @return the option's text as the menu shows it (case doesn't matter), or its number
+     * @return the option's text as the menu shows it (case doesn't matter), or its number; with a sub-option after a
+     * dot for an op that opens a sub-menu
      */
     @ConfigItem(keyName = "option", name = "Option",
             description = "The menu option to run, e.g. Attack, Take, Eat or Open (case doesn't matter), or its "
-                    + "number (1-based). Players take a number only.", position = 1, section = subject)
+                    + "number (1-based). Players take a number only. A sub-option of an item or widget option goes "
+                    + "after a dot, by text or number: Drop.All or 3.2.", position = 1, section = subject)
     default String option() {
         return "Attack";
+    }
+
+    /**
+     * What the spell tests cast the spell on.
+     *
+     * @return an inventory item's or NPC's name, case doesn't matter
+     */
+    @ConfigItem(keyName = "castOn", name = "Cast on",
+            description = "The inventory item or NPC the spell tests cast the target spell on, by name.", position = 2,
+            section = subject)
+    default String castOn() {
+        return "Rune platebody";
     }
 
     /**
@@ -113,7 +128,7 @@ public interface ActionTesterConfig extends Config {
      * @return the item's name, case doesn't matter
      */
     @ConfigItem(keyName = "item", name = "Item to use",
-            description = "The inventory item the Use tests select first, by name, e.g. Tinderbox.", position = 2,
+            description = "The inventory item the Use tests select first, by name, e.g. Tinderbox.", position = 3,
             section = subject)
     default String item() {
         return "Tinderbox";
@@ -126,7 +141,7 @@ public interface ActionTesterConfig extends Config {
      */
     @ConfigItem(keyName = "number", name = "Number",
             description = "The count for a count dialog, the item id for an item dialog, or the menu entry's index "
-                    + "(0 is the left-click row).", position = 3, section = subject)
+                    + "(0 is the left-click row).", position = 4, section = subject)
     default int number() {
         return 0;
     }
@@ -136,7 +151,7 @@ public interface ActionTesterConfig extends Config {
      *
      * @return the text
      */
-    @ConfigItem(keyName = "text", name = "Text", description = "The answer to a name or string dialog.", position = 4,
+    @ConfigItem(keyName = "text", name = "Text", description = "The answer to a name or string dialog.", position = 5,
             section = subject)
     default String text() {
         return "hello";
@@ -149,7 +164,7 @@ public interface ActionTesterConfig extends Config {
      */
     @Range(min = -30, max = 30)
     @ConfigItem(keyName = "walkEast", name = "Walk east",
-            description = "Tiles east of the player to walk to (negative for west).", position = 5, section = subject)
+            description = "Tiles east of the player to walk to (negative for west).", position = 6, section = subject)
     default int walkEast() {
         return 3;
     }
@@ -161,7 +176,7 @@ public interface ActionTesterConfig extends Config {
      */
     @Range(min = -30, max = 30)
     @ConfigItem(keyName = "walkNorth", name = "Walk north",
-            description = "Tiles north of the player to walk to (negative for south).", position = 6, section = subject)
+            description = "Tiles north of the player to walk to (negative for south).", position = 7, section = subject)
     default int walkNorth() {
         return 0;
     }
@@ -172,7 +187,7 @@ public interface ActionTesterConfig extends Config {
      * @return the canvas point
      */
     @ConfigItem(keyName = "clickPoint", name = "Click point",
-            description = "The canvas point the mouse click test clicks, as X:Y.", position = 7, section = subject)
+            description = "The canvas point the mouse click test clicks, as X:Y.", position = 8, section = subject)
     default Point clickPoint() {
         return new Point(400, 300);
     }

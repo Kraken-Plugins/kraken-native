@@ -13,6 +13,8 @@ import static com.kraken.api.GameFixture.MENU_ATTACK;
 import static com.kraken.api.GameFixture.MENU_CANCEL;
 import static com.kraken.api.GameFixture.MENU_CHOP;
 import static com.kraken.api.GameFixture.MENU_DROP;
+import static com.kraken.api.GameFixture.MENU_DROP_ALL;
+import static com.kraken.api.GameFixture.MENU_DROP_ONE;
 import static com.kraken.api.GameFixture.MENU_EXAMINE;
 import static com.kraken.api.GameFixture.MENU_ROWS;
 import static com.kraken.api.GameFixture.MENU_TAKE;
@@ -122,6 +124,27 @@ class MenuTest {
         assertNotNull(slot);
         assertEquals(0, slot.getIndex());
         assertEquals(995, drop.getItemId());
+        assertEquals(0, drop.getSubOp());
+    }
+
+    @Test
+    void subMenuRowsReadAsTheirOpWithTheSubOption() {
+        MenuEntry one = row(MENU_DROP_ONE);
+        assertEquals("One", one.getOption());
+        assertEquals("<col=ff9040>Coins", one.getTarget());
+        assertEquals(MenuAction.CC_OP, one.getType());
+        assertEquals(3, one.getIdentifier(), "the op of the row the sub-menu opens under");
+        assertEquals(1, one.getSubOp(), "the first sub-option");
+        assertEquals(0, one.getParam0());
+        assertEquals(149 << 16, one.getParam1());
+        assertEquals(995, one.getItemId());
+
+        MenuEntry all = row(MENU_DROP_ALL);
+        assertEquals("All", all.getOption());
+        assertEquals(2, all.getSubOp());
+        assertEquals(3, all.getIdentifier());
+        assertNotEquals(row(MENU_DROP), one, "the sub-option tells the entries apart");
+        assertNotEquals(one, all);
     }
 
     @Test

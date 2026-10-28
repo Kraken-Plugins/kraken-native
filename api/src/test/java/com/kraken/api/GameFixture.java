@@ -45,7 +45,9 @@ import static com.kraken.api.TestSupport.seedMapping;
  *       an arrow ({@link #ARROW_PROJECTILE}) from one tile to another, hidden and not set off yet. And a keyed
  *       projectile ({@link #KEYED_PROJECTILE}, key {@link #PROJECTILE_KEY}) from player 7 at NPC 5, placed, with
  *       offsets at both ends.
- *   <li>The minimenu, closed, with one row per entry from {@link #MENU_ATTACK} to {@link #MENU_CANCEL} (top first),
+ *   <li>The minimenu, closed, with one row per entry from {@link #MENU_ATTACK} to {@link #MENU_CANCEL} (top first;
+ *       the Drop row's node keeps the two sub-option rows {@link #MENU_DROP_ONE} and {@link #MENU_DROP_ALL} as its
+ *       children),
  *       the row of {@link #MENU_USE_ON_GOBLIN} being a submenu group holding it. The last entry run is "Cancel", 100
  *       cycles ago.
  * </ul>
@@ -1277,6 +1279,7 @@ public final class GameFixture {
         memory.putInt(item + map.offset("IfType.linkObjCount"), 1000);
         memory.putSsoString(item + map.offset("IfType.baseOpName"), "Coins");
         ops(item, "Use", "", "Drop");
+        subOps(item, 3, "One", "All");
         long layer = component(inv, 1, -1, inv, WidgetType.LAYER, 58, 8, 36, 32);
         memory.putInt(layer + map.offset("IfType.layerIdXMin"), 2);
         memory.putInt(layer + map.offset("IfType.layerIdXMax"), 2);
@@ -1383,6 +1386,31 @@ public final class GameFixture {
         }
         memory.putInt(component + map.offset("IfType.opCount"), names.length);
         memory.putLong(component + map.offset("IfType.opNames"), array);
+    }
+
+    /**
+     * Gives one of a component's ops a sub-menu: the sub-option table holds one vector of strings per op up to the
+     * op, the others empty.
+     *
+     * @param component the component
+     * @param op        the op, 1-based
+     * @param names     the sub-option names
+     */
+    private void subOps(long component, int op, String... names) {
+        int size = map.container("string.size");
+        long strings = ifSlots;
+        ifSlots += (long) names.length * size;
+        for (int i = 0; i < names.length; i++) {
+            memory.putSsoString(strings + (long) i * size, names[i]);
+        }
+        long table = ifSlots;
+        ifSlots += (long) op * 24;
+        long vector = table + (long) (op - 1) * 24;
+        memory.putLong(vector, strings);
+        memory.putLong(vector + 8, strings + (long) names.length * size);
+        memory.putLong(vector + 16, strings + (long) names.length * size);
+        memory.putInt(component + map.offset("IfType.subOpCount"), op);
+        memory.putLong(component + map.offset("IfType.subOpNames"), table);
     }
 
     private long slots(long... components) {
@@ -1708,23 +1736,34 @@ public final class GameFixture {
     /**
      * The minimenu's entries, by the row they show in from the top. {@link #MENU_ATTACK} (NPC 5's second op) is the
      * left-click entry. Targets too long to sit inline (the NPC entries') sit in the entry's own buffer.
+     * {@link #MENU_DROP_ONE} and {@link #MENU_DROP_ALL} are the sub-option rows under the Drop row: children of its
+     * node, not rows of their own, which the reader lists right after it.
      */
     public static final int MENU_ATTACK = 0;
     public static final int MENU_CHOP = 1;
     public static final int MENU_TAKE = 2;
     public static final int MENU_DROP = 3;
-    public static final int MENU_TRADE = 4;
-    public static final int MENU_EXAMINE = 5;
-    public static final int MENU_USE_ON_GOBLIN = 6;
-    public static final int MENU_WALK = 7;
-    public static final int MENU_CANCEL = 8;
-    public static final int MENU_ROWS = 9;
+    public static final int MENU_DROP_ONE = 4;
+    public static final int MENU_DROP_ALL = 5;
+    public static final int MENU_TRADE = 6;
+    public static final int MENU_EXAMINE = 7;
+    public static final int MENU_USE_ON_GOBLIN = 8;
+    public static final int MENU_WALK = 9;
+    public static final int MENU_CANCEL = 10;
+    public static final int MENU_ROWS = 11;
+
+    /**
+     * The top-level rows, in order: every entry but the sub-option rows.
+     */
+    private static final int[] MENU_TOP_ROWS = {MENU_ATTACK, MENU_CHOP, MENU_TAKE, MENU_DROP, MENU_TRADE, MENU_EXAMINE,
+            MENU_USE_ON_GOBLIN, MENU_WALK, MENU_CANCEL};
 
     public static final long MENU = 0xb70000000L;
     private static final long MENU_LIST = 0xb71000000L;
     private static final long MENU_ENTRIES = 0xb72000000L;
     private static final long MENU_NODES = 0xb73000000L;
     private static final long MENU_CHILDREN = 0xb74000000L;
+    private static final long MENU_SUB_CHILDREN = 0xb75000000L;
 
     /**
      * One native minimenu entry as the fixture writes it.
@@ -1792,6 +1831,8 @@ public final class GameFixture {
                 new MenuSpec("Chop down", "<col=00ffff>Oak", "LOC", 1, TREE_LOC, -1, BASE_X + 5, BASE_Z + 5),
                 new MenuSpec("Take", "<col=ff9040>Coins", "OBJ", 3, 995, 100, BASE_X + 3, BASE_Z + 3),
                 new MenuSpec("Drop", "<col=ff9040>Coins", "COMPONENT", 2, 149 << 16, 0, -1, -1),
+                new MenuSpec("One", "<col=ff9040>Coins", "COMPONENT", 0, 149 << 16, 0, -1, -1),
+                new MenuSpec("All", "<col=ff9040>Coins", "COMPONENT", 1, 149 << 16, 0, -1, -1),
                 new MenuSpec("Trade with", "<col=ffffff>Bob", "PLAYER", 4, -1, 9, -1, -1),
                 new MenuSpec("Examine", "<col=ffff00>Goblin<col=ff00>  (level-2)", "NPC", examine, 3029, 5, -1, -1),
                 new MenuSpec("Use", "<col=ff9040>Coins<col=ffffff> -> <col=ffff00>Goblin", "NPC", targeted, 3029, 5,
@@ -1808,26 +1849,45 @@ public final class GameFixture {
         memory.alloc(MENU_ENTRIES, MENU_ROWS * entrySize);
         memory.alloc(MENU_NODES, MENU_ROWS * nodeSize);
         memory.alloc(MENU_CHILDREN, 0x40);
+        memory.alloc(MENU_SUB_CHILDREN, 0x80);
         memory.putLong(CLIENT + map.offset("Client.minimenu"), MENU);
         memory.putLong(MENU_LIST + map.container("minimenu.list.entries"), MENU_ENTRIES);
         List<MenuSpec> specs = menuSpecs();
         for (int i = 0; i < specs.size(); i++) {
             putMenuEntry(MENU_ENTRIES + (long) i * entrySize, specs.get(i));
         }
-        int[] rows = new int[MENU_ROWS];
-        for (int i = 0; i < MENU_ROWS; i++) {
-            rows[i] = i;
-        }
-        setMenuRows(rows);
+        setMenuRows(MENU_TOP_ROWS);
         // The use-on row is a submenu group: no list, and a children vector holding the one node that shows the entry
         long child = MENU_CHILDREN + 0x20;
-        putMenuNode(MENU_NODES + (long) MENU_USE_ON_GOBLIN * nodeSize, 0, 0, MENU_CHILDREN);
+        putMenuNode(MENU_NODES + (long) topRow(MENU_USE_ON_GOBLIN) * nodeSize, 0, 0, MENU_CHILDREN);
         memory.putLong(MENU_CHILDREN, child);
         memory.putLong(MENU_CHILDREN + 8, child + nodeSize);
         putMenuNode(child, MENU_LIST, MENU_USE_ON_GOBLIN, 0);
+        // The Drop row keeps its sub-option rows as its node's children: a vector of two nodes of the list
+        long subNodes = MENU_SUB_CHILDREN + 0x20;
+        putMenuNode(MENU_NODES + (long) topRow(MENU_DROP) * nodeSize, MENU_LIST, MENU_DROP, MENU_SUB_CHILDREN);
+        memory.putLong(MENU_SUB_CHILDREN, subNodes);
+        memory.putLong(MENU_SUB_CHILDREN + 8, subNodes + 2L * nodeSize);
+        putMenuNode(subNodes, MENU_LIST, MENU_DROP_ONE, 0);
+        putMenuNode(subNodes + nodeSize, MENU_LIST, MENU_DROP_ALL, 0);
         putMenuEntry(MENU + map.offset("Minimenu.clicked"), specs.get(MENU_CANCEL));
         setMenuClickCycles(100);
         setMenuOpen(false);
+    }
+
+    /**
+     * Which top-level row an entry sits in.
+     *
+     * @param entry the entry, one of {@link #MENU_TOP_ROWS}
+     * @return its row from the top
+     */
+    private static int topRow(int entry) {
+        for (int i = 0; i < MENU_TOP_ROWS.length; i++) {
+            if (MENU_TOP_ROWS[i] == entry) {
+                return i;
+            }
+        }
+        throw new IllegalArgumentException("not a top-level row: " + entry);
     }
 
     private void putMenuNode(long node, long list, long index, long children) {

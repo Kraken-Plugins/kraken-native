@@ -18,8 +18,9 @@ import java.util.Set;
  * them from {@link Client#getMenuEntries()}, or from the menu events.
  *
  * <p>A snapshot of one read of the client's entry: the text, ids and parameters are as of that read. Two entries are
- * equal when the client's entries were: the same option, target, action and identifier, and the same world tile (for
- * a tile, loc or ground item, whose parameters follow from it and the map base) or else the same parameters.
+ * equal when the client's entries were: the same option, target, action, identifier and sub-option, and the same
+ * world tile (for a tile, loc or ground item, whose parameters follow from it and the map base) or else the same
+ * parameters.
  * {@link #getNpc()}, {@link #getPlayer()}, {@link #getActor()}, {@link #getWidget()} and {@link #getItemId()} look
  * their object up in the game when called.
  *
@@ -33,13 +34,16 @@ import java.util.Set;
  *       the tile, not the mouse position, so these are scene coordinates.
  *   <li>Component actions: param1 is the component's packed id ({@code group << 16 | child}), param0 its dynamic child
  *       index (-1 for none); for {@link MenuAction#CC_OP} and {@link MenuAction#CC_OP_LOW_PRIORITY} the identifier is
- *       the op, 1-10.
+ *       the op, 1-10. A row of the sub-menu an op opens (the op's sub-options, {@link Widget#getSubOptions}) is an
+ *       entry of that op with {@link #getSubOp()} set to the sub-option, 1-based; the client lists it right after
+ *       the op's own row.
  *   <li>{@link MenuAction#CANCEL} and anything {@link MenuAction#UNKNOWN}: identifier and parameters are 0.
  * </ul>
  *
  * <p>Not provided: the setters, {@code onClick}, {@code isForceLeftClick}, {@code getWorldViewId},
- * {@code isDeprioritized}, {@code isItemOp}, {@code getItemOp} and the submenu methods. A row that opens a submenu
- * reads as the submenu's first entry, the one the client runs when that row is left-clicked.
+ * {@code isDeprioritized}, {@code isItemOp}, {@code getItemOp} and the submenu methods. A row that only groups
+ * entries (a selected item's targets) reads as the group's first entry, the one the client runs when that row is
+ * left-clicked.
  */
 @Getter
 @ToString(onlyExplicitlyIncluded = true)
@@ -104,6 +108,12 @@ public final class MenuEntry {
     private final WorldPoint worldLocation;
 
     /**
+     * The sub-option of a component op's sub-menu row, 1-based; 0 for every other entry.
+     */
+    @ToString.Include
+    private final int subOp;
+
+    /**
      * Builds an entry from its fields as the client keeps them, after the reader has worked out the action.
      * Internal: the menu reader makes these; plugins get them from the client and the events.
      *
@@ -118,6 +128,25 @@ public final class MenuEntry {
      */
     public MenuEntry(Client client, String option, String target, int identifier, MenuAction type, int param0,
                      int param1, WorldPoint worldLocation) {
+        this(client, option, target, identifier, type, param0, param1, worldLocation, 0);
+    }
+
+    /**
+     * Builds a sub-option row's entry: a component op's entry with the sub-option the row runs. Internal: the menu
+     * reader makes these.
+     *
+     * @param client        the client the lookups read through
+     * @param option        the option text
+     * @param target        the target text, with colour tags
+     * @param identifier    the identifier
+     * @param type          the action
+     * @param param0        the first parameter
+     * @param param1        the second parameter
+     * @param worldLocation the subject's world tile, or null when it has none
+     * @param subOp         the sub-option, 1-based, or 0 for none
+     */
+    public MenuEntry(Client client, String option, String target, int identifier, MenuAction type, int param0,
+                     int param1, WorldPoint worldLocation, int subOp) {
         this.client = client;
         this.option = option;
         this.target = target;
@@ -126,6 +155,7 @@ public final class MenuEntry {
         this.param0 = param0;
         this.param1 = param1;
         this.worldLocation = worldLocation;
+        this.subOp = subOp;
     }
 
     @Override
@@ -136,16 +166,17 @@ public final class MenuEntry {
         if (!(o instanceof MenuEntry other)) {
             return false;
         }
-        return identifier == other.identifier && type == other.type && option.equals(other.option)
-                && target.equals(other.target) && Objects.equals(worldLocation, other.worldLocation)
+        return identifier == other.identifier && type == other.type && subOp == other.subOp
+                && option.equals(other.option) && target.equals(other.target)
+                && Objects.equals(worldLocation, other.worldLocation)
                 && (worldLocation != null || param0 == other.param0 && param1 == other.param1);
     }
 
     @Override
     public int hashCode() {
         return worldLocation != null
-                ? Objects.hash(option, target, identifier, type, worldLocation)
-                : Objects.hash(option, target, identifier, type, param0, param1);
+                ? Objects.hash(option, target, identifier, type, subOp, worldLocation)
+                : Objects.hash(option, target, identifier, type, subOp, param0, param1);
     }
 
     /**

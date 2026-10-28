@@ -144,3 +144,100 @@ class MenuOpsTests(unittest.TestCase):
         self.assertEqual({k: v[0] for k, v in found.items()},
                          {"Byte": self.WRITE_BYTE, "Int": self.WRITE_INT, "String": self.WRITE_STRING})
         self.assertEqual(found["String"][3], menuops.STRING_WRITER_MIN_USES, "every use counted")
+
+
+VARPS = 0x155e540
+
+
+class ComponentBodiesTests(unittest.TestCase):
+    """The component rows' bodies told apart by what they do, over a builder taking every body's address: the op
+    body and its sender, the select, targeted and pause bodies, the three old-style button bodies and the close stub;
+    and the sub-option tables read from the op row builder."""
+    BUILDER, OP_BUILDER, OTHER_BUILDER, GETTER = 0x1000, 0x2000, 0x2100, 0x3000
+    BUTTON, TOGGLE, SET, CLOSE_STUB, CLOSE, PAUSE, SELECT, TARGET, OP_BODY, OP_SENDER = \
+        0x4000, 0x4100, 0x4200, 0x4300, 0x4400, 0x4500, 0x4600, 0x4700, 0x4800, 0x4900
+    CREATE, SEND, RELEASE, WRITE_INT = 0x8000, 0xa000, 0xb000, 0xf200
+    IMAGE = 0x140000000
+
+    def button(self, tail):
+        """A button body: write the component ([RDX]) into the 0x4e packet, send, then the tail."""
+        return ["MOV RDI,RDX", *packet(0x4e, self.IMAGE + self.CREATE), "LEA RCX,[RSP + 0x48]", "MOV EDX,dword ptr [RDI]",
+                f"CALL {self.IMAGE + self.WRITE_INT:#x}", *send(self.IMAGE + self.SEND, self.IMAGE + self.RELEASE), *tail,
+                "RET"]
+
+    def program(self):
+        bodies = (self.BUTTON, self.TOGGLE, self.SET, self.CLOSE_STUB, self.PAUSE, self.SELECT, self.TARGET, self.OP_BODY)
+        var = [f"MOV RAX,qword ptr [{self.IMAGE + VARPS:#x}]", "MOVSXD RDX,dword ptr [RDI + 0x4]", "LEA R9,[RAX + RDX*0x4]"]
+        return {
+            self.BUILDER: [f"LEA RAX,[{self.IMAGE + b:#x}]" for b in bodies] + ["RET"],
+            # the op row builder: (row, list, op); compares the op with opCount, a threshold and the sub-option count,
+            # then indexes the sub-option table with it
+            self.OP_BUILDER: ["MOVSXD RBX,R8D", "MOV RDX,qword ptr [RCX + 0x8]", "CMP dword ptr [RDX + 0x2e0],EBX",
+                              "CMP EBX,dword ptr [RDX + 0x308]", "CMP EBX,dword ptr [RDX + 0x2f8]",
+                              "MOV RSI,qword ptr [RDX + 0x300]", "LEA RCX,[RBX + RBX*0x2]", "LEA RDI,[RCX*0x8]",
+                              "ADD RSI,RDI", "MOV R8,qword ptr [RSI]", f"LEA RAX,[{self.IMAGE + self.OP_BODY:#x}]", "RET"],
+            self.OTHER_BUILDER: [f"LEA RAX,[{self.IMAGE + self.SELECT:#x}]", "RET"],
+            self.GETTER: ["RET"],
+            self.BUTTON: self.button([]),
+            self.TOGGLE: self.button(var + ["MOV EAX,0x1", "SUB EAX,dword ptr [R9]", "MOV dword ptr [R9],EAX"]),
+            self.SET: self.button(var + ["MOV R8D,dword ptr [RDI + 0x8]", "MOV dword ptr [R9],R8D"]),
+            self.CLOSE_STUB: ["MOV RCX,qword ptr [0x140e98c18]", f"JMP {self.IMAGE + self.CLOSE:#x}"],
+            self.CLOSE: ["MOV RBX,qword ptr [RCX + 0x31a0]", "MOV EDX,0x29", "LEA RCX,[RSP + 0x40]", "LEA R8,[RBX + 0xa08]",
+                         f"CALL {self.IMAGE + self.CREATE:#x}", "MOV RDX,RAX", "MOV RCX,RBX", f"CALL {self.IMAGE + self.SEND:#x}",
+                         "LEA RCX,[RSP + 0x48]", f"CALL {self.IMAGE + self.RELEASE:#x}", "RET"],
+            self.PAUSE: [*packet(0x10, self.IMAGE + self.CREATE), *send(self.IMAGE + self.SEND, self.IMAGE + self.RELEASE), "RET"],
+            self.SELECT: [f"CALL {self.IMAGE + self.GETTER:#x}", "RET"],
+            self.TARGET: [f"CALL {self.IMAGE + self.GETTER:#x}", *packet(0xf, self.IMAGE + self.CREATE),
+                          *send(self.IMAGE + self.SEND, self.IMAGE + self.RELEASE), "RET"],
+            self.OP_BODY: ["MOVZX EAX,byte ptr [RDX + 0x14]", "MOV R9D,dword ptr [RDX + 0x8]", "MOV R8D,dword ptr [RDX + 0x4]",
+                           "MOV byte ptr [RSP + 0x30],AL", "MOV EAX,dword ptr [RDX + 0x10]", "MOV dword ptr [RSP + 0x28],EAX",
+                           "MOV EAX,dword ptr [RDX + 0xc]", "MOV EDX,dword ptr [RDX]", "MOV dword ptr [RSP + 0x20],EAX",
+                           f"CALL {self.IMAGE + self.OP_SENDER:#x}", "RET"],
+            self.OP_SENDER: [*packet(0x26, self.IMAGE + self.CREATE), *send(self.IMAGE + self.SEND, self.IMAGE + self.RELEASE),
+                             "RET"],
+            self.CREATE: ["RET"], self.SEND: ["RET"], self.RELEASE: ["RET"], self.WRITE_INT: writer(4),
+        }
+
+    def session(self):
+        model = FakeModel(self.program())
+        values = {"IfType.opCount": 0x2e0, "IfType.opNames": 0x2e8}
+        s = SimpleNamespace(model=model, prov=Provenance(model), values=values, notes=[])
+        s.value = lambda key: s.values[key]
+        s.evidence = lambda rva, fn=None, slot="disp": {"insn": rva, "fn": fn, "text": "", "slot": slot}
+        return s
+
+    def sizes(self):
+        return {0x4e: 4, 0x29: 0, 0x10: 6, 0xf: 16, 0x26: 9}
+
+    def test_each_component_body_is_told_by_what_it_does(self):
+        s = self.session()
+        bodies = menuops._bodies(s.model, self.BUILDER)
+        self.assertEqual(set(bodies), {self.BUTTON, self.TOGGLE, self.SET, self.CLOSE_STUB, self.PAUSE, self.SELECT,
+                                       self.TARGET, self.OP_BODY})
+        out = {k: v[0] for k, v in menuops._component_bodies(s, bodies, set(), self.GETTER, self.CREATE, self.sizes()).items()}
+        self.assertEqual(out, {
+            "functions.menuComponentOp": self.OP_BODY, "functions.menuComponentTargetOp": self.TARGET,
+            "functions.menuComponentSelect": self.SELECT, "functions.menuComponentPause": self.PAUSE,
+            "functions.menuComponentButton": self.BUTTON, "functions.menuComponentToggle": self.TOGGLE,
+            "functions.menuComponentSet": self.SET, "functions.menuComponentClose": self.CLOSE_STUB})
+        self.assertEqual(s.notes, [])
+
+    def test_the_button_bodies_are_told_by_their_var_store(self):
+        s = self.session()
+        self.assertEqual(menuops._button_key(s, self.BUTTON), "functions.menuComponentButton")
+        self.assertEqual(menuops._button_key(s, self.TOGGLE), "functions.menuComponentToggle")
+        self.assertEqual(menuops._button_key(s, self.SET), "functions.menuComponentSet")
+        self.assertTrue(menuops._button_packet(s, self.BUTTON, self.CREATE, self.sizes()))
+        self.assertFalse(menuops._button_packet(s, self.PAUSE, self.CREATE, self.sizes()), "a six-byte packet")
+        self.assertFalse(menuops._button_packet(s, self.CLOSE_STUB, self.CREATE, self.sizes()), "creates nothing itself")
+        self.assertTrue(menuops._is_stub(s.model, self.CLOSE_STUB))
+        self.assertFalse(menuops._is_stub(s.model, self.CLOSE), "ends in a return")
+
+    def test_the_sub_option_tables_follow_the_op_count_in_the_op_row_builder(self):
+        s = self.session()
+        out = {k: v[0] for k, v in menuops._sub_ops(s, [self.OTHER_BUILDER, self.OP_BUILDER], self.OP_BODY).items()}
+        self.assertEqual(out, {"IfType.subOpCount": 0x2f8, "IfType.subOpNames": 0x300},
+                         "the threshold at 0x308 is compared with the op too, but no table follows it")
+        self.assertEqual(s.notes, [])
+        self.assertEqual(menuops._sub_ops(s, [self.OTHER_BUILDER], self.OP_BODY), {})
+        self.assertIn("menu ops: no component builder takes the op body's address", s.notes)

@@ -27,17 +27,24 @@ bodies take the op body's subject fields ({index} or {level, x, z, id}). The com
 builders; their bodies the API calls take {i32 component, i32 slot, ...}: the component op ({component, slot, op,
 subOp, objId, u8 flag} handed on to a sender), the targeted op ({component, slot, objId}, the 16-byte packet), the
 select ("Use": {component, slot, objId}, no packet, stores the selection) and the pause button ({component, slot},
-the 6-byte packet).
+the 6-byte packet). The old-style button bodies take {component} (the slot is -1 in the body) and send the 4-byte
+button packet: the plain button checks the op is enabled first and stores nothing after the send, the toggle stores
+1 - value into the var the component names, the set stores the component's own value; the close body is the stub
+that tail-calls the function sending the size-0 close packet. The op row builder also lists a component's sub-option
+names (the rows a sub-menu opens under an op): the count it compares the op index with and the array of vectors of
+strings it indexes by the op, next to IfType.opCount and IfType.opNames.
 
 Output keys (see `menu_ops`): functions.menuNpcOp, functions.menuLocOp, functions.menuObjOp, functions.menuPlayerOp,
 functions.menuWalk, functions.menu{Npc,Loc,Obj,Player}TargetOp, functions.menuComponentOp,
-functions.menuComponentTargetOp, functions.menuComponentSelect, functions.menuComponentPause, functions.packetCreate,
+functions.menuComponentTargetOp, functions.menuComponentSelect, functions.menuComponentPause,
+functions.menuComponentButton, functions.menuComponentToggle, functions.menuComponentSet,
+functions.menuComponentClose, IfType.subOpCount, IfType.subOpNames, functions.packetCreate,
 functions.packetWrite{Byte,Short,Int,String}, functions.packetSend, functions.packetRelease, Client.connection,
 Connection.outCipher, enums.clientProt.
 """
 from collections import Counter
 
-from .analysis.provenance import Add, Arg, Const, Deref, Global, StackAddr
+from .analysis.provenance import Add, Arg, Bin, Const, Deref, Global, StackAddr, contains
 
 MIN_OPS = 4                 # a sender builds at least this many packets (one per op)
 MOUSE_CLICK_WRITES = 3      # the mouse click packet is three shorts
@@ -61,6 +68,9 @@ COMPONENT = "COMPONENT"
 COMPONENT_OP_FIELDS = (0, 4, 8, 0xc, 0x10, 0x14)   # {component, slot, op, subOp, objId, u8 flag} handed to the sender
 TARGET_PACKET_SIZE = 16     # the component targeted op packet (two components with slots and items)
 PAUSE_PACKET_SIZE = 6       # the pause button packet (a component and its slot)
+BUTTON_PACKET_SIZE = 4      # the old-style button packet (the component's packed id)
+CLOSE_PACKET_SIZE = 0       # the close button's packet
+CLOSE_STUB_MAX_INSNS = 3    # the close body loads the client and tail-calls the function sending the packet
 WALK_FIELDS = (0, 4, 8)     # {level, x, z}, compared with the last walk target
 GETTER_MAX_INSNS = 8        # the selection getter is a few instructions around a call
 STRING_WRITER_MIN_USES = 5  # the string writer is called (buffer, chars, length, 0) at least this often
@@ -158,6 +168,9 @@ def menu_ops(session, p):
                     f"the {kind} menu builder's row body that reads the selection through {getter:#x} and builds a packet")
     if COMPONENT in bodies:
         out.update(_component_bodies(session, bodies[COMPONENT], shared, getter, create, sizes))
+        op_body = out.get("functions.menuComponentOp")
+        if op_body is not None:
+            out.update(_sub_ops(session, builders[COMPONENT], op_body[0]))
     return out
 
 
@@ -545,7 +558,14 @@ def _component_bodies(session, bodies, shared, getter, create, sizes):
     notes = {"functions.menuComponentOp": "hands {component, slot, op, subOp, objId, flag} to a packet sender",
              "functions.menuComponentTargetOp": f"reads the selection and builds a {TARGET_PACKET_SIZE}-byte packet",
              "functions.menuComponentSelect": "reads the selection and builds no packet",
-             "functions.menuComponentPause": f"builds a {PAUSE_PACKET_SIZE}-byte packet"}
+             "functions.menuComponentPause": f"builds a {PAUSE_PACKET_SIZE}-byte packet",
+             "functions.menuComponentButton": f"writes its {{component}} capture into a {BUTTON_PACKET_SIZE}-byte "
+                                              "packet and stores nothing after the send",
+             "functions.menuComponentToggle": f"writes its {{component}} capture into a {BUTTON_PACKET_SIZE}-byte "
+                                              "packet, then stores 1 - value into a var",
+             "functions.menuComponentSet": f"writes its {{component}} capture into a {BUTTON_PACKET_SIZE}-byte "
+                                           "packet, then stores the component's value into a var",
+             "functions.menuComponentClose": f"tail-calls the function building the {CLOSE_PACKET_SIZE}-byte packet"}
     found = {key: [] for key in notes}
     for body, (lea, adder) in bodies.items():
         if body in shared:
@@ -563,6 +583,10 @@ def _component_bodies(session, bodies, shared, getter, create, sizes):
             found["functions.menuComponentTargetOp"].append((body, lea, adder))
         elif not reads_selection and packet_sizes == {PAUSE_PACKET_SIZE}:
             found["functions.menuComponentPause"].append((body, lea, adder))
+        elif not reads_selection and packet_sizes == {CLOSE_PACKET_SIZE} and _is_stub(model, body):
+            found["functions.menuComponentClose"].append((body, lea, adder))
+        elif not reads_selection and _button_packet(session, body, create, sizes):
+            found[_button_key(session, body)].append((body, lea, adder))
     out = {}
     for key, rows in found.items():
         if len(rows) != 1:
@@ -572,3 +596,100 @@ def _component_bodies(session, bodies, shared, getter, create, sizes):
         out[key] = (body, [session.evidence(lea, adder, "rip")], f"the component row body that {notes[key]}")
     return out
 
+
+
+def _is_stub(model, body):
+    """Whether the body is a few instructions ending in a tail jump (the close body: load the client, jump)."""
+    insns = model.insns(body)
+    return 0 < len(insns) <= CLOSE_STUB_MAX_INSNS and insns[-1].is_jump and insns[-1].target is not None
+
+
+def _button_packet(session, body, create, sizes):
+    """Whether the body itself creates one packet, of BUTTON_PACKET_SIZE bytes, and the first call on its buffer
+    writes the body's first capture ([Arg 1], the component). The callees' packets (the plain button's op check sends
+    one of its own) don't count."""
+    model = session.model
+    calls = sorted(session.prov.facts(body).calls, key=lambda c: c.rva)
+    creates = [c for c in calls if c.target is not None and model.resolve(c.target) == create and len(c.args) > 1
+               and isinstance(c.args[0], StackAddr) and isinstance(c.args[1], Const)]
+    if len(creates) != 1 or sizes.get(creates[0].args[1].n) != BUTTON_PACKET_SIZE:
+        return False
+    buffer = StackAddr(creates[0].args[0].off + 8)
+    writes = [c for c in calls if c.target is not None and c.rva > creates[0].rva and len(c.args) > 1
+              and c.args[0] == buffer and model.resolve(c.target) != create]
+    return bool(writes) and writes[0].args[1] == Deref(Arg(1), 0, 4)
+
+
+def _button_key(session, body):
+    """Which old-style button body this is, by the var it stores after the send: none for the plain button, 1 - value
+    for the toggle, a field of the component (a dereference) for the set."""
+    stores = [st for st in session.prov.facts(body).stores if _is_var_store(st.target)]
+    if not stores:
+        return "functions.menuComponentButton"
+    value = stores[0].value
+    if isinstance(value, Bin) and value.op == "-" and value.a == Const(1):
+        return "functions.menuComponentToggle"
+    if isinstance(value, Deref):
+        return "functions.menuComponentSet"
+    return "functions.menuComponentButton"
+
+
+def _is_var_store(target):
+    """Whether a store's target is an element of an array held in a global: [[global] + index * 4], the element's
+    address computed in a register (an address-sized dereference) or in the store itself."""
+    if not isinstance(target, Deref) or target.size != 4:
+        return False
+    element = target
+    if element.index is None and isinstance(element.base, Deref) and element.base.size == 0:
+        element = element.base
+    return element.index is not None and isinstance(element.base, Deref) and isinstance(element.base.base, Global)
+
+
+def _sub_ops(session, builders, op_body):
+    """IfType.subOpCount and IfType.subOpNames from the builder of the component op rows (the one taking the op
+    body's address): it compares its op argument with IfType.opCount and with the sub-option count, both fields of the
+    same component pointer, and indexes with the op the array held as far after that count as opNames is after
+    opCount."""
+    model = session.model
+    try:
+        op_count = session.value("IfType.opCount")
+        op_names = session.value("IfType.opNames")
+    except Exception:
+        session.notes.append("menu ops: IfType.opCount and IfType.opNames are needed for the sub-option tables")
+        return {}
+    builder = next((b for b in builders if op_body in _bodies(model, b)), None)
+    if builder is None:
+        session.notes.append("menu ops: no component builder takes the op body's address")
+        return {}
+    facts = session.prov.facts(builder)
+    fields = []
+    for c in facts.cmps:
+        for a, b in ((c.a, c.b), (c.b, c.a)):
+            if isinstance(a, Deref) and a.size == 4 and a.index is None and isinstance(a.base, Deref) \
+                    and isinstance(b, Arg):
+                fields.append((a.base, b, a.off, c.rva))
+    bases = {(base, arg) for base, arg, off, _ in fields if off == op_count}
+    if len(bases) != 1:
+        session.notes.append(f"menu ops: {len(bases)} component pointers are compared with an argument at opCount")
+        return {}
+    base, arg = next(iter(bases))
+    delta = op_names - op_count
+    found = {}
+    for b, a, off, rva in fields:
+        if (b, a) != (base, arg) or off == op_count or off in found:
+            continue
+        table = Deref(base, off + delta, 8)
+        loads = [l for l in facts.loads if contains(l.value, table) and contains(l.value, arg) and l.value != table]
+        if loads:
+            found[off] = (rva, loads[0].rva)
+    if len(found) != 1:
+        session.notes.append(f"menu ops: {len(found)} other fields of the component are compared with the op argument "
+                             "and followed by a table indexed by it")
+        return {}
+    count, (rva, load_rva) = next(iter(found.items()))
+    return {"IfType.subOpCount": (count, [session.evidence(rva, builder, "disp")],
+                                  "the other component field the op row builder compares its op argument with, "
+                                  "followed by a table it indexes with the op"),
+            "IfType.subOpNames": (count + delta, [session.evidence(load_rva, builder, "disp")],
+                                  "the array of sub-option name vectors, as far after its count as opNames is after "
+                                  "opCount, indexed by the op")}

@@ -57,6 +57,7 @@ class WidgetTest {
         assertEquals("All", all.getText());
         assertEquals(0xffffff, all.getTextColor());
         assertArrayEquals(new String[]{"Switch tab"}, all.getActions());
+        assertNull(all.getSubOptions(1), "no sub-menu under its op");
         assertEquals(5, all.getRelativeX());
         assertEquals(56, all.getWidth());
         assertFalse(all.isSelfHidden());
@@ -136,6 +137,9 @@ class WidgetTest {
         assertEquals(1000, item.getItemQuantity());
         assertEquals("Coins", item.getName());
         assertArrayEquals(new String[]{"Use", null, "Drop"}, item.getActions());
+        assertArrayEquals(new String[]{"One", "All"}, item.getSubOptions(3), "the sub-menu under Drop");
+        assertNull(item.getSubOptions(1), "an op without a sub-menu");
+        assertNull(item.getSubOptions(4), "past the table");
         assertEquals(root, item.getParent());
         assertEquals(item, root.getChild(0));
         assertEquals(0, item.getChildren().length, "not a layer");

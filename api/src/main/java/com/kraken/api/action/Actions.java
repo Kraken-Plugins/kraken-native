@@ -31,13 +31,17 @@ import java.util.logging.Logger;
  *
  * <p>What is covered follows what the menu builders capture ({@link #isSupported}): an NPC's or player's op by index,
  * a loc's or ground item's op by id and world tile, Walk here by world tile ({@link #walk}), a component's op by
- * packed id, slot and item ({@link MenuAction#CC_OP}), selecting an item or spell ({@link MenuAction#WIDGET_TARGET})
- * and using the selection on a component, NPC, loc, ground item or player (the {@code WIDGET_TARGET_ON_*} actions;
- * {@link #useItemOnItem} and {@link #useItemOn} select and use in one batch), and a pause button
- * ({@link MenuAction#WIDGET_CONTINUE}, {@link #resumePause}). The dialogs the server asks the player to answer are
- * answered with the packets the client's scripts send ({@link #resumeCountDialog}, {@link #resumeNameDialog},
- * {@link #resumeStringDialog}, {@link #resumeObjDialog}), built with the client's own packet helpers. Examine, old
- * style buttons and spells cast from the spellbook have no mapped body and are not sent.
+ * packed id, slot and item ({@link MenuAction#CC_OP}), with a sub-option of the op when a sub-menu offers them,
+ * selecting an item or spell ({@link MenuAction#WIDGET_TARGET}) and using the selection on a component, NPC, loc,
+ * ground item or player (the {@code WIDGET_TARGET_ON_*} actions; {@link #useItemOnItem} and {@link #useItemOn} select
+ * an item and use it in one batch, {@link #castSpellOn} does the same for a spell), the old-style buttons (a plain
+ * button, {@link MenuAction#WIDGET_TYPE_1}; a toggle, {@link MenuAction#WIDGET_TYPE_4}; a set,
+ * {@link MenuAction#WIDGET_TYPE_5}; a close button, {@link MenuAction#WIDGET_CLOSE}, {@link #closeInterface}) and a
+ * pause button ({@link MenuAction#WIDGET_CONTINUE}, {@link #resumePause}). The dialogs the server asks the player to
+ * answer are answered with the packets the client's scripts send ({@link #resumeCountDialog},
+ * {@link #resumeNameDialog}, {@link #resumeStringDialog}, {@link #resumeObjDialog}), built with the client's own
+ * packet helpers. Examine has no body that sends anything, and the minimap walk's packet is built inline by the
+ * client's minimap click handler, so neither is sent.
  *
  * <p>Calls only reach the client while its native hook is connected ({@link #isAvailable()}); actions asked for before
  * that are dropped, not queued, since an action is only meant for the moment it is asked.
@@ -72,6 +76,7 @@ public final class Actions {
     private static final List<String> FUNCTIONS = List.of("menuNpcOp", "menuLocOp", "menuObjOp", "menuPlayerOp",
             "menuWalk", "menuNpcTargetOp", "menuLocTargetOp", "menuObjTargetOp", "menuPlayerTargetOp",
             "menuComponentOp", "menuComponentTargetOp", "menuComponentSelect", "menuComponentPause",
+            "menuComponentButton", "menuComponentToggle", "menuComponentSet", "menuComponentClose",
             "packetCreate", "packetWriteByte", "packetWriteShort", "packetWriteInt", "packetWriteString", "packetSend",
             "packetRelease");
     private static final List<String> OPCODES = List.of("EVENT_MOUSE_CLICK", "RESUME_P_COUNTDIALOG",
@@ -142,6 +147,10 @@ public final class Actions {
         ops.put(MenuAction.WIDGET_TARGET_ON_PLAYER, new Op(Subject.PLAYER_TARGET, 0));
         ops.put(MenuAction.WIDGET_TARGET_ON_GAME_OBJECT, new Op(Subject.LOC_TARGET, 0));
         ops.put(MenuAction.WIDGET_TARGET_ON_GROUND_ITEM, new Op(Subject.OBJ_TARGET, 0));
+        ops.put(MenuAction.WIDGET_TYPE_1, new Op(Subject.COMPONENT_BUTTON, 0));
+        ops.put(MenuAction.WIDGET_TYPE_4, new Op(Subject.COMPONENT_TOGGLE, 0));
+        ops.put(MenuAction.WIDGET_TYPE_5, new Op(Subject.COMPONENT_SET, 0));
+        ops.put(MenuAction.WIDGET_CLOSE, new Op(Subject.COMPONENT_CLOSE, 0));
     }
 
     /**
@@ -214,7 +223,7 @@ public final class Actions {
      * @return true if the walk was sent; false if Walk here isn't supported or the hook isn't connected
      */
     public synchronized boolean walk(WorldPoint tile) {
-        return send(actionCall(0, 0, MenuAction.WALK, 0, -1, tile));
+        return send(actionCall(0, 0, MenuAction.WALK, 0, -1, 0, tile));
     }
 
     /**
@@ -231,7 +240,7 @@ public final class Actions {
 
     /**
      * Runs a menu entry's action as a click on it would, without the mouse click packet. A component entry's item is
-     * the one its widget holds.
+     * the one its widget holds; a sub-option row's entry runs its op with that sub-option.
      *
      * @param entry the entry, from {@link Client#getMenuEntries()} or a menu event
      * @return true if the action was sent; false if it isn't supported, the hook isn't connected or the entry has no
@@ -248,7 +257,9 @@ public final class Actions {
      * plane; for Walk here the parameters are the tile's scene x and y; for a component action the first parameter
      * is the slot (-1 for none), the second the component's packed id and, for {@link MenuAction#CC_OP}, the
      * identifier is the op (1-based). A component's item is read from its widget; a ground item's count, which only
-     * the fifth op's case passes on, is sent as 0.
+     * the fifth op's case passes on, is sent as 0. The old-style button actions ({@link MenuAction#WIDGET_TYPE_1},
+     * {@link MenuAction#WIDGET_TYPE_4}, {@link MenuAction#WIDGET_TYPE_5}) take the component's packed id; the close
+     * button ({@link MenuAction#WIDGET_CLOSE}) takes nothing.
      *
      * @param param0     the first parameter
      * @param param1     the second parameter
@@ -257,7 +268,7 @@ public final class Actions {
      * @return true if the action was sent; false if it isn't supported or the hook isn't connected
      */
     public synchronized boolean menuAction(int param0, int param1, MenuAction action, int identifier) {
-        return send(actionCall(param0, param1, action, identifier, -1, null));
+        return send(actionCall(param0, param1, action, identifier, -1, 0, null));
     }
 
     /**
@@ -272,7 +283,25 @@ public final class Actions {
      * @return true if the action was sent; false if it isn't supported or the hook isn't connected
      */
     public synchronized boolean menuAction(int param0, int param1, MenuAction action, int identifier, int itemId) {
-        return send(actionCall(param0, param1, action, identifier, itemId, null));
+        return send(actionCall(param0, param1, action, identifier, itemId, 0, null));
+    }
+
+    /**
+     * Runs a component op with one of its sub-options, the rows a sub-menu opens under the op
+     * ({@link Widget#getSubOptions}); otherwise as {@link #menuAction(int, int, MenuAction, int, int)}. The client
+     * sends the sub-option op packet, which names the op and the sub-option, in place of the plain op packet.
+     *
+     * @param param0     the first parameter
+     * @param param1     the second parameter
+     * @param action     the action
+     * @param identifier the identifier
+     * @param itemId     the component's item id, or -1 to read it from the widget
+     * @param subOp      the sub-option, 1-based, or 0 for the op itself; only a component op takes one
+     * @return true if the action was sent; false if it isn't supported or the hook isn't connected
+     */
+    public synchronized boolean menuAction(int param0, int param1, MenuAction action, int identifier, int itemId,
+                                           int subOp) {
+        return send(actionCall(param0, param1, action, identifier, itemId, subOp, null));
     }
 
     /**
@@ -303,7 +332,7 @@ public final class Actions {
      */
     public synchronized boolean click(int canvasX, int canvasY, int param0, int param1, MenuAction action,
                                       int identifier) {
-        return clickAndRun(canvasX, canvasY, actionCall(param0, param1, action, identifier, -1, null));
+        return clickAndRun(canvasX, canvasY, actionCall(param0, param1, action, identifier, -1, 0, null));
     }
 
     /**
@@ -321,7 +350,26 @@ public final class Actions {
      */
     public synchronized boolean click(int canvasX, int canvasY, int param0, int param1, MenuAction action,
                                       int identifier, int itemId) {
-        return clickAndRun(canvasX, canvasY, actionCall(param0, param1, action, identifier, itemId, null));
+        return clickAndRun(canvasX, canvasY, actionCall(param0, param1, action, identifier, itemId, 0, null));
+    }
+
+    /**
+     * Sends a mouse click and then runs a component op with one of its sub-options. The parameters are as for
+     * {@link #menuAction(int, int, MenuAction, int, int, int)}.
+     *
+     * @param canvasX    the click's x on the game canvas
+     * @param canvasY    the click's y on the game canvas
+     * @param param0     the first parameter
+     * @param param1     the second parameter
+     * @param action     the action
+     * @param identifier the identifier
+     * @param itemId     the component's item id, or -1 to read it from the widget
+     * @param subOp      the sub-option, 1-based, or 0 for the op itself
+     * @return true if the action was sent; false if it isn't supported or the hook isn't connected
+     */
+    public synchronized boolean click(int canvasX, int canvasY, int param0, int param1, MenuAction action,
+                                      int identifier, int itemId, int subOp) {
+        return clickAndRun(canvasX, canvasY, actionCall(param0, param1, action, identifier, itemId, subOp, null));
     }
 
     /**
@@ -385,9 +433,63 @@ public final class Actions {
 
     private boolean useItemOn(int componentId, int slot, int itemId, int param0, int param1, MenuAction targeted,
                               int identifier, int targetItemId, WorldPoint where) {
-        NativeCall select = actionCall(slot, componentId, MenuAction.WIDGET_TARGET, 0, itemId, null);
-        NativeCall use = actionCall(param0, param1, targeted, identifier, targetItemId, where);
+        NativeCall select = actionCall(slot, componentId, MenuAction.WIDGET_TARGET, 0, itemId, 0, null);
+        NativeCall use = actionCall(param0, param1, targeted, identifier, targetItemId, 0, where);
         return select != null && use != null && send(List.of(select, use));
+    }
+
+    /**
+     * Casts a spell on a menu entry's subject, as the spell's Cast and a click on the subject do: the spell's
+     * component is selected (with no slot and no item, as the spellbook's rows select it) and the targeted op is run
+     * on the subject, in one batch. The targeted packet carries the spell's component with -1 for the slot and the
+     * item, which is what the client sends for a spell. The entry can be the subject's targeted entry or any of its
+     * plain ops; only its subject matters. High Alchemy on an inventory item is the item's component entry; a spell on
+     * an NPC its NPC entry.
+     *
+     * @param spellComponentId the packed id of the spell's component in the spellbook
+     * @param target           the entry of the NPC, loc, ground item, player or component to cast the spell on
+     * @return true if both were sent; false if selecting or the targeted op isn't supported, the hook isn't connected
+     * or the entry has no world tile its subject kind needs
+     */
+    public synchronized boolean castSpellOn(int spellComponentId, MenuEntry target) {
+        MenuAction targeted = targeted(target.getType());
+        if (targeted == null) {
+            return false;
+        }
+        return useItemOn(spellComponentId, -1, -1, target.getParam0(), target.getParam1(), targeted,
+                target.getIdentifier(), target.getItemId(), target.getWorldLocation());
+    }
+
+    /**
+     * Casts a spell on a subject given by its action parameters, as {@link #castSpellOn(int, MenuEntry)} with the
+     * parameters of {@link #menuAction(int, int, MenuAction, int, int)}: for an inventory item, the slot, the
+     * inventory's packed id, {@link MenuAction#WIDGET_TARGET_ON_WIDGET} and the item id; for an NPC, its index and
+     * {@link MenuAction#WIDGET_TARGET_ON_NPC}.
+     *
+     * @param spellComponentId the packed id of the spell's component in the spellbook
+     * @param param0           the subject's first parameter
+     * @param param1           the subject's second parameter
+     * @param action           the subject's action, targeted or plain
+     * @param identifier       the subject's identifier
+     * @param targetItemId     the item of a component subject, or -1
+     * @return true if both were sent
+     */
+    public synchronized boolean castSpellOn(int spellComponentId, int param0, int param1, MenuAction action,
+                                            int identifier, int targetItemId) {
+        MenuAction targeted = targeted(action);
+        return targeted != null
+                && useItemOn(spellComponentId, -1, -1, param0, param1, targeted, identifier, targetItemId, null);
+    }
+
+    /**
+     * Closes the open modal interface as a close button ({@link MenuAction#WIDGET_CLOSE}) does: the client sends the
+     * close packet and closes the interface. The button's row body reads nothing from its row, so no component is
+     * needed.
+     *
+     * @return true if the action was sent; false if it isn't supported or the hook isn't connected
+     */
+    public synchronized boolean closeInterface() {
+        return send(actionCall(-1, 0, MenuAction.WIDGET_CLOSE, 0, -1, 0, null));
     }
 
     /**
@@ -441,7 +543,7 @@ public final class Actions {
      * @return true if the action was sent; false if it isn't supported or the hook isn't connected
      */
     public synchronized boolean resumePause(int componentId, int slot) {
-        return send(actionCall(slot, componentId, MenuAction.WIDGET_CONTINUE, 0, -1, null));
+        return send(actionCall(slot, componentId, MenuAction.WIDGET_CONTINUE, 0, -1, 0, null));
     }
 
     private boolean clickAndRun(int canvasX, int canvasY, NativeCall action) {
@@ -570,7 +672,7 @@ public final class Actions {
 
     private NativeCall entryCall(MenuEntry entry) {
         return actionCall(entry.getParam0(), entry.getParam1(), entry.getType(), entry.getIdentifier(),
-                entry.getItemId(), entry.getWorldLocation());
+                entry.getItemId(), entry.getSubOp(), entry.getWorldLocation());
     }
 
     /**
@@ -581,11 +683,13 @@ public final class Actions {
      * @param action     the action
      * @param identifier the identifier
      * @param itemId     a component's item id, or -1 to read it from the widget
+     * @param subOp      a component op's sub-option, 1-based, or 0 for none
      * @param where      the subject's world tile, or null to take it from the parameters as scene coordinates
-     * @return the call, or null if the action isn't supported, the tile can't be worked out or a component op is
-     * out of range
+     * @return the call, or null if the action isn't supported, the tile can't be worked out or a component op or
+     * sub-option is out of range
      */
-    NativeCall actionCall(int param0, int param1, MenuAction action, int identifier, int itemId, WorldPoint where) {
+    NativeCall actionCall(int param0, int param1, MenuAction action, int identifier, int itemId, int subOp,
+                          WorldPoint where) {
         Op op = ops.get(action);
         if (op == null) {
             return null;
@@ -594,6 +698,9 @@ public final class Actions {
         Long rva = functions.get(subject.function());
         if (rva == null) {
             return null;
+        }
+        if (subject == Subject.COMPONENT_CLOSE) {
+            return NativeCall.to(rva).imm(0).imm(0).build();
         }
         ByteBuffer captures = ByteBuffer.allocate(subject.captureBytes()).order(ByteOrder.LITTLE_ENDIAN);
         switch (subject) {
@@ -617,15 +724,19 @@ public final class Actions {
                 }
             }
             case COMPONENT -> {
-                if (identifier < 1) {
+                if (identifier < 1 || subOp < 0) {
                     return null;
                 }
-                captures.putInt(param1).putInt(param0).putInt(identifier).putInt(0)
+                captures.putInt(param1).putInt(param0).putInt(identifier).putInt(subOp)
                         .putInt(componentItem(param1, param0, itemId)).putInt(0);
             }
             case COMPONENT_TARGET, COMPONENT_SELECT ->
                     captures.putInt(param1).putInt(param0).putInt(componentItem(param1, param0, itemId));
             case COMPONENT_PAUSE -> captures.putInt(param1).putInt(param0);
+            case COMPONENT_BUTTON, COMPONENT_TOGGLE, COMPONENT_SET -> captures.putInt(param1);
+            case COMPONENT_CLOSE -> {
+                return null;
+            }
         }
         return NativeCall.to(rva).imm(0).data(captures.array()).build();
     }
@@ -647,7 +758,8 @@ public final class Actions {
             case PLAYER, PLAYER_TARGET -> MenuAction.WIDGET_TARGET_ON_PLAYER;
             case LOC, LOC_TARGET -> MenuAction.WIDGET_TARGET_ON_GAME_OBJECT;
             case OBJ, OBJ_TARGET -> MenuAction.WIDGET_TARGET_ON_GROUND_ITEM;
-            case COMPONENT, COMPONENT_TARGET, COMPONENT_SELECT, COMPONENT_PAUSE -> MenuAction.WIDGET_TARGET_ON_WIDGET;
+            case COMPONENT, COMPONENT_TARGET, COMPONENT_SELECT, COMPONENT_PAUSE, COMPONENT_BUTTON, COMPONENT_TOGGLE,
+                 COMPONENT_SET, COMPONENT_CLOSE -> MenuAction.WIDGET_TARGET_ON_WIDGET;
             case TILE -> null;
         };
     }
@@ -753,7 +865,27 @@ public final class Actions {
         /**
          * A pause button: {@code {i32 component, i32 slot}}.
          */
-        COMPONENT_PAUSE("menuComponentPause", 8);
+        COMPONENT_PAUSE("menuComponentPause", 8),
+
+        /**
+         * An old-style plain button: {@code {i32 component}}.
+         */
+        COMPONENT_BUTTON("menuComponentButton", 4),
+
+        /**
+         * An old-style toggle button: {@code {i32 component}}.
+         */
+        COMPONENT_TOGGLE("menuComponentToggle", 4),
+
+        /**
+         * An old-style set button: {@code {i32 component}}.
+         */
+        COMPONENT_SET("menuComponentSet", 4),
+
+        /**
+         * An old-style close button: no captures, the body reads none.
+         */
+        COMPONENT_CLOSE("menuComponentClose", 0);
 
         private final String function;
         private final int captureBytes;

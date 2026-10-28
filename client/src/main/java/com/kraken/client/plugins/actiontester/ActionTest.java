@@ -78,6 +78,28 @@ public enum ActionTest {
     USE_ITEM_ON_PLAYER("Use item on a player"),
 
     /**
+     * Casts the spell given as the target (a spellbook component as group:child, or a spell's name) on the first
+     * inventory item with the cast-on name.
+     */
+    CAST_SPELL_ON_ITEM("Cast a spell on an inventory item (target spell, cast on)"),
+
+    /**
+     * Casts the spell given as the target on the nearest NPC with the cast-on name.
+     */
+    CAST_SPELL_ON_NPC("Cast a spell on an NPC (target spell, cast on)"),
+
+    /**
+     * Clicks an old-style button given as group:child: a plain button, a toggle, a set or a close button, by the
+     * component's button type.
+     */
+    WIDGET_BUTTON("Old-style button (target component)"),
+
+    /**
+     * Closes the open modal interface as its close button would.
+     */
+    CLOSE_INTERFACE("Close the open interface"),
+
+    /**
      * Clicks a pause button: the target component, or the first visible one when no target is given.
      */
     PAUSE_BUTTON("Pause button (target component, or the first shown)"),
