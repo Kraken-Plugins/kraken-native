@@ -151,7 +151,10 @@ other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED
   class simple name lower-cased. Tests build the session injector from `new GameSession(memory, mapping, bus)`.
 - Config (`plugins.config`) follows RuneLite's: `ConfigManager.getConfig` proxies a `@ConfigGroup` interface; changes
   post `events.ConfigChanged`; `ui.ConfigPanel` generates the settings page. Supported types are listed on
-  `ConfigManager`.
+  `ConfigManager`. The page is dynamic: `@ShowIf(key, values)` shows an item or section only while another item has
+  one of the values (several must all hold, a chain nests; `ConfigManager.isShown` decides, for tests),
+  `@Suggestions` gives a `String` item a drop-down the plugin fills when it opens (`events.ConfigSuggestionsRequested`,
+  answered with `suggest`), and a `Button` item is a button that posts `events.ConfigButtonClicked`.
 - `KrakenConfig` is the Settings page (window, frame rate, overlay look) and, in hidden items, the layout the next
   launch restores: `KrakenFrame` saves its bounds a second after it stops moving, and the sidebar and console save
   their own state. `FrameRates` holds the game's frame rate (the DLL's FPS reports) and the overlays', and decides the
@@ -165,7 +168,7 @@ other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED
   `OverlayManager` saves placements in settings group `overlays` and restores them on `add`. `plugins.npchighlight`,
   `plugins.objectmarkers`, `plugins.tilemarkers` (game highlights plus a fallback overlay), `plugins.tickcounter`
   `plugins.npcclicker` (menu actions) and `plugins.actiontester` (every action and packet, run from its settings
-  page) are the worked examples.
+  page, which shows only the chosen action's settings and suggests what is loaded) are the worked examples.
 - Dev tools: subclass `DevTool<S>` and list it in `DevToolCatalog.create()`. `read(api)` runs on the poll thread and
   returns an immutable snapshot; `paintOverlay`/`createView` run on the EDT. A tool reads only while it is showing.
   `PlannedTool` entries hold spots for features the API can't read yet. Event-driven tools subscribe to

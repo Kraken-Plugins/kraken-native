@@ -23,14 +23,17 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The {@link ConfigManager}: the settings file (values survive a restart; writes are delayed and atomic), config
- * proxies (defaults, stored values of each type, setters), {@link ConfigChanged}, and descriptors.
+ * proxies (defaults, stored values of each type, setters), {@link ConfigChanged}, descriptors, and what the settings
+ * page shows by the {@link ShowIf} conditions.
  */
 class ConfigManagerTest {
 
@@ -121,6 +124,100 @@ class ConfigManagerTest {
     }
 
     interface NotAConfig extends Config {
+    }
+
+    enum Mode {
+        OFF, BASIC, FULL
+    }
+
+    @ConfigGroup("shown")
+    interface ShownConfig extends Config {
+
+        @ConfigSection(name = "Extras", description = "", position = 10)
+        String extras = "extras";
+
+        @ShowIf(key = "mode", values = {"FULL"})
+        @ConfigSection(name = "Full", description = "", position = 20)
+        String full = "full";
+
+        @ConfigItem(keyName = "mode", name = "Mode", description = "", position = 0)
+        default Mode mode() {
+            return Mode.OFF;
+        }
+
+        @ShowIf(key = "mode", values = {"BASIC", "FULL"})
+        @ConfigItem(keyName = "outline", name = "Outline", description = "", position = 1)
+        default boolean outline() {
+            return false;
+        }
+
+        @ShowIf(key = "outline")
+        @ConfigItem(keyName = "width", name = "Width", description = "", position = 2)
+        default int width() {
+            return 1;
+        }
+
+        @ShowIf(key = "mode", values = {"FULL"})
+        @ShowIf(key = "outline", values = {"false"})
+        @Suggestions
+        @ConfigItem(keyName = "fill", name = "Fill", description = "", position = 3)
+        default String fill() {
+            return "";
+        }
+
+        @ConfigItem(keyName = "shapes", name = "Shapes", description = "", position = 4)
+        default Set<Shape> shapes() {
+            return EnumSet.noneOf(Shape.class);
+        }
+
+        @ShowIf(key = "shapes", values = {"CIRCLE", "TRIANGLE"})
+        @ConfigItem(keyName = "radius", name = "Radius", description = "", position = 5)
+        default int radius() {
+            return 2;
+        }
+
+        @ShowIf(key = "mode", values = {"BASIC"})
+        @ConfigItem(keyName = "extra", name = "Extra", description = "", position = 11, section = extras)
+        default boolean extra() {
+            return false;
+        }
+
+        @ConfigItem(keyName = "note", name = "Note", description = "", position = 21, section = full)
+        default String note() {
+            return "";
+        }
+
+        @ShowIf(key = "missing")
+        @ConfigItem(keyName = "orphan", name = "Orphan", description = "", position = 30)
+        default boolean orphan() {
+            return false;
+        }
+
+        @ShowIf(key = "loopB")
+        @ConfigItem(keyName = "loopA", name = "Loop A", description = "", position = 31)
+        default boolean loopA() {
+            return true;
+        }
+
+        @ShowIf(key = "loopA")
+        @ConfigItem(keyName = "loopB", name = "Loop B", description = "", position = 32)
+        default boolean loopB() {
+            return true;
+        }
+
+        @ConfigItem(keyName = "state", name = "State", description = "", hidden = true)
+        default boolean state() {
+            return true;
+        }
+
+        @ShowIf(key = "state")
+        @ConfigItem(keyName = "byState", name = "By state", description = "", position = 33)
+        default boolean byState() {
+            return false;
+        }
+
+        @ConfigItem(keyName = "go", name = "Go", description = "", position = 40)
+        Button go();
     }
 
     @BeforeEach
@@ -308,6 +405,107 @@ class ConfigManagerTest {
         assertNotNull(descriptor.getItems().get(3).getAlpha());
         assertEquals("java.util.Set<com.kraken.client.plugins.config.ConfigManagerTest$Shape>",
                 descriptor.getItems().get(9).getType().getTypeName());
+    }
+
+    @Test
+    void anItemShowsWhileTheItemItNamesHasOneOfTheValues() {
+        ShownConfig config = manager.getConfig(ShownConfig.class);
+        assertFalse(manager.isShown(config, "outline"), "mode is OFF");
+        manager.setConfiguration("shown", "mode", Mode.BASIC);
+        assertTrue(manager.isShown(config, "outline"));
+        manager.setConfiguration("shown", "mode", Mode.FULL);
+        assertTrue(manager.isShown(config, "outline"), "any of the values shows it");
+        assertTrue(manager.isShown(config, "mode"), "an item without conditions always shows");
+    }
+
+    @Test
+    void aSwitchShowsItsItemsWhileOnAndAChainNests() {
+        ShownConfig config = manager.getConfig(ShownConfig.class);
+        manager.setConfiguration("shown", "mode", Mode.BASIC);
+        assertFalse(manager.isShown(config, "width"), "outline is off");
+        manager.setConfiguration("shown", "outline", true);
+        assertTrue(manager.isShown(config, "width"));
+        manager.setConfiguration("shown", "mode", Mode.OFF);
+        assertFalse(manager.isShown(config, "width"), "outline is on but not shown, so width isn't either");
+    }
+
+    @Test
+    void severalConditionsMustAllHold() {
+        ShownConfig config = manager.getConfig(ShownConfig.class);
+        manager.setConfiguration("shown", "mode", Mode.FULL);
+        assertTrue(manager.isShown(config, "fill"), "FULL, outline off");
+        manager.setConfiguration("shown", "outline", true);
+        assertFalse(manager.isShown(config, "fill"), "FULL, outline on");
+        manager.setConfiguration("shown", "mode", Mode.BASIC);
+        manager.setConfiguration("shown", "outline", false);
+        assertFalse(manager.isShown(config, "fill"), "BASIC, outline off");
+    }
+
+    @Test
+    void aSetMatchesWhenItHoldsAnyOfTheValues() {
+        ShownConfig config = manager.getConfig(ShownConfig.class);
+        assertFalse(manager.isShown(config, "radius"), "empty set");
+        manager.setConfiguration("shown", "shapes", EnumSet.of(Shape.SQUARE));
+        assertFalse(manager.isShown(config, "radius"));
+        manager.setConfiguration("shown", "shapes", EnumSet.of(Shape.SQUARE, Shape.TRIANGLE));
+        assertTrue(manager.isShown(config, "radius"));
+    }
+
+    @Test
+    void sectionsShowByTheirConditionsAndOnlyWithAnItemShown() {
+        ShownConfig config = manager.getConfig(ShownConfig.class);
+        ConfigDescriptor descriptor = manager.getConfigDescriptor(config);
+        ConfigSectionDescriptor extras = descriptor.section("extras");
+        ConfigSectionDescriptor full = descriptor.section("full");
+        assertFalse(manager.isShown(config, descriptor, extras), "its only item is hidden");
+        assertFalse(manager.isShown(config, descriptor, full), "mode isn't FULL");
+        assertFalse(manager.isShown(config, "note"), "its section isn't shown");
+
+        manager.setConfiguration("shown", "mode", Mode.BASIC);
+        assertTrue(manager.isShown(config, descriptor, extras));
+        manager.setConfiguration("shown", "mode", Mode.FULL);
+        assertFalse(manager.isShown(config, descriptor, extras));
+        assertTrue(manager.isShown(config, descriptor, full));
+        assertTrue(manager.isShown(config, "note"));
+    }
+
+    @Test
+    void conditionsThatCannotHoldHideTheirItem() {
+        ShownConfig config = manager.getConfig(ShownConfig.class);
+        assertFalse(manager.isShown(config, "orphan"), "names no item");
+        assertFalse(manager.isShown(config, "loopA"), "a loop never holds");
+        assertFalse(manager.isShown(config, "loopB"));
+        assertFalse(manager.isShown(config, "nothing"), "no such item");
+    }
+
+    @Test
+    void hiddenItemsAreNeverShownButCanDecide() {
+        ShownConfig config = manager.getConfig(ShownConfig.class);
+        assertFalse(manager.isShown(config, "state"));
+        assertTrue(manager.isShown(config, "byState"));
+        manager.setConfiguration("shown", "state", false);
+        assertFalse(manager.isShown(config, "byState"));
+    }
+
+    @Test
+    void theDescriptorCarriesConditionsSuggestionsAndButtons() {
+        ConfigDescriptor descriptor = manager.getConfigDescriptor(manager.getConfig(ShownConfig.class));
+        ConfigItemDescriptor fill = descriptor.item("fill");
+        assertEquals(List.of("mode", "outline"), fill.getShowIf().stream().map(ShowIf::key).toList());
+        assertNotNull(fill.getSuggestions());
+        assertNull(descriptor.item("width").getSuggestions());
+        assertEquals(List.of(), descriptor.item("mode").getShowIf());
+        assertEquals("mode", descriptor.section("full").getShowIf().get(0).key());
+        assertEquals(Button.class, descriptor.item("go").getType());
+        assertNull(descriptor.item("missing"));
+    }
+
+    @Test
+    void aButtonGetterReturnsTheButtonAndStoresNothing() {
+        ShownConfig config = manager.getConfig(ShownConfig.class);
+        assertSame(Button.INSTANCE, config.go());
+        assertNull(manager.getConfiguration("shown", "go"));
+        assertTrue(changes.isEmpty());
     }
 
     @Test

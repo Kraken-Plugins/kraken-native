@@ -13,52 +13,44 @@ import com.kraken.api.actor.NPC;
 import com.kraken.api.actor.Player;
 import com.kraken.api.coords.LocalPoint;
 import com.kraken.api.coords.WorldPoint;
-import com.kraken.api.definition.ItemComposition;
-import com.kraken.api.definition.NPCComposition;
-import com.kraken.api.definition.ObjectComposition;
 import com.kraken.api.eventbus.Subscribe;
 import com.kraken.api.events.GameTick;
-import com.kraken.api.gameval.InterfaceID;
-import com.kraken.api.scene.Scene;
 import com.kraken.api.scene.TileItem;
 import com.kraken.api.scene.TileObject;
 import com.kraken.api.widgets.Widget;
 import com.kraken.client.callback.ClientThread;
-import com.kraken.client.events.ConfigChanged;
+import com.kraken.client.events.ConfigButtonClicked;
+import com.kraken.client.events.ConfigSuggestionsRequested;
 import com.kraken.client.plugins.Plugin;
 import com.kraken.client.plugins.PluginDescriptor;
 import com.kraken.client.plugins.config.ConfigManager;
 import lombok.extern.java.Log;
 
 import java.awt.Rectangle;
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Optional;
-import java.util.function.Function;
+
+import static com.kraken.client.plugins.actiontester.Subjects.INVENTORY;
 
 /**
- * Exercises every action the client can run without the menu, one at a time, from the settings page: tick Run now
- * and the chosen test runs once on the client thread, saying in the console what it sent (the subject it found, the
- * op it worked out, the calls' success) or why it couldn't. A test can also repeat every so many ticks. The tests
- * cover the row bodies (NPC, player, object and ground item options, Walk here, inventory and widget options with
- * their sub-options, using an item on an item, NPC, object, ground item or player, casting a spell on an item or an
- * NPC, the old-style buttons, closing an interface, a pause button), the dialog answers (count, name, string, item),
- * the bare mouse click packet, and replaying one of the menu's own entries, which goes through the same path a menu
- * event would.
+ * Exercises every action the client can run without the menu, one at a time, from the settings page: pick an action,
+ * fill in what it acts on and click Run, and the action runs once on the client thread, saying in the console what
+ * it sent (the subject it found, the op it worked out, the calls' success) or why it couldn't. An action can also
+ * repeat every so many ticks. The actions cover the row bodies (NPC, player, object and ground item options, Walk
+ * here, inventory and widget options with their sub-options, using an item or casting a spell on an NPC, player,
+ * object, ground item or inventory item, the old-style buttons, closing an interface, a pause button), the dialog
+ * answers (count, name, string, item), the bare mouse click packet, and replaying one of the menu's own entries,
+ * which goes through the same path a menu event would.
  *
- * <p>Subjects are found by name among what is loaded, nearest to the player first. Options are matched against the
- * subject's own action list (an NPC's or object's composition, an item's inventory actions, a component's ops), or
- * taken as a number; a sub-option after a dot is matched against the op's sub-menu the same way. A spell is a
- * spellbook component, given as group:child or by the name of its {@link InterfaceID.MagicSpellbook} constant. With
- * the mouse click setting on, the click packet goes first at the subject's canvas position when it is on screen.
+ * <p>The settings page shows only the settings the chosen action uses, and their drop-downs list what the game has
+ * loaded when they open ({@link Subjects}): nearby NPCs, players, objects and ground items, the inventory's items,
+ * the subject's options, the components the action fits, the spellbook's spells, the menu's entries. Subjects are
+ * found by name, nearest to the player first. Options are matched against the subject's own action list (an NPC's or
+ * object's composition, an item's inventory actions, a component's ops), or taken as a number; a sub-option after a
+ * dot is matched against the op's sub-menu the same way. With the mouse click setting on, the click packet goes first
+ * at the subject's canvas position when it is on screen.
  *
- * <p>Threading: the settings page runs {@code onConfigChanged} on the EDT, which hands the run to the client thread
- * and unticks the switch; the tick handler and the runs are on the client thread, so the tick count needs no locking.
+ * <p>Threading: the settings page posts the Run button and the suggestion requests on the EDT, and both are handed to
+ * the client thread; the tick handler and the runs are on the client thread, so the tick count needs no locking.
  */
 @Log(topic = "kraken")
 @PluginDescriptor(
@@ -68,28 +60,6 @@ import java.util.function.Function;
         enabledByDefault = false
 )
 public class ActionTesterPlugin extends Plugin {
-
-    /**
-     * The settings key of the Run now switch.
-     */
-    static final String RUN_KEY = "runNow";
-
-    /**
-     * The inventory component the item tests look in.
-     */
-    static final int INVENTORY = InterfaceID.Inventory.ITEMS;
-
-    /**
-     * The button type of a pause ("Click here to continue") component.
-     */
-    private static final int PAUSE_BUTTON = 6;
-
-    /**
-     * The actions of the old-style button types the button test clicks: a plain button, a close button, a toggle
-     * and a set. Type 2 selects a target (the Use tests) and type 6 is the pause button (its own test).
-     */
-    private static final Map<Integer, MenuAction> BUTTONS = Map.of(1, MenuAction.WIDGET_TYPE_1,
-            3, MenuAction.WIDGET_CLOSE, 4, MenuAction.WIDGET_TYPE_4, 5, MenuAction.WIDGET_TYPE_5);
 
     /**
      * How far above an actor's tile the mouse click lands, in local units: about a model's middle.
@@ -115,10 +85,9 @@ public class ActionTesterPlugin extends Plugin {
     private ClientThread clientThread;
 
     @Inject
-    private ConfigManager configManager;
-
-    @Inject
     private ActionTesterConfig config;
+
+    private Subjects subjects;
 
     /**
      * Game ticks since the last run. Client thread only.
@@ -132,11 +101,9 @@ public class ActionTesterPlugin extends Plugin {
 
     @Override
     protected void startUp() {
+        subjects = new Subjects(client);
         clientThread.invoke(() -> sinceRun = 0);
-        if (config.runNow()) {
-            configManager.setConfiguration(ActionTesterConfig.GROUP, RUN_KEY, false);
-        }
-        log.info("Action Tester: pick a test, fill in the subject and tick Run now");
+        log.info("Action Tester: pick an action, fill in what it acts on and click Run");
     }
 
     @Override
@@ -144,30 +111,54 @@ public class ActionTesterPlugin extends Plugin {
     }
 
     @Subscribe
-    public void onConfigChanged(ConfigChanged event) {
-        if (!ActionTesterConfig.GROUP.equals(event.getGroup()) || !RUN_KEY.equals(event.getKey())
-                || !Boolean.parseBoolean(event.getNewValue())) {
-            return;
+    public void onConfigButtonClicked(ConfigButtonClicked event) {
+        if (ActionTesterConfig.GROUP.equals(event.getGroup()) && ActionTesterConfig.RUN.equals(event.getKey())) {
+            clientThread.invoke(() -> {
+                sinceRun = 0;
+                run();
+            });
         }
-        configManager.setConfiguration(ActionTesterConfig.GROUP, RUN_KEY, false);
-        clientThread.invoke(() -> {
-            sinceRun = 0;
-            run();
-        });
+    }
+
+    @Subscribe
+    public void onConfigSuggestionsRequested(ConfigSuggestionsRequested event) {
+        if (ActionTesterConfig.GROUP.equals(event.getGroup())) {
+            clientThread.invoke(() -> event.suggest(suggestions(event.getKey())));
+        }
     }
 
     @Subscribe
     public void onGameTick(GameTick event) {
         sinceRun++;
-        int interval = config.interval();
-        if (interval > 0 && sinceRun >= interval) {
+        if (config.repeat() && sinceRun >= Math.max(1, config.interval())) {
             sinceRun = 0;
             run();
         }
     }
 
     /**
-     * Runs the configured test once, if the game can take actions now.
+     * What a setting's drop-down suggests now.
+     *
+     * @param key the setting's key
+     * @return the suggestions; empty for a setting without any
+     */
+    List<String> suggestions(String key) {
+        return switch (key) {
+            case "useItem", "item" -> subjects.inventoryNames();
+            case "spell" -> subjects.spellNames();
+            case "menuEntry" -> subjects.menuEntryTexts();
+            case "npc" -> subjects.npcNames();
+            case "player" -> subjects.playerNames();
+            case "object" -> subjects.objectNames();
+            case "groundItem" -> subjects.groundItemNames();
+            case "component" -> subjects.components(config.test());
+            case "option" -> subjects.options(config.test(), config);
+            default -> List.of();
+        };
+    }
+
+    /**
+     * Runs the chosen action once, if the game can take actions now.
      *
      * @return true if something was sent (or listed)
      */
@@ -178,91 +169,47 @@ public class ActionTesterPlugin extends Plugin {
             say("the native hook isn't connected, so nothing can be sent");
             return false;
         }
-        switch (test) {
-            case LIST_MENU -> {
-                return listMenu();
-            }
-            case MENU_ENTRY -> {
-                return menuEntry(actions);
-            }
-            case NPC_OPTION -> {
-                return npcOption(actions);
-            }
-            case PLAYER_OPTION -> {
-                return playerOption(actions);
-            }
-            case OBJECT_OPTION -> {
-                return objectOption(actions);
-            }
-            case GROUND_ITEM_OPTION -> {
-                return groundItemOption(actions);
-            }
-            case INVENTORY_OPTION -> {
-                return inventoryOption(actions);
-            }
-            case WIDGET_OPTION -> {
-                return widgetOption(actions);
-            }
-            case WALK -> {
-                return walk(actions);
-            }
-            case USE_ITEM_ON_ITEM, USE_ITEM_ON_NPC, USE_ITEM_ON_OBJECT, USE_ITEM_ON_GROUND_ITEM, USE_ITEM_ON_PLAYER -> {
-                return useItem(actions, test);
-            }
-            case CAST_SPELL_ON_ITEM, CAST_SPELL_ON_NPC -> {
-                return castSpell(actions, test);
-            }
-            case WIDGET_BUTTON -> {
-                return widgetButton(actions);
-            }
-            case CLOSE_INTERFACE -> {
-                return report(actions.closeInterface(), "closed the open interface",
-                        "the close button's body isn't mapped for this build");
-            }
-            case PAUSE_BUTTON -> {
-                return pauseButton(actions);
-            }
-            case RESUME_COUNT -> {
-                return report(actions.resumeCountDialog(config.number()), "answered the count dialog with "
-                        + config.number(), "the dialog packets aren't mapped for this build");
-            }
-            case RESUME_NAME -> {
-                return report(actions.resumeNameDialog(config.text()), "answered the name dialog with \""
-                        + config.text() + "\"", "the dialog packets aren't mapped for this build, or the text is too long");
-            }
-            case RESUME_STRING -> {
-                return report(actions.resumeStringDialog(config.text()), "answered the string dialog with \""
-                        + config.text() + "\"", "the dialog packets aren't mapped for this build, or the text is too long");
-            }
-            case RESUME_OBJ -> {
-                return report(actions.resumeObjDialog(config.number()), "answered the item dialog with item "
-                        + config.number(), "the dialog packets aren't mapped for this build");
-            }
-            case MOUSE_CLICK -> {
-                java.awt.Point at = config.clickPoint();
-                if (!actions.isMouseClickSupported()) {
-                    say("the mouse click packet isn't mapped for this build");
-                    return false;
-                }
-                actions.mouseClick(at.x, at.y, false);
-                say("sent a left click at " + at.x + "," + at.y);
-                return true;
-            }
-        }
-        return false;
+        return switch (test) {
+            case LIST_MENU -> listMenu();
+            case MENU_ENTRY -> menuEntry(actions);
+            case NPC_OPTION -> npcOption(actions);
+            case PLAYER_OPTION -> playerOption(actions);
+            case OBJECT_OPTION -> objectOption(actions);
+            case GROUND_ITEM_OPTION -> groundItemOption(actions);
+            case INVENTORY_OPTION -> inventoryOption(actions);
+            case WIDGET_OPTION -> widgetOption(actions);
+            case USE_ITEM_ON_NPC, USE_ITEM_ON_PLAYER, USE_ITEM_ON_OBJECT, USE_ITEM_ON_GROUND_ITEM, USE_ITEM_ON_ITEM ->
+                    useItem(actions, test);
+            case CAST_SPELL_ON_NPC, CAST_SPELL_ON_PLAYER, CAST_SPELL_ON_OBJECT, CAST_SPELL_ON_GROUND_ITEM,
+                 CAST_SPELL_ON_ITEM -> castSpell(actions, test);
+            case WIDGET_BUTTON -> widgetButton(actions);
+            case PAUSE_BUTTON -> pauseButton(actions);
+            case CLOSE_INTERFACE -> report(actions.closeInterface(), "closed the open interface",
+                    "the close button's body isn't mapped for this build");
+            case RESUME_COUNT -> report(actions.resumeCountDialog(config.count()), "answered the count dialog with "
+                    + config.count(), "the dialog packets aren't mapped for this build");
+            case RESUME_NAME -> report(actions.resumeNameDialog(config.text()), "answered the name dialog with \""
+                    + config.text() + "\"", "the dialog packets aren't mapped for this build, or the text is too long");
+            case RESUME_STRING -> report(actions.resumeStringDialog(config.text()), "answered the string dialog with \""
+                    + config.text() + "\"", "the dialog packets aren't mapped for this build, or the text is too long");
+            case RESUME_OBJ -> report(actions.resumeObjDialog(config.itemId()), "answered the item dialog with item "
+                    + config.itemId(), "the dialog packets aren't mapped for this build");
+            case WALK -> walk(actions);
+            case MOUSE_CLICK -> mouseClick(actions);
+        };
     }
 
     private boolean listMenu() {
-        MenuEntry[] entries = client.getMenuEntries();
-        if (entries.length == 0) {
+        MenuEntry[] rows = subjects.menuRows();
+        if (rows.length == 0) {
             say("the menu is empty (hover something in the game first)");
             return false;
         }
-        say(entries.length + " menu entries" + (client.isMenuOpen() ? " (menu open)" : "") + ":");
-        for (int i = 0; i < entries.length; i++) {
-            MenuEntry e = entries[i];
-            say("  [" + i + "] " + e.getOption() + " " + e.getTarget() + "  type=" + e.getType() + " id="
-                    + e.getIdentifier() + " p0=" + e.getParam0() + " p1=" + e.getParam1() + " item=" + e.getItemId()
+        say(rows.length + " menu entries, top row first" + (client.isMenuOpen() ? " (menu open)" : "") + ":");
+        for (int i = 0; i < rows.length; i++) {
+            MenuEntry e = rows[i];
+            say("  [" + i + "] " + Subjects.menuText(e) + "  type=" + e.getType() + " id=" + e.getIdentifier()
+                    + " p0=" + e.getParam0() + " p1=" + e.getParam1() + " item=" + e.getItemId()
                     + (e.getWorldLocation() == null ? "" : " at " + e.getWorldLocation())
                     + (client.getActions().isSupported(e.getType()) ? "" : "  (not runnable)"));
         }
@@ -270,132 +217,121 @@ public class ActionTesterPlugin extends Plugin {
     }
 
     private boolean menuEntry(Actions actions) {
-        MenuEntry[] entries = client.getMenuEntries();
-        int index = config.number();
-        if (index < 0 || index >= entries.length) {
-            say("the menu has " + entries.length + " entries, none at index " + index
-                    + " (hover something in the game first)");
+        if (blank(config.menuEntry(), "a menu entry")) {
             return false;
         }
-        MenuEntry entry = entries[index];
+        MenuEntry[] rows = subjects.menuRows();
+        MenuEntry entry = Subjects.menuEntry(rows, config.menuEntry());
+        if (entry == null) {
+            say("the menu has no entry " + config.menuEntry().trim() + " (it has " + rows.length
+                    + " entries; hover something in the game first)");
+            return false;
+        }
+        String text = Subjects.menuText(entry);
         if (!actions.isSupported(entry.getType())) {
-            say("entry [" + index + "] " + entry.getOption() + " " + entry.getTarget() + " is a " + entry.getType()
-                    + ", which has no row body");
+            say("entry " + text + " is a " + entry.getType() + ", which has no row body");
             return false;
         }
-        return report(actions.menuAction(entry), "ran entry [" + index + "] " + entry.getOption() + " "
-                + entry.getTarget() + " (" + entry.getType() + " id=" + entry.getIdentifier() + " p0="
-                + entry.getParam0() + " p1=" + entry.getParam1() + ")", "the entry couldn't be sent");
+        return report(actions.menuAction(entry), "ran entry " + text + " (" + entry.getType() + " id="
+                + entry.getIdentifier() + " p0=" + entry.getParam0() + " p1=" + entry.getParam1() + ")",
+                "the entry couldn't be sent");
     }
 
     private boolean npcOption(Actions actions) {
-        Optional<NPC> found = nearestNpc(config.target());
-        if (found.isEmpty()) {
-            say("no NPC called " + config.target() + " is loaded");
+        NPC npc = npc();
+        if (npc == null || blank(config.option(), "an option")) {
             return false;
         }
-        NPC npc = found.get();
-        int op = opOf(npcActions(npc), config.option(), NPC_OPS.length);
+        String[] names = subjects.npcActions(npc);
+        int op = Subjects.opOf(names, config.option(), NPC_OPS.length);
         if (op < 0) {
-            say(npc.getName() + " has no " + config.option() + " option; it has " + list(npcActions(npc)));
+            say(npc.getName() + " has no " + config.option() + " option; it has " + Subjects.numbered(names));
             return false;
         }
-        return send(actions, NPC_OPS[op - 1], 0, 0, npc.getIndex(), -1, actorPoint(npc),
+        return send(actions, NPC_OPS[op - 1], 0, 0, npc.getIndex(), -1, 0, actorPoint(npc),
                 config.option() + " on " + npc.getName() + " (index " + npc.getIndex() + ", op " + op + ")");
     }
 
     private boolean playerOption(Actions actions) {
-        Optional<Player> found = nearestPlayer(config.target());
-        if (found.isEmpty()) {
-            say("no player called " + config.target() + " is loaded");
+        Player player = player();
+        if (player == null || blank(config.option(), "an option")) {
             return false;
         }
-        Player player = found.get();
-        int op = number(config.option());
+        int op = Subjects.number(config.option());
         if (op < 1 || op > PLAYER_OPS.length) {
             say("a player option is its number, 1-8, not \"" + config.option() + "\"");
             return false;
         }
-        return send(actions, PLAYER_OPS[op - 1], 0, 0, player.getId(), -1, actorPoint(player),
+        return send(actions, PLAYER_OPS[op - 1], 0, 0, player.getId(), -1, 0, actorPoint(player),
                 "option " + op + " on " + player.getName() + " (index " + player.getId() + ")");
     }
 
     private boolean objectOption(Actions actions) {
-        Optional<TileObject> found = nearestObject(config.target());
-        if (found.isEmpty()) {
-            say("no object called " + config.target() + " is loaded");
+        TileObject object = object();
+        if (object == null || blank(config.option(), "an option")) {
             return false;
         }
-        TileObject object = found.get();
-        String[] names = objectActions(object);
-        int op = opOf(names, config.option(), OBJECT_OPS.length);
+        String[] names = subjects.objectActions(object);
+        int op = Subjects.opOf(names, config.option(), OBJECT_OPS.length);
         if (op < 0) {
-            say(config.target() + " has no " + config.option() + " option; it has " + list(names));
+            say(config.object() + " has no " + config.option() + " option; it has " + Subjects.numbered(names));
             return false;
         }
         WorldPoint where = object.getWorldLocation();
-        return send(actions, OBJECT_OPS[op - 1], sceneX(where), sceneY(where), object.getId(), -1,
-                object.getCanvasLocation(), config.option() + " on " + config.target() + " (id " + object.getId()
+        return send(actions, OBJECT_OPS[op - 1], sceneX(where), sceneY(where), object.getId(), -1, 0,
+                object.getCanvasLocation(), config.option() + " on " + config.object() + " (id " + object.getId()
                         + ") at " + where);
     }
 
     private boolean groundItemOption(Actions actions) {
-        Optional<TileItem> found = nearestGroundItem(config.target());
-        if (found.isEmpty()) {
-            say("no ground item called " + config.target() + " is loaded");
+        TileItem item = groundItem();
+        if (item == null || blank(config.option(), "an option")) {
             return false;
         }
-        TileItem item = found.get();
-        int op = opOf(groundActions(item), config.option(), GROUND_ITEM_OPS.length);
+        String[] names = subjects.groundActions(item);
+        int op = Subjects.opOf(names, config.option(), GROUND_ITEM_OPS.length);
         if (op < 0) {
-            say(config.target() + " has no " + config.option() + " option; it has " + list(groundActions(item)));
+            say(config.groundItem() + " has no " + config.option() + " option; it has " + Subjects.numbered(names));
             return false;
         }
         WorldPoint where = item.getTile().getWorldLocation();
-        return send(actions, GROUND_ITEM_OPS[op - 1], sceneX(where), sceneY(where), item.getId(), -1,
-                tilePoint(item.getTile().getLocalLocation(), where), config.option() + " on " + config.target()
+        return send(actions, GROUND_ITEM_OPS[op - 1], sceneX(where), sceneY(where), item.getId(), -1, 0,
+                tilePoint(item.getTile().getLocalLocation(), where), config.option() + " on " + config.groundItem()
                         + " (id " + item.getId() + ") at " + where);
     }
 
     private boolean inventoryOption(Actions actions) {
-        Optional<Widget> found = inventorySlot(config.target());
-        if (found.isEmpty()) {
-            say("no " + config.target() + " in the inventory (is it open?)");
+        Widget slot = slot(config.item(), "an inventory item");
+        if (slot == null || blank(config.option(), "an option")) {
             return false;
         }
-        Widget slot = found.get();
-        String[] option = splitOption(config.option());
-        String[] names = itemActions(slot);
-        int op = opOf(names, option[0], 10);
+        String[] option = Subjects.splitOption(config.option());
+        String[] names = subjects.itemActions(slot);
+        int op = Subjects.opOf(names, option[0], 10);
         if (op < 0) {
-            say(config.target() + " has no " + option[0] + " option; it has " + list(names));
+            say(config.item() + " has no " + option[0] + " option; it has " + Subjects.numbered(names));
             return false;
         }
         int subOp = subOpOf(slot, op, option[1]);
         if (subOp < 0) {
             return false;
         }
-        return send(actions, MenuAction.CC_OP, slot.getIndex(), INVENTORY, op, slot.getItemId(), subOp, widgetPoint(slot),
-                config.option() + " on " + config.target() + " (item " + slot.getItemId() + ", slot " + slot.getIndex()
-                        + ", op " + op + subOpText(subOp) + ")");
+        return send(actions, MenuAction.CC_OP, slot.getIndex(), INVENTORY, op, slot.getItemId(), subOp,
+                widgetPoint(slot), config.option() + " on " + config.item() + " (item " + slot.getItemId() + ", slot "
+                        + slot.getIndex() + ", op " + op + subOpText(subOp) + ")");
     }
 
     private boolean widgetOption(Actions actions) {
-        int[] component = parseComponent(config.target());
-        if (component == null) {
-            say("give the widget as group:child or group:child:slot, not \"" + config.target() + "\"");
+        int[] component = component();
+        Widget widget = component == null ? null : loaded(component);
+        if (widget == null || blank(config.option(), "an option")) {
             return false;
         }
-        Widget widget = widget(component);
-        if (widget == null) {
-            say("component " + config.target() + " isn't loaded");
-            return false;
-        }
-        String[] option = splitOption(config.option());
-        int op = opOf(widget.getActions(), option[0], 10);
+        String[] option = Subjects.splitOption(config.option());
+        int op = Subjects.opOf(widget.getActions(), option[0], 10);
         if (op < 0) {
-            say("component " + config.target() + " has no " + option[0] + " option; it has "
-                    + list(widget.getActions()));
+            say("component " + config.component() + " has no " + option[0] + " option; it has "
+                    + Subjects.numbered(widget.getActions()));
             return false;
         }
         int subOp = subOpOf(widget, op, option[1]);
@@ -403,7 +339,7 @@ public class ActionTesterPlugin extends Plugin {
             return false;
         }
         return send(actions, MenuAction.CC_OP, component[1], component[0], op, widget.getItemId(), subOp,
-                widgetPoint(widget), config.option() + " on component " + config.target() + " (op " + op
+                widgetPoint(widget), config.option() + " on component " + config.component() + " (op " + op
                         + subOpText(subOp) + ")");
     }
 
@@ -421,9 +357,9 @@ public class ActionTesterPlugin extends Plugin {
             return 0;
         }
         String[] subOptions = widget.getSubOptions(op);
-        int subOp = opOf(subOptions, sub, subOptions == null ? 0 : subOptions.length);
+        int subOp = Subjects.opOf(subOptions, sub, subOptions == null ? 0 : subOptions.length);
         if (subOp < 0) {
-            say("op " + op + " has no " + sub + " sub-option; it has " + list(subOptions));
+            say("op " + op + " has no " + sub + " sub-option; it has " + Subjects.numbered(subOptions));
         }
         return subOp;
     }
@@ -432,54 +368,123 @@ public class ActionTesterPlugin extends Plugin {
         return subOp > 0 ? ", sub-option " + subOp : "";
     }
 
+    private boolean useItem(Actions actions, ActionTest test) {
+        Widget held = slot(config.useItem(), "the item to use");
+        Target target = held == null ? null : target(test);
+        if (target == null) {
+            return false;
+        }
+        String using = "used " + config.useItem() + " (item " + held.getItemId() + ", slot " + held.getIndex()
+                + ") on " + target.what();
+        boolean sent = test == ActionTest.USE_ITEM_ON_ITEM
+                ? actions.useItemOnItem(INVENTORY, held.getIndex(), held.getItemId(), target.param0(),
+                target.itemId())
+                : actions.useItemOn(INVENTORY, held.getIndex(), held.getItemId(), target.param0(), target.param1(),
+                target.action(), target.identifier(), target.itemId());
+        return report(sent, using, "the use couldn't be sent");
+    }
+
     private boolean castSpell(Actions actions, ActionTest test) {
-        int spell = spellComponent(config.target());
+        if (blank(config.spell(), "a spell")) {
+            return false;
+        }
+        int spell = Subjects.spellComponent(config.spell());
         if (spell < 0) {
-            say("give the spell as group:child or by name (e.g. High Alchemy), not \"" + config.target() + "\"");
+            say("give the spell by name (e.g. High Alchemy) or as group:child, not \"" + config.spell() + "\"");
             return false;
         }
-        String casting = "spell " + (spell >> 16) + ":" + (spell & 0xffff);
-        if (test == ActionTest.CAST_SPELL_ON_ITEM) {
-            Optional<Widget> target = inventorySlot(config.castOn());
-            if (target.isEmpty()) {
-                say("no " + config.castOn() + " in the inventory to cast on (is it open?)");
-                return false;
+        Target target = target(test);
+        if (target == null) {
+            return false;
+        }
+        return report(actions.castSpellOn(spell, target.param0(), target.param1(), target.action(),
+                        target.identifier(), target.itemId()), "cast " + config.spell() + " (" + (spell >>> 16) + ":"
+                        + (spell & 0xffff) + ") on " + target.what(), "the cast couldn't be sent");
+    }
+
+    /**
+     * What a Use or Cast action acts on, said in the console when it isn't found.
+     *
+     * @param test the action
+     * @return the subject as its targeted action's parameters, or null if there is none
+     */
+    private Target target(ActionTest test) {
+        switch (test) {
+            case USE_ITEM_ON_NPC, CAST_SPELL_ON_NPC -> {
+                NPC npc = npc();
+                return npc == null ? null : new Target(0, 0, MenuAction.WIDGET_TARGET_ON_NPC, npc.getIndex(), -1,
+                        npc.getName() + " (index " + npc.getIndex() + ")");
             }
-            Widget onto = target.get();
-            return report(actions.castSpellOn(spell, onto.getIndex(), INVENTORY, MenuAction.WIDGET_TARGET_ON_WIDGET, 0,
-                    onto.getItemId()), "cast " + casting + " on " + config.castOn() + " (item " + onto.getItemId()
-                    + ", slot " + onto.getIndex() + ")", "the cast couldn't be sent");
+            case USE_ITEM_ON_PLAYER, CAST_SPELL_ON_PLAYER -> {
+                Player player = player();
+                return player == null ? null : new Target(0, 0, MenuAction.WIDGET_TARGET_ON_PLAYER, player.getId(),
+                        -1, player.getName() + " (index " + player.getId() + ")");
+            }
+            case USE_ITEM_ON_OBJECT, CAST_SPELL_ON_OBJECT -> {
+                TileObject object = object();
+                if (object == null) {
+                    return null;
+                }
+                WorldPoint where = object.getWorldLocation();
+                return new Target(sceneX(where), sceneY(where), MenuAction.WIDGET_TARGET_ON_GAME_OBJECT,
+                        object.getId(), -1, config.object() + " (id " + object.getId() + ") at " + where);
+            }
+            case USE_ITEM_ON_GROUND_ITEM, CAST_SPELL_ON_GROUND_ITEM -> {
+                TileItem item = groundItem();
+                if (item == null) {
+                    return null;
+                }
+                WorldPoint where = item.getTile().getWorldLocation();
+                return new Target(sceneX(where), sceneY(where), MenuAction.WIDGET_TARGET_ON_GROUND_ITEM, item.getId(),
+                        -1, config.groundItem() + " (id " + item.getId() + ") at " + where);
+            }
+            case USE_ITEM_ON_ITEM, CAST_SPELL_ON_ITEM -> {
+                Widget slot = slot(config.item(), "an inventory item");
+                return slot == null ? null : new Target(slot.getIndex(), INVENTORY,
+                        MenuAction.WIDGET_TARGET_ON_WIDGET, 0, slot.getItemId(), config.item() + " (item "
+                        + slot.getItemId() + ", slot " + slot.getIndex() + ")");
+            }
+            default -> {
+                return null;
+            }
         }
-        Optional<NPC> npc = nearestNpc(config.castOn());
-        if (npc.isEmpty()) {
-            say("no NPC called " + config.castOn() + " is loaded");
-            return false;
-        }
-        return report(actions.castSpellOn(spell, 0, 0, MenuAction.WIDGET_TARGET_ON_NPC, npc.get().getIndex(), -1),
-                "cast " + casting + " on " + npc.get().getName() + " (index " + npc.get().getIndex() + ")",
-                "the cast couldn't be sent");
     }
 
     private boolean widgetButton(Actions actions) {
-        int[] component = parseComponent(config.target());
-        if (component == null) {
-            say("give the button as group:child or group:child:slot, not \"" + config.target() + "\"");
-            return false;
-        }
-        Widget widget = widget(component);
+        int[] component = component();
+        Widget widget = component == null ? null : loaded(component);
         if (widget == null) {
-            say("component " + config.target() + " isn't loaded");
             return false;
         }
         int type = widget.getEvent();
-        MenuAction action = BUTTONS.get(type);
+        MenuAction action = Subjects.BUTTONS.get(type);
         if (action == null) {
-            say("component " + config.target() + " has button type " + type + ", not a plain, toggle, set or close "
-                    + "button (type 2 selects a target, 6 is a pause button)");
+            say("component " + config.component() + " has button type " + type + ", not a plain, toggle, set or "
+                    + "close button (type 2 selects a target, 6 is a pause button)");
             return false;
         }
-        return send(actions, action, component[1], component[0], 0, -1, widgetPoint(widget),
-                "button type " + type + " on component " + config.target());
+        return send(actions, action, component[1], component[0], 0, -1, 0, widgetPoint(widget),
+                "button type " + type + " on component " + config.component());
+    }
+
+    private boolean pauseButton(Actions actions) {
+        int[] component;
+        if (config.component().isBlank()) {
+            Widget button = subjects.firstPauseButton();
+            if (button == null) {
+                say("no Click here to continue is showing (or give one as group:child)");
+                return false;
+            }
+            component = new int[]{button.getId(), button.getIndex()};
+        } else {
+            component = component();
+            if (component == null) {
+                return false;
+            }
+        }
+        return report(actions.resumePause(component[0], component[1]), "clicked the pause button "
+                + (component[0] >>> 16) + ":" + (component[0] & 0xffff) + (component[1] < 0 ? "" : ":"
+                + component[1]), "the pause button couldn't be clicked");
     }
 
     private boolean walk(Actions actions) {
@@ -502,112 +507,19 @@ public class ActionTesterPlugin extends Plugin {
                 + canvas.getX() + "," + canvas.getY()), "the walk couldn't be sent");
     }
 
-    private boolean useItem(Actions actions, ActionTest test) {
-        Optional<Widget> held = inventorySlot(config.item());
-        if (held.isEmpty()) {
-            say("no " + config.item() + " in the inventory to use (is it open?)");
+    private boolean mouseClick(Actions actions) {
+        if (!actions.isMouseClickSupported()) {
+            say("the mouse click packet isn't mapped for this build");
             return false;
         }
-        Widget slot = held.get();
-        int slotIndex = slot.getIndex();
-        int itemId = slot.getItemId();
-        String using = config.item() + " (item " + itemId + ", slot " + slotIndex + ")";
-        switch (test) {
-            case USE_ITEM_ON_ITEM -> {
-                Optional<Widget> target = inventorySlot(config.target());
-                if (target.isEmpty()) {
-                    say("no " + config.target() + " in the inventory to use " + config.item() + " on");
-                    return false;
-                }
-                Widget onto = target.get();
-                return report(actions.useItemOnItem(INVENTORY, slotIndex, itemId, onto.getIndex(), onto.getItemId()),
-                        "used " + using + " on " + config.target() + " (item " + onto.getItemId() + ", slot "
-                                + onto.getIndex() + ")", "the use couldn't be sent");
-            }
-            case USE_ITEM_ON_NPC -> {
-                Optional<NPC> npc = nearestNpc(config.target());
-                if (npc.isEmpty()) {
-                    say("no NPC called " + config.target() + " is loaded");
-                    return false;
-                }
-                return report(actions.useItemOn(INVENTORY, slotIndex, itemId, 0, 0, MenuAction.WIDGET_TARGET_ON_NPC,
-                        npc.get().getIndex(), -1), "used " + using + " on " + npc.get().getName() + " (index "
-                        + npc.get().getIndex() + ")", "the use couldn't be sent");
-            }
-            case USE_ITEM_ON_PLAYER -> {
-                Optional<Player> player = nearestPlayer(config.target());
-                if (player.isEmpty()) {
-                    say("no player called " + config.target() + " is loaded");
-                    return false;
-                }
-                return report(actions.useItemOn(INVENTORY, slotIndex, itemId, 0, 0, MenuAction.WIDGET_TARGET_ON_PLAYER,
-                        player.get().getId(), -1), "used " + using + " on " + player.get().getName() + " (index "
-                        + player.get().getId() + ")", "the use couldn't be sent");
-            }
-            case USE_ITEM_ON_OBJECT -> {
-                Optional<TileObject> object = nearestObject(config.target());
-                if (object.isEmpty()) {
-                    say("no object called " + config.target() + " is loaded");
-                    return false;
-                }
-                WorldPoint where = object.get().getWorldLocation();
-                return report(actions.useItemOn(INVENTORY, slotIndex, itemId, sceneX(where), sceneY(where),
-                        MenuAction.WIDGET_TARGET_ON_GAME_OBJECT, object.get().getId(), -1), "used " + using + " on "
-                        + config.target() + " (id " + object.get().getId() + ") at " + where, "the use couldn't be sent");
-            }
-            case USE_ITEM_ON_GROUND_ITEM -> {
-                Optional<TileItem> ground = nearestGroundItem(config.target());
-                if (ground.isEmpty()) {
-                    say("no ground item called " + config.target() + " is loaded");
-                    return false;
-                }
-                WorldPoint where = ground.get().getTile().getWorldLocation();
-                return report(actions.useItemOn(INVENTORY, slotIndex, itemId, sceneX(where), sceneY(where),
-                        MenuAction.WIDGET_TARGET_ON_GROUND_ITEM, ground.get().getId(), -1), "used " + using + " on "
-                        + config.target() + " (id " + ground.get().getId() + ") at " + where, "the use couldn't be sent");
-            }
-            default -> {
-                return false;
-            }
-        }
-    }
-
-    private boolean pauseButton(Actions actions) {
-        int[] component = parseComponent(config.target());
-        if (component == null) {
-            Widget button = firstPauseButton();
-            if (button == null) {
-                say("no pause button is showing (or give one as group:child)");
-                return false;
-            }
-            component = new int[]{button.getId(), button.getIndex()};
-        }
-        return report(actions.resumePause(component[0], component[1]), "clicked the pause button " + component[0]
-                + ":" + component[1] + " (" + (component[0] >> 16) + ":" + (component[0] & 0xffff) + ")",
-                "the pause button couldn't be clicked");
+        java.awt.Point at = config.clickPoint();
+        actions.mouseClick(at.x, at.y, config.rightClick());
+        say("sent a " + (config.rightClick() ? "right" : "left") + " click at " + at.x + "," + at.y);
+        return true;
     }
 
     /**
      * Sends an action, with the mouse click first when wanted and the subject is on screen, and reports it.
-     *
-     * @param actions    the actions
-     * @param action     the action
-     * @param param0     its first parameter
-     * @param param1     its second parameter
-     * @param identifier its identifier
-     * @param itemId     a component's item, or -1
-     * @param canvas     where the subject is on the canvas, or null if it isn't
-     * @param what       what to report
-     * @return true if it was sent
-     */
-    private boolean send(Actions actions, MenuAction action, int param0, int param1, int identifier, int itemId,
-                         Point canvas, String what) {
-        return send(actions, action, param0, param1, identifier, itemId, 0, canvas, what);
-    }
-
-    /**
-     * Sends a component op with a sub-option, with the mouse click first when wanted and the component is on screen,
-     * and reports it.
      *
      * @param actions    the actions
      * @param action     the action
@@ -648,297 +560,111 @@ public class ActionTesterPlugin extends Plugin {
         log.info("Action Tester: " + message);
     }
 
-    private Optional<NPC> nearestNpc(String name) {
-        return nearest(client.getNpcs(), name, Actor::getName, Actor::getWorldLocation);
-    }
-
-    private Optional<Player> nearestPlayer(String name) {
-        return nearest(client.getPlayers(), name, Actor::getName, Actor::getWorldLocation);
-    }
-
-    private Optional<TileObject> nearestObject(String name) {
-        Scene scene = client.getScene();
-        return scene == null ? Optional.empty() : nearest(scene.getTileObjects(), name, object -> {
-            ObjectComposition composition = client.getObjectDefinition(object.getId());
-            return composition == null ? null : composition.getName();
-        }, TileObject::getWorldLocation);
-    }
-
-    private Optional<TileItem> nearestGroundItem(String name) {
-        Scene scene = client.getScene();
-        return scene == null ? Optional.empty() : nearest(scene.getGroundItems(), name, item -> {
-            ItemComposition composition = client.getItemDefinition(item.getId());
-            return composition == null ? null : composition.getName();
-        }, item -> item.getTile().getWorldLocation());
-    }
-
     /**
-     * The loaded thing with a name, nearest to the local player.
+     * Whether a setting the action needs is empty, saying so in the console.
      *
-     * @param things   what is loaded
-     * @param name     the name wanted, case ignored
-     * @param nameOf   a thing's name
-     * @param placeOf  a thing's world tile
-     * @param <T>      the kind of thing
-     * @return the nearest match, if any
+     * @param setting the setting's value
+     * @param what    what it names, e.g. "an NPC"
+     * @return true if it is empty
      */
-    private <T> Optional<T> nearest(List<T> things, String name, Function<T, String> nameOf,
-                                    Function<T, WorldPoint> placeOf) {
-        Player local = client.getLocalPlayer();
-        WorldPoint here = local == null ? null : local.getWorldLocation();
-        String wanted = name.trim();
-        return things.stream()
-                .filter(t -> wanted.equalsIgnoreCase(nameOf.apply(t)))
-                .min(Comparator.comparingInt(t -> distance(here, placeOf.apply(t))));
-    }
-
-    private static int distance(WorldPoint from, WorldPoint to) {
-        return from == null || to == null ? Integer.MAX_VALUE : from.distanceTo(to);
-    }
-
-    /**
-     * The inventory slot holding an item with a name.
-     *
-     * @param name the item's name, case ignored
-     * @return the slot's widget, if the item is there
-     */
-    private Optional<Widget> inventorySlot(String name) {
-        Widget inventory = client.getWidget(INVENTORY);
-        Widget[] slots = inventory == null ? null : inventory.getDynamicChildren();
-        if (slots == null) {
-            return Optional.empty();
+    private boolean blank(String setting, String what) {
+        if (setting.isBlank()) {
+            say("choose " + what + " first");
+            return true;
         }
-        String wanted = name.trim();
-        for (Widget slot : slots) {
-            if (slot == null || slot.getItemId() <= 0) {
-                continue;
-            }
-            ItemComposition composition = client.getItemDefinition(slot.getItemId());
-            if (composition != null && wanted.equalsIgnoreCase(composition.getName())) {
-                return Optional.of(slot);
-            }
+        return false;
+    }
+
+    private NPC npc() {
+        if (blank(config.npc(), "an NPC")) {
+            return null;
         }
-        return Optional.empty();
+        NPC npc = subjects.npc(config.npc()).orElse(null);
+        if (npc == null) {
+            say("no NPC called " + config.npc().trim() + " is loaded");
+        }
+        return npc;
+    }
+
+    private Player player() {
+        if (blank(config.player(), "a player")) {
+            return null;
+        }
+        Player player = subjects.player(config.player()).orElse(null);
+        if (player == null) {
+            say("no player called " + config.player().trim() + " is loaded");
+        }
+        return player;
+    }
+
+    private TileObject object() {
+        if (blank(config.object(), "an object")) {
+            return null;
+        }
+        TileObject object = subjects.object(config.object()).orElse(null);
+        if (object == null) {
+            say("no object called " + config.object().trim() + " is loaded");
+        }
+        return object;
+    }
+
+    private TileItem groundItem() {
+        if (blank(config.groundItem(), "a ground item")) {
+            return null;
+        }
+        TileItem item = subjects.groundItem(config.groundItem()).orElse(null);
+        if (item == null) {
+            say("no ground item called " + config.groundItem().trim() + " is loaded");
+        }
+        return item;
     }
 
     /**
-     * The widget of a component given as {group, child, slot}.
+     * The inventory slot an item setting names, said in the console when there is none.
      *
-     * @param component the parsed component
-     * @return the widget, or its child at the slot, or null if it isn't loaded
+     * @param name the setting's value
+     * @param what what the setting names, e.g. "the item to use"
+     * @return the slot's widget, or null
      */
-    private Widget widget(int[] component) {
-        Widget widget = client.getWidget(component[0]);
-        if (widget != null && component[1] >= 0) {
-            widget = widget.getChild(component[1]);
+    private Widget slot(String name, String what) {
+        if (blank(name, what)) {
+            return null;
+        }
+        Widget slot = subjects.inventorySlot(name).orElse(null);
+        if (slot == null) {
+            say("no " + name.trim() + " in the inventory (is it open?)");
+        }
+        return slot;
+    }
+
+    /**
+     * The component setting, read, said in the console when it isn't one.
+     *
+     * @return {packed id, slot}, or null
+     */
+    private int[] component() {
+        if (blank(config.component(), "a component")) {
+            return null;
+        }
+        int[] component = Subjects.parseComponent(config.component());
+        if (component == null) {
+            say("give the component as group:child or group:child:slot, not \"" + config.component() + "\"");
+        }
+        return component;
+    }
+
+    /**
+     * A component's widget, said in the console when it isn't loaded.
+     *
+     * @param component the component
+     * @return the widget, or null
+     */
+    private Widget loaded(int[] component) {
+        Widget widget = subjects.widget(component);
+        if (widget == null) {
+            say("component " + config.component() + " isn't loaded");
         }
         return widget;
-    }
-
-    /**
-     * The first visible pause button among the open interfaces.
-     *
-     * @return the button's widget, or null if none shows
-     */
-    private Widget firstPauseButton() {
-        for (int group : client.getOpenWidgetGroups()) {
-            Widget[] widgets = client.getWidgetGroup(group);
-            if (widgets == null) {
-                continue;
-            }
-            for (Widget widget : widgets) {
-                Widget button = pauseButtonIn(widget);
-                if (button != null) {
-                    return button;
-                }
-            }
-        }
-        return null;
-    }
-
-    private static Widget pauseButtonIn(Widget widget) {
-        if (widget == null || widget.isHidden()) {
-            return null;
-        }
-        if (widget.getEvent() == PAUSE_BUTTON) {
-            return widget;
-        }
-        Widget[] children = widget.getDynamicChildren();
-        if (children != null) {
-            for (Widget child : children) {
-                if (child != null && !child.isHidden() && child.getEvent() == PAUSE_BUTTON) {
-                    return child;
-                }
-            }
-        }
-        return null;
-    }
-
-    private String[] npcActions(NPC npc) {
-        NPCComposition composition = npc.getTransformedComposition();
-        if (composition == null) {
-            composition = npc.getComposition();
-        }
-        return composition == null ? null : composition.getActions();
-    }
-
-    private String[] objectActions(TileObject object) {
-        ObjectComposition composition = client.getObjectDefinition(object.getId());
-        return composition == null ? null : composition.getActions();
-    }
-
-    /**
-     * A ground item's options: the item's ground actions (Take is the third).
-     *
-     * @param item the ground item
-     * @return the options by op, 1-based in the array's order, or null if the item isn't known
-     */
-    private String[] groundActions(TileItem item) {
-        ItemComposition composition = client.getItemDefinition(item.getId());
-        return composition == null ? null : composition.getGroundActions();
-    }
-
-    /**
-     * An inventory slot's options: the slot's own ops when it has them, else Use followed by the item's inventory
-     * actions, which is how this plugin numbers them until a live List the menu run settles the client's numbering.
-     *
-     * @param slot the slot's widget
-     * @return the options by op, 1-based in the array's order
-     */
-    private String[] itemActions(Widget slot) {
-        String[] own = slot.getActions();
-        if (own != null) {
-            return own;
-        }
-        ItemComposition composition = client.getItemDefinition(slot.getItemId());
-        String[] inventory = composition == null ? null : composition.getInventoryActions();
-        if (inventory == null) {
-            return null;
-        }
-        String[] ops = new String[inventory.length + 1];
-        ops[0] = "Use";
-        System.arraycopy(inventory, 0, ops, 1, inventory.length);
-        return ops;
-    }
-
-    /**
-     * Which op an option is: its number if it is one, else its 1-based place among the actions, matched by text.
-     *
-     * @param actions the subject's actions by op (1-based in the array's order), null entries for none
-     * @param option  the option's text or number
-     * @param max     the most ops the subject has
-     * @return the op, 1-based, or -1 for no such option
-     */
-    static int opOf(String[] actions, String option, int max) {
-        String wanted = option.trim();
-        int number = number(wanted);
-        if (number >= 1 && number <= max) {
-            return number;
-        }
-        if (actions == null) {
-            return -1;
-        }
-        for (int i = 0; i < actions.length && i < max; i++) {
-            if (actions[i] != null && actions[i].toLowerCase(Locale.ROOT).equals(wanted.toLowerCase(Locale.ROOT))) {
-                return i + 1;
-            }
-        }
-        return -1;
-    }
-
-    /**
-     * An option setting split into the op and its sub-option: the text after the last dot is the sub-option when
-     * there is text on both sides of it.
-     *
-     * @param text the setting's text
-     * @return {op, sub-option}, the sub-option null when there is none
-     */
-    static String[] splitOption(String text) {
-        String trimmed = text.trim();
-        int dot = trimmed.lastIndexOf('.');
-        if (dot <= 0 || dot == trimmed.length() - 1) {
-            return new String[]{trimmed, null};
-        }
-        String op = trimmed.substring(0, dot).trim();
-        String sub = trimmed.substring(dot + 1).trim();
-        return op.isEmpty() || sub.isEmpty() ? new String[]{trimmed, null} : new String[]{op, sub};
-    }
-
-    /**
-     * A spell's component: a component as {@link #parseComponent} reads it, or the {@link InterfaceID.MagicSpellbook}
-     * constant whose name is the text with its spaces, dashes and case ignored (High Alchemy is HIGH_ALCHEMY).
-     *
-     * @param text the setting's text
-     * @return the packed component id, or -1 if the text names no spell
-     */
-    static int spellComponent(String text) {
-        int[] component = parseComponent(text);
-        if (component != null) {
-            return component[0];
-        }
-        String wanted = text.replaceAll("[^A-Za-z0-9]", "").toLowerCase(Locale.ROOT);
-        if (wanted.isEmpty()) {
-            return -1;
-        }
-        for (Field field : InterfaceID.MagicSpellbook.class.getFields()) {
-            if (Modifier.isStatic(field.getModifiers()) && field.getType() == int.class
-                    && field.getName().replace("_", "").toLowerCase(Locale.ROOT).equals(wanted)) {
-                try {
-                    return field.getInt(null);
-                } catch (IllegalAccessException e) {
-                    return -1;
-                }
-            }
-        }
-        return -1;
-    }
-
-    /**
-     * A component given as group:child, group:child:slot or a packed id, with an optional :slot.
-     *
-     * @param text the setting's text
-     * @return {packed id, slot (-1 for none)}, or null if the text isn't a component
-     */
-    static int[] parseComponent(String text) {
-        String[] parts = text.trim().split(":");
-        try {
-            if (parts.length == 2 || parts.length == 3) {
-                int group = Integer.parseInt(parts[0].trim());
-                int child = Integer.parseInt(parts[1].trim());
-                int slot = parts.length == 3 ? Integer.parseInt(parts[2].trim()) : -1;
-                if (group < 0 || child < 0 || group > 0xffff || child > 0xffff) {
-                    return null;
-                }
-                return new int[]{(group << 16) | child, slot};
-            }
-            if (parts.length == 1 && !parts[0].isBlank()) {
-                int packed = Integer.parseInt(parts[0].trim());
-                return packed > 0xffff ? new int[]{packed, -1} : null;
-            }
-        } catch (NumberFormatException e) {
-            return null;
-        }
-        return null;
-    }
-
-    private static int number(String text) {
-        try {
-            return Integer.parseInt(text.trim());
-        } catch (NumberFormatException e) {
-            return -1;
-        }
-    }
-
-    private static String list(String[] actions) {
-        List<String> names = new ArrayList<>();
-        if (actions != null) {
-            for (int i = 0; i < actions.length; i++) {
-                if (actions[i] != null) {
-                    names.add((i + 1) + ": " + actions[i]);
-                }
-            }
-        }
-        return names.isEmpty() ? "no options" : String.join(", ", names);
     }
 
     private int sceneX(WorldPoint world) {
@@ -982,5 +708,19 @@ public class ActionTesterPlugin extends Plugin {
             return null;
         }
         return point;
+    }
+
+    /**
+     * The subject of a Use or Cast action, as its targeted action's parameters (those of
+     * {@link Actions#useItemOn(int, int, int, int, int, MenuAction, int, int)}).
+     *
+     * @param param0     the subject's first parameter: a scene x, or an inventory slot
+     * @param param1     its second: a scene y, or the inventory's packed id
+     * @param action     the targeted action
+     * @param identifier an NPC's or player's index, or an object's or item's id
+     * @param itemId     an inventory item's id, or -1
+     * @param what       the subject, for the console
+     */
+    private record Target(int param0, int param1, MenuAction action, int identifier, int itemId, String what) {
     }
 }

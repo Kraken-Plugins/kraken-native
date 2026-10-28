@@ -227,12 +227,14 @@ functions, offsets and opcodes all come from the mapping through Java; nothing i
 - `NativeCall` has `Kind.SCRATCH` and `Kind.INDIRECT`; `NativeProtocol` sends the kinds as before (the ordinal).
 - The NPC Clicker plugin (`plugins.npcclicker`) is the small example: nearest NPC by name, the op from its
   composition's actions, the canvas point from `Perspective.localToCanvas`, then `Actions.click`. The Action Tester
-  (`plugins.actiontester`) runs every action and packet from its settings page, one test at a time (tick Run now):
-  NPC, player, object, ground item, inventory and widget options by name (with a sub-option after a dot, `Drop.All`
-  or `3.2`), walking, using an item on anything, casting a spell (given as group:child or by the name of its
-  `InterfaceID.MagicSpellbook` constant) on an inventory item or an NPC, old-style buttons by component, closing the
-  interface, pause buttons, the four dialog answers, the bare mouse click, and listing or replaying the menu's own
-  entries, with what it sent or why it couldn't in the console. It is the tool for the live checks below.
+  (`plugins.actiontester`) runs every action and packet from its settings page, one at a time (pick the action, click
+  Run): NPC, player, object, ground item, inventory and widget options by name (with a sub-option after a dot,
+  `Drop.All` or `3.2`), walking, using an item or casting a spell (by name or as group:child) on an NPC, player,
+  object, ground item or inventory item, old-style buttons by component, closing the interface, pause buttons, the
+  four dialog answers, the bare mouse click, and listing or replaying the menu's own entries, with what it sent or
+  why it couldn't in the console. The page shows only the chosen action's settings, and their drop-downs list what
+  is loaded (nearby NPCs, objects and ground items, the inventory, the subject's options, the shown components, the
+  spellbook's spells, the menu's entries). It is the tool for the live checks below.
 
 ## 4. Live checks pending
 

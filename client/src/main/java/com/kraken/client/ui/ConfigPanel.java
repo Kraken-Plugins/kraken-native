@@ -2,7 +2,10 @@ package com.kraken.client.ui;
 
 import com.kraken.api.eventbus.EventBus;
 import com.kraken.api.eventbus.Subscriber;
+import com.kraken.client.events.ConfigButtonClicked;
 import com.kraken.client.events.ConfigChanged;
+import com.kraken.client.events.ConfigSuggestionsRequested;
+import com.kraken.client.plugins.config.Button;
 import com.kraken.client.plugins.config.Config;
 import com.kraken.client.plugins.config.ConfigDescriptor;
 import com.kraken.client.plugins.config.ConfigGroup;
@@ -12,6 +15,8 @@ import com.kraken.client.plugins.config.ConfigManager;
 import com.kraken.client.plugins.config.ConfigObject;
 import com.kraken.client.plugins.config.ConfigSectionDescriptor;
 import com.kraken.client.plugins.config.Range;
+import com.kraken.client.plugins.config.ShowIf;
+import com.kraken.client.plugins.config.Suggestions;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignA;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignR;
@@ -34,11 +39,14 @@ import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import javax.swing.*;
 import javax.swing.border.CompoundBorder;
@@ -46,6 +54,8 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.border.MatteBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
 import javax.swing.text.DefaultFormatterFactory;
 import javax.swing.text.JTextComponent;
 
@@ -53,7 +63,8 @@ import static com.formdev.flatlaf.FlatClientProperties.*;
 
 /**
  * A settings page built from a {@link Config}'s {@link ConfigDescriptor}: items and collapsible sections in position
- * order, one control per item by its type, and a Reset button.
+ * order, one control per item by its type, and a Reset button. Items and sections with {@link ShowIf} conditions
+ * appear and disappear as the values they depend on change ({@link ConfigManager#isShown} decides).
  *
  * <table>
  *   <caption>Controls</caption>
@@ -61,11 +72,13 @@ import static com.formdev.flatlaf.FlatClientProperties.*;
  *   <tr><td>{@code int}, {@code long}, {@code float}, {@code double}</td><td>spinner, bounded by {@code @Range},
  *       suffixed by {@code @Units}</td></tr>
  *   <tr><td>{@code String}</td><td>text area (a password field if {@code secret}), saved after a pause in typing or
- *       when it loses focus</td></tr>
+ *       when it loses focus; with {@code @Suggestions}, a text field with a drop-down whose entries the plugin
+ *       supplies when it opens ({@link ConfigSuggestionsRequested}), saved also when an entry is picked</td></tr>
  *   <tr><td>enum</td><td>drop-down</td></tr>
  *   <tr><td>{@code Set} of an enum</td><td>a checkbox per constant</td></tr>
  *   <tr><td>{@code Color}</td><td>swatch opening a colour picker, with transparency if {@code @Alpha}</td></tr>
- *   <tr><td>{@code Dimension}</td><td>two spinners, each bounded by {@code @Range}</td></tr>
+ *   <tr><td>{@code Dimension}, {@code Point}</td><td>two spinners, each bounded by {@code @Range}</td></tr>
+ *   <tr><td>{@link Button}</td><td>a button with the item's name, which posts {@link ConfigButtonClicked}</td></tr>
  * </table>
  *
  * <p>An item with a {@code warning} asks before its value changes. Hidden items aren't shown, and Reset leaves them
@@ -77,6 +90,12 @@ public final class ConfigPanel extends JPanel {
     private static final Icon EXPANDED = FontIcon.of(MaterialDesignC.CHEVRON_DOWN, 14, Theme.LIGHT);
     private static final Icon COLLAPSED = FontIcon.of(MaterialDesignC.CHEVRON_RIGHT, 14, Theme.LIGHT);
     private static final int TEXT_SAVE_DELAY_MS = 600;
+
+    /**
+     * The widest control that goes beside its name; a wider one goes under it, so the name keeps its room in the
+     * narrowest sidebar.
+     */
+    private static final int BESIDE_MAX_WIDTH = 140;
 
     /**
      * Which sections are open, by group and section key, kept while Kraken runs. EDT only.
@@ -91,6 +110,8 @@ public final class ConfigPanel extends JPanel {
     private final String group;
     private final String title;
     private final Map<String, Runnable> loaders = new LinkedHashMap<>();
+    private final Map<ConfigItemDescriptor, JComponent> itemRows = new LinkedHashMap<>();
+    private final Map<ConfigSectionDescriptor, JComponent> sectionPanels = new LinkedHashMap<>();
     private Subscriber subscriber;
     private boolean applying;
     private boolean loading;
@@ -172,13 +193,16 @@ public final class ConfigPanel extends JPanel {
         for (ConfigSectionDescriptor section : descriptor.getSections()) {
             JPanel contents = column();
             sectionBodies.put(section.getKey(), contents);
-            topLevel.put(section, section(section, contents));
+            JComponent panel = section(section, contents);
+            sectionPanels.put(section, panel);
+            topLevel.put(section, panel);
         }
         for (ConfigItemDescriptor item : descriptor.getItems()) {
             if (item.getItem().hidden()) {
                 continue;
             }
             JComponent row = item(item);
+            itemRows.put(item, row);
             JPanel section = sectionBodies.get(item.getItem().section());
             if (section != null) {
                 section.add(row);
@@ -249,7 +273,8 @@ public final class ConfigPanel extends JPanel {
     }
 
     /**
-     * One item: its name, and its control beside or below it.
+     * One item: its name, and its control beside it, or below it when the control is a text field, a list or too wide
+     * to leave the name room; a button alone, across the row.
      *
      * @param item the item
      * @return the row
@@ -263,7 +288,9 @@ public final class ConfigPanel extends JPanel {
         JPanel row = new JPanel(new BorderLayout(8, 4));
         row.setBorder(new EmptyBorder(4, 0, 4, 0));
         row.setAlignmentX(LEFT_ALIGNMENT);
-        if (control.below()) {
+        if (item.getType() == Button.class) {
+            row.add(control.component(), BorderLayout.CENTER);
+        } else if (control.below() || control.component().getPreferredSize().width > BESIDE_MAX_WIDTH) {
             row.add(name, BorderLayout.NORTH);
             row.add(control.component(), BorderLayout.CENTER);
         } else {
@@ -296,13 +323,20 @@ public final class ConfigPanel extends JPanel {
             return number(item, (Class<?>) type);
         }
         if (type == String.class) {
-            return text(item);
+            return item.getSuggestions() != null ? suggestions(item) : text(item);
         }
         if (type == Color.class) {
             return colour(item);
         }
         if (type == Dimension.class) {
-            return dimension(item);
+            return pair(item, "×", Dimension::new,
+                    value -> value instanceof Dimension size ? new int[]{size.width, size.height} : null);
+        }
+        if (type == Point.class) {
+            return pair(item, ",", Point::new, value -> value instanceof Point at ? new int[]{at.x, at.y} : null);
+        }
+        if (type == Button.class) {
+            return button(item);
         }
         if (type instanceof Class<?> clazz && clazz.isEnum()) {
             return choice(item, (Class) clazz);
@@ -446,6 +480,109 @@ public final class ConfigPanel extends JPanel {
         return new Control(shown, true, load);
     }
 
+    /**
+     * A text field with a drop-down of the plugin's suggestions, asked for each time the drop-down opens.
+     *
+     * @param item a {@code String} item with {@link Suggestions}
+     * @return the control
+     */
+    private Control suggestions(ConfigItemDescriptor item) {
+        DefaultComboBoxModel<String> model = new DefaultComboBoxModel<>();
+        JComboBox<String> box = new JComboBox<>(model);
+        box.setEditable(true);
+        box.setMaximumRowCount(16);
+        box.setPrototypeDisplayValue("Suggestions");
+        JTextComponent field = (JTextComponent) box.getEditor().getEditorComponent();
+        Runnable load = () -> {
+            Object value = value(item);
+            String text = value == null ? "" : value.toString();
+            if (!text.equals(field.getText())) {
+                field.setText(text);
+            }
+        };
+        Runnable save = () -> {
+            if (!field.getText().equals(Objects.toString(value(item), ""))) {
+                apply(item, field.getText(), load);
+            }
+        };
+        Timer pause = new Timer(TEXT_SAVE_DELAY_MS, e -> save.run());
+        pause.setRepeats(false);
+        field.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                typed();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                typed();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                typed();
+            }
+
+            private void typed() {
+                if (!loading) {
+                    pause.restart();
+                }
+            }
+        });
+        // Picking an entry, Enter and leaving the field all end in an action event
+        box.addActionListener(e -> {
+            if (loading) {
+                return;
+            }
+            Object picked = box.getSelectedItem();
+            if (picked != null && !picked.toString().equals(field.getText())) {
+                loading(() -> field.setText(picked.toString()));
+            }
+            pause.stop();
+            save.run();
+        });
+        boolean[] reopening = {false};
+        Consumer<List<String>> show = entries -> {
+            loading(() -> {
+                String text = field.getText();
+                model.removeAllElements();
+                model.addAll(entries);
+                box.setSelectedItem(text);
+                field.setText(text);
+            });
+            if (box.isPopupVisible()) {
+                reopening[0] = true;
+                try {
+                    // The open list keeps its old size unless it is shown again
+                    box.hidePopup();
+                    if (!entries.isEmpty()) {
+                        box.showPopup();
+                    }
+                } finally {
+                    reopening[0] = false;
+                }
+            }
+        };
+        box.addPopupMenuListener(new PopupMenuListener() {
+            @Override
+            public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
+                if (!reopening[0]) {
+                    eventBus.post(new ConfigSuggestionsRequested(group, item.getKey(),
+                            entries -> SwingUtilities.invokeLater(() -> show.accept(entries))));
+                }
+            }
+
+            @Override
+            public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {
+            }
+
+            @Override
+            public void popupMenuCanceled(PopupMenuEvent e) {
+            }
+        });
+        return new Control(box, true, load);
+    }
+
     private <E extends Enum<E>> Control choice(ConfigItemDescriptor item, Class<E> type) {
         JComboBox<E> box = new JComboBox<>(type.getEnumConstants());
         box.setFocusable(false);
@@ -507,29 +644,61 @@ public final class ConfigPanel extends JPanel {
         return new Control(swatch, false, load);
     }
 
-    private Control dimension(ConfigItemDescriptor item) {
+    /**
+     * Two spinners for a value made of two whole numbers, such as a size or a point, each bounded by {@code @Range}.
+     *
+     * @param item      the item
+     * @param separator what goes between the spinners
+     * @param make      makes the value from the two numbers
+     * @param split     the two numbers of a value, or null for none
+     * @return the control
+     */
+    private Control pair(ConfigItemDescriptor item, String separator, BiFunction<Integer, Integer, Object> make,
+                         Function<Object, int[]> split) {
         Range range = item.getRange();
         int min = range != null ? range.min() : 0;
         int max = range != null ? range.max() : Integer.MAX_VALUE;
-        JSpinner width = new JSpinner(new SpinnerNumberModel(min, min, max, 1));
-        JSpinner height = new JSpinner(new SpinnerNumberModel(min, min, max, 1));
-        for (JSpinner spinner : new JSpinner[]{width, height}) {
+        JSpinner first = new JSpinner(new SpinnerNumberModel(min, min, max, 1));
+        JSpinner second = new JSpinner(new SpinnerNumberModel(min, min, max, 1));
+        for (JSpinner spinner : new JSpinner[]{first, second}) {
             ((JSpinner.DefaultEditor) spinner.getEditor()).getTextField().setColumns(4);
         }
         Runnable load = () -> {
-            Dimension value = (Dimension) value(item);
-            width.setValue(value != null ? Math.max(min, Math.min(max, value.width)) : min);
-            height.setValue(value != null ? Math.max(min, Math.min(max, value.height)) : min);
+            int[] value = split.apply(value(item));
+            first.setValue(value != null ? Math.max(min, Math.min(max, value[0])) : min);
+            second.setValue(value != null ? Math.max(min, Math.min(max, value[1])) : min);
         };
-        Consumer<Object> changed = e -> apply(item, new Dimension((Integer) width.getValue(),
-                (Integer) height.getValue()), load);
-        width.addChangeListener(changed::accept);
-        height.addChangeListener(changed::accept);
+        Runnable changed = () -> apply(item, make.apply((Integer) first.getValue(), (Integer) second.getValue()),
+                load);
+        first.addChangeListener(e -> changed.run());
+        second.addChangeListener(e -> changed.run());
         JPanel both = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
-        both.add(width);
-        both.add(new JLabel("×"));
-        both.add(height);
+        both.add(first);
+        both.add(new JLabel(separator));
+        both.add(second);
         return new Control(both, false, load);
+    }
+
+    /**
+     * A button that posts {@link ConfigButtonClicked}, after asking if the item has a warning.
+     *
+     * @param item a {@link Button} item
+     * @return the control
+     */
+    private Control button(ConfigItemDescriptor item) {
+        JButton button = new JButton(item.getName());
+        button.setToolTipText(tooltip(item.getItem().description()));
+        button.setFocusable(false);
+        button.addActionListener(e -> {
+            String warning = item.getItem().warning();
+            if (!warning.isEmpty() && JOptionPane.showConfirmDialog(this, warning, "Are you sure?",
+                    JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE) != JOptionPane.YES_OPTION) {
+                return;
+            }
+            eventBus.post(new ConfigButtonClicked(group, item.getKey()));
+        });
+        return new Control(button, false, () -> {
+        });
     }
 
     /**
@@ -558,6 +727,7 @@ public final class ConfigPanel extends JPanel {
         } finally {
             applying = false;
         }
+        updateShown();
     }
 
     private void reset() {
@@ -580,25 +750,63 @@ public final class ConfigPanel extends JPanel {
     }
 
     /**
-     * Hears of setting changes; reloads the control of one in this group that this page didn't make. Only that control,
-     * so typing in progress elsewhere on the page isn't overwritten.
+     * Hears of setting changes in this group that this page didn't make: reloads the changed setting's control (only
+     * that control, so typing in progress elsewhere on the page isn't overwritten), then shows and hides the items and
+     * sections whose conditions changed. The page's own changes update it as they are made.
      *
      * @param event the change, on whichever thread made it
      */
     private void changed(ConfigChanged event) {
-        if (group.equals(event.getGroup()) && !(applying && SwingUtilities.isEventDispatchThread())) {
-            Runnable load = loaders.get(event.getKey());
+        if (!group.equals(event.getGroup()) || applying && SwingUtilities.isEventDispatchThread()) {
+            return;
+        }
+        Runnable load = loaders.get(event.getKey());
+        SwingUtilities.invokeLater(() -> {
             if (load != null) {
-                SwingUtilities.invokeLater(() -> loading(load));
+                loading(load);
             }
+            updateShown();
+        });
+    }
+
+    /**
+     * Shows the stored values in every control, and the items and sections their values call for.
+     */
+    private void load() {
+        loading(() -> loaders.values().forEach(Runnable::run));
+        updateShown();
+    }
+
+    /**
+     * Shows the items and sections whose conditions hold, and hides the rest.
+     */
+    private void updateShown() {
+        boolean changed = false;
+        for (Map.Entry<ConfigItemDescriptor, JComponent> row : itemRows.entrySet()) {
+            changed |= show(row.getValue(), configManager.isShown(config, descriptor, row.getKey()));
+        }
+        for (Map.Entry<ConfigSectionDescriptor, JComponent> section : sectionPanels.entrySet()) {
+            changed |= show(section.getValue(), configManager.isShown(config, descriptor, section.getKey()));
+        }
+        if (changed) {
+            revalidate();
+            repaint();
         }
     }
 
     /**
-     * Shows the stored values in every control.
+     * Shows or hides a row or section.
+     *
+     * @param component the row or section
+     * @param shown     whether to show it
+     * @return true if that changed it
      */
-    private void load() {
-        loading(() -> loaders.values().forEach(Runnable::run));
+    private static boolean show(JComponent component, boolean shown) {
+        if (component.isVisible() == shown) {
+            return false;
+        }
+        component.setVisible(shown);
+        return true;
     }
 
     private void loading(Runnable task) {

@@ -11,8 +11,9 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Implements a {@link Config} interface over the {@link ConfigManager}. A getter returns the stored value converted
  * to its return type, or the interface's {@code default} body when nothing is stored (or the stored text doesn't
- * convert); a one-argument {@code void} method sets the value, null unsetting it. A {@code default} method without
- * {@link ConfigItem} is a helper and runs as written.
+ * convert); a one-argument {@code void} method sets the value, null unsetting it. A {@link Button} getter returns
+ * {@link Button#INSTANCE} and reads nothing. A {@code default} method without {@link ConfigItem} is a helper and runs as
+ * written.
  *
  * <p>Values aren't cached: each call reads the settings, which is a map lookup and a parse.
  */
@@ -81,6 +82,9 @@ final class ConfigInvocationHandler implements InvocationHandler {
      * @throws Throwable if the default method throws
      */
     private Object get(Object proxy, Method method, ConfigItem item) throws Throwable {
+        if (method.getReturnType() == Button.class) {
+            return Button.INSTANCE;
+        }
         String stored = manager.getConfiguration(group, item.keyName());
         if (stored != null) {
             try {

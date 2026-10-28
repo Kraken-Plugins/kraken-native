@@ -24,9 +24,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Properties;
@@ -46,10 +48,13 @@ import java.util.stream.Collectors;
  *       {@link #getConfigDescriptor} lists what it declares, for the settings page.
  *   <li><b>Types.</b> {@code boolean}, {@code int}, {@code long}, {@code float}, {@code double}, {@code String},
  *       enums (stored by name), {@code Color} ({@code #AARRGGBB}; a decimal ARGB integer also reads),
- *       {@code Dimension} ({@code WIDTHxHEIGHT}), {@code Point} ({@code X:Y}) and {@code Rectangle}
- *       ({@code X:Y:WIDTH:HEIGHT}; the settings page has no control for these two, so they suit hidden items) and
- *       {@code Set} of an enum (names, comma-separated).
- *       Keybinds aren't supported: Kraken never sees the game's input.
+ *       {@code Dimension} ({@code WIDTHxHEIGHT}), {@code Point} ({@code X:Y}), {@code Rectangle}
+ *       ({@code X:Y:WIDTH:HEIGHT}; the settings page has no control for it, so it suits hidden items),
+ *       {@code Set} of an enum (names, comma-separated) and {@link Button} (a button on the settings page; nothing is
+ *       stored). Keybinds aren't supported: Kraken never sees the game's input.
+ *   <li><b>The settings page.</b> {@link ShowIf} shows an item or section only while another item has certain
+ *       values ({@link #isShown} says what the page shows), and {@link Suggestions} gives a text item a drop-down
+ *       the plugin fills.
  *   <li><b>Events.</b> Every change posts {@link ConfigChanged} on the bus, on the thread that made it.
  *   <li><b>Storage.</b> Changes are written shortly after they're made (several changes in a row are written once),
  *       atomically: to a temporary file that then replaces the settings file. {@link #flush} writes at once.
@@ -129,7 +134,8 @@ public class ConfigManager {
                 try {
                     // A plugin's config interface may be package-private
                     field.trySetAccessible();
-                    sections.add(new ConfigSectionDescriptor((String) field.get(null), section));
+                    sections.add(new ConfigSectionDescriptor((String) field.get(null), section,
+                            List.of(field.getAnnotationsByType(ShowIf.class))));
                 } catch (IllegalAccessException e) {
                     log.log(Level.WARNING, "Can't read config section " + field, e);
                 }
@@ -143,12 +149,182 @@ public class ConfigManager {
             if (item != null && method.getParameterCount() == 0) {
                 items.add(new ConfigItemDescriptor(item, method.getGenericReturnType(),
                         method.getAnnotation(Range.class), method.getAnnotation(Alpha.class),
-                        method.getAnnotation(Units.class)));
+                        method.getAnnotation(Units.class), method.getAnnotation(Suggestions.class),
+                        List.of(method.getAnnotationsByType(ShowIf.class))));
             }
         }
         items.sort(order);
-        return new ConfigDescriptor(type.getAnnotation(ConfigGroup.class), List.copyOf(sections),
-                List.copyOf(items));
+        ConfigDescriptor descriptor = new ConfigDescriptor(type.getAnnotation(ConfigGroup.class),
+                List.copyOf(sections), List.copyOf(items));
+        checkConditions(type, descriptor);
+        return descriptor;
+    }
+
+    /**
+     * Whether the settings page shows an item or a section now, by the {@link ShowIf} rules. An item is shown when it
+     * isn't hidden, each of its conditions holds on the config's values (stored, else the defaults), the items those
+     * conditions name are shown by the same rules (hidden ones included), and its section, if it has one, is shown.
+     * A section is shown when its conditions hold the same way and at least one of its items is shown. Conditions
+     * that loop back on themselves never hold.
+     *
+     * @param config     a config from {@link #getConfig}
+     * @param descriptor its descriptor
+     * @param object     one of the descriptor's items or sections
+     * @return true if the page shows it
+     */
+    public boolean isShown(Config config, ConfigDescriptor descriptor, ConfigObject object) {
+        if (object instanceof ConfigSectionDescriptor section) {
+            return holds(config, descriptor, section, new HashSet<>())
+                    && descriptor.getItems().stream().anyMatch(item -> section.getKey().equals(item.getItem().section())
+                    && isShown(config, descriptor, item));
+        }
+        if (object instanceof ConfigItemDescriptor item && item.getItem().hidden()) {
+            return false;
+        }
+        return holds(config, descriptor, object, new HashSet<>());
+    }
+
+    /**
+     * Whether the settings page shows an item now, as {@link #isShown(Config, ConfigDescriptor, ConfigObject)}
+     * decides.
+     *
+     * @param config a config from {@link #getConfig}
+     * @param key    the item's key
+     * @return true if the page shows it; false if the config has no such item
+     */
+    public boolean isShown(Config config, String key) {
+        ConfigDescriptor descriptor = getConfigDescriptor(config);
+        ConfigItemDescriptor item = descriptor.item(key);
+        return item != null && isShown(config, descriptor, item);
+    }
+
+    /**
+     * Whether an item's or section's conditions hold, with the items they name and the item's section shown.
+     *
+     * @param config     the config
+     * @param descriptor its descriptor
+     * @param object     the item or section
+     * @param deciding   the items and sections whose conditions are being worked out, to catch a loop
+     * @return true if it is shown, hidden items aside
+     */
+    private boolean holds(Config config, ConfigDescriptor descriptor, ConfigObject object,
+                          Set<ConfigObject> deciding) {
+        if (!deciding.add(object)) {
+            return false;
+        }
+        try {
+            for (ShowIf condition : object.getShowIf()) {
+                ConfigItemDescriptor decider = descriptor.item(condition.key());
+                if (decider == null || !holds(config, descriptor, decider, deciding)
+                        || !matches(value(config, decider), condition.values())) {
+                    return false;
+                }
+            }
+            if (object instanceof ConfigItemDescriptor item && !item.getItem().section().isEmpty()) {
+                ConfigSectionDescriptor section = descriptor.section(item.getItem().section());
+                return section == null || holds(config, descriptor, section, deciding);
+            }
+            return true;
+        } finally {
+            deciding.remove(object);
+        }
+    }
+
+    /**
+     * Whether a value is one of a condition's values: as stored, or for a set, any of its elements.
+     *
+     * @param value  the value, as the getter returns it
+     * @param values the condition's values
+     * @return true if it matches
+     */
+    private boolean matches(Object value, String[] values) {
+        if (value instanceof Collection<?> collection) {
+            return collection.stream().anyMatch(element -> matches(element, values));
+        }
+        if (value == null) {
+            return false;
+        }
+        String stored = objectToString(value);
+        for (String wanted : values) {
+            if (wanted.equals(stored)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * An item's value, through the config's getter.
+     *
+     * @param config the config
+     * @param item   the item
+     * @return the stored value, else the default; null if the getter can't be called
+     */
+    private static Object value(Config config, ConfigItemDescriptor item) {
+        for (Method method : configInterface(config).getMethods()) {
+            ConfigItem annotation = method.getAnnotation(ConfigItem.class);
+            if (annotation != null && method.getParameterCount() == 0 && annotation.keyName().equals(item.getKey())) {
+                try {
+                    // A plugin's config interface may be package-private
+                    method.trySetAccessible();
+                    return method.invoke(config);
+                } catch (ReflectiveOperationException | RuntimeException e) {
+                    return null;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Logs the {@link ShowIf} conditions that can never hold as written: those naming no item, and values an enum
+     * item has no constant for.
+     *
+     * @param type       the config interface
+     * @param descriptor its descriptor
+     */
+    private static void checkConditions(Class<?> type, ConfigDescriptor descriptor) {
+        List<ConfigObject> objects = new ArrayList<>(descriptor.getSections());
+        objects.addAll(descriptor.getItems());
+        for (ConfigObject object : objects) {
+            for (ShowIf condition : object.getShowIf()) {
+                ConfigItemDescriptor decider = descriptor.item(condition.key());
+                if (decider == null) {
+                    log.warning("Config " + type.getSimpleName() + ": " + object.getKey() + " is shown by "
+                            + condition.key() + ", which isn't one of its items");
+                    continue;
+                }
+                Class<?> constants = enumOf(decider.getType());
+                if (constants == null) {
+                    continue;
+                }
+                for (String value : condition.values()) {
+                    boolean known = Arrays.stream(constants.getEnumConstants())
+                            .anyMatch(constant -> ((Enum<?>) constant).name().equals(value));
+                    if (!known) {
+                        log.warning("Config " + type.getSimpleName() + ": " + object.getKey() + " is shown when "
+                                + condition.key() + " is " + value + ", which isn't a " + constants.getSimpleName());
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * The enum an item's value is, or is a set of.
+     *
+     * @param type the item's type
+     * @return the enum, or null if the item isn't one
+     */
+    private static Class<?> enumOf(Type type) {
+        if (type instanceof Class<?> clazz && clazz.isEnum()) {
+            return clazz;
+        }
+        if (type instanceof ParameterizedType set && set.getRawType() == Set.class
+                && set.getActualTypeArguments()[0] instanceof Class<?> element && element.isEnum()) {
+            return element;
+        }
+        return null;
     }
 
     /**

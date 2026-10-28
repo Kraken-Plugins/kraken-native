@@ -3,10 +3,11 @@ package com.kraken.client.plugins.config;
 import lombok.Value;
 
 import java.lang.reflect.Type;
+import java.util.List;
 
 /**
- * One setting of a {@link ConfigDescriptor}: its annotation, its value type and the annotations that shape its
- * control.
+ * One setting of a {@link ConfigDescriptor}: its annotation, its value type, the annotations that shape its control
+ * and the conditions under which it is shown.
  */
 @Value
 public class ConfigItemDescriptor implements ConfigObject {
@@ -35,6 +36,16 @@ public class ConfigItemDescriptor implements ConfigObject {
      * The unit shown after a number, or null.
      */
     Units units;
+
+    /**
+     * Present if the setting has a drop-down of suggestions, or null.
+     */
+    Suggestions suggestions;
+
+    /**
+     * The conditions that must all hold for the settings page to show it; empty if it is always shown.
+     */
+    List<ShowIf> showIf;
 
     @Override
     public String getKey() {

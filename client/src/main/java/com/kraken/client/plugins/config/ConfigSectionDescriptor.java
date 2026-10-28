@@ -2,6 +2,8 @@ package com.kraken.client.plugins.config;
 
 import lombok.Value;
 
+import java.util.List;
+
 /**
  * One section of a {@link ConfigDescriptor}.
  */
@@ -17,6 +19,11 @@ public class ConfigSectionDescriptor implements ConfigObject {
      * The section's annotation.
      */
     ConfigSection section;
+
+    /**
+     * The conditions that must all hold for the settings page to show it; empty if it is always shown.
+     */
+    List<ShowIf> showIf;
 
     @Override
     public String getName() {
