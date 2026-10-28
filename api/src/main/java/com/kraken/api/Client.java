@@ -802,20 +802,20 @@ public final class Client extends GameReader {
 
     /**
      * Runs a menu action as a click on its entry would, through the client's native hook: the client's own row body
-     * sends the op packet and starts the interaction. Same as {@code getActions().menuAction(p0, p1, action, id)};
-     * {@link Actions#click} sends the mouse click packet first, as a real click does. The native entry carries no
-     * item id, option or target, so those are not used.
+     * sends the op packet and starts the interaction. Same as
+     * {@code getActions().menuAction(p0, p1, action, id, itemId)}; {@link Actions#click} sends the mouse click packet
+     * first, as a real click does. The native entry carries no option or target, so those are not used.
      *
-     * @param p0     the entry's first parameter (a loc's or ground item's scene x)
-     * @param p1     the entry's second parameter (a loc's or ground item's scene y)
+     * @param p0     the entry's first parameter (a loc's, ground item's or walk's scene x; a component's slot)
+     * @param p1     the entry's second parameter (a loc's, ground item's or walk's scene y; a component's packed id)
      * @param action the action; see {@link Actions#isSupported}
-     * @param id     the entry's identifier: an NPC's or player's index, a loc's or item's id
-     * @param itemId unused
+     * @param id     the entry's identifier: an NPC's or player's index, a loc's or item's id, a component op (1-based)
+     * @param itemId a component's item id, or -1 to read it from the widget
      * @param option unused
      * @param target unused
      */
     public void menuAction(int p0, int p1, MenuAction action, int id, int itemId, String option, String target) {
-        actions.menuAction(p0, p1, action, id);
+        actions.menuAction(p0, p1, action, id, itemId);
     }
 
     /**

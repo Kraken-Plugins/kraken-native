@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -24,10 +25,12 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * {@link Actions}: the calls it hands the hook for a mouse click and for each kind of menu action, built from the seed
- * mapping, and what it refuses.
+ * {@link Actions}: the calls it hands the hook for a mouse click, for each kind of menu action and for the dialog
+ * answers, built from the seed mapping, and what it refuses.
  */
 class ActionsTest {
+
+    private static final int INVENTORY = 149 << 16;
 
     private GameFixture game;
     private Mapping map;
@@ -48,6 +51,10 @@ class ActionsTest {
         return map.function(key);
     }
 
+    private int opcode(String name) {
+        return map.enumValue("clientProt", name, -1);
+    }
+
     private static int[] ints(NativeCall call) {
         ByteBuffer buf = ByteBuffer.wrap(call.data()).order(ByteOrder.LITTLE_ENDIAN);
         int[] out = new int[buf.remaining() / 4];
@@ -58,16 +65,20 @@ class ActionsTest {
     }
 
     @Test
-    void theSeedMappingSupportsTheWorldSubjectsAndTheClick() {
+    void theSeedMappingSupportsTheSubjectsTheClickAndTheDialogs() {
         assertTrue(actions.isAvailable());
         assertTrue(actions.isMouseClickSupported());
+        assertTrue(actions.isDialogSupported());
         for (MenuAction action : List.of(MenuAction.NPC_FIRST_OPTION, MenuAction.NPC_FIFTH_OPTION,
                 MenuAction.GAME_OBJECT_FIRST_OPTION, MenuAction.GAME_OBJECT_FIFTH_OPTION,
-                MenuAction.GROUND_ITEM_THIRD_OPTION, MenuAction.PLAYER_EIGHTH_OPTION)) {
+                MenuAction.GROUND_ITEM_THIRD_OPTION, MenuAction.PLAYER_EIGHTH_OPTION, MenuAction.WALK,
+                MenuAction.CC_OP, MenuAction.CC_OP_LOW_PRIORITY, MenuAction.WIDGET_TARGET, MenuAction.WIDGET_CONTINUE,
+                MenuAction.WIDGET_TARGET_ON_WIDGET, MenuAction.WIDGET_TARGET_ON_NPC, MenuAction.WIDGET_TARGET_ON_PLAYER,
+                MenuAction.WIDGET_TARGET_ON_GAME_OBJECT, MenuAction.WIDGET_TARGET_ON_GROUND_ITEM)) {
             assertTrue(actions.isSupported(action), action + " is mapped");
         }
-        for (MenuAction action : List.of(MenuAction.WALK, MenuAction.CC_OP, MenuAction.EXAMINE_NPC,
-                MenuAction.WIDGET_TARGET_ON_NPC, MenuAction.CANCEL, MenuAction.UNKNOWN)) {
+        for (MenuAction action : List.of(MenuAction.EXAMINE_NPC, MenuAction.WIDGET_TYPE_1, MenuAction.WIDGET_CLOSE,
+                MenuAction.CANCEL, MenuAction.UNKNOWN)) {
             assertFalse(actions.isSupported(action), action + " has no row body");
         }
     }
@@ -153,6 +164,125 @@ class ActionsTest {
     }
 
     @Test
+    void aWalkCallsTheWalkRowBodyWithTheWorldTile() {
+        assertTrue(actions.walk(new WorldPoint(3222, 3218, 0)));
+        NativeCall call = sent.get(0).get(0);
+        assertEquals(fn("menuWalk"), call.rva());
+        assertEquals(List.of(Arg.imm(0), Arg.data(0)), call.args(), "(unused, &captures)");
+        assertArrayEquals(new int[]{0, 3222, 3218}, ints(call), "{level, x, z}");
+
+        assertTrue(actions.menuAction(10, 20, MenuAction.WALK, 0), "Walk here from an entry's scene coordinates");
+        assertArrayEquals(new int[]{0, GameFixture.BASE_X + 10, GameFixture.BASE_Z + 20}, ints(sent.get(1).get(0)));
+    }
+
+    @Test
+    void aComponentOpCallsTheComponentRowBodyWithSlotOpAndItem() {
+        assertTrue(actions.menuAction(3, INVENTORY, MenuAction.CC_OP, 2, 1511));
+        NativeCall call = sent.get(0).get(0);
+        assertEquals(fn("menuComponentOp"), call.rva());
+        assertArrayEquals(new int[]{INVENTORY, 3, 2, 0, 1511, 0}, ints(call), "{component, slot, op, subOp, objId, flag}");
+
+        assertTrue(actions.menuAction(3, INVENTORY, MenuAction.CC_OP_LOW_PRIORITY, 7), "the item read from the widget");
+        assertArrayEquals(new int[]{INVENTORY, 3, 7, 0, -1, 0}, ints(sent.get(1).get(0)), "no widget in the fixture: -1");
+
+        assertFalse(actions.menuAction(3, INVENTORY, MenuAction.CC_OP, 0, 1511), "a component op is 1-based");
+        assertEquals(2, sent.size());
+    }
+
+    @Test
+    void useItemOnItemSelectsThenUsesInOneBatch() {
+        assertTrue(actions.useItemOnItem(INVENTORY, 1, 1511, 2, 590));
+        List<NativeCall> batch = sent.get(0);
+        assertEquals(2, batch.size());
+        assertEquals(fn("menuComponentSelect"), batch.get(0).rva());
+        assertArrayEquals(new int[]{INVENTORY, 1, 1511}, ints(batch.get(0)), "the logs: {component, slot, objId}");
+        assertEquals(fn("menuComponentTargetOp"), batch.get(1).rva());
+        assertArrayEquals(new int[]{INVENTORY, 2, 590}, ints(batch.get(1)), "the tinderbox: {component, slot, objId}");
+    }
+
+    @Test
+    void useItemOnASubjectTakesItsTargetedRowBody() {
+        MenuEntry npc = new MenuEntry(client, "Attack", "Goblin", 77, MenuAction.NPC_SECOND_OPTION, 0, 0, null);
+        assertTrue(actions.useItemOn(INVENTORY, 0, 1511, npc), "a plain NPC entry stands for its subject");
+        List<NativeCall> batch = sent.get(0);
+        assertEquals(fn("menuComponentSelect"), batch.get(0).rva());
+        assertEquals(fn("menuNpcTargetOp"), batch.get(1).rva());
+        assertArrayEquals(new int[]{77}, ints(batch.get(1)), "{index}");
+
+        WorldPoint tile = new WorldPoint(3200, 3300, 1);
+        MenuEntry loc = new MenuEntry(client, "Use", "Logs -> Fire", 1535, MenuAction.WIDGET_TARGET_ON_GAME_OBJECT, 50, 52,
+                tile);
+        assertTrue(actions.useItemOn(INVENTORY, 0, 1511, loc));
+        assertEquals(fn("menuLocTargetOp"), sent.get(1).get(1).rva());
+        assertArrayEquals(new int[]{1, 3200, 3300, 1535}, ints(sent.get(1).get(1)), "{level, x, z, locId}");
+
+        assertTrue(actions.useItemOn(INVENTORY, 0, 1511, 5, 50, MenuAction.GROUND_ITEM_FIRST_OPTION, 526, -1));
+        assertEquals(fn("menuObjTargetOp"), sent.get(2).get(1).rva());
+        assertTrue(actions.useItemOn(INVENTORY, 0, 1511, 0, 0, MenuAction.PLAYER_FIRST_OPTION, 9, -1));
+        assertEquals(fn("menuPlayerTargetOp"), sent.get(3).get(1).rva());
+        assertArrayEquals(new int[]{9}, ints(sent.get(3).get(1)));
+
+        MenuEntry walk = new MenuEntry(client, "Walk here", "", 0, MenuAction.WALK, 50, 52, tile);
+        assertFalse(actions.useItemOn(INVENTORY, 0, 1511, walk), "a tile takes no selection");
+        assertEquals(4, sent.size());
+    }
+
+    @Test
+    void aPauseButtonCallsThePauseRowBody() {
+        assertTrue(actions.resumePause(0xe60002, -1));
+        NativeCall call = sent.get(0).get(0);
+        assertEquals(fn("menuComponentPause"), call.rva());
+        assertArrayEquals(new int[]{0xe60002, -1}, ints(call), "{component, slot}");
+
+        assertTrue(actions.menuAction(-1, 0xe60002, MenuAction.WIDGET_CONTINUE, 0));
+        assertEquals(fn("menuComponentPause"), sent.get(1).get(0).rva());
+    }
+
+    @Test
+    void dialogAnswersBuildTheirPacketsWithTheWriters() {
+        int connection = map.offset("Client.connection");
+        int cipher = map.offset("Connection.outCipher");
+
+        assertTrue(actions.resumeCountDialog(28));
+        List<NativeCall> count = sent.get(0);
+        assertEquals(4, count.size(), "create, one int, send, release");
+        assertEquals(List.of(Arg.scratch(0), Arg.imm(opcode("RESUME_P_COUNTDIALOG")), Arg.indirect(connection, cipher)),
+                count.get(0).args());
+        assertEquals(fn("packetWriteInt"), count.get(1).rva());
+        assertEquals(List.of(Arg.scratch(8), Arg.imm(28)), count.get(1).args());
+        assertEquals(fn("packetSend"), count.get(2).rva());
+        assertEquals(fn("packetRelease"), count.get(3).rva());
+
+        assertTrue(actions.resumeObjDialog(995));
+        List<NativeCall> obj = sent.get(1);
+        assertEquals(Arg.imm(opcode("RESUME_P_OBJDIALOG")), obj.get(0).args().get(1));
+        assertEquals(fn("packetWriteShort"), obj.get(1).rva());
+        assertEquals(Arg.imm(995), obj.get(1).args().get(1));
+
+        assertTrue(actions.resumeNameDialog("Zezima"));
+        List<NativeCall> name = sent.get(2);
+        assertEquals(5, name.size(), "create, the size byte, the string, send, release");
+        assertEquals(Arg.imm(opcode("RESUME_P_NAMEDIALOG")), name.get(0).args().get(1));
+        assertEquals(fn("packetWriteByte"), name.get(1).rva());
+        assertEquals(Arg.imm(7), name.get(1).args().get(1), "the characters plus the terminator");
+        NativeCall string = name.get(2);
+        assertEquals(fn("packetWriteString"), string.rva());
+        assertEquals(List.of(Arg.scratch(8), Arg.data(0), Arg.imm(6), Arg.imm(0)), string.args(),
+                "(buffer, utf-8 chars, their length, not versioned)");
+        assertArrayEquals("Zezima".getBytes(StandardCharsets.UTF_8), string.data());
+
+        assertTrue(actions.resumeStringDialog("h" + (char) 0xe9 + "llo"));
+        List<NativeCall> text = sent.get(3);
+        assertEquals(Arg.imm(opcode("RESUME_P_STRINGDIALOG")), text.get(0).args().get(1));
+        assertEquals(Arg.imm(6), text.get(1).args().get(1), "five characters, counted as the game's code page will");
+        assertEquals(Arg.imm(6), text.get(2).args().get(2), "six bytes of utf-8 for the writer to transcode");
+
+        assertFalse(actions.resumeStringDialog("x".repeat(255)), "longer than the size byte allows");
+        assertFalse(actions.resumeNameDialog(new String(Character.toChars(0x1f600))), "a character outside the basic plane");
+        assertEquals(4, sent.size());
+    }
+
+    @Test
     void aClickSendsTheMouseClickThenTheAction() {
         assertTrue(actions.click(300, 200, 0, 0, MenuAction.NPC_FIRST_OPTION, 5));
         List<NativeCall> batch = sent.get(0);
@@ -162,17 +292,23 @@ class ActionsTest {
         assertEquals(Arg.imm(200), batch.get(3).args().get(1));
         assertEquals(fn("menuNpcOp"), batch.get(6).rva());
         assertArrayEquals(new int[]{5, 1, 0}, ints(batch.get(6)));
+
+        assertTrue(actions.click(10, 20, 4, INVENTORY, MenuAction.CC_OP, 3, 4151));
+        assertEquals(fn("menuComponentOp"), sent.get(1).get(6).rva());
+        assertArrayEquals(new int[]{INVENTORY, 4, 3, 0, 4151, 0}, ints(sent.get(1).get(6)));
     }
 
     @Test
     void unsupportedActionsAndAMissingHookSendNothing() {
-        assertFalse(actions.menuAction(0, 0, MenuAction.WALK, 0));
-        assertFalse(actions.click(1, 1, 0, 0, MenuAction.CC_OP, 1));
+        assertFalse(actions.menuAction(0, 0, MenuAction.EXAMINE_NPC, 0));
+        assertFalse(actions.click(1, 1, 0, 0, MenuAction.WIDGET_TYPE_1, 1));
         assertTrue(sent.isEmpty(), "nothing goes out for an action without a row body");
 
         actions.setInvoker(null);
         assertFalse(actions.isAvailable());
         assertFalse(actions.menuAction(0, 0, MenuAction.NPC_FIRST_OPTION, 1));
+        assertFalse(actions.walk(new WorldPoint(1, 2, 0)));
+        assertFalse(actions.resumeCountDialog(1));
         actions.mouseClick(1, 1, false);
         assertTrue(sent.isEmpty(), "actions are for the moment they are asked: nothing is queued for a later hook");
     }
@@ -181,5 +317,7 @@ class ActionsTest {
     void theClientsMenuActionDelegates() {
         client.menuAction(0, 0, MenuAction.NPC_FOURTH_OPTION, 77, -1, "Attack", "Moss giant");
         assertArrayEquals(new int[]{77, 4, 0}, ints(sent.get(0).get(0)));
+        client.menuAction(3, INVENTORY, MenuAction.CC_OP, 1, 4151, "Wield", "Abyssal whip");
+        assertArrayEquals(new int[]{INVENTORY, 3, 1, 0, 4151, 0}, ints(sent.get(1).get(0)), "the item id passed on");
     }
 }

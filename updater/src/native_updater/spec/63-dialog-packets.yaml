@@ -1,0 +1,33 @@
+# Answering the server's dialogs directly (docs/menu-actions.md §1.4): the opcodes of the packets the cs2 runtime sends
+# from its resume_countdialog, resume_namedialog, resume_stringdialog and resume_objdialog ops. The runtime's handler
+# of the 3100 range jumps through a table of cases; each case builds its packet with the packet helpers of
+# 62-menu-actions.yaml (create, one writer, send, release), so the API can build the same packet from Java with a count,
+# a string or an item id (dialogs.py).
+keys:
+  - key: enums.clientProt.RESUME_P_COUNTDIALOG
+    type: u8
+    priority: P1
+    doc: The four-byte packet answering a count dialog ("Enter amount"), one int written with packetWriteInt; sent by
+      cs2 op 3104.
+    strategies:
+      - extractor: { name: dialog_packets, field: enums.clientProt.RESUME_P_COUNTDIALOG, cls: A }
+  - key: enums.clientProt.RESUME_P_NAMEDIALOG
+    type: u8
+    priority: P1
+    doc: The variable-size packet answering a name dialog, the string's length plus one as a byte (packetWriteByte)
+      then the characters and a zero terminator; sent by cs2 op 3105.
+    strategies:
+      - extractor: { name: dialog_packets, field: enums.clientProt.RESUME_P_NAMEDIALOG, cls: A }
+  - key: enums.clientProt.RESUME_P_STRINGDIALOG
+    type: u8
+    priority: P1
+    doc: The variable-size packet answering a string dialog, laid out as RESUME_P_NAMEDIALOG; sent by cs2 op 3106.
+    strategies:
+      - extractor: { name: dialog_packets, field: enums.clientProt.RESUME_P_STRINGDIALOG, cls: A }
+  - key: enums.clientProt.RESUME_P_OBJDIALOG
+    type: u8
+    priority: P1
+    doc: The two-byte packet answering an item dialog ("Select an item"), the item id written with packetWriteShort;
+      sent by cs2 op 3115.
+    strategies:
+      - extractor: { name: dialog_packets, field: enums.clientProt.RESUME_P_OBJDIALOG, cls: A }

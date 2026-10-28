@@ -60,7 +60,7 @@ def build_mapping(identity, results, spec):
             if name:
                 out["enums"].setdefault(group, {})[name] = value
             else:
-                out["enums"][group] = value         # a whole {name: value} table
+                out["enums"].setdefault(group, {}).update(value)    # a whole {name: value} table, merged with members
         else:
             out["structs"].setdefault(head, {})[rest] = value
     return out

@@ -11,15 +11,28 @@ and add rows through adder helpers that store the body's address next to the cap
   LOC     {i32 level, i32 x, i32 z, i32 locId, i32 op, i32 flag}        sends OPLOC<op> for the loc at the world tile
   OBJ     {i32 level, i32 x, i32 z, i32 objId, i32 count, i32 op, i32 flag}   sends OPOBJ<op>
   PLAYER  {i32 index, i32 op}                                looks the player up by index, sends OPPLAYER<op>
+  TILE    {i32 level, i32 x, i32 z}                          the Walk here row: sends the walk packet, sets the target
 
-Every body reaches a sender that switches on the op and builds one packet per case through the same helpers:
+Every op body reaches a sender that switches on the op and builds one packet per case through the same helpers:
 create(packet*, opcode, connection + outCipher), the writers, send(connection, packet*) and release(buffer*), the
 connection being the Client's. The per-cycle network step (the caller of the server packet handler, itself the caller
 of functions.npcInfoDecode) builds the mouse click packet with those helpers: create, three short writes
-((delta << 1) | right button, x, y), send; its opcode is enums.clientProt.EVENT_MOUSE_CLICK.
+((delta << 1) | right button, x, y), send; its opcode is enums.clientProt.EVENT_MOUSE_CLICK. The other writers (byte,
+int, string) are the functions the packet builders call on a packet's buffer, told apart by how far each advances the
+buffer's position.
+
+A selected item or spell ("Use X ->") is kept in the minimenu owner; the targeted row bodies of every kind read it
+through one short getter (the function returning [Client + Client.minimenu] + constant). The world subjects' targeted
+bodies take the op body's subject fields ({index} or {level, x, z, id}). The component rows come from several
+builders; their bodies the API calls take {i32 component, i32 slot, ...}: the component op ({component, slot, op,
+subOp, objId, u8 flag} handed on to a sender), the targeted op ({component, slot, objId}, the 16-byte packet), the
+select ("Use": {component, slot, objId}, no packet, stores the selection) and the pause button ({component, slot},
+the 6-byte packet).
 
 Output keys (see `menu_ops`): functions.menuNpcOp, functions.menuLocOp, functions.menuObjOp, functions.menuPlayerOp,
-functions.packetCreate, functions.packetWriteShort, functions.packetSend, functions.packetRelease, Client.connection,
+functions.menuWalk, functions.menu{Npc,Loc,Obj,Player}TargetOp, functions.menuComponentOp,
+functions.menuComponentTargetOp, functions.menuComponentSelect, functions.menuComponentPause, functions.packetCreate,
+functions.packetWrite{Byte,Short,Int,String}, functions.packetSend, functions.packetRelease, Client.connection,
 Connection.outCipher, enums.clientProt.
 """
 from collections import Counter
@@ -37,6 +50,22 @@ KINDS = {
     "OBJ": ("functions.menuObjOp", (0xc, 0x10, 0x14, 0x18)),
     "PLAYER": ("functions.menuPlayerOp", (0, 4)),
 }
+# Subject kind -> the output key of its targeted row body (a selected item or spell used on the subject)
+TARGET_KINDS = {
+    "NPC": "functions.menuNpcTargetOp",
+    "LOC": "functions.menuLocTargetOp",
+    "OBJ": "functions.menuObjTargetOp",
+    "PLAYER": "functions.menuPlayerTargetOp",
+}
+COMPONENT = "COMPONENT"
+COMPONENT_OP_FIELDS = (0, 4, 8, 0xc, 0x10, 0x14)   # {component, slot, op, subOp, objId, u8 flag} handed to the sender
+TARGET_PACKET_SIZE = 16     # the component targeted op packet (two components with slots and items)
+PAUSE_PACKET_SIZE = 6       # the pause button packet (a component and its slot)
+WALK_FIELDS = (0, 4, 8)     # {level, x, z}, compared with the last walk target
+GETTER_MAX_INSNS = 8        # the selection getter is a few instructions around a call
+STRING_WRITER_MIN_USES = 5  # the string writer is called (buffer, chars, length, 0) at least this often
+WRITER_NOTES = {"Byte": "advances the buffer's position by one", "Int": "advances the buffer's position by four",
+                "String": "takes (buffer, chars, length, 0)"}
 
 
 def menu_ops(session, p):
@@ -47,15 +76,17 @@ def menu_ops(session, p):
     player_lookup = session.value("functions.playerLookup")
     npc_decode = session.value("functions.npcInfoDecode")
     client = session.value("global.client")
+    minimenu = session.value("Client.minimenu")
 
     builders = _builders(session, subject_off, subjects)
     if "NPC" not in builders:
         return {}
-    bodies = {kind: _bodies(model, fn) for kind, fn in builders.items()}
+    bodies = {kind: _kind_bodies(model, fns) for kind, fns in builders.items()}
     shared = {b for b in bodies["NPC"] if sum(b in bs for bs in bodies.values()) > 1}
 
     out = {}
     senders = {}
+    op_bodies = {}
     for kind, (key, fields) in KINDS.items():
         if kind not in bodies:
             continue
@@ -74,6 +105,7 @@ def menu_ops(session, p):
         out[key] = (body, [session.evidence(lea, adder, "rip")],
                     f"the {kind} menu builder's row body that reaches the op sender {sender:#x}")
         senders[kind] = sender
+        op_bodies[kind] = body
     if "NPC" not in senders:
         return out
 
@@ -97,11 +129,41 @@ def menu_ops(session, p):
                                              "called three times on the mouse click packet's buffer")
         out["enums.clientProt"] = ({"EVENT_MOUSE_CLICK": opcode}, [session.evidence(rva, cycle, "imm")],
                                    "the opcode of the six-byte packet the network step builds from three shorts")
+        for kind, (fn, rva, caller, n) in _writers(session, create, send, release, writer).items():
+            out[f"functions.packetWrite{kind}"] = (fn, [session.evidence(rva, caller, "rip")],
+                                                   f"the buffer writer that {WRITER_NOTES[kind]}, called on {n} packets")
+
+    walk = _walk_body(session, create)
+    if walk is not None:
+        body, rva, fn = walk
+        out["functions.menuWalk"] = (body, [session.evidence(rva, fn, "disp")],
+                                     "the row body comparing its {level, x, z} captures with the last walk target before "
+                                     "building the walk packet")
+
+    sizes = _size_table(session, create)
+    getter = _selection_getter(session, bodies, shared, minimenu)
+    if getter is None:
+        return out
+    for kind, key in TARGET_KINDS.items():
+        if kind not in bodies or kind not in op_bodies:
+            continue
+        found = [(body, lea, adder) for body, (lea, adder) in bodies[kind].items()
+                 if body not in shared and body != op_bodies[kind] and _calls(model, body, getter)
+                 and _create_calls(session, body, create)]
+        if len(found) != 1:
+            session.notes.append(f"menu ops: {len(found)} {kind.lower()} row bodies read the selection and build a packet")
+            continue
+        body, lea, adder = found[0]
+        out[key] = (body, [session.evidence(lea, adder, "rip")],
+                    f"the {kind} menu builder's row body that reads the selection through {getter:#x} and builds a packet")
+    if COMPONENT in bodies:
+        out.update(_component_bodies(session, bodies[COMPONENT], shared, getter, create, sizes))
     return out
 
 
 def _builders(session, subject_off, subjects):
-    """{kind name: builder fn}: the unique caller of the function storing the kind into [entry + subjectType]."""
+    """{kind name: [builder fns]}: the callers of the function storing the kind into [entry + subjectType]. A world
+    subject has one builder; the component rows come from several."""
     model = session.model
     setters = {}
     for rva, fn in model.insns_with_disp(subject_off, "MOV"):
@@ -112,17 +174,30 @@ def _builders(session, subject_off, subjects):
         if dst.kind == "mem" and dst.size == 1 and src.kind == "imm":
             setters.setdefault(src.imm, set()).add(fn)
     out = {}
-    for kind in KINDS:
+    for kind in list(KINDS) + [COMPONENT]:
         value = subjects.get(kind)
         fns = setters.get(value, set())
         if len(fns) != 1:
             session.notes.append(f"menu ops: {len(fns)} functions store subject kind {kind} ({value})")
             continue
         callers = model.callers(next(iter(fns)))
+        if kind == COMPONENT:
+            if callers:
+                out[kind] = callers
+            continue
         if len(callers) != 1:
             session.notes.append(f"menu ops: the {kind} subject setter has {len(callers)} callers")
             continue
-        out[kind] = callers[0]
+        out[kind] = callers
+    return out
+
+
+def _kind_bodies(model, builders):
+    """{body fn: (lea rva, adder fn)} over every builder of one subject kind."""
+    out = {}
+    for builder in builders:
+        for body, where in _bodies(model, builder).items():
+            out.setdefault(body, where)
     return out
 
 
@@ -298,3 +373,202 @@ def _size_table(session, create):
             break
         out[opcode] = int.from_bytes(raw, "little", signed=True)
     return out
+
+
+def _calls(model, body, fn):
+    """Whether the body, one of its callees or its tail-call target calls fn."""
+    return any(fn in model.callees(f) for f in _targets(model, body))
+
+
+def _create_calls(session, body, create):
+    """The packetCreate calls in the body, its callees and its tail-call target."""
+    model = session.model
+    out = []
+    for fn in _targets(model, body):
+        out.extend(c for c in session.prov.facts(fn).calls if c.target is not None and model.resolve(c.target) == create)
+    return out
+
+
+def _buffer_calls(session, fn, create, send):
+    """The calls fn makes on a packet's buffer (packet + 8) between creating the packet and sending it, for every
+    packet it creates on its stack."""
+    model = session.model
+    calls = sorted(session.prov.facts(fn).calls, key=lambda c: c.rva)
+    out = []
+    for i, c in enumerate(calls):
+        if c.target is None or model.resolve(c.target) != create or not c.args or not isinstance(c.args[0], StackAddr):
+            continue
+        buffer = StackAddr(c.args[0].off + 8)
+        for nxt in calls[i + 1:]:
+            target = model.resolve(nxt.target) if nxt.target is not None else None
+            if target in (create, send):
+                break
+            if nxt.args and nxt.args[0] == buffer and target is not None:
+                out.append(nxt)
+    return out
+
+
+def _position_field(model, write_short):
+    """The offset of the position field the short writer advances by two ([RCX + offset] += 2), or None."""
+    for insn in model.insns(write_short):
+        if insn.mnem == "ADD" and len(insn.ops) == 2 and insn.ops[0].kind == "mem" and insn.ops[0].base == "RCX" \
+                and insn.ops[1].kind == "imm" and insn.ops[1].imm == 2:
+            return insn.ops[0].disp
+    return None
+
+
+def _position_step(model, fn, pos):
+    """How far fn advances a buffer's position field, or None if it never touches it directly."""
+    for insn in model.insns(fn):
+        if insn.ops and insn.ops[0].kind == "mem" and insn.ops[0].base == "RCX" and insn.ops[0].disp == pos:
+            if insn.mnem == "INC":
+                return 1
+            if insn.mnem == "ADD" and len(insn.ops) == 2 and insn.ops[1].kind == "imm":
+                return insn.ops[1].imm
+    return None
+
+
+def _writers(session, create, send, release, write_short):
+    """{"Byte" | "Int" | "String": (fn, call rva, caller, uses)}: the other functions the packet builders call on a
+    packet's buffer. The byte and int writers advance the position field the short writer advances by two, by one and
+    four; the string writer is the one called (buffer, chars, length, 0) STRING_WRITER_MIN_USES times at least."""
+    model = session.model
+    pos = _position_field(model, write_short)
+    if pos is None:
+        session.notes.append(f"menu ops: the short writer {write_short:#x} does not advance a position field by two")
+        return {}
+    uses = {}
+    zeros = Counter()
+    for caller in model.callers(create):
+        for c in _buffer_calls(session, caller, create, send):
+            target = model.resolve(c.target)
+            if target in (create, send, release, write_short):
+                continue
+            uses.setdefault(target, []).append((c.rva, caller))
+            if len(c.args) > 3 and c.args[3] == Const(0):
+                zeros[target] += 1
+    by_kind = {}
+    for fn, sites in uses.items():
+        step = _position_step(model, fn, pos)
+        kind = {1: "Byte", 4: "Int"}.get(step)
+        if kind is None and step is None and zeros[fn] >= STRING_WRITER_MIN_USES:
+            kind = "String"
+        if kind is not None:
+            by_kind.setdefault(kind, []).append((fn, sites))
+    out = {}
+    for kind in ("Byte", "Int", "String"):
+        found = by_kind.get(kind, [])
+        if len(found) != 1:
+            session.notes.append(f"menu ops: {len(found)} buffer writers look like the {kind.lower()} writer")
+            continue
+        fn, sites = found[0]
+        rva, caller = sites[0]
+        out[kind] = (fn, rva, caller, len(sites))
+    return out
+
+
+def _walk_body(session, create):
+    """(row address, cmp rva, fn) of the Walk here row body: the packet-building function that compares the three
+    i32s of its captures (Arg 1) with three consecutive globals, the last tile walked to, before building anything."""
+    model = session.model
+    found = []
+    for fn in model.callers(create):
+        globals_ = {}
+        first = None
+        for c in session.prov.facts(fn).cmps:
+            a, b = c.a, c.b
+            if isinstance(a, Deref) and a.base == Arg(1) and a.index is None and a.size == 4 \
+                    and isinstance(b, Deref) and isinstance(b.base, Global) and b.index is None:
+                globals_.setdefault(a.off, b.base.rva + b.off)
+                first = c.rva if first is None else min(first, c.rva)
+        if all(off in globals_ for off in WALK_FIELDS) \
+                and all(globals_[off] == globals_[0] + off for off in WALK_FIELDS):
+            row = _row_address(model, fn)
+            if row is not None:
+                found.append((row, first, fn))
+    if len(found) != 1:
+        session.notes.append(f"menu ops: {len(found)} row bodies compare their captures with the last walk target")
+        return None
+    return found[0]
+
+
+def _row_address(model, fn):
+    """The address a row holds for its body: fn itself if a builder takes its address, else the one-instruction jump
+    stub to fn whose address is taken; None if neither."""
+    if model.xrefs_to(fn, ("lea",)):
+        return fn
+    for _, stub, _ in model.xrefs_to(fn, ("jump",)):
+        if stub is not None and len(model.insns(stub)) == 1 and model.xrefs_to(stub, ("lea",)):
+            return stub
+    return None
+
+
+def _selection_getter(session, bodies, shared, minimenu):
+    """The function the targeted row bodies call for the selected item or spell: at most GETTER_MAX_INSNS
+    instructions around a call of the function loading [Client + Client.minimenu], called from the bodies of at least
+    two subject kinds."""
+    model = session.model
+    kinds_by_fn = {}
+    for kind, kind_bodies in bodies.items():
+        for body in kind_bodies:
+            if body in shared:
+                continue
+            for fn in _targets(model, body):
+                for g in model.callees(fn):
+                    if _reads_minimenu(model, g, minimenu):
+                        kinds_by_fn.setdefault(g, set()).add(kind)
+    found = [g for g, kinds in kinds_by_fn.items() if len(kinds) >= 2]
+    if len(found) != 1:
+        session.notes.append(f"menu ops: {len(found)} functions look like the selection getter")
+        return None
+    return found[0]
+
+
+def _reads_minimenu(model, g, minimenu):
+    """Whether g is a short function calling a function that loads [reg + Client.minimenu]."""
+    insns = model.insns(g)
+    if not insns or len(insns) > GETTER_MAX_INSNS:
+        return False
+    for insn in insns:
+        if insn.is_call and insn.target is not None:
+            body = model.insns(model.resolve(insn.target))
+            if 0 < len(body) <= 3 and any(op.kind == "mem" and op.disp == minimenu for i in body for op in i.ops):
+                return True
+    return False
+
+
+def _component_bodies(session, bodies, shared, getter, create, sizes):
+    """The component rows' bodies the API calls, by what each does: the op body hands {component, slot, op, subOp,
+    objId, flag} to a sender; the targeted body reads the selection and builds the TARGET_PACKET_SIZE packet; the
+    select body reads the selection and builds no packet; the pause body builds the PAUSE_PACKET_SIZE packet."""
+    model = session.model
+    notes = {"functions.menuComponentOp": "hands {component, slot, op, subOp, objId, flag} to a packet sender",
+             "functions.menuComponentTargetOp": f"reads the selection and builds a {TARGET_PACKET_SIZE}-byte packet",
+             "functions.menuComponentSelect": "reads the selection and builds no packet",
+             "functions.menuComponentPause": f"builds a {PAUSE_PACKET_SIZE}-byte packet"}
+    found = {key: [] for key in notes}
+    for body, (lea, adder) in bodies.items():
+        if body in shared:
+            continue
+        creates = _create_calls(session, body, create)
+        opcodes = {c.args[1].n for c in creates if len(c.args) > 1 and isinstance(c.args[1], Const)}
+        packet_sizes = {sizes.get(op) for op in opcodes}
+        reads_selection = _calls(model, body, getter)
+        if any(fn != body and _create_calls(session, fn, create) and _hands_captures(session, body, fn, COMPONENT_OP_FIELDS)
+               for fn in _targets(model, body)):
+            found["functions.menuComponentOp"].append((body, lea, adder))
+        elif reads_selection and not creates:
+            found["functions.menuComponentSelect"].append((body, lea, adder))
+        elif reads_selection and packet_sizes == {TARGET_PACKET_SIZE}:
+            found["functions.menuComponentTargetOp"].append((body, lea, adder))
+        elif not reads_selection and packet_sizes == {PAUSE_PACKET_SIZE}:
+            found["functions.menuComponentPause"].append((body, lea, adder))
+    out = {}
+    for key, rows in found.items():
+        if len(rows) != 1:
+            session.notes.append(f"menu ops: {len(rows)} component row bodies: each {notes[key]}")
+            continue
+        body, lea, adder = rows[0]
+        out[key] = (body, [session.evidence(lea, adder, "rip")], f"the component row body that {notes[key]}")
+    return out
+

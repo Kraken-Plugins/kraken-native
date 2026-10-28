@@ -111,9 +111,10 @@ other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED
   `HighlightChannel`'s style and targets, sends the differences and re-applies everything when the hook reconnects
   (`docs/in-game-drawing.md`). Menu actions: `com.kraken.api.action.Actions` (`Client.getActions()`,
   `Client.menuAction`) calls the client's own minimenu row bodies with the captures a row would hold (NPC, loc,
-  ground item and player ops) and builds the mouse click packet with the client's packet helpers in the batch's
-  scratch block; nothing is queued for a later hook (`docs/menu-actions.md`). Other Lua functions that change the
-  client (camera control) are out of scope.
+  ground item and player ops, Walk here, component ops, selecting an item and using it on something, pause
+  buttons) and builds the mouse click packet and the dialog answers (count, name, string, item) with the client's
+  packet helpers in the batch's scratch block; nothing is queued for a later hook (`docs/menu-actions.md`). Other
+  Lua functions that change the client (camera control) are out of scope.
 - Events (`com.kraken.api.events`) are synthesised by `EventSource`'s trackers, only for events with subscribers. The
   native hook's raises (`GameSession.onNative`) trigger trackers sooner; ticks still come from the game's counters, so
   a raise never counts a tick itself. Design and the trigger table: `docs/event-hooks-design.md`. The bus also matches
@@ -163,7 +164,8 @@ other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED
   drag to move (`OverlayDrag`), drag an edge to resize (`resizable`, on for `OverlayPanel`), right-click to reset.
   `OverlayManager` saves placements in settings group `overlays` and restores them on `add`. `plugins.npchighlight`,
   `plugins.objectmarkers`, `plugins.tilemarkers` (game highlights plus a fallback overlay), `plugins.tickcounter`
-  and `plugins.npcclicker` (menu actions) are the worked examples.
+  `plugins.npcclicker` (menu actions) and `plugins.actiontester` (every action and packet, run from its settings
+  page) are the worked examples.
 - Dev tools: subclass `DevTool<S>` and list it in `DevToolCatalog.create()`. `read(api)` runs on the poll thread and
   returns an immutable snapshot; `paintOverlay`/`createView` run on the EDT. A tool reads only while it is showing.
   `PlannedTool` entries hold spots for features the API can't read yet. Event-driven tools subscribe to

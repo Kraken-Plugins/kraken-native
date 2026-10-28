@@ -520,7 +520,11 @@
       "EXAMINE": 2147483646
     },
     "clientProt": {
-      "EVENT_MOUSE_CLICK": 7
+      "EVENT_MOUSE_CLICK": 7,
+      "RESUME_P_COUNTDIALOG": 68,
+      "RESUME_P_NAMEDIALOG": 33,
+      "RESUME_P_STRINGDIALOG": 58,
+      "RESUME_P_OBJDIALOG": 3
     },
     "events": {
       "NULL_EVENT": -1,
@@ -630,8 +634,20 @@
     "menuLocOp": "0x387cd0",
     "menuObjOp": "0x3893d0",
     "menuPlayerOp": "0x38a0f0",
+    "menuWalk": "0x387610",
+    "menuNpcTargetOp": "0x388630",
+    "menuLocTargetOp": "0x387b30",
+    "menuObjTargetOp": "0x389240",
+    "menuPlayerTargetOp": "0x389ef0",
+    "menuComponentOp": "0x38d360",
+    "menuComponentTargetOp": "0x38cf70",
+    "menuComponentSelect": "0x38c810",
+    "menuComponentPause": "0x38ce20",
     "packetCreate": "0x6795c0",
     "packetWriteShort": "0x45c20",
+    "packetWriteByte": "0x45b30",
+    "packetWriteInt": "0x45b50",
+    "packetWriteString": "0x3eb20",
     "packetSend": "0x202600",
     "packetRelease": "0x679720",
     "dispatchEvent": "0xc44d0",

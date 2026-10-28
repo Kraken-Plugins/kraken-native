@@ -6,7 +6,10 @@
 # the functions storing enums.minimenuSubject into MinimenuEntry.subjectType) hand their adders the body addresses, and
 # every op body reaches a sender that builds one packet per op with create(packet*, opcode, connection + outCipher),
 # the writers, send(connection, packet*) and release(buffer*). The network step builds the mouse click packet with the
-# same helpers (menuops.py). No Lua binding touches any of this.
+# same helpers (menuops.py). The Walk here row's body, the targeted bodies (a selected item or spell used on a subject,
+# which read the selection through one getter) and the component rows' bodies (ops, the select, the pause button) are
+# found the same way; the byte, int and string writers by how they advance a packet buffer. No Lua binding touches any
+# of this.
 keys:
   - key: functions.menuNpcOp
     type: "void(void* unused, const struct {i32 index, i32 op, i32 flag}* args)"
@@ -34,6 +37,68 @@ keys:
     doc: The player row body. Looks the player up by index and sends OPPLAYER<op> (op 1-8) for them.
     strategies:
       - extractor: { name: menu_ops, field: functions.menuPlayerOp, cls: A }
+  - key: functions.menuWalk
+    type: "void(void* unused, const struct {i32 level, i32 x, i32 z}* args)"
+    priority: P1
+    doc: The Walk here row body. Skips a tile equal to the last one walked to, else sends the walk packet (the ctrl
+      and shift keys' state, the world x and z) and sets the client's destination marker.
+    strategies:
+      - extractor: { name: menu_ops, field: functions.menuWalk, cls: A }
+  - key: functions.menuNpcTargetOp
+    type: "void(void* unused, const struct {i32 index}* args)"
+    priority: P1
+    doc: The NPC row body of a selected item or spell used on the NPC ("Use X -> NPC"). Looks the NPC up by index,
+      reads the selection and sends the targeted op packet for it.
+    strategies:
+      - extractor: { name: menu_ops, field: functions.menuNpcTargetOp, cls: A }
+  - key: functions.menuLocTargetOp
+    type: "void(void* unused, const struct {i32 level, i32 x, i32 z, i32 locId}* args)"
+    priority: P1
+    doc: The loc row body of a selected item or spell used on the loc at the world tile.
+    strategies:
+      - extractor: { name: menu_ops, field: functions.menuLocTargetOp, cls: A }
+  - key: functions.menuObjTargetOp
+    type: "void(void* unused, const struct {i32 level, i32 x, i32 z, i32 objId}* args)"
+    priority: P1
+    doc: The ground item row body of a selected item or spell used on the item at the world tile.
+    strategies:
+      - extractor: { name: menu_ops, field: functions.menuObjTargetOp, cls: A }
+  - key: functions.menuPlayerTargetOp
+    type: "void(void* unused, const struct {i32 index}* args)"
+    priority: P1
+    doc: The player row body of a selected item or spell used on the player, looked up by index.
+    strategies:
+      - extractor: { name: menu_ops, field: functions.menuPlayerTargetOp, cls: A }
+  - key: functions.menuComponentOp
+    type: "void(void* unused, const struct {i32 component, i32 slot, i32 op, i32 subOp, i32 objId, u8 flag}* args)"
+    priority: P1
+    doc: The component row body of a component's op (an inventory item's Eat or Drop, a button). Looks the component
+      up by packed id and slot, checks the op is enabled on it and sends the component op packet (component, slot,
+      item id, op 1-based; subOp 0 for none, else a sub-option index plus one). flag is 0 for the rows the builders
+      make; a nonzero flag looks the component up elsewhere and sends nothing.
+    strategies:
+      - extractor: { name: menu_ops, field: functions.menuComponentOp, cls: A }
+  - key: functions.menuComponentTargetOp
+    type: "void(void* unused, const struct {i32 component, i32 slot, i32 objId}* args)"
+    priority: P1
+    doc: The component row body of a selected item or spell used on a component ("Use X -> Y", an item on an item).
+      Reads the selection and sends the 16-byte targeted component packet for the two.
+    strategies:
+      - extractor: { name: menu_ops, field: functions.menuComponentTargetOp, cls: A }
+  - key: functions.menuComponentSelect
+    type: "void(void* unused, const struct {i32 component, i32 slot, i32 objId}* args)"
+    priority: P1
+    doc: The component row body of a component's target op ("Use"). Stores the component, slot and item as the
+      selection the targeted bodies read, and the "Use X ->" text; sends nothing.
+    strategies:
+      - extractor: { name: menu_ops, field: functions.menuComponentSelect, cls: A }
+  - key: functions.menuComponentPause
+    type: "void(void* unused, const struct {i32 component, i32 slot}* args)"
+    priority: P1
+    doc: The component row body of a pause button ("Click here to continue"). Looks the component up and, while no
+      answer is pending, sends the six-byte pause packet and marks the answer pending.
+    strategies:
+      - extractor: { name: menu_ops, field: functions.menuComponentPause, cls: A }
 
   - key: functions.packetCreate
     type: "Packet*(Packet* out, int opcode, void* outCipher)"
@@ -48,6 +113,25 @@ keys:
     doc: Appends a big-endian u16 to a packet's buffer (packet + 8).
     strategies:
       - extractor: { name: menu_ops, field: functions.packetWriteShort, cls: A }
+  - key: functions.packetWriteByte
+    type: "void(Buffer* buffer, int value)"
+    priority: P1
+    doc: Appends a byte to a packet's buffer (packet + 8).
+    strategies:
+      - extractor: { name: menu_ops, field: functions.packetWriteByte, cls: A }
+  - key: functions.packetWriteInt
+    type: "void(Buffer* buffer, int value)"
+    priority: P1
+    doc: Appends a big-endian i32 to a packet's buffer (packet + 8).
+    strategies:
+      - extractor: { name: menu_ops, field: functions.packetWriteInt, cls: A }
+  - key: functions.packetWriteString
+    type: "void(Buffer* buffer, const char* utf8, size_t length, bool versioned)"
+    priority: P1
+    doc: Appends a string to a packet's buffer (packet + 8), transcoding the UTF-8 characters to the game's code page
+      one by one and ending with a zero byte; versioned (0 in every packet) prefixes a zero byte.
+    strategies:
+      - extractor: { name: menu_ops, field: functions.packetWriteString, cls: A }
   - key: functions.packetSend
     type: "void(Connection* connection, Packet* packet)"
     priority: P1

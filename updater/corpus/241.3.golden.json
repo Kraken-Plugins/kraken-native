@@ -1,7 +1,7 @@
 {
   "sha256": "166231c8f6bd05c7542b8f0d35eb64b0aad701a87ba6ba41f60c4706de946944",
   "version": "241.3",
-  "source": "docs/client-surface.md seed values (static analysis, 2026-10-11) plus registrations read directly from the binary on 2026-10-12; section 3/4 keys from static analysis of the handlers on 2026-10-19; section 7 (interfaces) keys from static analysis of the IfType getters, checked against the live client on 2026-10-19; projectile keys from static analysis of the list walker, step and constructor on 2026-10-19; events.* hook sites, functions.clientCycle/setGameState and Client.pluginGate from the event raiser recipe (events.py), checked against the hand analysis of the raise wrappers on 2026-10-20; player/ground-item/projectile hook targets (hooks.py) from the hand analysis of the zone-update and player-info packet paths on 2026-10-20; minimenu keys (Client.minimenu, Minimenu.*, MinimenuEntry.*, container.minimenu.*, enums.minimenu*) from the minimenu recipe (minimenu.py), checked against the hand analysis of the op dispatch, the entry run and copy, and the rebuild on 2026-10-20; graphics object keys (World.graphicsObjects, GraphicsObject.*) from the graphics object recipes, checked against the hand analysis of the map-anim packet paths, the constructor, the per-frame filter and the animation step on 2026-10-20; keyed projectile keys (Client.keyedProjectiles, KeyedProjectile.*) from the keyed projectile recipe, checked against the hand analysis of the create and retarget packet paths, the walk, the step, its init and the endpoint lookup on 2026-10-21; draw keys (90-draw.yaml: highlights, the script op dispatcher's loc/loctype/clear cases, the HighlightConfig registration, the present and frame step) from static analysis on 2026-10-21; menu action keys (62-menu-actions.yaml: the NPC, loc, obj and player row bodies, the packet helpers, Client.connection, Connection.outCipher, enums.clientProt) from the menu ops recipe (menuops.py), checked against the hand analysis of the menu builders, the row bodies and their senders, and the network step's mouse click packet on 2026-10-21",
+  "source": "docs/client-surface.md seed values (static analysis, 2026-10-11) plus registrations read directly from the binary on 2026-10-12; section 3/4 keys from static analysis of the handlers on 2026-10-19; section 7 (interfaces) keys from static analysis of the IfType getters, checked against the live client on 2026-10-19; projectile keys from static analysis of the list walker, step and constructor on 2026-10-19; events.* hook sites, functions.clientCycle/setGameState and Client.pluginGate from the event raiser recipe (events.py), checked against the hand analysis of the raise wrappers on 2026-10-20; player/ground-item/projectile hook targets (hooks.py) from the hand analysis of the zone-update and player-info packet paths on 2026-10-20; minimenu keys (Client.minimenu, Minimenu.*, MinimenuEntry.*, container.minimenu.*, enums.minimenu*) from the minimenu recipe (minimenu.py), checked against the hand analysis of the op dispatch, the entry run and copy, and the rebuild on 2026-10-20; graphics object keys (World.graphicsObjects, GraphicsObject.*) from the graphics object recipes, checked against the hand analysis of the map-anim packet paths, the constructor, the per-frame filter and the animation step on 2026-10-20; keyed projectile keys (Client.keyedProjectiles, KeyedProjectile.*) from the keyed projectile recipe, checked against the hand analysis of the create and retarget packet paths, the walk, the step, its init and the endpoint lookup on 2026-10-21; draw keys (90-draw.yaml: highlights, the script op dispatcher's loc/loctype/clear cases, the HighlightConfig registration, the present and frame step) from static analysis on 2026-10-21; menu action keys (62-menu-actions.yaml: the NPC, loc, obj and player row bodies, the packet helpers, Client.connection, Connection.outCipher, enums.clientProt) from the menu ops recipe (menuops.py), checked against the hand analysis of the menu builders, the row bodies and their senders, and the network step's mouse click packet on 2026-10-21; the Walk here, targeted and component row bodies and the byte, int and string writers (menuops.py) and the dialog resume opcodes from the cs2 runtime's 3100 range handler (dialogs.py), checked against the hand analysis of the row bodies, the selection getter and the handler's case table on 2026-10-27",
   "keys": {
     "global.client": "0xe98c18",
     "global.cycle": "0xe98c14",
@@ -664,15 +664,31 @@
     "functions.menuLocOp": "0x387cd0",
     "functions.menuObjOp": "0x3893d0",
     "functions.menuPlayerOp": "0x38a0f0",
+    "functions.menuWalk": "0x387610",
+    "functions.menuNpcTargetOp": "0x388630",
+    "functions.menuLocTargetOp": "0x387b30",
+    "functions.menuObjTargetOp": "0x389240",
+    "functions.menuPlayerTargetOp": "0x389ef0",
+    "functions.menuComponentOp": "0x38d360",
+    "functions.menuComponentTargetOp": "0x38cf70",
+    "functions.menuComponentSelect": "0x38c810",
+    "functions.menuComponentPause": "0x38ce20",
     "functions.packetCreate": "0x6795c0",
     "functions.packetWriteShort": "0x45c20",
+    "functions.packetWriteByte": "0x45b30",
+    "functions.packetWriteInt": "0x45b50",
+    "functions.packetWriteString": "0x3eb20",
     "functions.packetSend": "0x202600",
     "functions.packetRelease": "0x679720",
     "Client.connection": "0x31a0",
     "Connection.outCipher": "0xa08",
     "enums.clientProt": {
       "EVENT_MOUSE_CLICK": 7
-    }
+    },
+    "enums.clientProt.RESUME_P_COUNTDIALOG": 68,
+    "enums.clientProt.RESUME_P_NAMEDIALOG": 33,
+    "enums.clientProt.RESUME_P_STRINGDIALOG": 58,
+    "enums.clientProt.RESUME_P_OBJDIALOG": 3
   },
   "fingerprints": {
     "ScreenRescale": "0x61aa30",
