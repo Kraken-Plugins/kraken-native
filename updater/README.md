@@ -146,7 +146,8 @@ reads it for carry-forward. Repair bundles (`repair/<key>.md`) go in the same fo
 
 `in` names the function: a Lua binding (`Table.name`), a fingerprint (`@Name`), a string anchor
 (`{string: "..."}`) or a function key (`fn:functions.x`). `base` is the pointer role the load hangs off, `load` the
-access size, `select` narrows by how the value is used (stored to the out-struct, returned, passed to a call, compared,
+access size (`i8` to `i64`, `f32`, `f64`, `ptr`, or `xmm` for a 16-byte move such as a whole eastl string), `select`
+narrows by how the value is used (stored to the out-struct, returned, passed to a call, compared,
 used as an array base, …). Run `bindings`/`sql`, or print `Provenance(model).facts(fn)` in a REPL (`uv run python`),
 to see the facts a recipe can match. Never name a YAML key `off` (YAML reads it as `false`); use `offset`.
 

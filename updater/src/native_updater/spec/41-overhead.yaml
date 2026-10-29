@@ -1,0 +1,27 @@
+# Overhead text (docs/event-hooks-design.md §2.11): the line an actor says over its head, for OverheadTextChanged. The
+# API compares each loaded actor's text and timer on the tick's polls and right after the NPC and player update
+# decoders run.
+#
+# The NPC update's say block, the player update's say and public chat blocks, and Lua's npcSay and playerSay write the
+# text into an eastl string on the actor and set its timer (Actor.overheadTimer, 40-actor.yaml). Once a client cycle,
+# while logged in, the actor step counts every timer above 0 down by one and empties the text when it reaches 0, then
+# increments Client.actorSteps; a timer higher than that countdown allows means the line was said again (extractor
+# `overhead_countdown`, overhead.py). The Lua handlers move the new string in with a 16-byte load and store (`xmm`).
+keys:
+  - key: Actor.overheadText
+    type: eastl.string
+    priority: P1
+    live: overheadText
+    doc: The text shown over the actor's head; empty once its timer runs out.
+    strategies:
+      - getter: { in: ClientOp.npcSay, base: sp_result, load: xmm, select: { nth: 0 } }
+      - getter: { in: ClientOp.playerSay, base: sp_result, load: xmm, select: { nth: 0 } }
+      - extractor: { name: overhead_countdown, field: Actor.overheadText, cls: E }
+  - key: Client.actorSteps
+    type: i32
+    priority: P1
+    live: overheadText
+    doc: Counts the client cycles the actors stepped on (logged in and not paused). Each step counts every actor's
+      overhead timer above 0 down by one.
+    strategies:
+      - extractor: { name: overhead_countdown, field: Client.actorSteps, cls: E }

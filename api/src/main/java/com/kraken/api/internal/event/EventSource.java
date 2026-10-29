@@ -11,6 +11,7 @@ import com.kraken.api.events.FakeXpDrop;
 import com.kraken.api.events.FocusChanged;
 import com.kraken.api.events.GameStateChanged;
 import com.kraken.api.events.GameTick;
+import com.kraken.api.events.GraphicChanged;
 import com.kraken.api.events.GraphicsObjectCreated;
 import com.kraken.api.events.GraphicsObjectDestroyed;
 import com.kraken.api.events.HitsplatApplied;
@@ -23,6 +24,7 @@ import com.kraken.api.events.MenuOptionClicked;
 import com.kraken.api.events.NpcChanged;
 import com.kraken.api.events.NpcDespawned;
 import com.kraken.api.events.NpcSpawned;
+import com.kraken.api.events.OverheadTextChanged;
 import com.kraken.api.events.PlayerDespawned;
 import com.kraken.api.events.PlayerSpawned;
 import com.kraken.api.events.ProjectileMoved;
@@ -58,10 +60,10 @@ import java.util.logging.Logger;
  *
  * <p><b>The replay rule.</b> A tracker that starts on the first poll (when the API attaches) posts the current state
  * as events: the game state, every object and ground item of the scene, every loaded NPC and player as spawned, every
- * actor's target and animation, every skill's stats, every held inventory and every open interface as loaded. From a
- * plugin's point of view the client just logged in. A tracker that starts later takes a silent baseline and sees no
- * spawns until the next scene load. Vars, varcs, the canvas size, projectiles already in flight, graphics objects
- * already playing, NPC types and the actors already dead aren't replayed.
+ * actor's target, animation and spot animations, every skill's stats, every held inventory and every open interface
+ * as loaded. From a plugin's point of view the client just logged in. A tracker that starts later takes a silent
+ * baseline and sees no spawns until the next scene load. Vars, varcs, the canvas size, projectiles already in flight,
+ * graphics objects already playing, NPC types, overhead texts and the actors already dead aren't replayed.
  *
  * <p><b>Scene loads.</b> A newly loaded scene posts a spawn for every object and ground item in it, and no despawns
  * for the old scene's: plugins clear on {@code GameStateChanged(LOADING)}. A scene counts as new when the client comes
@@ -75,7 +77,8 @@ import java.util.logging.Logger;
  * shows, ints then strings), {@link ItemContainerChanged},
  * {@link ChatMessage} per new chat line, interfaces closed and loaded ({@link WidgetClosed}, {@link WidgetLoaded}),
  * NPC despawns then spawns, player despawns then spawns, {@link NpcChanged}, {@link InteractingChanged},
- * {@link AnimationChanged}, {@link HitsplatApplied}, {@link ActorDeath}, {@link ProjectileMoved} per new or
+ * {@link AnimationChanged}, {@link GraphicChanged}, {@link OverheadTextChanged}, {@link HitsplatApplied},
+ * {@link ActorDeath}, {@link ProjectileMoved} per new or
  * retargeted projectile, graphics objects destroyed then created ({@link GraphicsObjectDestroyed},
  * {@link GraphicsObjectCreated}), {@link MenuOptionClicked},
  * {@link MenuEntryRemoved} then {@link MenuEntryAdded}, {@link MenuOpened}, a {@link GameTick} per step of the
@@ -89,9 +92,10 @@ import java.util.logging.Logger;
  * never counts a tick itself, so a dropped or repeated raise can't lose or double one.
  *
  * <p>How often each looks: the scene's objects once per game tick (a whole-scene read, the costly one); ground items,
- * NPC types, targets, animations, hitsplats and deaths on the tick's poll and the one after it, in case the tick's
- * updates land after the counter moves; the animations of the actors playing one, varcs, projectiles, graphics
- * objects, the menu, the chat's line counter and the keyboard focus every poll.
+ * NPC types, targets, animations, spot animations, overhead texts, hitsplats and deaths on the tick's poll and the one
+ * after it, in case the tick's updates land after the counter moves; the animations and spot animations of the actors
+ * showing one, varcs, projectiles, graphics objects, the menu, the chat's line counter and the keyboard focus every
+ * poll.
  */
 public final class EventSource {
 
@@ -162,6 +166,7 @@ public final class EventSource {
                         client::playerIndices, client::player, PlayerDespawned::new, PlayerSpawned::new,
                         PlayerSpawned.class, PlayerDespawned.class),
                 new NpcChangeTracker(context), new InteractingTracker(context), new AnimationTracker(context),
+                new GraphicTracker(context), new OverheadTextTracker(context),
                 new HitsplatTracker(context), new DeathTracker(context), new ProjectileTracker(context),
                 new GraphicsObjectTracker(context),
                 new MenuClickTracker(context), new MenuTracker(context));

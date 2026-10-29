@@ -1,5 +1,6 @@
 package com.kraken.api.actor;
 
+import com.kraken.api.ActorSpotAnim;
 import com.kraken.api.Client;
 import com.kraken.api.GameFixture;
 import com.kraken.api.coords.LocalPoint;
@@ -24,8 +25,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The actors over the {@link GameFixture}: the fine position and ground height the memory readers give, world and
- * local locations, the NPC and player state, followers and multi-NPC transforms, interaction targets, and handles
- * that stay on one actor (and remember it once it's gone).
+ * local locations, the NPC and player state, followers and multi-NPC transforms, interaction targets, overhead text
+ * and spot animations, and handles that stay on one actor (and remember it once it's gone).
  */
 class ActorTest {
 
@@ -368,6 +369,48 @@ class ActorTest {
         assertEquals("Alice", alice.getName());
         assertEquals("Bob", bob.getName(), "Bob's handle remembers Bob");
         assertFalse(bob.isOnlineFriend());
+    }
+
+    @Test
+    void overheadTextShowsWhileItsTimerRuns() {
+        Player zezima = client.getLocalPlayer();
+        assertNull(zezima.getOverheadText(), "the empty text a new actor has is no text");
+        assertEquals(100, zezima.getOverheadCycle(), "the timer the client's constructor sets");
+
+        game.setOverheadText(GameFixture.PLAYER, "Buying gf", 150);
+        assertEquals("Buying gf", zezima.getOverheadText());
+        assertEquals(150, zezima.getOverheadCycle());
+
+        String shout = "You shall not pass, little adventurer!";
+        game.setOverheadText(GameFixture.NPC, shout, 100);
+        assertEquals(shout, npc(5).getOverheadText(), "a text too long to fit inline is read off the heap");
+
+        game.stepActors(150);
+        assertNull(zezima.getOverheadText(), "the client empties the text once the timer runs out");
+        assertEquals(0, zezima.getOverheadCycle());
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    void spotAnimsAreReadInSlotOrder() {
+        Player zezima = client.getLocalPlayer();
+        assertEquals(List.of(), zezima.getSpotAnims());
+        assertEquals(-1, zezima.getGraphic());
+        assertEquals(0, zezima.getGraphicHeight());
+        assertEquals(-1, zezima.getSpotAnimFrame());
+
+        game.setSpotAnims(GameFixture.PLAYER, new int[]{0, 111, 92, 140, 3}, new int[]{2, 1255, 0, 180, -1});
+        assertEquals(List.of(new ActorSpotAnim(0, 111, 92, 140, 3), new ActorSpotAnim(2, 1255, 0, 180, -1)),
+                zezima.getSpotAnims());
+        assertTrue(zezima.hasSpotAnim(1255), "one that hasn't started yet counts");
+        assertFalse(zezima.hasSpotAnim(112));
+        assertEquals(111, zezima.getGraphic(), "the lowest slot's");
+        assertEquals(92, zezima.getGraphicHeight());
+        assertEquals(3, zezima.getSpotAnimFrame());
+
+        game.breakSpotAnims(GameFixture.PLAYER);
+        assertEquals(List.of(), zezima.getSpotAnims(), "slots that aren't whole read as none");
+        assertNull(zezima.readSpotAnims(), "and as nothing read when read strictly");
     }
 
     @Test

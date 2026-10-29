@@ -47,6 +47,7 @@
       "renderer": "0x90",
       "zoomA": "0x4830",
       "zoomB": "0x4814",
+      "actorSteps": "0x26d8",
       "interfaces.buckets": "0x413cc0",
       "interfaces.bucketCount": "0x413cc8",
       "subInterfaces.buckets": "0x413ba0",
@@ -119,6 +120,9 @@
       "poseAnims": "0x280",
       "overheadTimer": "0x2f4",
       "name": "0x710",
+      "overheadText": "0x2d8",
+      "spotAnims": "0x6f0",
+      "spotAnimsEnd": "0x6f8",
       "hitmarks": "0x330",
       "hitmarksEnd": "0x338"
     },
@@ -180,6 +184,17 @@
     },
     "Friend": {
       "world": "0x68"
+    },
+    "SpotAnimSlot": {
+      "size": "0x18",
+      "slot": "0x0",
+      "spotAnim": "0x10"
+    },
+    "ActorSpotAnim": {
+      "id": "0x260",
+      "height": "0x268",
+      "startCycle": "0x26c",
+      "animFrame": "0x28e"
     },
     "Scene": {
       "sizeX": "0x948",

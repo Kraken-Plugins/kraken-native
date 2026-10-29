@@ -233,8 +233,12 @@ keys:
   - key: Actor.overheadTimer
     type: i32
     priority: P1
+    live: overheadText
+    doc: The client cycles the overhead text shows for; counted down once per actor step, the text emptied at 0.
     strategies:
       - extractor: { name: actor_ctor, field: Actor.overheadTimer, cls: D }
+      - getter: { in: ClientOp.npcSay, base: sp_result, load: i32, select: { nth: 0 } }
+      - getter: { in: ClientOp.playerSay, base: sp_result, load: i32, select: { nth: 0 } }
   - key: Actor.turnSpeed
     internal: true
     type: i32

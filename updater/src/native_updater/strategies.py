@@ -31,7 +31,7 @@ from .analysis.bindings import select_enum_table
 from .analysis.provenance import Add, Arg, Bin, Const, Deref, Global, Many, Mul, Ret, Out, contains, walk
 from .session import Blocked, CLASS_OF, Candidate
 
-SIZES = {"i8": 1, "u8": 1, "i16": 2, "u16": 2, "i32": 4, "u32": 4, "f32": 4, "i64": 8, "u64": 8, "f64": 8, "ptr": 8, "any": 0}
+SIZES = {"i8": 1, "u8": 1, "i16": 2, "u16": 2, "i32": 4, "u32": 4, "f32": 4, "i64": 8, "u64": 8, "f64": 8, "ptr": 8, "xmm": 16, "any": 0}
 
 
 def run(session, kind, params, key):

@@ -175,6 +175,7 @@ public final class Client extends GameReader {
     private final int gameStateLoggedIn;
     private final int cWorldFlags;
     private final long cycleRva;
+    private final int cActorSteps;
 
     private final int cSkillLevel;
     private final int cSkillBase;
@@ -251,6 +252,7 @@ public final class Client extends GameReader {
         this.gameStateLoggedIn = mapping.enumValue("gameState", "LOGGED_IN", LOGGED_IN);
         this.cWorldFlags = optionalOffset("Client.worldFlags");
         this.cycleRva = optionalGlobal("cycle");
+        this.cActorSteps = optionalOffset("Client.actorSteps");
 
         this.cSkillLevel = mapping.offset("Client.skillLevel");
         this.cSkillBase = mapping.offset("Client.skillBase");
@@ -329,6 +331,18 @@ public final class Client extends GameReader {
     public int tickCount() {
         long client = clientBase();
         return client == 0 ? -1 : safeInt(client + cTick, -1);
+    }
+
+    /**
+     * The client's count of actor steps: one per client cycle while logged in, the step that counts every actor's
+     * overhead text timer down by one. The overhead text events measure timers against it.
+     * Internal: used by the API's own packages; plugins don't need it.
+     *
+     * @return the count, or -1 if it can't be read or this build's mapping lacks it
+     */
+    public int actorSteps() {
+        long client = clientBase();
+        return client == 0 || cActorSteps < 0 ? -1 : safeInt(client + cActorSteps, -1);
     }
 
     /**

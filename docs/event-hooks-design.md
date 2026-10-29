@@ -431,6 +431,88 @@ Deliberate differences from posting as the type is assigned:
 - The event comes after the fact, and its old definition is decoded from the config archive by id.
 - A transform and its reversal between two reads post nothing.
 
+### 2.11 Spot animations and overhead text
+
+`GraphicChanged` and `OverheadTextChanged` come from two parts of the actor no Lua function reads, mapped by
+`updater/src/native_updater/spotanims.py` (`spec/42-spotanims.yaml`) and `overhead.py` (`spec/41-overhead.yaml`).
+Neither needs a hook of its own. The addresses are 241.3's.
+
+**`GraphicChanged`** comes from the actor's spot animations. Three paths hand each one to one function: the NPC update
+mask's spot animation block (bit `0x4` in `0x98dc0`: a count, then per entry a slot byte, a 16-bit id and an int
+holding the height in its high 16 bits and the delay in its low 16), the player update's (a closure, `0x1e74e0`, that
+the player mask decoder `0x1de490` builds through `0x1dd070`), and the server's spot animation packets for one NPC or
+player (two cases of the packet handler `0x8e500`, through `0x9ec00`, which passes a loop flag of 0).
+
+| Function | 241.3 | What it does |
+|---|---|---|
+| `functions.setSpotAnim` | `0x9ec30` | `(actor, slot, id, height, delay, cycle, loop)`: an id of -1 or 65535 erases the slot's element; any other makes a new spot animation (`make_shared` `0xc7db0`, constructor `0x1881d0`) and puts it in the slot, in place of the one there. Internal: the recipe's anchor |
+| (`0x70d80`) | | the per-cycle actor step: steps the animation of each element whose start cycle has come, and erases one whose sequence finished (unless its loop flag is set) or that has no sequence |
+| (`0x73360`) | | the actor's draw: walks the elements, skips those not started yet, loads each one's SpotAnimType (`@ConfigLoader.13`) |
+
+The actor keeps them in an `eastl::vector_map` sorted by slot (`Actor.spotAnims` `0x6f0`, `spotAnimsEnd` `0x6f8`) of
+`SpotAnimSlot.size` (`0x18`) byte elements: the slot (`SpotAnimSlot.slot`, `+0`) and a `jag::shared_ptr` whose object
+(`SpotAnimSlot.spotAnim`, `+0x10`) is the spot animation: `ActorSpotAnim.id` (`0x260`), `height` (`0x268`),
+`startCycle` (`0x26c`, the cycle it arrived plus its delay), a loop flag (`0x270`, not mapped) and an animation block
+laid out as a graphics object's (`ActorSpotAnim.animState` `0x278`, internal), whose frame is `ActorSpotAnim.animFrame`
+(`0x28e`, -1 until it starts). The recipe takes the setter (called with `global.cycle` as its sixth argument under
+`npcInfoDecode`, looking the slot up in a vector on the actor and comparing it with the element's key), the draw (the
+SpotAnim loader caller that walks that vector and compares an element's start cycle with `global.cycle`) and the
+constructor (the loader caller storing its id and start cycle arguments at the draw's offsets).
+
+`Actor.getSpotAnims()` reads them in slot order, `hasSpotAnim(id)` looks for one, and the deprecated `getGraphic()`,
+`getGraphicHeight()` and `getSpotAnimFrame()` read the lowest slot's. `ActorSpotAnim` is a snapshot of one slot: the
+slot, id, height, start cycle and frame.
+
+`GraphicTracker` compares each actor's list of (slot, id, start cycle) on the tick's poll and the one after, and on the
+poll after `npcInfoDecode` or `playerInfoDecode`; on the other polls it reads again only the actors showing one, since
+the client ends them on its own, any cycle. Every set makes a new spot animation with its own start cycle, so a set of
+the id a slot already holds is a change too. The read is strict (`ActorReader.readSpotAnims`): a vector that isn't
+whole elements, or an element pointing at nothing, keeps the last list. The setter takes three arguments on the stack,
+so the generic detour can't hook it; the packets' spot animations are seen on the tick's polls. An actor seen for the
+first time posts one if it shows one; tracking that starts as the API attaches posts one per actor showing one.
+
+Deliberate differences from posting where the client sets one:
+
+- The event comes after the fact, and a spot animation ending posts one too (the client drops it in its actor step).
+- Several sets between two reads post once; a set and its end between two reads post nothing.
+- `getGraphic()` reads the lowest slot, while an actor can show several.
+- `ActorSpotAnim` has no frame cycle: the animation block's frame cycle (`+0x14`) isn't mapped.
+
+**`OverheadTextChanged`** comes from the actor's overhead text: an eastl string (`Actor.overheadText`, `0x2d8`), then an
+auto-chat byte (`0x2f0`), the timer (`Actor.overheadTimer`, `0x2f4`), and the colour (`0x2f8`) and effect (`0x2fc`)
+(those three not mapped). Its writers:
+
+| Writer | 241.3 | What it sets |
+|---|---|---|
+| the NPC update mask, bit `0x40` | in `0x98dc0` | the text read from the packet; timer 100 |
+| the player update's say block | closure `0x1e7b80` (built by `0x1dc230` from `0x1de490`) | the text; timer 150, auto-chat off, colour and effect 0 |
+| the player update's public chat block | `0x1dc800` (through closure `0x1e79f0`) | the filtered text; timer 150, colour and effect from the packet. Skipped for an ignored player and in a few other cases |
+| Lua `ClientOp.npcSay`, `ClientOp.playerSay` | `0x1ecae0`, `0x1ecd50` | the text and the duration the plugin passes |
+
+Once a client cycle, while logged in and not paused, the actor step in `0x6b400` (called by `clientCycle`) counts every
+actor's timer above 0 down by one (`0x6d230` for the players in `Client.playerIndices`, its lambda `0xd33e0` for each
+world's NPCs), empties the text when the timer reaches 0, then increments `Client.actorSteps` (`0x26d8`). The Lua
+handlers anchor `Actor.overheadText` and `Actor.overheadTimer` (each stores into the actor it looked up; the getter
+reads the string's 16-byte move with the new `xmm` load size), the countdown's emptying anchors the text a second time,
+and the increment right after the countdown's call is the counter. `Actor.getOverheadText()` (null when none shows) and
+`getOverheadCycle()` read them.
+
+`OverheadTextTracker` reads every actor's text and timer (one block read each, strict) with the step counter read
+before and after, on the tick's poll and the one after, and on the poll after `npcInfoDecode` or `playerInfoDecode`.
+An actor said a line when its text isn't empty and either differs from the last read or keeps more time than its
+countdown allows: each step the counter took between the read after the last actors' read and the read before this
+one happened between the two timer reads, and took one off. A counter that went back (the client resets it) only
+trusts a timer that rose. An actor seen for the first time posts its text if it shows one; tracking that starts posts
+none.
+
+Deliberate differences from posting where the client writes the text:
+
+- The event comes after the fact; of several lines between two reads, only the last posts.
+- The same line said again before a step has passed since the last read posts nothing (the timer shows no rise), nor
+  does a Lua line repeated with less time than the one left.
+- A line timing out posts nothing (the client empties the text), the same as text never set.
+- A Lua plugin's line is seen on the next tick's poll: the Lua handlers aren't hooked.
+
 ## 3. The mapping contract
 
 ```json
@@ -543,6 +625,8 @@ spawns before `GameTick`.
 | `npcInfoDecode` | `NpcChangeTracker` | compares every NPC's base type id right after the update (§2.10); also on the tick's polls |
 | `setSequence`, `npcInfoDecode` / `playerInfoDecode` | `AnimationTracker` | reads every actor's animation now (§2.10); also on the tick's polls, and the animating actors on every poll |
 | `npcInfoDecode` / `playerInfoDecode` | `DeathTracker` | compares every actor's head bars right after the update (§2.10); also on the tick's polls |
+| `npcInfoDecode` / `playerInfoDecode` | `GraphicTracker` | compares every actor's spot animations right after the update (§2.11); also on the tick's polls, and the actors showing one on every poll |
+| `npcInfoDecode` / `playerInfoDecode` | `OverheadTextTracker` | compares every actor's overhead text and timer right after the update (§2.11); also on the tick's polls |
 
 While the hook is connected the events are read when a raise asks for it, and at least every 250 ms as a safety net,
 so a dropped message costs latency, not an event. Without a hook they are read every 20 ms.
@@ -652,3 +736,12 @@ events shows up as a `new`/`gone` `events.*` key in the run's diff.
 - NPC changes (§2.10): that an NPC transforming (a boss's next phase) posts `NpcChanged` with the old definition and the
   same handle, and whether the add pass ever reuses an NPC at an index while keeping its `Npc.spawnCycle` (that would
   post `NpcChanged` where a new NPC came in).
+- Spot animations (§2.11): the probe's `spotAnims` check; that casting a spell or teleporting posts `GraphicChanged`
+  with the spell's spot animation in `getSpotAnims()`, and another when it ends; that a delayed one shows a start cycle
+  ahead and a frame of -1 until then; that the frame at `0x28e` counts up as it plays; and what the loop flag (`0x270`)
+  is set for.
+- Overhead text (§2.11): the probe's `overheadText` check (the step counter moves once per client cycle while logged
+  in); that public chat, an NPC's shout, and a player saying the same line twice a few seconds apart post one
+  `OverheadTextChanged` each; that an NPC's text times out after 100 cycles and a player's after 150; that the counter
+  stands still while loading; and that every player and NPC the API lists is counted down (one the step skips would
+  look like it said its line again).

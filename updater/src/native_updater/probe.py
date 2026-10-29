@@ -195,9 +195,12 @@ def run_checks(r, log):
     logged_in = m["enums"].get("gameState", {}).get("LOGGED_IN")
     ok("gameState", state == logged_in, f"gameState={state} (LOGGED_IN={logged_in}); log in before probing")
 
+    steps_at = client + r.off("Client", "actorSteps") if "actorSteps" in m["structs"].get("Client", {}) else None
     t0, c0 = r.i32(client + r.off("Client", "tickCount")), r.i32(r.rva("cycle"))
+    s0 = r.i32(steps_at) if steps_at else None
     time.sleep(1.3)
     t1, c1 = r.i32(client + r.off("Client", "tickCount")), r.i32(r.rva("cycle"))
+    s1 = r.i32(steps_at) if steps_at else None
     ok("tick", 1 <= t1 - t0 <= 3, f"tickCount {t0} -> {t1} over 1.3 s")
     ok("cycle", 40 <= c1 - c0 <= 90, f"cycle {c0} -> {c1} over 1.3 s (20 ms units)")
     if r.snapshot:
@@ -311,6 +314,52 @@ def run_checks(r, log):
                 shown += ends > now
         ok("hitmarks", actors and not hm_bad, f"hitmark vectors are whole entries; {shown} showing now" if not hm_bad
            else f"{hm_bad[:3]}")
+
+    # Overhead text: each actor's text is a readable string and its timer a few seconds of cycles at most; while logged
+    # in, the actor step counter moves once per client cycle.
+    if "overheadText" not in m["structs"]["Actor"] or steps_at is None:
+        skipped("overheadText", "the mapping has no Actor.overheadText or Client.actorSteps")
+    else:
+        oh_bad, talking = [], []
+        for kind, aid, a in actors:
+            text, timer = r.string(a + r.off("Actor", "overheadText")), r.i32(a + r.off("Actor", "overheadTimer"))
+            if text is None or not text.isprintable() or not 0 <= timer <= 10_000:
+                oh_bad.append((kind, aid, text, timer))
+            elif text:
+                talking.append((kind, aid, text, timer))
+        stepped = abs((s1 - s0) - (c1 - c0)) <= 2
+        ok("overheadText", actors and not oh_bad and stepped,
+           f"texts readable, {len(talking)} showing {talking[:2]}; actorSteps {s0} -> {s1} with cycle {c0} -> {c1}"
+           if not oh_bad else f"{oh_bad[:3]}")
+
+    # Spot animations: each actor's slots are whole elements sorted by slot, each pointing at a spot animation with a
+    # plausible id and a start cycle at most a delay (16 bits) past the client cycle.
+    if "ActorSpotAnim" not in m["structs"] or "SpotAnimSlot" not in m["structs"]:
+        skipped("spotAnims", "the mapping has no SpotAnimSlot or ActorSpotAnim keys")
+    else:
+        sa = lambda name: r.off("ActorSpotAnim", name)
+        slot_size, now, sa_bad, showing = r.off("SpotAnimSlot", "size"), r.i32(r.rva("cycle")), [], []
+        for kind, aid, a in actors:
+            begin, end = r.ptr(a + r.off("Actor", "spotAnims")), r.ptr(a + r.off("Actor", "spotAnimsEnd"))
+            if begin == end:
+                continue
+            if end < begin or (end - begin) % slot_size or (end - begin) // slot_size > 32:
+                sa_bad.append((kind, aid, begin, end))
+                continue
+            slots = []
+            for k in range((end - begin) // slot_size):
+                element = begin + k * slot_size
+                slot = r.i32(element + r.off("SpotAnimSlot", "slot"))
+                obj = r.ptr(element + r.off("SpotAnimSlot", "spotAnim"))
+                spot, start = (r.i32(obj + sa("id")), r.i32(obj + sa("startCycle"))) if obj else (None, None)
+                if not obj or not -1 <= spot < 0x10000 or start - now > 0x10000 or not 0 <= slot < 256:
+                    sa_bad.append((kind, aid, slot, obj, spot, start))
+                slots.append(slot)
+                showing.append((kind, aid, slot, spot, r.i32(obj + sa("height")) if obj else None))
+            if slots != sorted(slots):
+                sa_bad.append((kind, aid, "unsorted", slots))
+        ok("spotAnims", actors and not sa_bad, f"spot animation slots are whole and sorted; {len(showing)} showing "
+           f"{showing[:3]}" if not sa_bad else f"{sa_bad[:3]}")
 
     # Projectiles: the list ends at its sentinel; every projectile has a plausible id, endpoints and timing, and a
     # placed one sits inside the scene.

@@ -75,8 +75,9 @@ other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED
   script runtime the DLL's script hooks sit on (runner, stacks, listener request) is `spec/66-scripts.yaml`
   (`scripts.py`); the interface open and close functions and the top-level interface are `spec/67-interfaces.yaml`
   (`interfaces.py`); the chat history (line layout, id counter, id-to-line map) is `spec/68-chat.yaml` (`chat.py`);
-  each actor's hitmark vector is `spec/69-hitmarks.yaml` (`hitmarks.py`); the varc setters scripts call are
-  `spec/64-varcs.yaml` (`varcs.py`).
+  each actor's hitmark vector is `spec/69-hitmarks.yaml` (`hitmarks.py`); its spot animation slots are
+  `spec/42-spotanims.yaml` (`spotanims.py`); its overhead text and the client's actor step counter are
+  `spec/41-overhead.yaml` (`overhead.py`); the varc setters scripts call are `spec/64-varcs.yaml` (`varcs.py`).
 - The mapping JSON holds only PROVEN/ANCHORED/INFERRED, non-`internal` keys. The evidence behind each value, plus every
   Lua binding's handler RVA, goes to `~/.kraken-native/cache/<sha256>/analysis.json`; read that when a value looks
   wrong.
@@ -137,7 +138,10 @@ other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED
   varc setter hooks' reports in order, so each change a script makes posts even when several come between two polls.
   `AnimationChanged`, `ActorDeath` and `NpcChanged` compare one value per actor (`ActorValues`, strict reads keyed by
   slot): `Actor.getAnimation()`, `isDead()` and an NPC's base type id (a transform keeps the NPC and its handle). The
-  animating actors are read every poll, since the client ends animations itself between ticks.
+  animating actors are read every poll, since the client ends animations itself between ticks. `GraphicChanged`
+  compares each actor's spot animation slots the same way (slot, id and start cycle: every set starts a new one), and
+  `OverheadTextChanged` each actor's overhead text and timer: the same text with more time left than the client's actor
+  step counter (`Client.actorSteps`) allows was said again.
 - The `kraken-api-poll` thread is the "client thread": every 20 ms, or at once on a raise, it runs `invoke*` tasks,
   the events (`GameTick` after the tick's other events, a `ClientTick` per client cycle; with the hook connected only
   when a raise asks or every 250 ms), `invokeAtTickEnd` tasks, the frame listener (overlays), then the 150 ms poll
@@ -201,7 +205,8 @@ other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED
   `consensus.py`, `carry.py` or `verify.py`.
 - `docs/event-hooks-design.md`: the native raise sites, the hook DLL and its protocol, how raises trigger trackers,
   the script hooks behind `ScriptPreFired`/`ScriptPostFired` (§2.6), the interface events (§2.7), chat,
-  hitsplats, focus and fake XP drops (§2.8), the varc events (§2.9), and animations, deaths and NPC changes (§2.10).
+  hitsplats, focus and fake XP drops (§2.8), the varc events (§2.9), animations, deaths and NPC changes (§2.10), and
+  spot animations and overhead text (§2.11).
 - `docs/event-backlog.md`: RuneLite events not posted yet, what each needs, and a prompt for adding a batch of them.
 - `docs/in-game-drawing.md`: the highlight functions, the pump and present hooks, protocol v3's commands and the
   overlay surface layout; its last section lists the live checks still pending.

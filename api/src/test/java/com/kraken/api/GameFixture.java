@@ -57,6 +57,9 @@ import static com.kraken.api.TestSupport.seedMapping;
  *       {@link #addChatLine} adds more, {@link #clearChat} empties it as logout does.
  *   <li>No hitsplats; {@link #setHitsplats} gives an actor some. No actor plays an animation; {@link #setAnimation}
  *       starts one. {@link #setHealthbar} gives an actor a health bar, {@link #setNpcType} transforms an NPC.
+ *   <li>No actor shows overhead text (each has the empty text and the timer of 100 the client's constructor leaves) or
+ *       a spot animation; {@link #setOverheadText} and {@link #setSpotAnims} set them, and {@link #stepActors} counts
+ *       the overhead timers down and the step counter up as the client's actor step does.
  * </ul>
  */
 public final class GameFixture {
@@ -142,6 +145,23 @@ public final class GameFixture {
     private static final long CHAT_HEAP = 0xd10000000L;
     private static final int CHAT_BUCKET_COUNT = 5;
     private static final int HITSPLAT_SPACE = 0x100;
+    /**
+     * Spot animation slots and objects {@link #setSpotAnims} gives actors are allocated from here, a block per actor:
+     * the slots first, then a spot animation per slot.
+     */
+    private static final long SPOT_ANIMS = 0xd30000000L;
+    private static final int SPOT_ANIM_SPACE = 0x8000;
+    private static final int SPOT_ANIM_OBJECTS = 0x1000;
+    private static final int SPOT_ANIM_SIZE = 0x300;
+    /**
+     * Overhead texts too long to fit inline are written here, a slot per actor.
+     */
+    private static final long OVERHEAD_HEAP = 0xd40000000L;
+    private static final int OVERHEAD_HEAP_SLOT = 0x100;
+    /**
+     * The timer the client's actor constructor sets, with the text empty.
+     */
+    private static final int OVERHEAD_CYCLES = 100;
 
     /**
      * The first line of the chat history.
@@ -252,6 +272,8 @@ public final class GameFixture {
     private long chatHeap = CHAT_HEAP;
     private final Map<Long, Long> hitsplatVectors = new HashMap<>();
     private final Map<Long, Long> healthbars = new HashMap<>();
+    private final Map<Long, Long> spotAnimBlocks = new HashMap<>();
+    private final Map<Long, Long> overheadHeaps = new HashMap<>();
     private final Map<Integer, Long> npcTypes = new HashMap<>();
 
     public GameFixture() throws IOException {
@@ -763,6 +785,104 @@ public final class GameFixture {
     }
 
     /**
+     * Sets the text an actor shows over its head and its timer, as the client's say blocks do: inline when it fits,
+     * else on the heap.
+     *
+     * @param address the NPC's or player's address, e.g. {@link #NPC}
+     * @param text    the text, "" for none
+     * @param cycles  the client cycles it has left to show
+     */
+    public void setOverheadText(long address, String text, int cycles) {
+        long string = address + map.offset("Actor.overheadText");
+        memory.putBytes(string, new byte[0x18]);
+        if (text.length() < map.container("string.ssoCapacity")) {
+            memory.putSsoString(string, text);
+        } else {
+            long heap = overheadHeaps.computeIfAbsent(address, a -> {
+                long at = OVERHEAD_HEAP + overheadHeaps.size() * (long) OVERHEAD_HEAP_SLOT;
+                memory.alloc(at, OVERHEAD_HEAP_SLOT);
+                return at;
+            });
+            byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+            memory.putBytes(heap, bytes);
+            memory.putLong(string, heap);
+            memory.putLong(string + 8, bytes.length);
+            memory.putByte(string + map.container("string.heapFlagByte"), map.container("string.heapFlagMask"));
+        }
+        memory.putInt(address + map.offset("Actor.overheadTimer"), cycles);
+    }
+
+    /**
+     * Sets the client's count of actor steps.
+     *
+     * @param steps the count
+     */
+    public void setActorSteps(int steps) {
+        memory.putInt(CLIENT + map.offset("Client.actorSteps"), steps);
+    }
+
+    /**
+     * Steps the actors as the client does once per cycle while logged in: counts every actor's overhead timer above 0
+     * down by one, empties the text of one that reaches 0, and moves the step counter on by one.
+     *
+     * @param steps how many steps to take
+     */
+    public void stepActors(int steps) {
+        int timer = map.offset("Actor.overheadTimer");
+        int counter = map.offset("Client.actorSteps");
+        for (int i = 0; i < steps; i++) {
+            for (long actor : new long[]{NPC, NPC_MULTI, PLAYER, player(9), player(10)}) {
+                int left = memory.readInt(actor + timer);
+                if (left == 1) {
+                    setOverheadText(actor, "", 0);
+                } else if (left > 1) {
+                    memory.putInt(actor + timer, left - 1);
+                }
+            }
+            memory.putInt(CLIENT + counter, memory.readInt(CLIENT + counter) + 1);
+        }
+    }
+
+    /**
+     * Sets an actor's spot animation slots, replacing what it held, sorted by slot as the client keeps them, each
+     * pointing at a spot animation of its own.
+     *
+     * @param address   the NPC's or player's address, e.g. {@link #PLAYER}
+     * @param spotAnims {slot, id, height, start cycle, frame} per slot, in slot order
+     */
+    public void setSpotAnims(long address, int[]... spotAnims) {
+        long block = spotAnimBlocks.computeIfAbsent(address, a -> {
+            long at = SPOT_ANIMS + spotAnimBlocks.size() * (long) SPOT_ANIM_SPACE;
+            memory.alloc(at, SPOT_ANIM_SPACE);
+            return at;
+        });
+        int size = map.offset("SpotAnimSlot.size");
+        for (int i = 0; i < spotAnims.length; i++) {
+            long slot = block + (long) i * size;
+            long spotAnim = block + SPOT_ANIM_OBJECTS + (long) i * SPOT_ANIM_SIZE;
+            memory.putInt(slot + map.offset("SpotAnimSlot.slot"), spotAnims[i][0]);
+            memory.putLong(slot + map.offset("SpotAnimSlot.spotAnim"), spotAnim);
+            memory.putInt(spotAnim + map.offset("ActorSpotAnim.id"), spotAnims[i][1]);
+            memory.putInt(spotAnim + map.offset("ActorSpotAnim.height"), spotAnims[i][2]);
+            memory.putInt(spotAnim + map.offset("ActorSpotAnim.startCycle"), spotAnims[i][3]);
+            memory.putShort(spotAnim + map.offset("ActorSpotAnim.animFrame"), spotAnims[i][4]);
+        }
+        memory.putLong(address + map.offset("Actor.spotAnims"), block);
+        memory.putLong(address + map.offset("Actor.spotAnimsEnd"), block + (long) spotAnims.length * size);
+    }
+
+    /**
+     * Breaks an actor's spot animation slots as a read racing the client's changes to them can find them: the end
+     * pointer is partway into a slot.
+     *
+     * @param address the NPC's or player's address
+     */
+    public void breakSpotAnims(long address) {
+        long begin = memory.readLong(address + map.offset("Actor.spotAnims"));
+        memory.putLong(address + map.offset("Actor.spotAnimsEnd"), begin + 4);
+    }
+
+    /**
      * Points NPC 5 or 6 at another type, as the client does when the server transforms an NPC in place.
      *
      * @param index  5 or 6
@@ -921,6 +1041,7 @@ public final class GameFixture {
         memory.putByte(NPC + map.offset("Actor.interactingType"), 2);
         memory.putInt(NPC + map.offset("Actor.interacting"), 7);
         setAnimation(NPC, -1);
+        setOverheadText(NPC, "", OVERHEAD_CYCLES);
         buildHeadbar(NPC);
         memory.alloc(NPC_TYPE, 0x200);
         memory.putInt(NPC_TYPE + map.offset("NpcType.id"), 3029);
@@ -936,6 +1057,7 @@ public final class GameFixture {
         memory.putSsoString(NPC_MULTI + map.offset("Actor.name"), "");
         memory.putByte(NPC_MULTI + map.offset("Actor.render2D"), 1);
         setAnimation(NPC_MULTI, -1);
+        setOverheadText(NPC_MULTI, "", OVERHEAD_CYCLES);
         memory.putLong(NPC_MULTI + map.offset("Npc.type"), NPC_MULTI_TYPE);
         memory.putInt(NPC_MULTI + map.offset("Npc.index"), 6);
         memory.alloc(NPC_MULTI_TYPE, 0x200);
@@ -972,6 +1094,7 @@ public final class GameFixture {
         memory.putInt(player + map.offset("Actor.pathZ"), z);
         memory.putByte(player + map.offset("Actor.render2D"), 1);
         setAnimation(player, -1);
+        setOverheadText(player, "", OVERHEAD_CYCLES);
         memory.putInt(player + map.offset("Player.index"), index);
         memory.putInt(player + map.offset("Player.level"), 0);
         memory.alloc(name, 0x30);

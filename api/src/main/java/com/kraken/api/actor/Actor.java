@@ -1,5 +1,6 @@
 package com.kraken.api.actor;
 
+import com.kraken.api.ActorSpotAnim;
 import com.kraken.api.Client;
 import com.kraken.api.Hitsplat;
 import com.kraken.api.Perspective;
@@ -10,6 +11,7 @@ import com.kraken.api.coords.WorldPoint;
 import com.kraken.api.internal.reader.ActorReader;
 import com.kraken.api.internal.FineCoord;
 import com.kraken.api.internal.MapCoord;
+import com.kraken.api.internal.OverheadText;
 import com.kraken.api.scene.WorldView;
 
 import java.awt.Graphics2D;
@@ -289,6 +291,112 @@ public abstract class Actor {
      */
     public List<Hitsplat> hitsplats() {
         return actors.hitsplats(address());
+    }
+
+    /**
+     * The text the actor shows over its head: what it last said (an NPC's shout, a player's public chat or forced
+     * line), until its timer runs out. Read from the field the NPC and player updates and Lua's {@code npcSay} and
+     * {@code playerSay} write; no Lua function reads it.
+     *
+     * @return the text; null when it shows none, or once the actor is gone
+     */
+    public String getOverheadText() {
+        OverheadText overhead = readOverheadText();
+        return overhead == null || overhead.text().isEmpty() ? null : overhead.text();
+    }
+
+    /**
+     * How long the actor's overhead text has left to show. The client counts it down by one each client cycle while
+     * logged in and clears the text when it reaches 0.
+     *
+     * @return the client cycles left; 0 once the actor is gone
+     */
+    public int getOverheadCycle() {
+        return actors.overheadCycles(address());
+    }
+
+    /**
+     * The actor's overhead text and its timer, read strictly: a read that fails gives null.
+     * Internal: the overhead text events read through it; plugins call {@link #getOverheadText()}.
+     *
+     * @return the text ("" when none shows) and the cycles it has left; null if the actor is gone or they can't be
+     *         read
+     */
+    public OverheadText readOverheadText() {
+        return actors.readOverheadText(address());
+    }
+
+    /**
+     * The spot animations the actor shows (a spell's glow, a teleport...), in slot order, the ones that haven't
+     * started yet included. No Lua function reads them.
+     *
+     * @return the spot animations; empty when it shows none, or once the actor is gone
+     */
+    public List<ActorSpotAnim> getSpotAnims() {
+        return actors.spotAnims(address());
+    }
+
+    /**
+     * Whether the actor shows a spot animation.
+     *
+     * @param spotAnimId the spot animation's id, one of {@code gameval.SpotanimID}'s
+     * @return true if one of its slots holds it, started or not
+     */
+    public boolean hasSpotAnim(int spotAnimId) {
+        for (ActorSpotAnim spotAnim : getSpotAnims()) {
+            if (spotAnim.getId() == spotAnimId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The spot animation the actor shows in its lowest slot.
+     *
+     * @return its id; -1 when it shows none
+     * @deprecated an actor can show several spot animations at once; use {@link #hasSpotAnim(int)} or
+     *             {@link #getSpotAnims()}
+     */
+    @Deprecated
+    public int getGraphic() {
+        List<ActorSpotAnim> spotAnims = getSpotAnims();
+        return spotAnims.isEmpty() ? -1 : spotAnims.get(0).getId();
+    }
+
+    /**
+     * The height of the spot animation {@link #getGraphic()} names.
+     *
+     * @return its height; 0 when the actor shows none
+     * @deprecated an actor can show several spot animations at once; use {@link ActorSpotAnim#getHeight()}
+     */
+    @Deprecated
+    public int getGraphicHeight() {
+        List<ActorSpotAnim> spotAnims = getSpotAnims();
+        return spotAnims.isEmpty() ? 0 : spotAnims.get(0).getHeight();
+    }
+
+    /**
+     * The frame of the spot animation {@link #getGraphic()} names.
+     *
+     * @return its frame; -1 when the actor shows none, or it hasn't started
+     * @deprecated an actor can show several spot animations at once; use {@link ActorSpotAnim#getFrame()}
+     */
+    @Deprecated
+    public int getSpotAnimFrame() {
+        List<ActorSpotAnim> spotAnims = getSpotAnims();
+        return spotAnims.isEmpty() ? -1 : spotAnims.get(0).getFrame();
+    }
+
+    /**
+     * The actor's spot animations, as {@link #getSpotAnims()}, but read strictly: a read that fails gives null rather
+     * than fewer spot animations.
+     * Internal: the graphic events read through it; plugins call {@link #getSpotAnims()}.
+     *
+     * @return the spot animations, empty when it shows none; null if the actor is gone or they can't be read
+     */
+    public List<ActorSpotAnim> readSpotAnims() {
+        return actors.readSpotAnims(address());
     }
 
     /**

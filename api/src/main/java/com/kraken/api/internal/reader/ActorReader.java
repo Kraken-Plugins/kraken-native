@@ -1,5 +1,6 @@
 package com.kraken.api.internal.reader;
 
+import com.kraken.api.ActorSpotAnim;
 import com.kraken.api.Client;
 import com.kraken.api.Hitsplat;
 import com.kraken.api.actor.Actor;
@@ -11,6 +12,7 @@ import com.kraken.api.definition.VarbitComposition;
 import com.kraken.api.internal.ConfigTypes;
 import com.kraken.api.internal.FineCoord;
 import com.kraken.api.internal.MapCoord;
+import com.kraken.api.internal.OverheadText;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.api.memory.Memory;
 import com.kraken.api.memory.MemoryException;
@@ -46,6 +48,7 @@ public final class ActorReader extends GameReader {
 
     private static final int MAX_LIST = 64;          // headbars per actor, updates per headbar
     private static final int MAX_HITSPLATS = 16;
+    private static final int MAX_SPOT_ANIMS = 256;     // one per slot, and a slot is a byte
     private static final int MAX_FOLLOWER_VARPS = 64;
     private static final int MAX_WORLDS = 256;
     private static final int MAX_INDICES = 65536;
@@ -142,6 +145,19 @@ public final class ActorReader extends GameReader {
     private final int hmValue;
     private final int hmEndCycle;
     private final int hmSize;
+
+    // Overhead text and spot animations
+    private final int aOverheadText;    // eastl::string
+    private final int aOverheadTimer;
+    private final int aSpotAnims;       // eastl::vector_map<int, shared_ptr<ActorSpotAnim>>: begin, then end
+    private final int aSpotAnimsEnd;
+    private final int sasSize;
+    private final int sasSlot;
+    private final int sasSpotAnim;
+    private final int saId;
+    private final int saHeight;
+    private final int saStartCycle;
+    private final int saFrame;
 
     // World flags, followers and the varp array varbits read
     private final int cWorldFlags;
@@ -248,6 +264,17 @@ public final class ActorReader extends GameReader {
         this.hmValue = optionalOffset("Hitmark.value");
         this.hmEndCycle = optionalOffset("Hitmark.endCycle");
         this.hmSize = optionalOffset("Hitmark.size");
+        this.aOverheadText = optionalOffset("Actor.overheadText");
+        this.aOverheadTimer = optionalOffset("Actor.overheadTimer");
+        this.aSpotAnims = optionalOffset("Actor.spotAnims");
+        this.aSpotAnimsEnd = optionalOffset("Actor.spotAnimsEnd");
+        this.sasSize = optionalOffset("SpotAnimSlot.size");
+        this.sasSlot = optionalOffset("SpotAnimSlot.slot");
+        this.sasSpotAnim = optionalOffset("SpotAnimSlot.spotAnim");
+        this.saId = optionalOffset("ActorSpotAnim.id");
+        this.saHeight = optionalOffset("ActorSpotAnim.height");
+        this.saStartCycle = optionalOffset("ActorSpotAnim.startCycle");
+        this.saFrame = optionalOffset("ActorSpotAnim.animFrame");
 
         this.cWorldFlags = optionalOffset("Client.worldFlags");
         this.cFollowerVarps = optionalOffset("Client.followerVarps");
@@ -760,6 +787,144 @@ public final class ActorReader extends GameReader {
                     entries.getInt(at + hmEndCycle)));
         }
         return hitsplats;
+    }
+
+    /**
+     * The text an actor shows over its head, and how long it has left. The NPC and player updates (an NPC's shout, a
+     * player's public chat or forced line) and Lua's {@code npcSay} and {@code playerSay} write both; the client counts
+     * the timer down by one per actor step and empties the text when it reaches 0. Not a Lua read: no Lua function
+     * reads them.
+     *
+     * @param actor the actor's address
+     * @return the text ("" when none shows) and its timer; null if they can't be read or this build's mapping lacks
+     *         them
+     */
+    public OverheadText readOverheadText(long actor) {
+        if (actor == 0 || aOverheadText < 0 || aOverheadTimer < 0) {
+            return null;
+        }
+        int from = Math.min(aOverheadText, aOverheadTimer);
+        int span = Math.max(aOverheadText + structs.stringSize(), aOverheadTimer + 4) - from;
+        try {
+            if (span > 0x100) {
+                byte[] text = memory.read(actor + aOverheadText, structs.stringSize());
+                return new OverheadText(structs.readString(text, actor + aOverheadText, 0),
+                        memory.readInt(actor + aOverheadTimer));
+            }
+            ByteBuffer block = readBlock(actor + from, span);
+            if (block == null) {
+                return null;
+            }
+            return new OverheadText(structs.readString(block.array(), actor + from, aOverheadText - from),
+                    block.getInt(aOverheadTimer - from));
+        } catch (MemoryException e) {
+            return null;
+        }
+    }
+
+    /**
+     * The time an actor's overhead text has left, as {@link #readOverheadText} reads it.
+     *
+     * @param actor the actor's address
+     * @return the client cycles left; 0 if it can't be read or this build's mapping lacks it
+     */
+    public int overheadCycles(long actor) {
+        return actor == 0 || aOverheadTimer < 0 ? 0 : safeInt(actor + aOverheadTimer, 0);
+    }
+
+    /**
+     * The spot animations an actor shows, in slot order (the client keeps them sorted by slot), the ones that haven't
+     * started yet included. The NPC and player updates and the server's spot animation packets set and clear them; the
+     * client drops one in its per-cycle actor step once its animation has played. Read strictly: a slot list or a spot
+     * animation that can't be read gives null rather than fewer spot animations. Not a Lua read.
+     *
+     * @param actor the actor's address
+     * @return the spot animations, empty if it shows none; null if they can't be read or this build's mapping lacks
+     *         them
+     */
+    public List<ActorSpotAnim> readSpotAnims(long actor) {
+        if (actor == 0 || aSpotAnims < 0 || aSpotAnimsEnd < 0 || sasSize <= 0 || sasSlot < 0 || sasSpotAnim < 0
+                || saId < 0 || saHeight < 0 || saStartCycle < 0 || saFrame < 0) {
+            return null;
+        }
+        long begin;
+        long end;
+        if (aSpotAnimsEnd == aSpotAnims + 8) {
+            ByteBuffer pair = readBlock(actor + aSpotAnims, 16);
+            if (pair == null) {
+                return null;
+            }
+            begin = pair.getLong(0);
+            end = pair.getLong(8);
+        } else {
+            begin = safeLong(actor + aSpotAnims, -1);
+            end = safeLong(actor + aSpotAnimsEnd, -1);
+        }
+        if (begin == -1 || end == -1) {
+            return null;
+        }
+        if (begin == end) {
+            return List.of();
+        }
+        long bytes = end - begin;
+        if (begin == 0 || bytes <= 0 || bytes % sasSize != 0 || bytes / sasSize > MAX_SPOT_ANIMS) {
+            return null;
+        }
+        ByteBuffer slots = readBlock(begin, (int) bytes);
+        if (slots == null) {
+            return null;
+        }
+        int count = (int) (bytes / sasSize);
+        List<ActorSpotAnim> spotAnims = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            int at = i * sasSize;
+            ActorSpotAnim spotAnim = readSpotAnim(slots.getInt(at + sasSlot), slots.getLong(at + sasSpotAnim));
+            if (spotAnim == null) {
+                return null;
+            }
+            spotAnims.add(spotAnim);
+        }
+        return spotAnims;
+    }
+
+    /**
+     * One spot animation an actor's slot points at: its fields in one read when they lie close together.
+     *
+     * @param slot     the slot
+     * @param spotAnim the spot animation's address
+     * @return the spot animation; null if it can't be read
+     */
+    private ActorSpotAnim readSpotAnim(int slot, long spotAnim) {
+        if (spotAnim == 0) {
+            return null;
+        }
+        int from = Math.min(Math.min(saId, saHeight), Math.min(saStartCycle, saFrame));
+        int span = Math.max(Math.max(saId, saHeight), Math.max(saStartCycle, saFrame - 2)) + 4 - from;
+        try {
+            if (span > 0x100) {
+                return new ActorSpotAnim(slot, memory.readInt(spotAnim + saId), memory.readInt(spotAnim + saHeight),
+                        memory.readInt(spotAnim + saStartCycle), (short) memory.readShort(spotAnim + saFrame));
+            }
+        } catch (MemoryException e) {
+            return null;
+        }
+        ByteBuffer fields = readBlock(spotAnim + from, span);
+        if (fields == null) {
+            return null;
+        }
+        return new ActorSpotAnim(slot, fields.getInt(saId - from), fields.getInt(saHeight - from),
+                fields.getInt(saStartCycle - from), fields.getShort(saFrame - from));
+    }
+
+    /**
+     * The spot animations an actor shows, as {@link #readSpotAnims} reads them.
+     *
+     * @param actor the actor's address
+     * @return the spot animations; empty if it shows none, if they can't be read or this build's mapping lacks them
+     */
+    public List<ActorSpotAnim> spotAnims(long actor) {
+        List<ActorSpotAnim> spotAnims = readSpotAnims(actor);
+        return spotAnims == null ? List.of() : spotAnims;
     }
 
     private boolean hasHeadbars() {

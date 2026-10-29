@@ -1,0 +1,90 @@
+# Spot animations (docs/event-hooks-design.md §2.11): the graphics an actor shows (a spell's glow, a teleport...), for
+# GraphicChanged. The API compares each loaded actor's spot animations on the tick's polls and right after the NPC and
+# player update decoders run, and those of the actors showing one on every poll, since they end on their own.
+#
+# The NPC and player update masks, and the server's spot animation packets, hand each one to one function, (actor,
+# slot, id, height, delay, cycle, a loop flag). The actor keeps them in an eastl::vector_map sorted by slot, each
+# element the slot and a jag::shared_ptr to a spot animation object: a set makes a new object, an id of 65535 erases
+# the slot. The actor step erases one whose sequence finished; the actor's draw walks the elements and loads each one's
+# SpotAnimType. The setter takes three stack arguments, so it isn't hooked (extractor `actor_spot_anims`, spotanims.py).
+keys:
+  - key: functions.setSpotAnim
+    type: "void(Actor*, i32 slot, i32 id, i32 height, i32 delay, i32 cycle, bool loop)"
+    priority: P1
+    internal: true
+    doc: Sets or clears one of an actor's spot animation slots; the anchor the vector is found from.
+    strategies:
+      - extractor: { name: actor_spot_anims, field: functions.setSpotAnim, cls: E }
+  - key: Actor.spotAnims
+    type: eastl.vector_map<i32, jag.shared_ptr<ActorSpotAnim>>
+    priority: P1
+    live: spotAnims
+    doc: The begin pointer of the actor's spot animation slots, sorted by slot.
+    strategies:
+      - extractor: { name: actor_spot_anims, field: Actor.spotAnims, cls: C }
+  - key: Actor.spotAnimsEnd
+    type: ptr<SpotAnimSlot>
+    priority: P1
+    live: spotAnims
+    doc: The vector's end pointer.
+    strategies:
+      - extractor: { name: actor_spot_anims, field: Actor.spotAnimsEnd, cls: C }
+    invariants:
+      - equals: "Actor.spotAnims + 8"
+  - key: SpotAnimSlot.size
+    type: i32
+    priority: P1
+    live: spotAnims
+    doc: Bytes per slot.
+    strategies:
+      - extractor: { name: actor_spot_anims, field: SpotAnimSlot.size, cls: C }
+  - key: SpotAnimSlot.slot
+    type: i32
+    priority: P1
+    live: spotAnims
+    doc: The slot (the server's key for the spot animation; a new one in the same slot replaces it).
+    strategies:
+      - extractor: { name: actor_spot_anims, field: SpotAnimSlot.slot, cls: E }
+  - key: SpotAnimSlot.spotAnim
+    type: ptr<ActorSpotAnim>
+    priority: P1
+    live: spotAnims
+    doc: The spot animation object (the object half of the slot's jag.shared_ptr).
+    strategies:
+      - extractor: { name: actor_spot_anims, field: SpotAnimSlot.spotAnim, cls: C }
+  - key: ActorSpotAnim.id
+    type: i32
+    priority: P1
+    live: spotAnims
+    doc: The SpotAnimType id.
+    strategies:
+      - extractor: { name: actor_spot_anims, field: ActorSpotAnim.id, cls: C }
+  - key: ActorSpotAnim.height
+    type: i32
+    priority: P1
+    live: spotAnims
+    doc: How high above the actor's feet it plays.
+    strategies:
+      - extractor: { name: actor_spot_anims, field: ActorSpotAnim.height, cls: C }
+  - key: ActorSpotAnim.startCycle
+    type: i32
+    priority: P1
+    live: spotAnims
+    doc: The client cycle it starts playing on (the cycle it arrived, plus its delay); until then it isn't drawn.
+    strategies:
+      - extractor: { name: actor_spot_anims, field: ActorSpotAnim.startCycle, cls: C }
+  # The animation: a block like a graphics object's (SeqType shared pointer, sequence id, frame cycle, frame, loop
+  # count), set to the SpotAnimType's sequence.
+  - key: ActorSpotAnim.animState
+    internal: true
+    type: AnimState
+    priority: P1
+    strategies:
+      - extractor: { name: actor_spot_anims, field: ActorSpotAnim.animState, cls: C }
+  - key: ActorSpotAnim.animFrame
+    type: i16
+    priority: P1
+    live: spotAnims
+    doc: The animation's current frame; -1 until it starts.
+    strategies:
+      - derive: { expr: "ActorSpotAnim.animState + GraphicsObject.animFrame - GraphicsObject.animState", cls: C }

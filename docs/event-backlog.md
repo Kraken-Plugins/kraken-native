@@ -14,8 +14,8 @@ Addresses and offsets are for build 241.3. "Mapped" means the key is in `api/src
 | `AnimationChanged` | Core | None (getter, tracker and the `setSequence` hook) | Done (design §2.10) |
 | `ActorDeath` | Core | None (tracker only) | Done (design §2.10) |
 | `NpcChanged` | Core | None (tracker only) | Done (design §2.10) |
-| `GraphicChanged` | Core | Reverse engineering | To do |
-| `OverheadTextChanged` | Common | Small reverse engineering | To do |
+| `GraphicChanged` | Core | `spotanims.py`: the actor's spot animation slots | Done (design §2.11) |
+| `OverheadTextChanged` | Common | `overhead.py`: the text and the actor step counter | Done (design §2.11) |
 | `GrandExchangeOfferChanged` | Common | Reverse engineering (raise site mapped) | To do |
 | `NpcLootReceived` / `PlayerLootReceived` | Common | None (client-side, needs `ActorDeath`) | To do |
 | `AccountHashChanged` / `RuneScapeProfileChanged` | Common | Reverse engineering | To do |
@@ -23,8 +23,8 @@ Addresses and offsets are for build 241.3. "Mapped" means the key is in `api/src
 | `SoundEffectPlayed` / `AreaSoundEffectPlayed` | Common | Reverse engineering | To do |
 
 Suggested batches, in order: (1) `AnimationChanged`, `ActorDeath`, `NpcChanged` (done); (2) `GraphicChanged`,
-`OverheadTextChanged`; (3) `GrandExchangeOfferChanged`, `NpcLootReceived`/`PlayerLootReceived`; (4) account identity,
-`WorldChanged`; (5) the sound events.
+`OverheadTextChanged` (done); (3) `GrandExchangeOfferChanged`, `NpcLootReceived`/`PlayerLootReceived`; (4) account
+identity, `WorldChanged`; (5) the sound events.
 
 ## Core
 
@@ -57,22 +57,27 @@ every NPC's base type id and posts the old definition; a multi-NPC's varbit tran
 
 ### GraphicChanged
 
-- **RuneLite:** `GraphicChanged { Actor actor }`, with `Actor.getGraphic()`, `getGraphicHeight()`, `getSpotAnims()`
-  (`ActorSpotAnim`: id, height, start cycle) and `hasSpotAnim(id)`.
-- **Have:** nothing. No Lua binding reads an actor's spot animations.
-- **Needs reverse engineering:** the spot animation block of the NPC and player update masks (the same decoders that
-  call `addHitmark`: `0x98dc0` for NPCs, `0x1e7ad0` for players) and where the actor keeps its spot animations (likely
-  a small container, since the server can send several). Without a Lua anchor the keys rest on topology (class D/E),
-  so expect INFERRED verdicts unless a constant anchors them.
+Done; design §2.11. The update masks and the spot animation packets hand each one to `functions.setSpotAnim`
+(`0x9ec30`, seven arguments, so not hooked), which keeps them in a vector map on the actor sorted by slot
+(`Actor.spotAnims`), each slot pointing at a new spot animation (`ActorSpotAnim`: id, height, start cycle, frame). The
+draw's SpotAnimType loads anchor the layout (ANCHORED). `GraphicTracker` compares each actor's slots, ids and start
+cycles; the answers:
+
+- The server can send several: the actor holds one per slot (a byte), and a new one in a slot replaces it.
+- The client ends them itself (the per-cycle actor step erases one whose sequence finished), so the actors showing one
+  are read every poll, and an end posts too.
+- `getGraphic()`, `getGraphicHeight()` and `getSpotAnimFrame()` read the lowest slot; `ActorSpotAnim` has no frame
+  cycle (not mapped).
 
 ## Common
 
 ### OverheadTextChanged
 
-- **RuneLite:** `OverheadTextChanged { Actor actor; String overheadText }`, with `Actor.getOverheadText()`.
-- **Have:** `Actor.overheadTimer` (`0x2f4`).
-- **Needs reverse engineering:** the text field (probably an eastl string near the timer), written by the "say" update
-  mask and, for players, by public chat.
+Done; design §2.11. The text is an eastl string just before the timer (`Actor.overheadText`, `0x2d8`), written by the
+NPC update's say block, the player update's say and public chat blocks, and Lua's `npcSay` and `playerSay` (which
+anchor it, PROVEN with the countdown). The client counts the timer down once per actor step and empties the text at 0,
+and counts the steps (`Client.actorSteps`), so `OverheadTextTracker` tells the same line said again from a timer the
+countdown can't explain. A line timing out posts nothing.
 
 ### GrandExchangeOfferChanged
 

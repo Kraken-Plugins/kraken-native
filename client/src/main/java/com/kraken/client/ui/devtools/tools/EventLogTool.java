@@ -2,6 +2,7 @@ package com.kraken.client.ui.devtools.tools;
 
 import com.kraken.api.Client;
 import com.kraken.api.GameSession;
+import com.kraken.api.ActorSpotAnim;
 import com.kraken.api.Hitsplat;
 import com.kraken.api.MenuEntry;
 import com.kraken.api.ScriptEvent;
@@ -21,6 +22,7 @@ import com.kraken.api.events.GameStateChanged;
 import com.kraken.api.events.GameTick;
 import com.kraken.api.events.GraphicsObjectCreated;
 import com.kraken.api.events.GraphicsObjectDestroyed;
+import com.kraken.api.events.GraphicChanged;
 import com.kraken.api.events.HitsplatApplied;
 import com.kraken.api.events.InteractingChanged;
 import com.kraken.api.events.ItemContainerChanged;
@@ -31,6 +33,7 @@ import com.kraken.api.events.MenuEntryAdded;
 import com.kraken.api.events.MenuEntryRemoved;
 import com.kraken.api.events.MenuOpened;
 import com.kraken.api.events.MenuOptionClicked;
+import com.kraken.api.events.OverheadTextChanged;
 import com.kraken.api.events.NpcChanged;
 import com.kraken.api.events.NpcDespawned;
 import com.kraken.api.events.NpcSpawned;
@@ -97,6 +100,8 @@ final class EventLogTool extends DevTool<List<String>> {
     private static final String ANIMATIONS = "animations";
     private static final String DEATHS = "deaths";
     private static final String NPC_CHANGES = "npcChanges";
+    private static final String SPOT_ANIMS = "spotAnims";
+    private static final String OVERHEAD_TEXT = "overheadText";
     private static final String PROJECTILES = "projectiles";
     private static final String GRAPHICS = "graphics";
     private static final String INVENTORIES = "inventories";
@@ -124,6 +129,8 @@ final class EventLogTool extends DevTool<List<String>> {
     private final ToolOption animations = option("animations", "Animation changes", false);
     private final ToolOption deaths = option("deaths", "Actor deaths", true);
     private final ToolOption npcChanges = option("npcChanges", "NPC transforms", true);
+    private final ToolOption spotAnims = option("spotAnims", "Actor graphics", true);
+    private final ToolOption overheadText = option("overheadText", "Overhead text", false);
     private final ToolOption projectiles = option("projectiles", "Projectiles", true);
     private final ToolOption graphics = option("graphics", "Graphics objects", true);
     private final ToolOption inventories = option("inventories", "Inventory transmits", true);
@@ -153,9 +160,10 @@ final class EventLogTool extends DevTool<List<String>> {
     EventLogTool() {
         super("events", "Event log", Category.DIAGNOSTICS, MaterialDesignL.LIGHTNING_BOLT_OUTLINE,
                 "A live log of the API's events (game state, NPC and player spawns, objects, ground items, "
-                        + "targets, animations, deaths, NPC transforms, projectiles, graphics objects, inventories, "
-                        + "stats, vars, varbits, varcs, ticks, resizes, menu clicks, menu entries, interfaces, "
-                        + "scripts, chat messages, hitsplats, focus changes and fake XP drops) as they're seen.");
+                        + "targets, animations, deaths, NPC transforms, actor graphics, overhead text, projectiles, "
+                        + "graphics objects, inventories, stats, vars, varbits, varcs, ticks, resizes, menu clicks, "
+                        + "menu entries, interfaces, scripts, chat messages, hitsplats, focus changes and fake XP "
+                        + "drops) as they're seen.");
     }
 
     @Override
@@ -232,6 +240,8 @@ final class EventLogTool extends DevTool<List<String>> {
         keep(ANIMATIONS, animations.isOn(), this::subscribeAnimations);
         keep(DEATHS, deaths.isOn(), this::subscribeDeaths);
         keep(NPC_CHANGES, npcChanges.isOn(), this::subscribeNpcChanges);
+        keep(SPOT_ANIMS, spotAnims.isOn(), this::subscribeSpotAnims);
+        keep(OVERHEAD_TEXT, overheadText.isOn(), this::subscribeOverheadText);
         keep(PROJECTILES, projectiles.isOn(), this::subscribeProjectiles);
         keep(GRAPHICS, graphics.isOn(), this::subscribeGraphics);
         keep(INVENTORIES, inventories.isOn(), this::subscribeInventories);
@@ -339,6 +349,22 @@ final class EventLogTool extends DevTool<List<String>> {
         on(DEATHS, ActorDeath.class, e -> {
             if (deaths.isOn()) {
                 add("ActorDeath  " + actor(e.getActor()));
+            }
+        });
+    }
+
+    private void subscribeSpotAnims() {
+        on(SPOT_ANIMS, GraphicChanged.class, e -> {
+            if (spotAnims.isOn()) {
+                add("GraphicChanged  " + actor(e.getActor()) + " → " + spotAnims(e.getActor().getSpotAnims()));
+            }
+        });
+    }
+
+    private void subscribeOverheadText() {
+        on(OVERHEAD_TEXT, OverheadTextChanged.class, e -> {
+            if (overheadText.isOn()) {
+                add("OverheadTextChanged  " + actor(e.getActor()) + " \"" + e.getOverheadText() + "\"");
             }
         });
     }
@@ -653,6 +679,24 @@ final class EventLogTool extends DevTool<List<String>> {
      */
     private static String at(WorldPoint point) {
         return point == null ? "" : " at (" + point.getX() + ", " + point.getY() + ", " + point.getPlane() + ")";
+    }
+
+    /**
+     * An actor's spot animations, for a line.
+     *
+     * @param spotAnims the spot animations, in slot order
+     * @return "id in slot n" for each, or "none"
+     */
+    private static String spotAnims(List<ActorSpotAnim> spotAnims) {
+        if (spotAnims.isEmpty()) {
+            return "none";
+        }
+        StringBuilder line = new StringBuilder();
+        for (ActorSpotAnim spotAnim : spotAnims) {
+            line.append(line.isEmpty() ? "" : ", ").append(spotAnim.getId()).append(" in slot ")
+                    .append(spotAnim.getSlot());
+        }
+        return line.toString();
     }
 
     /**
