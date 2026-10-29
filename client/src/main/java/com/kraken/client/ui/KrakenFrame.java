@@ -126,8 +126,8 @@ public final class KrakenFrame extends JFrame {
         new Timer(1000, e -> showFrameRates()).start();
 
         sidebar.addTab("Kraken", Theme.logoIcon(), Theme.logoIcon(), home);
-        sidebar.addTab("Dev Tools", MaterialDesignC.CODE_TAGS, devTools);
         sidebar.addTab("Plugins", MaterialDesignP.PUZZLE_OUTLINE, plugins);
+        sidebar.addTab("Dev Tools", MaterialDesignC.CODE_TAGS, devTools);
         sidebar.addTab("Settings", MaterialDesignC.COG_OUTLINE,
                 new ConfigPanel(configManager, eventBus, config, "Settings", null));
         applySettings();

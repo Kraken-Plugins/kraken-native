@@ -107,6 +107,7 @@ public final class EventSource {
     private final List<Tracker> trackers;
     private final Set<Tracker> failing = new HashSet<>();
     private final Map<String, List<Tracker>> triggerRoutes;
+    private final ScriptEvents scripts;
 
     private boolean tickBaselined;
     private int lastTick;
@@ -143,6 +144,7 @@ public final class EventSource {
                 new InteractingTracker(context), new ProjectileTracker(context), new GraphicsObjectTracker(context),
                 new MenuClickTracker(context), new MenuTracker(context));
 
+        this.scripts = new ScriptEvents(client, bus);
         this.triggerRoutes = new HashMap<>();
         List<Tracker> all = new ArrayList<>();
         all.add(gameState);
@@ -184,12 +186,35 @@ public final class EventSource {
     }
 
     /**
+     * Posts the event for a script the native hook reported starting or returning, if it has subscribers, at once and
+     * outside any poll: each report is its own event, with the stacks the hook captured. Poll thread only (the hook
+     * server hands these over with {@code GameSession.invoke}).
+     *
+     * @param run the report
+     */
+    public void onScript(ScriptRun run) {
+        scripts.post(run);
+    }
+
+    /**
+     * Takes the connection to a native hook that reports scripts, or drops it. While one is set, each poll tells it to
+     * report scripts starting while {@code ScriptPreFired} has subscribers and returning while
+     * {@code ScriptPostFired} does. Poll thread only.
+     *
+     * @param hook the hook, or null while there is none
+     */
+    public void setScriptHook(ScriptHook hook) {
+        scripts.setHook(hook);
+    }
+
+    /**
      * Reads the game once and posts what changed since the previous call: the tracked events, then a {@code GameTick}
      * per game tick and a {@code ClientTick} per client cycle since the previous call. Poll thread only.
      *
      * @return true if a game tick happened since the previous call
      */
     public boolean poll() {
+        scripts.sync();
         int ticks = pollTicks();
         boolean ticked = ticks > 0;
         context.setAfterTick(lastPollTicked);

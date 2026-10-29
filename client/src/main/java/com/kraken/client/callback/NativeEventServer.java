@@ -5,6 +5,7 @@ import com.google.inject.Singleton;
 import com.google.inject.name.Named;
 import com.kraken.api.GameSession;
 import com.kraken.api.internal.event.NativeEvent;
+import com.kraken.api.internal.event.ScriptHook;
 import com.kraken.api.internal.invoke.NativeCall;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.client.FrameRates;
@@ -57,6 +58,10 @@ import java.util.logging.Level;
  * pump, the API's highlights get a {@link com.kraken.api.internal.invoke.NativeInvoker} that sends their calls here;
  * once it reports the present hook and a framebuffer, {@link GameSurface} hands it overlay frames. It also reports the
  * game's frame rate to {@link FrameRates}, and is told the frame cap to hold the game to from there.
+ *
+ * <p>The handshake also names the script runtime ({@link NativeProtocol#scriptLayout}). Once the DLL reports its script
+ * hooks, the API gets a {@link ScriptHook} that tells the DLL which script events to send, and each script event the
+ * DLL sends goes to {@link GameSession#onScript}, which posts {@code ScriptPreFired} or {@code ScriptPostFired}.
  *
  * <p>Nothing here is hard-coded per client build: every RVA, event id and capture plan comes from the mapping and is
  * handed to the DLL in the handshake. See {@code docs/event-hooks-design.md}.
@@ -167,12 +172,17 @@ public final class NativeEventServer {
         }
         Build build = build();
         NativeProtocol.Drawing drawing = drawing();
-        if (build.slots.isEmpty() && drawing.pumpFn() == 0 && drawing.presentFn() == 0) {
+        byte[] scripts = NativeProtocol.scriptLayout(mapping);
+        if (scripts.length == 0) {
+            log.info("Native event hook: no script runtime in mapping " + mapping.version()
+                    + "; ScriptPreFired and ScriptPostFired won't be posted.");
+        }
+        if (build.slots.isEmpty() && drawing.pumpFn() == 0 && drawing.presentFn() == 0 && scripts.length == 0) {
             log.warning("Native event hook: mapping " + mapping.version()
                     + " has no hookable events or drawing functions; continuing on the timer poll.");
             return;
         }
-        byte[] handshake = NativeProtocol.handshake(build.slots, drawing);
+        byte[] handshake = NativeProtocol.handshake(build.slots, drawing, scripts);
         ServerSocket server = null;
         try {
             server = new ServerSocket();
@@ -364,6 +374,7 @@ public final class NativeEventServer {
                     pacing = null;
                     frameRates.gameDisconnected();
                     session.setNativeInvoker(null);
+                    session.setScriptHook(null);
                     surface.disconnected();
                     session.setHookConnected(false);
                     synchronized (this) {
@@ -377,8 +388,9 @@ public final class NativeEventServer {
     }
 
     /**
-     * Reads framed messages from one connection, parses each and hands it to the API and the taps, until EOF. The
-     * DLL's status messages (reserved negative ids) set up the drawing instead.
+     * Reads framed messages from one connection, parses each and hands it to the API and the taps, until EOF. Script
+     * events go to the API as such; the DLL's status messages (other reserved negative ids) set up the drawing
+     * instead.
      *
      * @param in       the connection's input
      * @param idToName an event id to its name
@@ -390,17 +402,22 @@ public final class NativeEventServer {
         for (int len = readLength(in); len >= 0; len = readLength(in)) {
             byte[] body = new byte[len];
             in.readFully(body);
-            NativeEvent event = NativeProtocol.parse(body, idToName::get);
-            if (event.id() < 0) {
+            int id = NativeProtocol.eventId(body);
+            if (id < 0 && id != NativeProtocol.SCRIPT_EVENT_ID) {
                 // Status messages skip the DLL's ring, so their sequence numbers interleave with the raises'
-                status(event, open);
+                status(NativeProtocol.parse(body, idToName::get), open);
                 continue;
             }
-            if (expectedSeq >= 0 && event.seq() != expectedSeq) {
-                log.fine("Native event hook: " + (event.seq() - expectedSeq) + " message(s) dropped before seq "
-                        + event.seq());
+            long seq = NativeProtocol.seq(body);
+            if (expectedSeq >= 0 && seq != expectedSeq) {
+                log.fine("Native event hook: " + (seq - expectedSeq) + " message(s) dropped before seq " + seq);
             }
-            expectedSeq = event.seq() + 1;
+            expectedSeq = seq + 1;
+            if (id == NativeProtocol.SCRIPT_EVENT_ID) {
+                session.onScript(NativeProtocol.parseScript(body));
+                continue;
+            }
+            NativeEvent event = NativeProtocol.parse(body, idToName::get);
             session.onNative(event);
             for (Tap tap : taps) {
                 if (tap.name() == null || tap.name().equals(event.name())) {
@@ -425,9 +442,13 @@ public final class NativeEventServer {
                         + event.reg(NativeEvent.RDX) + " requested hooks (protocol " + event.reg(NativeEvent.R9)
                         + ", calls " + ((features & NativeProtocol.FEATURE_CALLS) != 0) + ", overlay "
                         + ((features & NativeProtocol.FEATURE_OVERLAY) != 0) + ", frame rate "
-                        + ((features & NativeProtocol.FEATURE_FRAME_RATE) != 0) + ").");
+                        + ((features & NativeProtocol.FEATURE_FRAME_RATE) != 0) + ", scripts "
+                        + ((features & NativeProtocol.FEATURE_SCRIPTS) != 0) + ").");
                 if ((features & NativeProtocol.FEATURE_CALLS) != 0) {
                     session.setNativeInvoker(batch -> sendCalls(open, batch));
+                }
+                if ((features & NativeProtocol.FEATURE_SCRIPTS) != 0) {
+                    session.setScriptHook(scriptHook(open));
                 }
                 if ((features & NativeProtocol.FEATURE_OVERLAY) != 0) {
                     surface.connected((generation, name) -> sendSurface(open, generation, name), pid);
@@ -499,6 +520,24 @@ public final class NativeEventServer {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    /**
+     * The switch the API turns the DLL's script events on and off with, over one connection.
+     *
+     * @param open the connection
+     * @return the hook; it throws {@link UncheckedIOException} if the connection broke
+     */
+    private static ScriptHook scriptHook(Connection open) {
+        return (pre, post) -> {
+            try {
+                open.send(NativeProtocol.scriptCapture(pre, post));
+                log.fine("Native event hook: script events " + (pre ? "on start" : "") + (pre && post ? " and " : "")
+                        + (post ? "on return" : "") + (pre || post ? "" : "off"));
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        };
     }
 
     /**

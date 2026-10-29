@@ -50,6 +50,8 @@ import static com.kraken.api.TestSupport.seedMapping;
  *       children),
  *       the row of {@link #MENU_USE_ON_GOBLIN} being a submenu group holding it. The last entry run is "Cancel", 100
  *       cycles ago.
+ *   <li>The script runner between scripts, its int stack holding 10, 20, 30 and its object stack "Lumbridge", 7 and
+ *       2^40 (a string, an int and a long).
  * </ul>
  */
 public final class GameFixture {
@@ -225,6 +227,47 @@ public final class GameFixture {
         buildKeyedProjectiles();
         buildGraphicsObjects();
         buildMenu();
+        buildScripts();
+    }
+
+    /**
+     * Sets the script engine's int stack.
+     *
+     * @param values the entries, oldest first
+     */
+    public void setIntStack(int... values) {
+        long runner = MODULE_BASE + map.global("scriptRunner");
+        for (int i = 0; i < values.length; i++) {
+            memory.putInt(runner + map.offset("ScriptRunner.intStack") + 4L * i, values[i]);
+        }
+        memory.putInt(runner + map.offset("ScriptRunner.intStackSize"), values.length);
+    }
+
+    /**
+     * Sets the script engine's object stack.
+     *
+     * @param values the entries, oldest first: each a {@code String}, an {@code Integer} or a {@code Long}
+     */
+    public void setObjectStack(Object... values) {
+        long runner = MODULE_BASE + map.global("scriptRunner");
+        int size = map.offset("VarValue.size");
+        for (int i = 0; i < values.length; i++) {
+            long value = runner + map.offset("ScriptRunner.objStack") + (long) i * size;
+            memory.putBytes(value, new byte[size]);
+            String kind;
+            if (values[i] instanceof String text) {
+                memory.putSsoString(value, text);
+                kind = "STRING";
+            } else if (values[i] instanceof Integer number) {
+                memory.putInt(value, number);
+                kind = "INT";
+            } else {
+                memory.putLong(value, (Long) values[i]);
+                kind = "LONG";
+            }
+            memory.putByte(value + map.offset("VarValue.type"), map.enumValue("varValueType", kind, -1));
+        }
+        memory.putInt(runner + map.offset("ScriptRunner.objStackSize"), values.length);
     }
 
     public void setGameState(int state) {
@@ -1907,6 +1950,12 @@ public final class GameFixture {
         memory.putInt(entry + map.offset("MinimenuEntry.level"), 0);
         memory.putInt(entry + map.offset("MinimenuEntry.x"), spec.x());
         memory.putInt(entry + map.offset("MinimenuEntry.z"), spec.z());
+    }
+
+    private void buildScripts() {
+        memory.alloc(MODULE_BASE + map.global("scriptRunner"), map.offset("ScriptRunner.frameCount") + 8);
+        setIntStack(10, 20, 30);
+        setObjectStack("Lumbridge", 7, 1L << 40);
     }
 
     /**

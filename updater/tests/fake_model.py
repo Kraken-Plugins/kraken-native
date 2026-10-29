@@ -21,9 +21,10 @@ class FakePE:
 
 
 class FakeModel:
-    """functions: {entry_rva: ["MOV RAX,qword ptr [0x140e98c18]", ...]} with 4-byte instructions laid out in order."""
+    """functions: {entry_rva: ["MOV RAX,qword ptr [0x140e98c18]", ...]} with 4-byte instructions laid out in order.
+    flows: {rva: (target, ...)} for indirect jumps, the targets Ghidra resolves from a jump table."""
 
-    def __init__(self, functions, strings=None, data=None):
+    def __init__(self, functions, strings=None, data=None, flows=None):
         self.image_base = IMAGE_BASE
         self.pe = FakePE(data=data)
         self._insns = {}
@@ -38,6 +39,8 @@ class FakeModel:
                 insn = x86.parse(text, rva, length, IMAGE_BASE, fallthrough, ())
                 if insn.target is not None and insn.mnem.startswith("J"):
                     insn = x86.Insn(insn.rva, insn.mnem, insn.ops, length, text, fallthrough if insn.mnem != "JMP" else None, (insn.target,))
+                elif flows and rva in flows:
+                    insn = x86.Insn(insn.rva, insn.mnem, insn.ops, length, text, None, tuple(flows[rva]))
                 out.append(insn)
                 rva += length
             self._insns[entry] = tuple(out)

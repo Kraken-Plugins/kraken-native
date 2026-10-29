@@ -3,6 +3,8 @@ package com.kraken.api;
 import com.kraken.api.eventbus.EventBus;
 import com.kraken.api.internal.event.EventSource;
 import com.kraken.api.internal.event.NativeEvent;
+import com.kraken.api.internal.event.ScriptHook;
+import com.kraken.api.internal.event.ScriptRun;
 import com.kraken.api.internal.invoke.NativeInvoker;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.api.memory.Memory;
@@ -347,6 +349,31 @@ public final class GameSession implements AutoCloseable {
             source.onNative(event);
             eventPollRequested = true;
         });
+        wake();
+    }
+
+    /**
+     * Delivers a script event the native hook reported (a script starting or returning, with the stacks it captured)
+     * to the event source on the client thread, which posts {@code ScriptPreFired} or {@code ScriptPostFired} for it at
+     * once. Wakes the poll loop to run it, without asking for an event read. Safe to call from any thread.
+     *
+     * @param run the report
+     */
+    public void onScript(ScriptRun run) {
+        invoke(() -> source.onScript(run));
+        wake();
+    }
+
+    /**
+     * Hands the API a connection to a native hook that reports scripts, or takes it away. While it is set, the hook
+     * reports scripts starting while {@code ScriptPreFired} has subscribers and returning while
+     * {@code ScriptPostFired} does. Internal: the client's native hook calls this as its connection comes up and
+     * drops. Safe to call from any thread.
+     *
+     * @param hook the connection, or null while there is none
+     */
+    public void setScriptHook(ScriptHook hook) {
+        invoke(() -> source.setScriptHook(hook));
         wake();
     }
 

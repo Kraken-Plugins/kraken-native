@@ -175,7 +175,8 @@ back from the tile through the zoom and rotation. The layout above is what a lat
 
 ## 2. Protocol v4
 
-Protocol v3 (`docs/in-game-drawing.md` §2) gains two call argument kinds, and the magic becomes `KRK4`:
+Protocol v3 (`docs/in-game-drawing.md` §2) gains two call argument kinds, and the magic becomes `KRK4`. (v5, `KRK5`,
+keeps them and adds the script events, `docs/event-hooks-design.md` §2.6.)
 
 | kind | Passed as |
 |---|---|

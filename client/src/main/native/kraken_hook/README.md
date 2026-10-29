@@ -1,6 +1,6 @@
-# kraken_hook.dll — native events, client calls and in-game drawing
+# kraken_hook.dll — native events, client calls, in-game drawing and script events
 
-A DLL injected into `osclient.exe`. It does three things for the Kraken client:
+A DLL injected into `osclient.exe`. It does four things for the Kraken client:
 
 - turns the client's own event raises into **push** events, replacing `EventSource`'s poll-and-diff as
   the thing that decides when the API reads: it inline-hooks the raise functions named in a handshake
@@ -8,7 +8,9 @@ A DLL injected into `osclient.exe`. It does three things for the Kraken client:
 - runs the client functions the Kraken client asks for (the highlight functions) **on the game
   thread**, at the start of each frame;
 - draws the Kraken client's overlay **inside the game's own OpenGL frame**, just before it is
-  presented. See `docs/in-game-drawing.md`.
+  presented. See `docs/in-game-drawing.md`;
+- reports each script the client runs (a root run starting, a gosub, a return) with the top of the
+  script engine's stacks, while the Kraken client asks for them. See `docs/event-hooks-design.md` §2.6.
 
 It is installed on every launch, once the API attaches (`NativeEventServer`, created by the session
 injector). It is the one place the client writes to the game process. If the DLL can't be found or
@@ -57,12 +59,24 @@ them:
   restores it after, under SEH guards; a fault turns the overlay off for the session. It also reports
   the framebuffer size, GL version and the surface it draws in `FRAME` messages.
 
-## Protocol v4 (little-endian)
+### The script hooks
 
-**Handshake** (Java → DLL): magic `KRK4`, a `u16` slot count, then per slot
+Four more functions are hooked with dedicated detours, once, from the first handshake whose script
+block names them (`functions.executeScript`, `executeScriptInner`, `scriptLookup`,
+`scriptSwapLocals`): the request entry keeps the listener's request for the interpreter run it
+starts; the interpreter reports a root script starting and, when it returns, ending; the script
+lookup, called inside a run, is a gosub; the locals swap, called on a frame whose script slot was
+cleared, is a return. The DLL notes each running script's id by depth, since a return can't see the
+returning script. The detours send nothing until a `SCRIPTS` command asks.
+
+## Protocol v5 (little-endian)
+
+**Handshake** (Java → DLL): magic `KRK5`, a `u16` slot count, then per slot
 `{u64 rva, i32 fixedId (-1 = read idArg), u8 idArg, u8 args, u8 planLen, plan[planLen]}`, where a
 plan entry is `{u8 arg, u8 op}` with ops `RAW, I32, I64, I32X2, CSTR` = 0..4; then
-`u64 clientGlobal, u64 pumpFn, u64 presentFn` (RVAs; 0 = none).
+`u64 clientGlobal, u64 pumpFn, u64 presentFn` (RVAs; 0 = none); then a `u16` length and the script
+block (empty for no script hooks; its 147-byte layout is `NativeProtocol.scriptLayout`'s and
+`parseScriptLayout`'s).
 
 **Messages** (DLL → Java): a `u32` length frame, then
 `{u32 seq, i32 eventId, u64 regs[4], u8 nValues, values...}`, where a value is `{u8 arg, u8 op, payload}`.
@@ -70,13 +84,14 @@ plan entry is `{u8 arg, u8 op}` with ops `RAW, I32, I64, I32X2, CSTR` = 0..4; th
 
 | id | Name | regs |
 |---|---|---|
-| -2 | STATUS | installed slots, requested slots, features (1 = pump hooked, 2 = present hooked, 4 = frame rate), protocol version 4 |
+| -2 | STATUS | installed slots, requested slots, features (1 = pump hooked, 2 = present hooked, 4 = frame rate, 8 = script hooks), protocol version 5 |
 | -3 | FRAME | framebuffer width, height, GL version (`major << 16 \| minor`), surface generation drawn (0 = none) |
 | -4 | CALLS_DONE | batch id, calls run, calls faulted or skipped, last return value |
 | -5 | FPS | frames since the last FPS, microseconds since it, frame cap in force, 1 if presents were counted (0: frame steps) |
+| -6 | SCRIPT | kind (0 root start, 1 gosub, 2 return), script id, depth, 0; then the top of both stacks and, for a root run a listener started, the request (`docs/event-hooks-design.md` §2.6) |
 
 STATUS, FRAME and FPS are written by the writer thread straight to the socket, so they can arrive out
-of `seq` order with ring messages; CALLS_DONE goes through the ring. FPS goes out about once a second
+of `seq` order with ring messages; CALLS_DONE and SCRIPT go through the ring. FPS goes out about once a second
 while the pump or present is hooked.
 
 **Commands** (Java → DLL, after the handshake): `{u32 len, u8 type, body}`, `len` counting the type
@@ -98,6 +113,8 @@ byte and the body, at most 4 MiB.
   stops the overlay.
 - `3 FRAME_LIMIT`: `u32 fps`, 0 (or over 1000) for none. The pump waits out each frame until it is due
   (`docs/in-game-drawing.md` §2.3). A new cap wakes a waiting pump; a dropped connection lifts it.
+- `4 SCRIPTS`: `u8 flags`, bit 0 for scripts starting and bit 1 for scripts returning. Ignored until
+  the script hooks are live; a dropped connection clears it.
 
 The surface layout and its lock-free triple-buffer handshake are in `docs/in-game-drawing.md` §2.4.
 
@@ -117,12 +134,14 @@ The surface layout and its lock-free triple-buffer handshake are in `docs/in-gam
 ```
 
 - The detour runs on the game thread for about a microsecond: capture the id and planned values and
-  push a message into a lock-free single-producer ring. A writer thread drains the ring to the
-  socket, so a slow reader never stalls the game. Pointer dereferences in the plan are SEH-guarded.
+  push a message into a lock-free single-producer ring (4 MiB of variable-length records, each its
+  own length frame). A writer thread drains the ring to the socket, so a slow reader never stalls the
+  game; the game thread only signals it when it is about to wait, so a burst of messages costs no
+  system call each. Pointer dereferences in the plan and the script captures are SEH-guarded.
 - After the handshake a reader thread reads command frames: it queues call batches for the pump and
   hands opened surfaces to the present thread through an atomic swap (the present thread unmaps the
-  old one). Only the writer thread writes to the socket, and only the game thread (raise detours and
-  the pump) pushes into the ring.
+  old one). Only the writer thread writes to the socket, and only the game thread (raise and script
+  detours, and the pump) pushes into the ring.
 - Hooks stay installed for the life of the process. If the socket drops, the writer thread reconnects
   every second; the Kraken client re-sends the handshake and the DLL only adds slots it lacks. A
   second injection is refused by a named mutex.

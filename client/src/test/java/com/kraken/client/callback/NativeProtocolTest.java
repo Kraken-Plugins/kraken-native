@@ -1,21 +1,28 @@
 package com.kraken.client.callback;
 
 import com.kraken.api.internal.event.NativeEvent;
+import com.kraken.api.internal.event.ScriptRequest;
+import com.kraken.api.internal.event.ScriptRun;
 import com.kraken.api.internal.invoke.NativeCall;
+import com.kraken.api.mapping.Mapping;
 import com.kraken.client.callback.NativeProtocol.Drawing;
 import com.kraken.client.callback.NativeProtocol.Plan;
 import com.kraken.client.callback.NativeProtocol.Slot;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The wire format {@link NativeProtocol} shares with {@code kraken_hook.dll}: the handshake and commands it builds and
@@ -32,11 +39,13 @@ class NativeProtocolTest {
                         new Plan(NativeEvent.R8, NativeProtocol.OP_CSTR),
                         new Plan(NativeEvent.R9, NativeProtocol.OP_I32))));
         Drawing drawing = new Drawing(0xe98c18L, 0x918950L, 0xa555c0L);
-        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.handshake(slots, drawing)).order(ByteOrder.LITTLE_ENDIAN);
+        byte[] scripts = {9, 8, 7};
+        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.handshake(slots, drawing, scripts))
+                .order(ByteOrder.LITTLE_ENDIAN);
 
         byte[] magic = new byte[4];
         buf.get(magic);
-        assertArrayEquals("KRK4".getBytes(StandardCharsets.US_ASCII), magic);
+        assertArrayEquals("KRK5".getBytes(StandardCharsets.US_ASCII), magic);
         assertEquals(2, buf.getShort(), "slot count");
 
         assertEquals(0xc44d0L, buf.getLong());
@@ -59,19 +68,160 @@ class NativeProtocolTest {
         assertEquals(0xe98c18L, buf.getLong(), "the client pointer's slot");
         assertEquals(0x918950L, buf.getLong(), "the pump");
         assertEquals(0xa555c0L, buf.getLong(), "the present");
+        assertEquals(3, buf.getShort(), "the script block's length");
+        assertEquals(9, buf.get());
+        assertEquals(8, buf.get());
+        assertEquals(7, buf.get());
         assertEquals(0, buf.remaining(), "no trailing bytes");
     }
 
     @Test
-    void aHandshakeWithoutDrawingEndsInZeros() {
-        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.handshake(List.of(), Drawing.NONE))
+    void aHandshakeWithoutDrawingOrScriptsEndsInZeros() {
+        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.handshake(List.of(), Drawing.NONE, new byte[0]))
                 .order(ByteOrder.LITTLE_ENDIAN);
         buf.position(4);
         assertEquals(0, buf.getShort());
         assertEquals(0, buf.getLong());
         assertEquals(0, buf.getLong());
         assertEquals(0, buf.getLong());
+        assertEquals(0, buf.getShort(), "no script block");
         assertEquals(0, buf.remaining());
+    }
+
+    @Test
+    void theScriptBlockFollowsTheMappingInTheDllsOrder() throws IOException {
+        Mapping mapping = Mapping.bundled("241.3");
+        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.scriptLayout(mapping)).order(ByteOrder.LITTLE_ENDIAN);
+
+        for (String function : new String[]{"executeScript", "executeScriptInner", "scriptLookup", "scriptSwapLocals"}) {
+            assertEquals(mapping.function(function), buf.getLong(), function);
+        }
+        assertEquals(mapping.global("scriptRunner"), buf.getLong(), "the runner");
+        for (String key : new String[]{"ScriptRunner.intStack", "ScriptRunner.intStackSize", "ScriptRunner.objStack",
+                "ScriptRunner.objStackSize", "ScriptRunner.frameCount", "ScriptFrame.script"}) {
+            assertEquals(mapping.offset(key), buf.getInt(), key);
+        }
+        assertEquals(mapping.container("shared_ptr.ptr"), buf.getInt(), "a shared_ptr's pointer");
+        for (String key : new String[]{"ClientScript.id", "VarValue.size", "VarValue.type"}) {
+            assertEquals(mapping.offset(key), buf.getInt(), key);
+        }
+        for (String kind : new String[]{"INT", "STRING", "LONG"}) {
+            assertEquals(mapping.enumValue("varValueType", kind, -1), buf.get(), kind);
+        }
+        for (String key : new String[]{"HookReq.argCount", "HookReq.args", "HookReq.source", "HookReq.target",
+                "HookReq.op", "HookReq.subOp", "HookReq.mouseX", "HookReq.mouseY", "HookReq.keyCode",
+                "HookReq.keyChar", "HookReq.opbase", "IfType.packedId", "IfType.subId"}) {
+            assertEquals(mapping.offset(key), buf.getInt(), key);
+        }
+        for (String key : new String[]{"string.heapFlagByte", "string.heapFlagMask", "string.ssoCapacity"}) {
+            assertEquals(mapping.container(key), buf.getInt(), key);
+        }
+        assertEquals(0, buf.remaining(), "147 bytes, as the DLL reads them");
+    }
+
+    @Test
+    void aMappingWithoutTheScriptRuntimeHasNoScriptBlock() throws IOException {
+        Path file = Files.createTempFile("mapping", ".json");
+        try {
+            Files.writeString(file, "{\"version\": \"1.0\", \"sha256\": \"00\", \"globals\": {\"client\": \"0x10\"},"
+                    + " \"structs\": {}, \"containers\": {}, \"enums\": {}, \"functions\": {}}");
+            assertEquals(0, NativeProtocol.scriptLayout(Mapping.load(file)).length);
+        } finally {
+            Files.delete(file);
+        }
+    }
+
+    @Test
+    void scriptCaptureFramesTheTwoFlags() {
+        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.scriptCapture(true, false)).order(ByteOrder.LITTLE_ENDIAN);
+        assertEquals(2, buf.getInt(), "the type byte and the flags");
+        assertEquals(NativeProtocol.COMMAND_SCRIPTS, buf.get());
+        assertEquals(1, buf.get(), "starts only");
+        assertEquals(0, buf.remaining());
+        assertEquals(2, NativeProtocol.scriptCapture(false, true)[5], "returns only");
+        assertEquals(3, NativeProtocol.scriptCapture(true, true)[5]);
+        assertEquals(0, NativeProtocol.scriptCapture(false, false)[5]);
+    }
+
+    @Test
+    void parsesAGosubsStacksIntoArraysAsLongAsTheStacks() {
+        ByteBuffer buf = scriptHead(12, 1, 1004, 2);
+        buf.putInt(5).putShort((short) 2).putInt(30).putInt(40);
+        buf.putInt(3).putShort((short) 2);
+        buf.put((byte) NativeProtocol.VALUE_STRING).putShort((short) 7).put("Draynor".getBytes(StandardCharsets.UTF_8));
+        buf.put((byte) NativeProtocol.VALUE_OTHER);
+        buf.put((byte) 0);
+        byte[] body = java.util.Arrays.copyOf(buf.array(), buf.position());
+
+        assertEquals(NativeProtocol.SCRIPT_EVENT_ID, NativeProtocol.eventId(body));
+        assertEquals(12, NativeProtocol.seq(body));
+        ScriptRun run = NativeProtocol.parseScript(body);
+        assertEquals(ScriptRun.Kind.PRE_GOSUB, run.kind());
+        assertEquals(1004, run.scriptId());
+        assertEquals(2, run.depth());
+        assertArrayEquals(new int[]{0, 0, 0, 30, 40}, run.stack().ints(), "the captured top at the end");
+        assertArrayEquals(new Object[]{null, "Draynor", null}, run.stack().objects());
+        assertNull(run.request());
+    }
+
+    @Test
+    void parsesARootRunsRequest() {
+        ByteBuffer buf = scriptHead(1, 0, 286, 0);
+        buf.putInt(0).putShort((short) 0);
+        buf.putInt(0).putShort((short) 0);
+        buf.put((byte) 1);
+        for (int field : new int[]{149 << 16, 4, -1, -1, 2, 0, 310, 220, -1, -1}) {
+            buf.putInt(field);
+        }
+        buf.putShort((short) 5).put("Wield".getBytes(StandardCharsets.UTF_8));
+        buf.putShort((short) 3);
+        buf.put((byte) NativeProtocol.VALUE_INT).putInt(286);
+        buf.put((byte) NativeProtocol.VALUE_INT).putInt(-2147483645);
+        buf.put((byte) NativeProtocol.VALUE_LONG).putLong(1L << 40);
+        ScriptRun run = NativeProtocol.parseScript(java.util.Arrays.copyOf(buf.array(), buf.position()));
+
+        assertEquals(ScriptRun.Kind.PRE_ROOT, run.kind());
+        assertEquals(0, run.stack().ints().length);
+        ScriptRequest request = run.request();
+        assertEquals(149 << 16, request.sourceId());
+        assertEquals(4, request.sourceIndex());
+        assertEquals(-1, request.targetId());
+        assertEquals(2, request.op());
+        assertEquals(0, request.subOp());
+        assertEquals(310, request.mouseX());
+        assertEquals(220, request.mouseY());
+        assertEquals("Wield", request.opbase());
+        assertArrayEquals(new Object[]{286, -2147483645, 1L << 40}, request.arguments());
+    }
+
+    @Test
+    void aStackSizeThatIsABadReadKeepsJustTheCapturedEntries() {
+        ByteBuffer buf = scriptHead(1, 2, 7, 0);
+        buf.putInt(-5).putShort((short) 1).putInt(9);
+        buf.putInt(1_000_000).putShort((short) 0);
+        buf.put((byte) 0);
+        ScriptRun run = NativeProtocol.parseScript(java.util.Arrays.copyOf(buf.array(), buf.position()));
+        assertEquals(ScriptRun.Kind.POST, run.kind());
+        assertArrayEquals(new int[]{9}, run.stack().ints());
+        assertEquals(0, run.stack().objects().length);
+        assertTrue(run.request() == null);
+    }
+
+    /**
+     * Starts a script message as the DLL lays it out: the head with {@code {kind, id, depth, 0}} and no plan values.
+     *
+     * @param seq   the sequence number
+     * @param kind  0 a root script starting, 1 a gosub, 2 a return
+     * @param id    the script's id
+     * @param depth its depth
+     * @return the buffer, positioned after the head
+     */
+    private static ByteBuffer scriptHead(int seq, int kind, int id, int depth) {
+        ByteBuffer buf = ByteBuffer.allocate(1024).order(ByteOrder.LITTLE_ENDIAN);
+        buf.putInt(seq).putInt(NativeProtocol.SCRIPT_EVENT_ID);
+        buf.putLong(kind).putLong(id).putLong(depth).putLong(0);
+        buf.put((byte) 0);
+        return buf;
     }
 
     @Test

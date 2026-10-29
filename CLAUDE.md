@@ -69,7 +69,9 @@ other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED
   `globals`, `functions.x` → `functions`, `enums.x` → `enums`, `container.x.y` → `containers`, `events.ON_X` →
   `events` (the client's native event raise sites; `events.py`, see `docs/event-hooks-design.md`). The highlight
   functions, `HighlightConfig` layout and the DLL's pump/present hook sites are `spec/90-draw.yaml` (`highlights.py`);
-  the minimenu row bodies and packet helpers behind menu actions are `spec/62-menu-actions.yaml` (`menuops.py`).
+  the minimenu row bodies and packet helpers behind menu actions are `spec/62-menu-actions.yaml` (`menuops.py`); the
+  script runtime the DLL's script hooks sit on (runner, stacks, listener request) is `spec/66-scripts.yaml`
+  (`scripts.py`).
 - The mapping JSON holds only PROVEN/ANCHORED/INFERRED, non-`internal` keys. The evidence behind each value, plus every
   Lua binding's handler RVA, goes to `~/.kraken-native/cache/<sha256>/analysis.json`; read that when a value looks
   wrong.
@@ -118,7 +120,9 @@ other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED
 - Events (`com.kraken.api.events`) are synthesised by `EventSource`'s trackers, only for events with subscribers. The
   native hook's raises (`GameSession.onNative`) trigger trackers sooner; ticks still come from the game's counters, so
   a raise never counts a tick itself. Design and the trigger table: `docs/event-hooks-design.md`. The bus also matches
-  supertypes and interfaces of an event.
+  supertypes and interfaces of an event. `ScriptPreFired`/`ScriptPostFired` have no tracker: the hook reports each
+  script with the top of the stacks (`GameSession.onScript`, only while they have subscribers), the API posts one event
+  per report, and `Client.getIntStack()` and the other stack getters give the captured stacks while its handlers run.
 - The `kraken-api-poll` thread is the "client thread": every 20 ms, or at once on a raise, it runs `invoke*` tasks,
   the events (`GameTick` after the tick's other events, a `ClientTick` per client cycle; with the hook connected only
   when a raise asks or every 250 ms), `invokeAtTickEnd` tasks, the frame listener (overlays), then the 150 ms poll
@@ -180,7 +184,8 @@ other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED
 
 - `docs/updater-design.md`: anchor classes, verdict rules, carry-forward and delta propagation. Read before changing
   `consensus.py`, `carry.py` or `verify.py`.
-- `docs/event-hooks-design.md`: the native raise sites, the hook DLL and its protocol, and how raises trigger trackers.
+- `docs/event-hooks-design.md`: the native raise sites, the hook DLL and its protocol, how raises trigger trackers,
+  and the script hooks behind `ScriptPreFired`/`ScriptPostFired` (§2.6).
 - `docs/in-game-drawing.md`: the highlight functions, the pump and present hooks, protocol v3's commands and the
   overlay surface layout; its last section lists the live checks still pending.
 - `docs/menu-actions.md`: the minimenu row bodies and packet helpers behind `Actions`, protocol v4's scratch and

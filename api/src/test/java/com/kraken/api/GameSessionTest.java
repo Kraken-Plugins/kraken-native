@@ -3,7 +3,10 @@ package com.kraken.api;
 import com.kraken.api.eventbus.EventBus;
 import com.kraken.api.events.GameStateChanged;
 import com.kraken.api.events.GameTick;
+import com.kraken.api.events.ScriptPostFired;
+import com.kraken.api.internal.ScriptStack;
 import com.kraken.api.internal.event.NativeEvent;
+import com.kraken.api.internal.event.ScriptRun;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
@@ -11,6 +14,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
@@ -50,6 +54,28 @@ class GameSessionTest {
             session.onNative(gameTickRaise(2));
             assertInstanceOf(GameTick.class, seen.poll(5, TimeUnit.SECONDS),
                     "the next raise reads the new tick at once, inside the hooked safety interval");
+        }
+    }
+
+    @Test
+    void aScriptReportIsPostedAtOnceWithoutAnEventRead() throws Exception {
+        GameFixture game = new GameFixture();
+        EventBus bus = new EventBus();
+        BlockingQueue<Object> seen = new LinkedBlockingQueue<>();
+        bus.register(GameStateChanged.class, seen::add, 0);
+        bus.register(ScriptPostFired.class, seen::add, 0);
+
+        try (GameSession session = new GameSession(game.memory, game.map, bus, NO_TIMER_MS)) {
+            session.setHookConnected(true);
+            session.start();
+            session.onNative(gameTickRaise(1));
+            assertInstanceOf(GameStateChanged.class, seen.poll(5, TimeUnit.SECONDS), "the first read");
+
+            game.setGameState(25);
+            session.onScript(new ScriptRun(ScriptRun.Kind.POST, 73, 0, ScriptStack.EMPTY, null));
+            assertEquals(new ScriptPostFired(73), seen.poll(5, TimeUnit.SECONDS), "posted as the report arrives");
+            assertNull(seen.poll(100, TimeUnit.MILLISECONDS),
+                    "the report doesn't read the game, so the state change waits for the safety interval");
         }
     }
 }

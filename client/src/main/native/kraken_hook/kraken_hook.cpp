@@ -17,6 +17,11 @@
 // over the finished frame just before the client presents it. A frame cap makes the pump hold each
 // frame back until it is due. The writer thread reports the game's frame rate once a second.
 //
+// The handshake can also name the script runtime's functions and layout. Then four detours report
+// each script the client runs: a root run as it starts (with the listener's request, if a listener
+// ran it), each gosub as the callee is looked up, and each return, with the top of the int and
+// object stacks as they are at that moment. They only send while the Kraken client asks for them.
+//
 // Nothing here is hard-coded per client build: every RVA, event id, capture plan, function to call
 // and argument comes from the mapping on the Java side. See README.md, docs/event-hooks-design.md
 // and docs/in-game-drawing.md.
@@ -48,14 +53,16 @@
 // Must match NativeEventServer.PORT on the Java side.
 static const unsigned short KRAKEN_PORT = 42069;
 
-// Protocol v4 limits and op codes. Must match NativeProtocol on the Java side.
-static const uint32_t PROTOCOL_VERSION = 4;
-static const int MAX_SLOTS = 64;   // distinct raise functions we can hook
-static const int MAX_PLAN = 8;     // capture-plan entries per slot
-static const int MAX_MSG = 512;    // bytes per queued message body
-static const int RING_SIZE = 1024; // queued messages before the oldest is dropped (power of two)
-static const int RING_MASK = RING_SIZE - 1;
-static const int CSTR_MAX = 64;    // longest NUL-terminated string captured
+// Protocol v5 limits and op codes. Must match NativeProtocol on the Java side.
+static const uint32_t PROTOCOL_VERSION = 5;
+static const int MAX_SLOTS = 64;               // distinct raise functions we can hook
+static const int MAX_PLAN = 8;                 // capture-plan entries per slot
+static const int MAX_MSG = 512;                // bytes per raise message body
+static const int MAX_SCRIPT_MSG = 16384;       // bytes per script message body
+static const uint32_t RING_BYTES = 1u << 22;   // bytes of queued messages; a full ring drops new ones (power of two)
+static const uint32_t RING_MASK = RING_BYTES - 1;
+static const uint32_t RING_PAD = 0xffffffffu;  // a record length meaning the rest of the ring is unused
+static const int CSTR_MAX = 64;                // longest NUL-terminated string captured
 
 // Capture-plan ops: how to read the argument register named by the plan entry.
 static const uint8_t OP_RAW = 0;   // the register value itself (u64)
@@ -69,20 +76,26 @@ static const uint8_t OP_CSTR = 4;  // NUL-terminated bytes at [register], at mos
 // CALLS_DONE: regs = {batch id, calls run, calls faulted or skipped, last return value}.
 // FPS: regs = {frames since the last FPS, microseconds since it, frame cap in force, 1 if presents
 // were counted (0: frame steps)}.
+// SCRIPT: regs = {kind (SCRIPT_PRE_ROOT, SCRIPT_PRE_GOSUB or SCRIPT_POST), script id, frame depth,
+// 0}, then the stacks and the request (see sendScript).
 static const int32_t STATUS_EVENT_ID = -2;
 static const int32_t FRAME_EVENT_ID = -3;
 static const int32_t CALLS_DONE_EVENT_ID = -4;
 static const int32_t FPS_EVENT_ID = -5;
+static const int32_t SCRIPT_EVENT_ID = -6;
 
 // STATUS feature bits. FRAME_RATE: FPS is sent, and FRAME_LIMIT is honoured while the pump is hooked.
+// SCRIPTS: the four script hooks are live, and SCRIPTS commands are honoured.
 static const uint64_t FEATURE_PUMP = 1;
 static const uint64_t FEATURE_PRESENT = 2;
 static const uint64_t FEATURE_FRAME_RATE = 4;
+static const uint64_t FEATURE_SCRIPTS = 8;
 
 // Command frames (Java -> DLL): {u32 len, u8 type, body}, len counting the type byte and the body.
 static const uint8_t CMD_CALLS = 1;
 static const uint8_t CMD_SURFACE = 2;
 static const uint8_t CMD_FRAME_LIMIT = 3;
+static const uint8_t CMD_SCRIPTS = 4;
 static const uint32_t MAX_FRAME_LIMIT = 1000; // a higher cap is no cap
 static const uint32_t MAX_FRAME = 4u << 20;   // bytes per command frame
 static const int MAX_ARGS = 8;                // arguments per call
@@ -96,6 +109,33 @@ static const uint8_t ARG_DATA = 2;     // a pointer to data + value
 static const uint8_t ARG_SCRATCH = 3;  // a pointer to the batch's scratch block + value
 static const uint8_t ARG_INDIRECT = 4; // the pointer at Client* + (value & 0xffffffff), plus (value >> 32)
 static const uint32_t SCRATCH_SIZE = 4096; // bytes of zeroed scratch a batch's calls share
+
+// SCRIPTS command bits: which script events to send.
+static const uint8_t SCRIPT_CAPTURE_PRE = 1;  // root runs and gosubs as they start
+static const uint8_t SCRIPT_CAPTURE_POST = 2; // returns
+
+// SCRIPT message kinds (regs[0]).
+static const uint64_t SCRIPT_PRE_ROOT = 0;
+static const uint64_t SCRIPT_PRE_GOSUB = 1;
+static const uint64_t SCRIPT_POST = 2;
+
+// How a script message encodes a VarValue: a kind byte, then an int32, a u16 length and the bytes,
+// an int64, or nothing.
+static const uint8_t VALUE_OTHER = 0;
+static const uint8_t VALUE_INT = 1;
+static const uint8_t VALUE_STRING = 2;
+static const uint8_t VALUE_LONG = 3;
+
+// What a script message holds at most: the top of each stack, the request's arguments, and a
+// string's bytes.
+static const int MAX_SCRIPT_DEPTH = 64;
+static const int MAX_STACK_INTS = 64;
+static const int MAX_STACK_OBJS = 16;
+static const int MAX_REQUEST_ARGS = 24;
+static const int MAX_SCRIPT_STRING = 256;
+
+// A VarValue kind the handshake leaves unnamed.
+static const uint8_t NO_KIND = 0xff;
 
 // Overlay surface layout (docs/in-game-drawing.md section 2.4).
 static const uint32_t SURFACE_MAGIC = 0x31564F4B; // "KOV1"
@@ -144,14 +184,6 @@ struct Slot {
 };
 
 /**
- * One queued message: {@code len} body bytes in {@code data}, ready to frame and send.
- */
-struct Msg {
-    uint32_t len = 0;
-    uint8_t data[MAX_MSG];
-};
-
-/**
  * One client function call from a CALLS command: the function, its arguments and the data block
  * DATA arguments point into. The data is kept 16 bytes larger than asked, so an aligned start fits.
  */
@@ -193,11 +225,15 @@ static std::atomic<int> g_slotCount{0};
 static uintptr_t g_base = 0;
 static uint64_t g_imageSize = 0;
 
-static Msg g_ring[RING_SIZE];
-static std::atomic<uint32_t> g_head{0}; // consumer: next message to send
-static std::atomic<uint32_t> g_tail{0}; // producer: next free slot
+// The message ring: records of {u32 length, body} (the wire framing), each starting on a 4-byte
+// boundary and never wrapping; a RING_PAD length marks the unused end of the ring. Positions are byte
+// counts that only grow, taken modulo RING_BYTES.
+static uint8_t g_ring[RING_BYTES];
+static std::atomic<uint32_t> g_head{0}; // consumer: position of the next record to send
+static std::atomic<uint32_t> g_tail{0}; // producer: position of the next free byte
 static std::atomic<uint32_t> g_seq{0};  // per-message sequence, so Java sees ring drops as gaps
 static HANDLE g_dataEvent = nullptr;    // signalled when the ring gains a message or the frame changes
+static std::atomic<bool> g_writerWaiting{false}; // the writer thread is about to wait on g_dataEvent
 static std::atomic<bool> g_connBroken{false}; // set by the reader thread when the socket closes
 
 // One generic detour per possible slot; filled with &detourK<0..MAX_SLOTS-1>. MinHook needs a
@@ -238,9 +274,13 @@ static std::atomic<uint32_t> g_frameLimit{0};
 static HANDLE g_limitChanged = nullptr;
 static int64_t g_qpcFrequency = 0;
 
+struct ScriptLayout;
+
 static void installSlot(Slot slot);
 static void installPump(uint64_t rva);
 static void installPresent(uint64_t rva);
+static void installScripts(const ScriptLayout &layout);
+static bool scriptsHooked();
 static void sendStatus(uint16_t requested);
 static void requestSurface(SurfaceView *surface);
 
@@ -311,24 +351,36 @@ static void appendValue(uint8_t *out, int &off, const PlanEntry &entry, const ui
 }
 
 /**
- * Pushes one finished message body into the ring. Only the game thread may call this: the ring has
- * a single producer. A full ring drops the message; its sequence number was already taken, so Java
- * sees the gap.
+ * Pushes one finished message body into the ring as a {u32 length, body} record. Only the game
+ * thread may call this: the ring has a single producer. A record that doesn't fit before the end of
+ * the ring starts over at its beginning, behind a RING_PAD marker. A full ring drops the message; its
+ * sequence number was already taken, so Java sees the gap. The writer thread is woken only when it
+ * is about to wait, so a burst of messages costs no system call each.
  *
  * @param body the message body, starting with its sequence number
  * @param len  the body length in bytes
  */
 static void pushRing(const uint8_t *body, int len) {
+    uint32_t record = (4u + static_cast<uint32_t>(len) + 3u) & ~3u;
     uint32_t tail = g_tail.load(std::memory_order_relaxed);
     uint32_t head = g_head.load(std::memory_order_acquire);
-    if (tail - head >= RING_SIZE) {
+    uint32_t pos = tail & RING_MASK;
+    uint32_t pad = record > RING_BYTES - pos ? RING_BYTES - pos : 0;
+    if (RING_BYTES - (tail - head) < pad + record) {
         return; // ring full: drop (the sequence gap tells Java)
     }
-    Msg &msg = g_ring[tail & RING_MASK];
-    msg.len = static_cast<uint32_t>(len);
-    std::memcpy(msg.data, body, len);
-    g_tail.store(tail + 1, std::memory_order_release);
-    if (g_dataEvent) {
+    if (pad != 0) {
+        std::memcpy(g_ring + pos, &RING_PAD, 4);
+        tail += pad;
+        pos = 0;
+    }
+    uint32_t length = static_cast<uint32_t>(len);
+    std::memcpy(g_ring + pos, &length, 4);
+    std::memcpy(g_ring + pos + 4, body, len);
+    // seq_cst on both sides: either the writer's re-check sees this record or this sees it waiting
+    g_tail.store(tail + record, std::memory_order_seq_cst);
+    if (g_dataEvent && g_writerWaiting.load(std::memory_order_seq_cst)
+            && g_writerWaiting.exchange(false, std::memory_order_seq_cst)) {
         SetEvent(g_dataEvent);
     }
 }
@@ -408,6 +460,425 @@ static int64_t __fastcall detourK(int64_t a, int64_t b, int64_t c, int64_t d) {
 template<std::size_t... I>
 static void fillDetours(std::index_sequence<I...>) {
     ((g_detours[I] = reinterpret_cast<void *>(&detourK<I>)), ...);
+}
+
+/**
+ * Where the script runtime keeps what a script event reports, from the handshake: the four hooked
+ * functions, the static runner and its stacks, a frame's script slot, a script's id, the VarValue
+ * layout and kinds, the listener request's fields, a component's id and index, and the eastl string
+ * layout. RVAs are image-relative; the rest are byte offsets.
+ */
+struct ScriptLayout {
+    uint64_t executeScript = 0;      // runs a listener's request: (runner, request, maxOps, int)
+    uint64_t executeScriptInner = 0; // the interpreter loop: (runner, script slot, maxOps, int)
+    uint64_t scriptLookup = 0;       // the script with an id: (id); the gosub calls it with the callee's
+    uint64_t scriptSwapLocals = 0;   // (frame, ints, longs, objects); a return calls it on a cleared frame
+    uint64_t runner = 0;             // the static runner
+    uint32_t intStack = 0;
+    uint32_t intStackSize = 0;
+    uint32_t objStack = 0;
+    uint32_t objStackSize = 0;
+    uint32_t frameCount = 0;
+    uint32_t frameScript = 0;        // a frame's shared_ptr<ClientScript>
+    uint32_t sharedPtr = 0;          // the pointer's offset in a shared_ptr
+    uint32_t scriptId = 0;
+    uint32_t valueSize = 0;
+    uint32_t valueType = 0;
+    uint8_t kindInt = NO_KIND;
+    uint8_t kindString = NO_KIND;
+    uint8_t kindLong = NO_KIND;
+    uint32_t argCount = 0;           // the request's fields
+    uint32_t args = 0;
+    uint32_t source = 0;
+    uint32_t target = 0;
+    uint32_t op = 0;
+    uint32_t subOp = 0;
+    uint32_t mouseX = 0;
+    uint32_t mouseY = 0;
+    uint32_t keyCode = 0;
+    uint32_t keyChar = 0;
+    uint32_t opbase = 0;
+    uint32_t componentId = 0;        // a component's packed id and its index under its static parent
+    uint32_t componentIndex = 0;
+    uint32_t stringFlagByte = 0;     // eastl string: the heap form {char* at +0, u64 size at +8} when set
+    uint32_t stringFlagMask = 0;
+    uint32_t stringSsoCapacity = 0;
+};
+
+/**
+ * A writer over the script message being built.
+ */
+struct ScriptWriter {
+    uint8_t *buf;
+    int off;
+
+    bool room(int n) const {
+        return off + n <= MAX_SCRIPT_MSG;
+    }
+
+    void raw(const void *src, int n) {
+        std::memcpy(buf + off, src, n);
+        off += n;
+    }
+
+    template<typename T>
+    void put(T value) {
+        raw(&value, sizeof(T));
+    }
+};
+
+static ScriptLayout g_scripts;                  // written once, before the script hooks install
+static bool g_scriptLayoutSet = false;          // handshake thread only
+static std::atomic<uint8_t> g_scriptCapture{0}; // SCRIPT_CAPTURE_* bits from the last SCRIPTS command
+static void *g_executeScriptTrampoline = nullptr;
+static void *g_interpreterTrampoline = nullptr;
+static void *g_lookupTrampoline = nullptr;
+static void *g_swapTrampoline = nullptr;
+static std::atomic<bool> g_executeScriptHooked{false};
+static std::atomic<bool> g_interpreterHooked{false};
+static std::atomic<bool> g_lookupHooked{false};
+static std::atomic<bool> g_swapHooked{false};
+
+// Game thread only.
+static const uint8_t *g_request = nullptr;    // the request being run, until the interpreter takes it
+static int g_interpreterDepth = 0;            // interpreter runs on the stack
+static int64_t g_scriptIds[MAX_SCRIPT_DEPTH]; // the running scripts' ids by frame depth
+static uint8_t g_scriptBody[MAX_SCRIPT_MSG];  // the script message being built
+
+/**
+ * Copies bytes out of the game's memory, guarding the read.
+ *
+ * @param address where to read
+ * @param out     receives the bytes
+ * @param n       how many
+ * @return false if the address is null or the read faulted
+ */
+static bool safeRead(uint64_t address, void *out, size_t n) {
+    if (address < 0x10000) {
+        return false;
+    }
+    bool faulted = false;
+    GUARD_BEGIN std::memcpy(out, reinterpret_cast<const void *>(address), n); GUARD_END
+    return !faulted;
+}
+
+/**
+ * Reads an int32 from the game's memory.
+ *
+ * @param address  where to read
+ * @param fallback the value if the read fails
+ * @return the value, or the fallback
+ */
+static int32_t readI32(uint64_t address, int32_t fallback) {
+    int32_t value = 0;
+    return safeRead(address, &value, 4) ? value : fallback;
+}
+
+/**
+ * Reads a 64-bit value from the game's memory.
+ *
+ * @param address  where to read
+ * @param fallback the value if the read fails
+ * @return the value, or the fallback
+ */
+static uint64_t readU64(uint64_t address, uint64_t fallback) {
+    uint64_t value = 0;
+    return safeRead(address, &value, 8) ? value : fallback;
+}
+
+/**
+ * Reads an eastl string's bytes, at most MAX_SCRIPT_STRING of them.
+ *
+ * @param address the string object
+ * @param out     receives the bytes, MAX_SCRIPT_STRING long
+ * @return how many bytes were read; 0 for an empty or unreadable string
+ */
+static int readString(uint64_t address, uint8_t *out) {
+    const ScriptLayout &l = g_scripts;
+    uint8_t flag = 0;
+    if (!safeRead(address + l.stringFlagByte, &flag, 1)) {
+        return 0;
+    }
+    uint64_t text = address;
+    uint64_t length = 0;
+    if ((flag & l.stringFlagMask) != 0) {
+        text = readU64(address, 0);
+        length = readU64(address + 8, 0);
+    } else if (l.stringSsoCapacity >= flag) {
+        length = l.stringSsoCapacity - flag;
+    }
+    int n = length > static_cast<uint64_t>(MAX_SCRIPT_STRING) ? MAX_SCRIPT_STRING : static_cast<int>(length);
+    return n > 0 && safeRead(text, out, static_cast<size_t>(n)) ? n : 0;
+}
+
+/**
+ * Appends one VarValue: a VALUE_* kind, then an int32, a u16 length and the string's bytes, an int64,
+ * or nothing for a kind the mapping doesn't name. The caller checks there is room for the largest.
+ *
+ * @param w       the message
+ * @param address the VarValue
+ */
+static void appendValue(ScriptWriter &w, uint64_t address) {
+    const ScriptLayout &l = g_scripts;
+    uint8_t kind = NO_KIND;
+    safeRead(address + l.valueType, &kind, 1);
+    if (kind == NO_KIND) {
+        w.put<uint8_t>(VALUE_OTHER);
+    } else if (kind == l.kindInt) {
+        w.put<uint8_t>(VALUE_INT);
+        w.put<int32_t>(readI32(address, 0));
+    } else if (kind == l.kindString) {
+        uint8_t text[MAX_SCRIPT_STRING];
+        int n = readString(address, text);
+        w.put<uint8_t>(VALUE_STRING);
+        w.put<uint16_t>(static_cast<uint16_t>(n));
+        w.raw(text, n);
+    } else if (kind == l.kindLong) {
+        w.put<uint8_t>(VALUE_LONG);
+        w.put<int64_t>(static_cast<int64_t>(readU64(address, 0)));
+    } else {
+        w.put<uint8_t>(VALUE_OTHER);
+    }
+}
+
+/**
+ * Appends a run of VarValues: a u16 count, then each one. Stops early, with the count saying how many
+ * went in, when the message has no room for another.
+ *
+ * @param w      the message
+ * @param first  the first VarValue
+ * @param count  how many follow it, VarValue size apart
+ */
+static void appendValues(ScriptWriter &w, uint64_t first, int count) {
+    int countAt = w.off;
+    w.put<uint16_t>(0);
+    uint16_t written = 0;
+    for (int i = 0; i < count && w.room(3 + MAX_SCRIPT_STRING); i++) {
+        appendValue(w, first + static_cast<uint64_t>(i) * g_scripts.valueSize);
+        written++;
+    }
+    std::memcpy(w.buf + countAt, &written, 2);
+}
+
+/**
+ * Appends the top of both stacks: the int stack's size, the number of ints sent and those ints
+ * (oldest first), then the same for the object stack. The top MAX_STACK_INTS and MAX_STACK_OBJS
+ * entries are sent.
+ *
+ * @param w the message
+ */
+static void appendStacks(ScriptWriter &w) {
+    const ScriptLayout &l = g_scripts;
+    uint64_t runner = g_base + l.runner;
+    int32_t size = readI32(runner + l.intStackSize, 0);
+    int n = size < 0 ? 0 : (size > MAX_STACK_INTS ? MAX_STACK_INTS : size);
+    int32_t ints[MAX_STACK_INTS] = {};
+    if (n > 0 && !safeRead(runner + l.intStack + 4ull * static_cast<uint64_t>(size - n), ints, 4u * n)) {
+        n = 0;
+    }
+    w.put<int32_t>(size);
+    w.put<uint16_t>(static_cast<uint16_t>(n));
+    w.raw(ints, 4 * n);
+
+    int32_t objects = readI32(runner + l.objStackSize, 0);
+    int m = objects < 0 ? 0 : (objects > MAX_STACK_OBJS ? MAX_STACK_OBJS : objects);
+    w.put<int32_t>(objects);
+    appendValues(w, runner + l.objStack + static_cast<uint64_t>(objects - m) * l.valueSize, m);
+}
+
+/**
+ * Appends a component's packed id and index, or -1 twice when there is none.
+ *
+ * @param w         the message
+ * @param component the component, or 0
+ */
+static void appendComponent(ScriptWriter &w, uint64_t component) {
+    const ScriptLayout &l = g_scripts;
+    w.put<int32_t>(component == 0 ? -1 : readI32(component + l.componentId, -1));
+    w.put<int32_t>(component == 0 ? -1 : readI32(component + l.componentIndex, -1));
+}
+
+/**
+ * Appends the request a root run came from: a 0 byte for none, else 1, the source and target
+ * components, the op, sub-op, mouse x and y, key code and key char, the base op name and the
+ * listener's arguments as it holds them (the script's id first, placeholders unreplaced).
+ *
+ * @param w       the message
+ * @param request the request, or nullptr
+ */
+static void appendRequest(ScriptWriter &w, const uint8_t *request) {
+    if (request == nullptr) {
+        w.put<uint8_t>(0);
+        return;
+    }
+    const ScriptLayout &l = g_scripts;
+    uint64_t r = reinterpret_cast<uint64_t>(request);
+    w.put<uint8_t>(1);
+    appendComponent(w, readU64(r + l.source, 0));
+    appendComponent(w, readU64(r + l.target, 0));
+    const uint32_t fields[] = {l.op, l.subOp, l.mouseX, l.mouseY, l.keyCode, l.keyChar};
+    for (uint32_t field : fields) {
+        w.put<int32_t>(readI32(r + field, -1));
+    }
+    uint8_t text[MAX_SCRIPT_STRING];
+    int n = readString(r + l.opbase, text);
+    w.put<uint16_t>(static_cast<uint16_t>(n));
+    w.raw(text, n);
+    int32_t count = readI32(r + l.argCount, 0);
+    int k = count < 0 ? 0 : (count > MAX_REQUEST_ARGS ? MAX_REQUEST_ARGS : count);
+    uint64_t args = readU64(r + l.args, 0);
+    appendValues(w, args, args == 0 ? 0 : k);
+}
+
+/**
+ * Builds a SCRIPT message and pushes it into the ring: the head (kind, id, depth), no plan values,
+ * then the stacks and the request. Game thread only.
+ *
+ * @param kind    SCRIPT_PRE_ROOT, SCRIPT_PRE_GOSUB or SCRIPT_POST
+ * @param id      the script's id
+ * @param depth   its frame depth (0 for a root script)
+ * @param request the request a root run came from, or nullptr
+ */
+static void sendScript(uint64_t kind, int64_t id, int depth, const uint8_t *request) {
+    ScriptWriter w{g_scriptBody, 0};
+    uint64_t regs[4] = {kind, static_cast<uint64_t>(id), static_cast<uint64_t>(depth), 0};
+    w.off = writeHead(w.buf, SCRIPT_EVENT_ID, regs);
+    w.put<uint8_t>(0);
+    appendStacks(w);
+    appendRequest(w, request);
+    pushRing(w.buf, w.off);
+}
+
+/**
+ * The frames the runner has pushed, which is the running script's depth.
+ *
+ * @return the frame count, or -1 if it can't be read
+ */
+static int frameDepth() {
+    return readI32(g_base + g_scripts.runner + g_scripts.frameCount, -1);
+}
+
+/**
+ * Marks the request a request run carries for the interpreter run it starts, and puts the outer one
+ * back when it ends, however it ends.
+ */
+struct RequestScope {
+    const uint8_t *outer;
+
+    explicit RequestScope(const uint8_t *request) : outer(g_request) {
+        g_request = request;
+    }
+
+    ~RequestScope() {
+        g_request = outer;
+    }
+};
+
+/**
+ * Counts an interpreter run as on the stack for as long as it runs, however it ends.
+ */
+struct InterpreterScope {
+    InterpreterScope() {
+        g_interpreterDepth++;
+    }
+
+    ~InterpreterScope() {
+        g_interpreterDepth--;
+    }
+};
+
+/**
+ * The request entry's detour: keeps the request for the interpreter run it starts.
+ *
+ * @param runner  the runner
+ * @param request the listener's request
+ * @param maxOps  the op limit
+ * @param d       the fourth argument
+ * @return whatever the original returns
+ */
+static int64_t __fastcall executeScriptDetour(int64_t runner, int64_t request, int64_t maxOps, int64_t d) {
+    RequestScope scope(reinterpret_cast<const uint8_t *>(request));
+    using Fn = int64_t(__fastcall *)(int64_t, int64_t, int64_t, int64_t);
+    return reinterpret_cast<Fn>(g_executeScriptTrampoline)(runner, request, maxOps, d);
+}
+
+/**
+ * The interpreter's detour: notes the root script's id at depth 0, reports the run as it starts
+ * (with the request if a request run started it) and again when it ends. A run that stops on an
+ * error ends here too, so its end is reported like a return.
+ *
+ * @param runner the runner
+ * @param slot   the shared_ptr holding the root script
+ * @param maxOps the op limit
+ * @param d      the fourth argument
+ * @return whatever the original returns
+ */
+static int64_t __fastcall interpreterDetour(int64_t runner, int64_t slot, int64_t maxOps, int64_t d) {
+    const uint8_t *request = g_request;
+    g_request = nullptr;
+    uint64_t script = readU64(static_cast<uint64_t>(slot) + g_scripts.sharedPtr, 0);
+    int64_t id = script == 0 ? -1 : static_cast<int64_t>(readU64(script + g_scripts.scriptId, ~0ull));
+    g_scriptIds[0] = id;
+    using Fn = int64_t(__fastcall *)(int64_t, int64_t, int64_t, int64_t);
+    int64_t ret;
+    {
+        InterpreterScope scope;
+        if ((g_scriptCapture.load(std::memory_order_relaxed) & SCRIPT_CAPTURE_PRE) != 0) {
+            sendScript(SCRIPT_PRE_ROOT, id, 0, request);
+        }
+        ret = reinterpret_cast<Fn>(g_interpreterTrampoline)(runner, slot, maxOps, d);
+    }
+    if ((g_scriptCapture.load(std::memory_order_relaxed) & SCRIPT_CAPTURE_POST) != 0) {
+        sendScript(SCRIPT_POST, id, 0, nullptr);
+    }
+    return ret;
+}
+
+/**
+ * The script lookup's detour. Inside an interpreter run it is a gosub: note the callee's id at the
+ * depth it will run at and report it, before the gosub pops its arguments. The request entry's own
+ * lookup, before its run starts, passes through.
+ *
+ * @param id the script's id
+ * @param b  the second argument register
+ * @param c  the third
+ * @param d  the fourth
+ * @return whatever the original returns
+ */
+static int64_t __fastcall lookupDetour(int64_t id, int64_t b, int64_t c, int64_t d) {
+    if (g_interpreterDepth > 0) {
+        int depth = frameDepth() + 1;
+        int32_t callee = static_cast<int32_t>(id);
+        if (depth > 0 && depth < MAX_SCRIPT_DEPTH) {
+            g_scriptIds[depth] = callee;
+        }
+        if ((g_scriptCapture.load(std::memory_order_relaxed) & SCRIPT_CAPTURE_PRE) != 0) {
+            sendScript(SCRIPT_PRE_GOSUB, callee, depth, nullptr);
+        }
+    }
+    using Fn = int64_t(__fastcall *)(int64_t, int64_t, int64_t, int64_t);
+    return reinterpret_cast<Fn>(g_lookupTrampoline)(id, b, c, d);
+}
+
+/**
+ * The locals swap's detour. Called on a frame whose script slot is cleared, it is a return: the
+ * returning script ran one deeper than the frames left, and its return values are on the stacks.
+ *
+ * @param frame the frame
+ * @param b     the runner's int locals
+ * @param c     its long locals
+ * @param d     its object locals
+ * @return whatever the original returns
+ */
+static int64_t __fastcall swapDetour(int64_t frame, int64_t b, int64_t c, int64_t d) {
+    if (g_interpreterDepth > 0 && (g_scriptCapture.load(std::memory_order_relaxed) & SCRIPT_CAPTURE_POST) != 0
+            && readU64(static_cast<uint64_t>(frame) + g_scripts.frameScript + g_scripts.sharedPtr, 1) == 0) {
+        int depth = frameDepth() + 1;
+        int64_t id = depth > 0 && depth < MAX_SCRIPT_DEPTH ? g_scriptIds[depth] : -1;
+        sendScript(SCRIPT_POST, id, depth, nullptr);
+    }
+    using Fn = int64_t(__fastcall *)(int64_t, int64_t, int64_t, int64_t);
+    return reinterpret_cast<Fn>(g_swapTrampoline)(frame, b, c, d);
 }
 
 /**
@@ -818,6 +1289,18 @@ static void openSurface(FrameReader r) {
 }
 
 /**
+ * Sets which script events to send from a SCRIPTS command; ignored while the script hooks aren't live.
+ *
+ * @param r the frame's body after the type byte
+ */
+static void setScriptCapture(FrameReader r) {
+    uint8_t flags = 0;
+    if (r.get(flags) && scriptsHooked()) {
+        g_scriptCapture.store(flags & (SCRIPT_CAPTURE_PRE | SCRIPT_CAPTURE_POST), std::memory_order_relaxed);
+    }
+}
+
+/**
  * Sets the frame cap a FRAME_LIMIT command names and wakes a pump waiting out a frame.
  *
  * @param r the frame's body after the type byte
@@ -889,6 +1372,9 @@ static DWORD WINAPI readerThread(LPVOID) {
             case CMD_FRAME_LIMIT:
                 setFrameLimit(r);
                 break;
+            case CMD_SCRIPTS:
+                setScriptCapture(r);
+                break;
             default:
                 break; // an unknown command is skipped, so a newer client can still talk to this DLL
         }
@@ -901,17 +1387,56 @@ static DWORD WINAPI readerThread(LPVOID) {
 }
 
 /**
- * Reads the handshake and installs any hooks not installed yet. The handshake is: magic "KRK4", a
+ * Parses the handshake's script block into a layout, in ScriptLayout's field order.
+ *
+ * @param r   the block
+ * @param out receives the layout
+ * @return false if the block is too short
+ */
+static bool parseScriptLayout(FrameReader r, ScriptLayout &out) {
+    uint64_t *rvas[] = {&out.executeScript, &out.executeScriptInner, &out.scriptLookup, &out.scriptSwapLocals,
+                        &out.runner};
+    uint32_t *offsets[] = {&out.intStack, &out.intStackSize, &out.objStack, &out.objStackSize, &out.frameCount,
+                           &out.frameScript, &out.sharedPtr, &out.scriptId, &out.valueSize, &out.valueType};
+    uint8_t *kinds[] = {&out.kindInt, &out.kindString, &out.kindLong};
+    uint32_t *fields[] = {&out.argCount, &out.args, &out.source, &out.target, &out.op, &out.subOp, &out.mouseX,
+                          &out.mouseY, &out.keyCode, &out.keyChar, &out.opbase, &out.componentId,
+                          &out.componentIndex, &out.stringFlagByte, &out.stringFlagMask, &out.stringSsoCapacity};
+    for (uint64_t *rva : rvas) {
+        if (!r.get(*rva)) {
+            return false;
+        }
+    }
+    for (uint32_t *offset : offsets) {
+        if (!r.get(*offset)) {
+            return false;
+        }
+    }
+    for (uint8_t *kind : kinds) {
+        if (!r.get(*kind)) {
+            return false;
+        }
+    }
+    for (uint32_t *field : fields) {
+        if (!r.get(*field)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * Reads the handshake and installs any hooks not installed yet. The handshake is: magic "KRK5", a
  * u16 slot count, each slot's rva, id configuration, argument count and capture plan, then the
- * Client* slot, the pump function and the present function. A slot whose rva is already hooked is
- * left alone, so a re-handshake after a reconnect only adds new ones; the pump and present hooks
- * install once.
+ * Client* slot, the pump function and the present function, then a u16 length and the script block
+ * (empty for no script hooks). A slot whose rva is already hooked is left alone, so a re-handshake
+ * after a reconnect only adds new ones; the pump, present and script hooks install once.
  *
  * @return true if the handshake parsed; false if the connection closed mid-handshake
  */
 static bool readHandshake() {
     char magic[4];
-    if (!recvExact(magic, 4) || std::memcmp(magic, "KRK4", 4) != 0) {
+    if (!recvExact(magic, 4) || std::memcmp(magic, "KRK5", 4) != 0) {
         return false;
     }
     uint16_t count = 0;
@@ -944,6 +1469,18 @@ static bool readHandshake() {
     g_clientGlobal.store(tail[0], std::memory_order_relaxed);
     installPump(tail[1]);
     installPresent(tail[2]);
+    uint16_t scriptLength = 0;
+    if (!recvExact(reinterpret_cast<char *>(&scriptLength), 2)) {
+        return false;
+    }
+    std::vector<uint8_t> block(scriptLength);
+    if (scriptLength > 0 && !recvExact(reinterpret_cast<char *>(block.data()), scriptLength)) {
+        return false;
+    }
+    ScriptLayout layout;
+    if (scriptLength > 0 && parseScriptLayout(FrameReader{block.data(), block.size()}, layout)) {
+        installScripts(layout);
+    }
     sendStatus(count);
     return true;
 }
@@ -989,6 +1526,42 @@ static void __fastcall presentDetour(void *self);
  */
 static void installPresent(uint64_t rva) {
     installOnce(rva, reinterpret_cast<void *>(&presentDetour), &g_presentTrampoline, g_presentHooked);
+}
+
+/**
+ * Whether all four script hooks are live.
+ *
+ * @return true once they all installed
+ */
+static bool scriptsHooked() {
+    return g_executeScriptHooked.load(std::memory_order_acquire) && g_interpreterHooked.load(std::memory_order_acquire)
+           && g_lookupHooked.load(std::memory_order_acquire) && g_swapHooked.load(std::memory_order_acquire);
+}
+
+/**
+ * Hooks the script runtime's four functions, from the first handshake that names them; a later one
+ * only retries the hooks that failed, with the first layout. The interpreter goes in last: the other
+ * detours only report while an interpreter run they saw start is on the stack, so a script already
+ * running while they install is passed over rather than half reported.
+ *
+ * @param layout the functions and layout the handshake sent
+ */
+static void installScripts(const ScriptLayout &layout) {
+    if (!g_scriptLayoutSet) {
+        if (layout.executeScript == 0 || layout.executeScriptInner == 0 || layout.scriptLookup == 0
+                || layout.scriptSwapLocals == 0 || layout.runner == 0 || layout.runner >= g_imageSize
+                || layout.valueSize == 0) {
+            return;
+        }
+        g_scripts = layout;
+        g_scriptLayoutSet = true;
+    }
+    installOnce(g_scripts.scriptLookup, reinterpret_cast<void *>(&lookupDetour), &g_lookupTrampoline, g_lookupHooked);
+    installOnce(g_scripts.scriptSwapLocals, reinterpret_cast<void *>(&swapDetour), &g_swapTrampoline, g_swapHooked);
+    installOnce(g_scripts.executeScript, reinterpret_cast<void *>(&executeScriptDetour), &g_executeScriptTrampoline,
+                g_executeScriptHooked);
+    installOnce(g_scripts.executeScriptInner, reinterpret_cast<void *>(&interpreterDetour), &g_interpreterTrampoline,
+                g_interpreterHooked);
 }
 
 /**
@@ -1041,7 +1614,7 @@ static void sendStatus(uint16_t requested) {
     bool pump = g_pumpHooked.load();
     bool present = g_presentHooked.load();
     uint64_t features = (pump ? FEATURE_PUMP : 0) | (present ? FEATURE_PRESENT : 0)
-                        | (pump || present ? FEATURE_FRAME_RATE : 0);
+                        | (pump || present ? FEATURE_FRAME_RATE : 0) | (scriptsHooked() ? FEATURE_SCRIPTS : 0);
     uint64_t regs[4] = {static_cast<uint64_t>(g_slotCount.load(std::memory_order_acquire)), requested, features,
                         PROTOCOL_VERSION};
     sendDirect(STATUS_EVENT_ID, regs);
@@ -1126,9 +1699,9 @@ static bool sendFpsIfDue(FpsState &last) {
 }
 
 /**
- * Drains the ring to the socket, framing each message with its 4-byte length, and sends FRAME when
- * the present thread's values change and FPS once a second, until a send fails or the reader thread
- * sees the socket close.
+ * Drains the ring to the socket (each record is already a length frame and its body), and sends FRAME
+ * when the present thread's values change and FPS once a second, until a send fails or the reader
+ * thread sees the socket close.
  *
  * @return false when the connection should be re-established
  */
@@ -1139,12 +1712,17 @@ static bool drainRing() {
         uint32_t head = g_head.load(std::memory_order_relaxed);
         uint32_t tail = g_tail.load(std::memory_order_acquire);
         while (head != tail) {
-            Msg &msg = g_ring[head & RING_MASK];
-            if (!sendExact(reinterpret_cast<const char *>(&msg.len), 4)
-                    || !sendExact(reinterpret_cast<const char *>(msg.data), msg.len)) {
-                return false;
+            uint32_t pos = head & RING_MASK;
+            uint32_t length = 0;
+            std::memcpy(&length, g_ring + pos, 4);
+            if (length == RING_PAD) {
+                head += RING_BYTES - pos;
+            } else {
+                if (!sendExact(reinterpret_cast<const char *>(g_ring + pos), static_cast<int>(4 + length))) {
+                    return false;
+                }
+                head += (4u + length + 3u) & ~3u;
             }
-            head++;
             g_head.store(head, std::memory_order_release);
             tail = g_tail.load(std::memory_order_acquire);
         }
@@ -1154,7 +1732,11 @@ static bool drainRing() {
         if (g_connBroken.load(std::memory_order_acquire)) {
             return false;
         }
-        WaitForSingleObject(g_dataEvent, 1000);
+        g_writerWaiting.store(true, std::memory_order_seq_cst);
+        if (g_tail.load(std::memory_order_seq_cst) == head) {
+            WaitForSingleObject(g_dataEvent, 1000);
+        }
+        g_writerWaiting.store(false, std::memory_order_seq_cst);
     }
 }
 
@@ -1190,7 +1772,7 @@ static bool connectToJava(int attempts) {
  * ring to the socket, and reconnect for the life of the process if the socket drops. Hooks stay
  * installed across reconnects; a dropped socket costs the client latency, not events, because the
  * Java side keeps polling as a fallback. A dropped socket also drops the queued calls, stops the
- * overlay, since nothing would keep it current, and lifts the frame cap.
+ * overlay, since nothing would keep it current, stops the script events and lifts the frame cap.
  */
 static DWORD WINAPI writerThread(LPVOID) {
     bool first = true;
@@ -1216,6 +1798,7 @@ static DWORD WINAPI writerThread(LPVOID) {
         }
         clearPendingCalls();
         requestSurface(new SurfaceView());
+        g_scriptCapture.store(0, std::memory_order_relaxed);
         g_frameLimit.store(0, std::memory_order_relaxed);
         SetEvent(g_limitChanged);
         Sleep(1000); // the writer reconnects every second, then Java re-sends the handshake

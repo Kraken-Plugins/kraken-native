@@ -1,0 +1,177 @@
+# Script events (docs/event-hooks-design.md §2.6): where the client's script runtime (cs2) starts and ends a script, so
+# the hook DLL can report every root run, gosub and return with the stacks as they were at that moment.
+#
+# Every script runs on one static runner. A component's listener reaches it as a request (the listener's arguments,
+# the source and target components, the op, the mouse, the key, the op's base name); the request entry is the one
+# function referencing "event_opbase". It resolves the script, resets the stacks, copies the arguments into the
+# locals (loading a request field in place of each event placeholder 0x80000001.. and of "event_opbase") and calls the
+# interpreter loop with the runner and the script. In the loop's opcode dispatch (a byte table of case indices, then
+# a table of case addresses), op 40 (gosub) calls the script lookup with the callee's id from the script's int
+# operands and swaps the callee's locals in, and op 21 (return) clears the popped frame's script and swaps the
+# caller's locals back. The lookup is called from the gosub and the request entry only, the swap from the gosub and
+# the return only. No Lua binding touches any of this (extractor `script_runner`, scripts.py).
+keys:
+  - key: functions.executeScript
+    type: "void(ScriptRunner* runner, const HookReq* request, i32 maxOps, i32)"
+    priority: P1
+    doc: Runs a listener's request. The first argument is the script's id for a plain request (a trigger kind's request
+      looks its script up by the trigger); the rest replace the event placeholders with the request's fields, then the
+      interpreter runs the script.
+    strategies:
+      - extractor: { name: script_runner, field: functions.executeScript, cls: B }
+  - key: functions.executeScriptInner
+    type: "void(ScriptRunner* runner, jag.shared_ptr<ClientScript>* script, i32 maxOps, i32)"
+    priority: P1
+    doc: The interpreter loop. Runs one root script, its arguments already in the locals, until its depth-0 return or
+      an error; every root run (a request, a trigger, a held item's overlay) goes through it.
+    strategies:
+      - extractor: { name: script_runner, field: functions.executeScriptInner, cls: B }
+  - key: functions.scriptLookup
+    type: "const jag.shared_ptr<ClientScript>*(i32 id)"
+    priority: P1
+    doc: Returns the script with this id, loading and caching it. Called by the gosub case with the callee's id, before
+      it pops the callee's arguments, and by the request entry.
+    strategies:
+      - extractor: { name: script_runner, field: functions.scriptLookup, cls: A }
+  - key: functions.scriptSwapLocals
+    type: "void(ScriptFrame* frame, eastl.vector<i32>* ints, eastl.vector<i64>* longs, eastl.vector<VarValue>* objs)"
+    priority: P1
+    doc: Swaps a frame's locals with the runner's. The gosub case calls it on the frame it pushed (holding the caller's
+      script); the return case on the frame it popped, after clearing its script slot.
+    strategies:
+      - extractor: { name: script_runner, field: functions.scriptSwapLocals, cls: A }
+  - key: global.scriptRunner
+    type: ScriptRunner
+    priority: P1
+    doc: The static script runner (an object, not a pointer) the request entry and the interpreter run on.
+    strategies:
+      - extractor: { name: script_runner, field: global.scriptRunner, cls: B }
+
+  - key: ScriptRunner.intStack
+    type: i32[1000]
+    priority: P1
+    doc: The int stack; the top entry is at intStackSize - 1.
+    strategies:
+      - extractor: { name: script_runner, field: ScriptRunner.intStack, cls: A }
+  - key: ScriptRunner.intStackSize
+    type: i32
+    priority: P1
+    strategies:
+      - extractor: { name: script_runner, field: ScriptRunner.intStackSize, cls: A }
+  - key: ScriptRunner.objStack
+    type: VarValue[1000]
+    priority: P1
+    doc: The object stack (VarValues, VarValue.size apart); strings travel on it.
+    strategies:
+      - extractor: { name: script_runner, field: ScriptRunner.objStack, cls: A }
+  - key: ScriptRunner.objStackSize
+    type: i32
+    priority: P1
+    strategies:
+      - extractor: { name: script_runner, field: ScriptRunner.objStackSize, cls: A }
+  - key: ScriptRunner.frameCount
+    type: i32
+    priority: P1
+    doc: Frames pushed by gosubs, which is the running script's depth (0 for the root).
+    strategies:
+      - extractor: { name: script_runner, field: ScriptRunner.frameCount, cls: A }
+  - key: ScriptFrame.script
+    type: jag.shared_ptr<ClientScript>
+    priority: P1
+    doc: The caller's script a gosub saves in the frame it pushes; the return case clears it before swapping the
+      caller's locals back, so it is empty in a frame the swap is called with on a return.
+    strategies:
+      - extractor: { name: script_runner, field: ScriptFrame.script, cls: A }
+  - key: ClientScript.id
+    type: i64
+    priority: P1
+    doc: The script's id (below 0x10000), or a trigger script's key; the lookup stores it into a script it loads.
+    strategies:
+      - extractor: { name: script_runner, field: ClientScript.id, cls: A }
+
+  - key: VarValue.type
+    type: u8
+    priority: P1
+    doc: Which of the variant's kinds a VarValue holds (enums.varValueType); the value is at +0 (an int, a long, or an
+      eastl string).
+    strategies:
+      - extractor: { name: script_runner, field: VarValue.type, cls: B }
+  - key: VarValue.size
+    type: size
+    priority: P1
+    strategies:
+      - extractor: { name: script_runner, field: VarValue.size, cls: A }
+  - key: enums.varValueType
+    type: table
+    priority: P1
+    doc: The VarValue kinds the request entry's argument loop handles, INT, STRING and LONG.
+    strategies:
+      - extractor: { name: script_runner, field: enums.varValueType, cls: B }
+
+  - key: HookReq.argCount
+    type: i32
+    priority: P1
+    doc: How many arguments the listener has, the script's id included.
+    strategies:
+      - extractor: { name: script_runner, field: HookReq.argCount, cls: B }
+  - key: HookReq.args
+    type: ptr<VarValue[]>
+    priority: P1
+    doc: The listener's arguments as it holds them, placeholders included; the first is the script's id.
+    strategies:
+      - extractor: { name: script_runner, field: HookReq.args, cls: B }
+  - key: HookReq.source
+    type: ptr<IfType>
+    priority: P1
+    doc: The component the listener belongs to (the pointer of a jag.shared_ptr); the placeholders 0x80000003 and
+      0x80000005 read its IfType.packedId and IfType.subId.
+    strategies:
+      - extractor: { name: script_runner, field: HookReq.source, cls: B }
+  - key: HookReq.target
+    type: ptr<IfType>
+    priority: P1
+    doc: The component dragged onto or targeted, if any (placeholders 0x80000006 and 0x80000007).
+    strategies:
+      - extractor: { name: script_runner, field: HookReq.target, cls: B }
+  - key: HookReq.op
+    type: i32
+    priority: P1
+    doc: The op that fired the listener, 1-based (placeholder 0x80000004).
+    strategies:
+      - extractor: { name: script_runner, field: HookReq.op, cls: B }
+  - key: HookReq.subOp
+    type: i32
+    priority: P1
+    doc: The op's sub-option (placeholder 0x8000000a); the component op builder stores it next to the op.
+    strategies:
+      - extractor: { name: script_runner, field: HookReq.subOp, cls: B }
+  - key: HookReq.mouseX
+    type: i32
+    priority: P1
+    doc: Placeholder 0x80000001.
+    strategies:
+      - extractor: { name: script_runner, field: HookReq.mouseX, cls: B }
+  - key: HookReq.mouseY
+    type: i32
+    priority: P1
+    doc: Placeholder 0x80000002.
+    strategies:
+      - extractor: { name: script_runner, field: HookReq.mouseY, cls: B }
+  - key: HookReq.keyCode
+    type: i32
+    priority: P1
+    doc: Placeholder 0x80000008.
+    strategies:
+      - extractor: { name: script_runner, field: HookReq.keyCode, cls: B }
+  - key: HookReq.keyChar
+    type: i32
+    priority: P1
+    doc: Placeholder 0x80000009.
+    strategies:
+      - extractor: { name: script_runner, field: HookReq.keyChar, cls: B }
+  - key: HookReq.opbase
+    type: eastl.string
+    priority: P1
+    doc: The op's base name (the component's IfType.baseOpName), loaded in place of the string "event_opbase".
+    strategies:
+      - extractor: { name: script_runner, field: HookReq.opbase, cls: B }

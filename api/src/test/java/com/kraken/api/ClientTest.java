@@ -6,6 +6,7 @@ import com.kraken.api.definition.NPCComposition;
 import com.kraken.api.definition.ObjectComposition;
 import com.kraken.api.gameval.InventoryID;
 import com.kraken.api.internal.ConfigTypes;
+import com.kraken.api.internal.ScriptStack;
 import com.kraken.api.item.EquipmentInventorySlot;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -245,6 +246,39 @@ class ClientTest {
     @Test
     void listsVarcs() {
         assertEquals(Map.of(10, 42, 30, -5, 20, "hello"), client.getVarcMap());
+    }
+
+    @Test
+    void readsTheScriptStacksOffTheRunner() {
+        assertEquals(3, client.getIntStackSize());
+        assertArrayEquals(new int[]{10, 20, 30}, client.getIntStack());
+        assertEquals(3, client.getObjectStackSize());
+        assertArrayEquals(new Object[]{"Lumbridge", 7, 1L << 40}, client.getObjectStack());
+
+        game.setIntStack();
+        game.setObjectStack("Varrock");
+        assertArrayEquals(new int[0], client.getIntStack(), "an emptied stack");
+        assertArrayEquals(new Object[]{"Varrock"}, client.getObjectStack());
+    }
+
+    @Test
+    void theStackGettersGiveACapturedStackOnlyOnTheThreadThatSetIt() throws Exception {
+        client.setScriptStack(new ScriptStack(new int[]{0, 5}, new Object[]{"Falador"}));
+        assertArrayEquals(new int[]{0, 5}, client.getIntStack());
+        assertEquals(2, client.getIntStackSize());
+        assertArrayEquals(new Object[]{"Falador"}, client.getObjectStack());
+        assertEquals(1, client.getObjectStackSize());
+
+        int[] elsewhere = new int[1];
+        Thread other = new Thread(() -> elsewhere[0] = client.getIntStackSize());
+        other.start();
+        other.join();
+        assertEquals(3, elsewhere[0], "another thread reads the game");
+
+        client.getIntStack()[0] = 99;
+        assertArrayEquals(new int[]{0, 5}, client.getIntStack(), "each call gives a copy");
+        client.setScriptStack(null);
+        assertArrayEquals(new int[]{10, 20, 30}, client.getIntStack(), "read from the game again");
     }
 
     @Test

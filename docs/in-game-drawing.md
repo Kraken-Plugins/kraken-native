@@ -73,16 +73,18 @@ Player names are `eastl::string`s (`container.string.*`): 24 bytes, short string
 ## 2. Protocol v3
 
 The event socket (`docs/event-hooks-design.md` §4.1) carries the drawing too. Little-endian throughout. Protocol v4
-(`docs/menu-actions.md` §2) keeps everything here, changes the magic to `KRK4` and adds two call argument kinds.
+(`docs/menu-actions.md` §2) keeps everything here, changes the magic to `KRK4` and adds two call argument kinds;
+v5 (`docs/event-hooks-design.md` §2.6) changes it to `KRK5` and appends the script block to the handshake.
 
 ### 2.1 Handshake (Java → DLL)
 
 ```
-"KRK3"   ("KRK4" since protocol v4)
+"KRK3"   ("KRK4" since protocol v4, "KRK5" since v5)
 u16 slotCount, then the v2 slots: {u64 rva, i32 fixedId, u8 idArg, u8 args, u8 planLen, plan[planLen]{u8 arg, u8 op}}
 u64 clientGlobal     globals.client (RVA of the Client* slot), 0 if unknown
 u64 pumpFn           functions.appUpdate, 0 = run no calls
 u64 presentFn        functions.present, 0 = draw no overlay
+(v5) u16 length, then the script block (event-hooks-design.md §2.6), 0 = no script hooks
 ```
 
 The DLL hooks the slots as before, the pump and present functions once each (the first handshake that names them;

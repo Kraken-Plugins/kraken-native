@@ -18,6 +18,8 @@ import com.kraken.api.internal.reader.InventoryReader;
 import com.kraken.api.internal.MapCoord;
 import com.kraken.api.internal.reader.MenuReader;
 import com.kraken.api.internal.reader.ProjectileReader;
+import com.kraken.api.internal.ScriptStack;
+import com.kraken.api.internal.reader.ScriptReader;
 import com.kraken.api.internal.reader.SceneReader;
 import com.kraken.api.internal.reader.WidgetReader;
 import com.kraken.api.item.ItemContainer;
@@ -110,6 +112,12 @@ public final class Client extends GameReader {
     @Getter
     private final GraphicsObjectReader graphicsObjectReader;
     private final WidgetReader widgets;
+    private final ScriptReader scripts;
+
+    /**
+     * The stacks a script event captured, on the thread posting it while its handlers run.
+     */
+    private final ThreadLocal<ScriptStack> scriptStack = new ThreadLocal<>();
 
     /**
      * The reader the menu and the menu events read through. Internal plumbing for the API's own packages.
@@ -209,6 +217,7 @@ public final class Client extends GameReader {
         this.projectileReader = new ProjectileReader(memory, mapping, this);
         this.graphicsObjectReader = new GraphicsObjectReader(memory, mapping, this, sceneReader);
         this.widgets = new WidgetReader(memory, mapping);
+        this.scripts = new ScriptReader(memory, mapping);
         this.menuReader = new MenuReader(memory, mapping, this);
         this.topLevelWorldView = new WorldView(this);
         this.highlights = new Highlights(mapping);
@@ -670,6 +679,68 @@ public final class Client extends GameReader {
             }
         }
         return out;
+    }
+
+    /**
+     * The script engine's int stack. While a {@code ScriptPreFired} or {@code ScriptPostFired} handler runs, it is the
+     * stack as it was at that script event, of which the native hook captures the top 64 entries (the deeper ones read
+     * 0); otherwise it is read now, which only means something while a script runs. A copy: changing it doesn't change
+     * the game.
+     *
+     * @return the stack, oldest first and the top at {@link #getIntStackSize()} - 1; empty if it can't be read or
+     *         this build's mapping lacks it
+     */
+    public int[] getIntStack() {
+        ScriptStack captured = scriptStack.get();
+        return captured != null ? captured.ints().clone() : scripts.intStack();
+    }
+
+    /**
+     * The script engine's int stack's size: at the script event whose handler is running, as {@link #getIntStack()}
+     * says, else now.
+     *
+     * @return the size, or 0 if it can't be read
+     */
+    public int getIntStackSize() {
+        ScriptStack captured = scriptStack.get();
+        return captured != null ? captured.ints().length : scripts.intStackSize();
+    }
+
+    /**
+     * The script engine's object stack, where strings travel: at the script event whose handler is running, of which
+     * the native hook captures the top 16 entries (the deeper ones read null), else read now. A copy: changing it
+     * doesn't change the game.
+     *
+     * @return the stack, oldest first: {@code String}s, {@code Integer}s and {@code Long}s, null for other kinds;
+     *         empty if it can't be read or this build's mapping lacks it
+     */
+    public Object[] getObjectStack() {
+        ScriptStack captured = scriptStack.get();
+        return captured != null ? captured.objects().clone() : scripts.objectStack();
+    }
+
+    /**
+     * The script engine's object stack's size: at the script event whose handler is running, else now.
+     *
+     * @return the size, or 0 if it can't be read
+     */
+    public int getObjectStackSize() {
+        ScriptStack captured = scriptStack.get();
+        return captured != null ? captured.objects().length : scripts.objectStackSize();
+    }
+
+    /**
+     * Sets the stacks the stack getters give on the calling thread, for the handlers of one script event.
+     * Internal: the event source sets it around posting a script event; plugins don't need it.
+     *
+     * @param stack the stacks the native hook captured, or null to read the game again
+     */
+    public void setScriptStack(ScriptStack stack) {
+        if (stack == null) {
+            scriptStack.remove();
+        } else {
+            scriptStack.set(stack);
+        }
     }
 
     /**

@@ -12,7 +12,8 @@
     "cameraControlled": "0xe98c0e",
     "cameraTarget": "0xcfb0c4",
     "inventories.buckets": "0x154fab8",
-    "inventories.bucketCount": "0x154fac0"
+    "inventories.bucketCount": "0x154fac0",
+    "scriptRunner": "0x154fe50"
   },
   "structs": {
     "Client": {
@@ -414,6 +415,36 @@
     "Connection": {
       "outCipher": "0xa08"
     },
+    "ScriptRunner": {
+      "intStack": "0x50",
+      "intStackSize": "0xff0",
+      "objStack": "0xff8",
+      "objStackSize": "0xac38",
+      "frameCount": "0xcbc0"
+    },
+    "ScriptFrame": {
+      "script": "0x0"
+    },
+    "ClientScript": {
+      "id": "0x18"
+    },
+    "VarValue": {
+      "type": "0x20",
+      "size": "0x28"
+    },
+    "HookReq": {
+      "argCount": "0x8",
+      "args": "0x10",
+      "source": "0x40",
+      "target": "0x60",
+      "op": "0x50",
+      "subOp": "0x54",
+      "mouseX": "0x48",
+      "mouseY": "0x4c",
+      "keyCode": "0x68",
+      "keyChar": "0x6c",
+      "opbase": "0x70"
+    },
     "Js5Archive": {
       "groupCount": "0x28",
       "groups": "0x30"
@@ -527,6 +558,11 @@
       "RESUME_P_NAMEDIALOG": 33,
       "RESUME_P_STRINGDIALOG": 58,
       "RESUME_P_OBJDIALOG": 3
+    },
+    "varValueType": {
+      "INT": 1,
+      "STRING": 2,
+      "LONG": 5
     },
     "events": {
       "NULL_EVENT": -1,
@@ -669,6 +705,10 @@
     "projectileCtor": "0xa24a0",
     "projectileStep": "0xa2630",
     "projectileListUpdate": "0xc5e10",
+    "executeScript": "0x1994c0",
+    "executeScriptInner": "0x199cc0",
+    "scriptLookup": "0x322a0",
+    "scriptSwapLocals": "0x198740",
     "highlightNpcOn": "0x1b9ef0",
     "highlightNpcOff": "0x1bbdf0",
     "highlightNpcTypeOn": "0x1ba460",

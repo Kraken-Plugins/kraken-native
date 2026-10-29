@@ -3,6 +3,7 @@ package com.kraken.client.ui.devtools.tools;
 import com.kraken.api.Client;
 import com.kraken.api.GameSession;
 import com.kraken.api.MenuEntry;
+import com.kraken.api.ScriptEvent;
 import com.kraken.api.actor.Actor;
 import com.kraken.api.actor.NPC;
 import com.kraken.api.actor.Player;
@@ -29,6 +30,8 @@ import com.kraken.api.events.PlayerDespawned;
 import com.kraken.api.events.PlayerSpawned;
 import com.kraken.api.events.ProjectileMoved;
 import com.kraken.api.events.ProjectileSpawned;
+import com.kraken.api.events.ScriptPostFired;
+import com.kraken.api.events.ScriptPreFired;
 import com.kraken.api.events.StatChanged;
 import com.kraken.api.events.TileObjectDespawned;
 import com.kraken.api.events.TileObjectSpawned;
@@ -39,6 +42,7 @@ import com.kraken.api.scene.GraphicsObject;
 import com.kraken.api.scene.Tile;
 import com.kraken.api.scene.TileItem;
 import com.kraken.api.scene.TileObject;
+import com.kraken.api.widgets.Widget;
 import com.kraken.client.ui.devtools.Category;
 import com.kraken.client.ui.devtools.DevTool;
 import com.kraken.client.ui.devtools.ToolOption;
@@ -49,6 +53,7 @@ import org.kordamp.ikonli.materialdesign2.MaterialDesignL;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -61,12 +66,15 @@ import java.util.stream.IntStream;
 /**
  * A live log of the API's events, as they're seen on its event bus, each kind while its option is on. Subscribes only
  * to the kinds switched on, and only while its window is open: the scene's objects are read once per game tick while
- * anything listens for object spawns, and the ground items on ticks, so those two are off by default.
+ * anything listens for object spawns, and the ground items on ticks, so those two are off by default. So are the
+ * scripts, which the native hook only reports while something listens, and of which a busy interface runs many a
+ * frame.
  */
 final class EventLogTool extends DevTool<List<String>> {
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
     private static final int MAX_PENDING = 1_000;
     private static final int MAX_ITEMS = 8;
+    private static final int MAX_STACK_SHOWN = 6;
 
     private static final String GAME_STATE = "gameState";
     private static final String NPCS = "npcs";
@@ -83,6 +91,8 @@ final class EventLogTool extends DevTool<List<String>> {
     private static final String RESIZE = "resize";
     private static final String MENU_CLICKS = "menuClicks";
     private static final String MENU_ENTRIES = "menuEntries";
+    private static final String SCRIPT_STARTS = "scriptStarts";
+    private static final String SCRIPT_RETURNS = "scriptReturns";
 
     private final ToolOption gameState = option("gameState", "Game state changes", true);
     private final ToolOption npcs = option("npcs", "NPC spawns", true);
@@ -100,6 +110,8 @@ final class EventLogTool extends DevTool<List<String>> {
     private final ToolOption resize = option("resize", "Screen resizes", true);
     private final ToolOption menuClicks = option("menuClicks", "Menu clicks", true);
     private final ToolOption menuEntries = option("menuEntries", "Menu entries and opens", false);
+    private final ToolOption scriptStarts = option("scriptStarts", "Scripts starting", false);
+    private final ToolOption scriptReturns = option("scriptReturns", "Scripts returning", false);
 
     private final Queue<String> pending = new ConcurrentLinkedQueue<>();
     /**
@@ -111,8 +123,8 @@ final class EventLogTool extends DevTool<List<String>> {
     EventLogTool() {
         super("events", "Event log", Category.DIAGNOSTICS, MaterialDesignL.LIGHTNING_BOLT_OUTLINE,
                 "A live log of the API's events (game state, NPC and player spawns, objects, ground items, targets, "
-                        + "projectiles, graphics objects, inventories, stats, vars, varbits, ticks, resizes, menu clicks "
-                        + "and menu entries) as they're seen.");
+                        + "projectiles, graphics objects, inventories, stats, vars, varbits, ticks, resizes, menu clicks, "
+                        + "menu entries and scripts) as they're seen.");
     }
 
     @Override
@@ -195,6 +207,8 @@ final class EventLogTool extends DevTool<List<String>> {
         keep(RESIZE, resize.isOn(), this::subscribeResize);
         keep(MENU_CLICKS, menuClicks.isOn(), this::subscribeMenuClicks);
         keep(MENU_ENTRIES, menuEntries.isOn(), this::subscribeMenuEntries);
+        keep(SCRIPT_STARTS, scriptStarts.isOn(), this::subscribeScriptStarts);
+        keep(SCRIPT_RETURNS, scriptReturns.isOn(), this::subscribeScriptReturns);
     }
 
     /**
@@ -373,6 +387,26 @@ final class EventLogTool extends DevTool<List<String>> {
         });
     }
 
+    private void subscribeScriptStarts() {
+        Client client = session.client();
+        on(SCRIPT_STARTS, ScriptPreFired.class, e -> {
+            if (scriptStarts.isOn()) {
+                ScriptEvent event = e.getScriptEvent();
+                add("ScriptPreFired  " + e.getScriptId() + "  " + (event == null ? "gosub" : "root " + script(event))
+                        + ", " + stacks(client));
+            }
+        });
+    }
+
+    private void subscribeScriptReturns() {
+        Client client = session.client();
+        on(SCRIPT_RETURNS, ScriptPostFired.class, e -> {
+            if (scriptReturns.isOn()) {
+                add("ScriptPostFired  " + e.getScriptId() + "  " + stacks(client));
+            }
+        });
+    }
+
     /**
      * Subscribes a handler on the API's event bus, keeping the subscription under a kind.
      *
@@ -393,6 +427,37 @@ final class EventLogTool extends DevTool<List<String>> {
     private void drop(List<Subscriber> held) {
         held.forEach(session.eventBus()::unregister);
         held.clear();
+    }
+
+    /**
+     * What a root script ran with, for a line.
+     *
+     * @param event the script's event
+     * @return its arguments, and the op and source component if a component's listener ran it
+     */
+    private static String script(ScriptEvent event) {
+        Widget source = event.getSource();
+        return Arrays.deepToString(event.getArguments()) + (event.getOp() > 0 ? " op " + event.getOp() : "")
+                + (source == null ? "" : " from " + (source.getId() >>> 16) + ":" + (source.getId() & 0xffff)
+                + (source.getIndex() >= 0 ? "[" + source.getIndex() + "]" : ""));
+    }
+
+    /**
+     * The top of the script stacks a script event's handlers see, for a line.
+     *
+     * @param client the client
+     * @return the top ints and objects, the top last
+     */
+    private static String stacks(Client client) {
+        int[] ints = client.getIntStack();
+        Object[] objects = client.getObjectStack();
+        String topInts = IntStream.range(Math.max(0, ints.length - MAX_STACK_SHOWN), ints.length)
+                .mapToObj(i -> String.valueOf(ints[i])).collect(Collectors.joining(", "));
+        String topObjects = IntStream.range(Math.max(0, objects.length - MAX_STACK_SHOWN), objects.length)
+                .mapToObj(i -> objects[i] instanceof String text ? '"' + text + '"' : String.valueOf(objects[i]))
+                .collect(Collectors.joining(", "));
+        return "ints [" + (ints.length > MAX_STACK_SHOWN ? "..., " : "") + topInts + "], objects ["
+                + (objects.length > MAX_STACK_SHOWN ? "..., " : "") + topObjects + "]";
     }
 
     /**

@@ -7,7 +7,8 @@ raise functions the mapping names and pushes a message per raise; `NativeEventSe
 mapping) the trackers run on the 20 ms poll alone.
 
 Built: the updater side (`events.py`, the mapping's `events` section, the function hooks), the DLL (generic slots;
-protocol v3 since the drawing, `docs/in-game-drawing.md`, rides on the same socket), the Java server and the API seam. Several payloads and hook sites still need a live check (§7).
+protocol v3 since the drawing, `docs/in-game-drawing.md`, rides on the same socket; v5 adds the script events, §2.6),
+the Java server and the API seam. Several payloads and hook sites still need a live check (§7).
 Build and run steps are in `client/src/main/native/kraken_hook/README.md`.
 
 ## 2. What the client gives us
@@ -69,7 +70,7 @@ payload interpretations marked "to confirm" need the live check in §7):
 | ON_NPC_OP (23), ON_PLAYER_OP (26), ON_COMPONENT_OP (28) | `0x3924f0` id in RCX | 4 | raised by the op dispatch (`0x3803d0`) for the menu entry being run, right after it is copied to `Minimenu.clicked`: RDX → `char*` option text, R8 → `int` (for an entry aimed by a selected item or spell, a field of the selection; else -1; to confirm), R9 → `int` the entry's `subjectIndex` (NPC or player index, component sub id) |
 | ON_LOC_OP (24), ON_TILE_OP (25) | `0x3926e0` / `0x3922f0` fixed | 4 / 3 | same dispatch: RDX → `char*` option; loc: R8 → `int` loc id, R9 → the world tile `{level, x, z}`; tile: R8 → the tile |
 | ON_OBJ_OP (27) | `0x3928e0` fixed | 4, plus 2 on the stack | same dispatch: RDX → `char*` option, R8 → `int` as for NPCs, R9 → `int` obj id, then the obj count and the tile on the stack. `events.py` counts register arguments only, so the mapping says 4; the generic detour can't forward the stack arguments, so it is not hooked (§4.3) |
-| ON_CLIENTSCRIPT (38) | `0xc69a0` fixed | 3 | script id and arguments (not decoded) |
+| ON_CLIENTSCRIPT (38) | `0xc69a0` fixed | 3 | raised from the packet handler for the server's run-clientscript packet (`0x8c530` builds the Lua table from the request): script id and arguments. Not hooked; the script hooks (§2.6) see the run itself |
 | ON_VAR_TRANSMIT (11), ON_INV_TRANSMIT (12), ON_STAT_TRANSMIT (13), run energy/weight, reboot, friends, clans, stock, offers | `0x520b0` id in RCX, deferred | 1 | none in the arguments; the data is in the client's transmit state and the normal fields |
 | ON_CHAT_TRANSMIT (14), ON_FRIEND_CHANNEL_TRANSMIT (20), and second raisers for friends (15) and clan records (18) | dedicated deferred wrappers | 1 | RCX = client |
 
@@ -140,6 +141,61 @@ projectile functions come from the list walker the projectile extractor already 
 Note on the pile functions: the same six zone-update handlers also exist under a second caller (`0x95f10`), the
 scene rebuild replaying the zone; hooking the functions catches both paths.
 
+### 2.6 Script events
+
+`ScriptPreFired` and `ScriptPostFired` come from four plain function hooks on the client's script runtime (cs2),
+mapped by `updater/src/native_updater/scripts.py` (`spec/66-scripts.yaml`). The addresses are 241.3's.
+
+Every script runs on one static runner (`global.scriptRunner`, `0x154fe50`), which holds a 1000-entry int stack
+(`ScriptRunner.intStack`, its size at `intStackSize`), a long stack, a 1000-entry stack of `VarValue`s
+(`objStack`, `objStackSize`; a 40-byte variant whose kind byte at `VarValue.type` says int, string or long,
+`enums.varValueType`), the current locals and up to 50 gosub frames (`frameCount`). The functions:
+
+| Function | 241.3 | What it is | Hook |
+|---|---|---|---|
+| `functions.executeScript` | `0x1994c0` | runs a component listener's request (`HookReq`): resolves the script (the first argument is its id), resets the stacks, copies the other arguments into the locals, loading a request field in place of each placeholder (`0x80000001` mouse x … `0x8000000a` sub-op) and of the string `"event_opbase"`, then calls the interpreter. The one function referencing `"event_opbase"` | entry: keeps the request for the interpreter run it starts |
+| `functions.executeScriptInner` | `0x199cc0` | the interpreter loop `(runner, shared_ptr<ClientScript>*, maxOps, int)`; every root run goes through it (requests, trigger scripts `0x1992e0`, a held item's overlay `0x199a20`) | entry: `PRE_ROOT` with the script's id (`ClientScript.id`) and the request, if a request run started it; after it returns: `POST` for the root |
+| `functions.scriptLookup` | `0x322a0` | the script with an id; called only by the gosub case (op 40, with the callee's id from the caller's int operands, before it pops the callee's arguments) and by the request entry | entry, inside an interpreter run: `PRE_GOSUB` with the callee's id; notes the id at depth `frameCount + 1` |
+| `functions.scriptSwapLocals` | `0x198740` | `(frame, ints, longs, objects)`, swaps a frame's locals with the runner's; called only by the gosub case (on the frame it pushed, holding the caller's script) and the return case (op 21, on the frame it popped, after clearing the frame's script slot `ScriptFrame.script`) | entry, inside an interpreter run, on a cleared frame: `POST` for the script at depth `frameCount + 1` |
+
+The ids of nested scripts aren't in reach at a return (the frame holds the caller), so the DLL keeps the id it saw for
+each depth: depth 0 at the interpreter's entry, depth `frameCount + 1` at each gosub's lookup. The hooks only report
+while an interpreter run they saw start is on the stack, so a script already running while they install is passed
+over rather than half reported. Every message also carries the top of both stacks: at a gosub the callee's arguments,
+at a return its return values.
+
+Wire format (protocol v5, `KRK5`): the handshake ends with a `u16` length and a 147-byte script block (the four
+function RVAs and the runner's, the runner, frame, script and VarValue offsets, the three VarValue kinds, the
+request's fields, `IfType.packedId`/`subId` and the eastl string layout; `NativeProtocol.scriptLayout` writes it,
+`parseScriptLayout` in the DLL reads it); an empty block installs no script hooks. STATUS sets feature bit 8 once all
+four are hooked. Command `4 SCRIPTS {u8 flags}` (bit 0 starts, bit 1 returns) says what to send; nothing is sent
+until it asks, and a dropped connection resets it. A script message is id -6 with
+`regs = {kind (0 root start, 1 gosub, 2 return), id, depth, 0}`, no plan values, then the int stack's size, a `u16`
+count and up to 64 ints from its top, the object stack's size and up to 16 values from its top, then a request flag
+and, for a root run a request started, the source and target components' ids and indices, the op, sub-op, mouse x
+and y, key code and key char, the base op name and up to 24 of the listener's arguments. A value is a kind byte
+(0 other, 1 int, 2 string, 3 long) and its payload; strings are cut at 256 bytes. Script messages share the ring and
+the sequence numbers with the raises; the ring holds 4 MiB of variable-length records, so a burst of scripts in one
+frame fits.
+
+On the Java side `NativeEventServer` hands each script message to `GameSession.onScript`, which posts the event on
+the client thread at once (it doesn't ask for an event read). `EventSource` tells the DLL, on each poll, to send
+starts while `ScriptPreFired` has subscribers and returns while `ScriptPostFired` does (`internal.event.ScriptHook`).
+While a handler runs, `Client.getIntStack()`, `getIntStackSize()`, `getObjectStack()` and `getObjectStackSize()`
+give the captured stacks (as long as the stacks were, the entries below the captured top 0 or null); otherwise they
+read the runner now. A root run's `ScriptPreFired.getScriptEvent()` is built from the request: its arguments are the
+listener's as it holds them (placeholders unreplaced), and its source and target are read when asked for.
+
+Deliberate differences from posting in the script engine itself:
+
+- The events come after the fact. The game thread doesn't wait for Java, so a handler sees the game as it is now,
+  and changing the stacks or the arguments changes nothing in the game.
+- A root run that stops on an error (an unknown gosub, the op limit) still posts `ScriptPostFired` for the root,
+  since the interpreter's return is the only exit the hook sees; the nested scripts it abandons post none.
+- A root run a trigger started has no request: its event's arguments are just its id, and its id is the trigger key
+  `ClientScript.id` holds (at least `0x10000`).
+- There is no `ScriptCallbackEvent`: the native client's scripts have no callback op for plugins to hook.
+
 ## 3. The mapping contract
 
 ```json
@@ -192,9 +248,10 @@ scene rebuild replaying the zone; hooking the functions catches both paths.
 - **Message** `{u32 len, u32 seq, i32 eventId, u64 regs[4], u8 nValues, values...}` where a value is
   `{u8 arg, u8 op, payload}`. `seq` climbs by one per raise, so Java sees drops as gaps. Event id `-2` is a status
   message reporting how many hooks installed.
-- **Never stall the game thread.** The detour only writes into a 1024-entry single-producer ring (the game thread
-  is the one producer; raises off that thread would be a finding, §7). A DLL writer thread drains it to the socket;
-  when the ring is full the message is dropped. Dereferences happen in the detour, under SEH guards, because the
+- **Never stall the game thread.** The detour only writes into a single-producer ring of 4 MiB of variable-length
+  records (the game thread is the one producer; raises off that thread would be a finding, §7). A DLL writer thread
+  drains it to the socket, and the detour only signals it when it is about to wait; when the ring is full the
+  message is dropped. Dereferences happen in the detour, under SEH guards, because the
   pointers are to the caller's stack and die when the raiser returns.
 - **Lifecycle.** Hooks stay installed for the life of the process (unhooking live code is riskier than leaving a
   pass-through detour). If the socket drops, the writer thread reconnects every second; Java re-sends the handshake
@@ -321,3 +378,8 @@ events shows up as a `new`/`gone` `events.*` key in the run's diff.
   list; its hash-map erase was not read to the end).
 - `projectileCtor`: that every projectile packet goes through it (the only caller is the `make_shared` site under the
   packet handler), and that the fields are complete when it returns.
+- Script events (§2.6): that every root run reaches `executeScriptInner` on the game thread, that a gosub's lookup
+  and a return's swap report the ids and depths the shadow ids say (a known proc's `ScriptPreFired` and
+  `ScriptPostFired` pair up), that a component op's request carries the expected op, sub-op and source, how many
+  scripts a busy interface (the bank) runs a frame and whether the ring keeps up, and the game's frame time with both
+  kinds switched on.
