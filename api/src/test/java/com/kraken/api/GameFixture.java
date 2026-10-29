@@ -52,6 +52,9 @@ import static com.kraken.api.TestSupport.seedMapping;
  *       cycles ago.
  *   <li>The script runner between scripts, its int stack holding 10, 20, 30 and its object stack "Lumbridge", 7 and
  *       2^40 (a string, an int and a long).
+ *   <li>The chat history: lines 0 (a game message, {@link #WELCOME}) and 1 (public chat from Zezima), the next id 2.
+ *       {@link #addChatLine} adds more, {@link #clearChat} empties it as logout does.
+ *   <li>No hitsplats; {@link #setHitsplats} gives an actor some.
  * </ul>
  */
 public final class GameFixture {
@@ -111,6 +114,19 @@ public final class GameFixture {
     public static final long PROJECTILES = 0xb60000000L;
     public static final long GRAPHICS_OBJECTS = 0xb70000000L;
     public static final long KEYED_PROJECTILES = 0xb80000000L;
+    public static final long CHAT_BUCKETS = 0xd00000000L;
+    public static final long HITSPLATS = 0xd20000000L;
+    /**
+     * Chat line nodes, lines and long texts {@link #addChatLine} adds are bump-allocated from here.
+     */
+    private static final long CHAT_HEAP = 0xd10000000L;
+    private static final int CHAT_BUCKET_COUNT = 5;
+    private static final int HITSPLAT_SPACE = 0x100;
+
+    /**
+     * The first line of the chat history.
+     */
+    public static final String WELCOME = "Welcome to Old School RuneScape.";
     /**
      * Piles, nodes and items {@link #setPile} adds are bump-allocated from here.
      */
@@ -213,6 +229,8 @@ public final class GameFixture {
     private final Map<Integer, TreeMap<Integer, byte[]>> configFiles = new TreeMap<>();
     private long archiveHeap = ARCHIVE_HEAP;
     private long pileHeap = PILE_HEAP;
+    private long chatHeap = CHAT_HEAP;
+    private final Map<Long, Long> hitsplatVectors = new HashMap<>();
 
     public GameFixture() throws IOException {
         map = seedMapping();
@@ -237,6 +255,7 @@ public final class GameFixture {
         buildGraphicsObjects();
         buildMenu();
         buildScripts();
+        buildChat();
     }
 
     /**
@@ -1999,6 +2018,93 @@ public final class GameFixture {
         memory.putInt(entry + map.offset("MinimenuEntry.level"), 0);
         memory.putInt(entry + map.offset("MinimenuEntry.x"), spec.x());
         memory.putInt(entry + map.offset("MinimenuEntry.z"), spec.z());
+    }
+
+    private void buildChat() {
+        memory.alloc(MODULE_BASE + map.global("chatLines.nextId"), 4);
+        memory.alloc(MODULE_BASE + map.global("chatLines.buckets"), 8);
+        memory.alloc(MODULE_BASE + map.global("chatLines.bucketCount"), 8);
+        memory.alloc(CHAT_BUCKETS, CHAT_BUCKET_COUNT * 8);
+        memory.alloc(CHAT_HEAP, 0x10000);
+        memory.putLong(MODULE_BASE + map.global("chatLines.buckets"), CHAT_BUCKETS);
+        memory.putLong(MODULE_BASE + map.global("chatLines.bucketCount"), CHAT_BUCKET_COUNT);
+        addChatLine(0, "", WELCOME, "");
+        addChatLine(2, "Zezima", "hi", "");
+    }
+
+    /**
+     * Adds a line to the chat history as the client does: under the next id, at the head of its bucket's chain, on the
+     * current cycle; then steps the next id. Texts that don't fit inline go on the heap.
+     *
+     * @param type   the chat type
+     * @param name   who sent it
+     * @param text   the text
+     * @param sender the channel it came through
+     * @return the line's id
+     */
+    public int addChatLine(int type, String name, String text, String sender) {
+        long nextIdAddress = MODULE_BASE + map.global("chatLines.nextId");
+        int id = memory.readInt(nextIdAddress);
+        int size = map.offset("ChatLine.sender") + map.container("string.size");
+        long line = chatHeap;
+        long node = line + size;
+        chatHeap = node + 0x20;
+        memory.putInt(line + map.offset("ChatLine.type"), type);
+        memory.putInt(line + map.offset("ChatLine.cycle"), memory.readInt(MODULE_BASE + map.global("cycle")));
+        putChatString(line + map.offset("ChatLine.name"), name);
+        putChatString(line + map.offset("ChatLine.text"), text);
+        putChatString(line + map.offset("ChatLine.sender"), sender);
+        long bucket = CHAT_BUCKETS + (long) (id % CHAT_BUCKET_COUNT) * 8;
+        memory.putInt(node + map.container("hash_map.node.key"), id);
+        memory.putLong(node + map.container("hash_map.node.value"), line);
+        memory.putLong(node + map.container("hash_map.node.next"), memory.readLong(bucket));
+        memory.putLong(bucket, node);
+        memory.putInt(nextIdAddress, id + 1);
+        return id;
+    }
+
+    /**
+     * Empties the chat history and sets the next id back to 0, as the client does on logout.
+     */
+    public void clearChat() {
+        memory.putBytes(CHAT_BUCKETS, new byte[CHAT_BUCKET_COUNT * 8]);
+        memory.putInt(MODULE_BASE + map.global("chatLines.nextId"), 0);
+    }
+
+    private void putChatString(long string, String text) {
+        if (text.length() < map.container("string.ssoCapacity")) {
+            memory.putSsoString(string, text);
+            return;
+        }
+        byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+        memory.putBytes(chatHeap, bytes);
+        memory.putLong(string, chatHeap);
+        memory.putLong(string + 8, bytes.length);
+        memory.putByte(string + map.container("string.heapFlagByte"), map.container("string.heapFlagMask"));
+        chatHeap += bytes.length + 8 - bytes.length % 8;
+    }
+
+    /**
+     * Sets an actor's hitsplat slots, replacing what it held.
+     *
+     * @param actor  the NPC or player
+     * @param splats {type, amount, end cycle} per slot, in slot order
+     */
+    public void setHitsplats(long actor, int[]... splats) {
+        long begin = hitsplatVectors.computeIfAbsent(actor, a -> {
+            long vector = HITSPLATS + (long) hitsplatVectors.size() * HITSPLAT_SPACE;
+            memory.alloc(vector, HITSPLAT_SPACE);
+            return vector;
+        });
+        int size = map.offset("Hitmark.size");
+        for (int i = 0; i < splats.length; i++) {
+            long entry = begin + (long) i * size;
+            memory.putInt(entry + map.offset("Hitmark.type"), splats[i][0]);
+            memory.putInt(entry + map.offset("Hitmark.value"), splats[i][1]);
+            memory.putInt(entry + map.offset("Hitmark.endCycle"), splats[i][2]);
+        }
+        memory.putLong(actor + map.offset("Actor.hitmarks"), begin);
+        memory.putLong(actor + map.offset("Actor.hitmarksEnd"), begin + (long) splats.length * size);
     }
 
     private void buildScripts() {

@@ -1,6 +1,7 @@
 package com.kraken.api.actor;
 
 import com.kraken.api.Client;
+import com.kraken.api.Hitsplat;
 import com.kraken.api.Perspective;
 import com.kraken.api.Point;
 import com.kraken.api.coords.LocalPoint;
@@ -14,6 +15,7 @@ import com.kraken.api.scene.WorldView;
 import java.awt.Graphics2D;
 import java.awt.Polygon;
 import java.awt.image.BufferedImage;
+import java.util.List;
 
 /**
  * An NPC or player.
@@ -244,6 +246,16 @@ public abstract class Actor {
      */
     public boolean isDead() {
         return actors.dead(address());
+    }
+
+    /**
+     * The hitsplats the actor holds, in the order of the client's slots, ended ones included.
+     * Internal: the hitsplat events read through it; plugins subscribe to {@code HitsplatApplied}.
+     *
+     * @return the hitsplats; null if they can't be read, the actor is gone or this build's mapping lacks them
+     */
+    public List<Hitsplat> hitsplats() {
+        return actors.hitsplats(address());
     }
 
     /**

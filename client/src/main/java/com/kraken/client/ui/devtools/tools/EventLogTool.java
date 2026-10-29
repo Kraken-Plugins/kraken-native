@@ -2,6 +2,7 @@ package com.kraken.client.ui.devtools.tools;
 
 import com.kraken.api.Client;
 import com.kraken.api.GameSession;
+import com.kraken.api.Hitsplat;
 import com.kraken.api.MenuEntry;
 import com.kraken.api.ScriptEvent;
 import com.kraken.api.actor.Actor;
@@ -11,10 +12,14 @@ import com.kraken.api.coords.LocalPoint;
 import com.kraken.api.coords.WorldPoint;
 import com.kraken.api.eventbus.Subscriber;
 import com.kraken.api.events.CanvasSizeChanged;
+import com.kraken.api.events.ChatMessage;
+import com.kraken.api.events.FakeXpDrop;
+import com.kraken.api.events.FocusChanged;
 import com.kraken.api.events.GameStateChanged;
 import com.kraken.api.events.GameTick;
 import com.kraken.api.events.GraphicsObjectCreated;
 import com.kraken.api.events.GraphicsObjectDestroyed;
+import com.kraken.api.events.HitsplatApplied;
 import com.kraken.api.events.InteractingChanged;
 import com.kraken.api.events.ItemContainerChanged;
 import com.kraken.api.events.ItemDespawned;
@@ -96,6 +101,10 @@ final class EventLogTool extends DevTool<List<String>> {
     private static final String INTERFACES = "interfaces";
     private static final String SCRIPT_STARTS = "scriptStarts";
     private static final String SCRIPT_RETURNS = "scriptReturns";
+    private static final String CHAT = "chat";
+    private static final String HITSPLATS = "hitsplats";
+    private static final String FOCUS = "focus";
+    private static final String XP_DROPS = "xpDrops";
 
     private final ToolOption gameState = option("gameState", "Game state changes", true);
     private final ToolOption npcs = option("npcs", "NPC spawns", true);
@@ -116,6 +125,10 @@ final class EventLogTool extends DevTool<List<String>> {
     private final ToolOption interfaces = option("interfaces", "Interfaces opened and closed", true);
     private final ToolOption scriptStarts = option("scriptStarts", "Scripts starting", false);
     private final ToolOption scriptReturns = option("scriptReturns", "Scripts returning", false);
+    private final ToolOption chat = option("chat", "Chat messages", true);
+    private final ToolOption hitsplats = option("hitsplats", "Hitsplats", true);
+    private final ToolOption focus = option("focus", "Focus changes", true);
+    private final ToolOption xpDrops = option("xpDrops", "Fake XP drops", true);
 
     private final Queue<String> pending = new ConcurrentLinkedQueue<>();
     /**
@@ -126,9 +139,10 @@ final class EventLogTool extends DevTool<List<String>> {
 
     EventLogTool() {
         super("events", "Event log", Category.DIAGNOSTICS, MaterialDesignL.LIGHTNING_BOLT_OUTLINE,
-                "A live log of the API's events (game state, NPC and player spawns, objects, ground items, targets, "
-                        + "projectiles, graphics objects, inventories, stats, vars, varbits, ticks, resizes, menu clicks, "
-                        + "menu entries, interfaces and scripts) as they're seen.");
+                "A live log of the API's events (game state, NPC and player spawns, objects, ground items, "
+                        + "targets, projectiles, graphics objects, inventories, stats, vars, varbits, ticks, resizes, "
+                        + "menu clicks, menu entries, interfaces, scripts, chat messages, hitsplats, focus changes and "
+                        + "fake XP drops) as they're seen.");
     }
 
     @Override
@@ -214,6 +228,10 @@ final class EventLogTool extends DevTool<List<String>> {
         keep(INTERFACES, interfaces.isOn(), this::subscribeInterfaces);
         keep(SCRIPT_STARTS, scriptStarts.isOn(), this::subscribeScriptStarts);
         keep(SCRIPT_RETURNS, scriptReturns.isOn(), this::subscribeScriptReturns);
+        keep(CHAT, chat.isOn(), this::subscribeChat);
+        keep(HITSPLATS, hitsplats.isOn(), this::subscribeHitsplats);
+        keep(FOCUS, focus.isOn(), this::subscribeFocus);
+        keep(XP_DROPS, xpDrops.isOn(), this::subscribeXpDrops);
     }
 
     /**
@@ -435,6 +453,42 @@ final class EventLogTool extends DevTool<List<String>> {
         on(SCRIPT_RETURNS, ScriptPostFired.class, e -> {
             if (scriptReturns.isOn()) {
                 add("ScriptPostFired  " + e.getScriptId() + "  " + stacks(client));
+            }
+        });
+    }
+
+    private void subscribeChat() {
+        on(CHAT, ChatMessage.class, e -> {
+            if (chat.isOn()) {
+                add("ChatMessage  " + e.getType() + " #" + e.getMessageNode().getId()
+                        + (e.getName().isEmpty() ? "" : " from " + e.getName())
+                        + (e.getSender().isEmpty() ? "" : " in " + e.getSender()) + ": " + e.getMessage());
+            }
+        });
+    }
+
+    private void subscribeHitsplats() {
+        on(HITSPLATS, HitsplatApplied.class, e -> {
+            if (hitsplats.isOn()) {
+                Hitsplat hitsplat = e.getHitsplat();
+                add("HitsplatApplied  " + actor(e.getActor()) + ", type " + hitsplat.getHitsplatType() + " amount "
+                        + hitsplat.getAmount() + " until cycle " + hitsplat.getDisappearsOnGameCycle());
+            }
+        });
+    }
+
+    private void subscribeFocus() {
+        on(FOCUS, FocusChanged.class, e -> {
+            if (focus.isOn()) {
+                add("FocusChanged  " + (e.isFocused() ? "focused" : "not focused"));
+            }
+        });
+    }
+
+    private void subscribeXpDrops() {
+        on(XP_DROPS, FakeXpDrop.class, e -> {
+            if (xpDrops.isOn()) {
+                add("FakeXpDrop  " + e.getSkill().getName() + " " + e.getXp() + "xp");
             }
         });
     }

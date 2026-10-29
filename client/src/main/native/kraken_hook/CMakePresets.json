@@ -1,0 +1,87 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "description": "Builds into client/build/native/kraken_hook/<preset>, under Gradle's build directory, so ./gradlew clean removes it.",
+      "binaryDir": "${sourceDir}/../../../../build/native/kraken_hook/${presetName}"
+    },
+    {
+      "name": "msvc",
+      "inherits": "base",
+      "displayName": "MSVC",
+      "description": "The newest Visual Studio installed, x64. The toolchain release DLLs are built with.",
+      "architecture": {
+        "value": "x64",
+        "strategy": "set"
+      }
+    },
+    {
+      "name": "mingw",
+      "inherits": "base",
+      "displayName": "MinGW g++",
+      "description": "A 64-bit MinGW g++ and mingw32-make on PATH. Builds without SEH guards: for local testing only.",
+      "generator": "MinGW Makefiles",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_C_COMPILER": "gcc",
+        "CMAKE_CXX_COMPILER": "g++"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "msvc",
+      "displayName": "MSVC Release",
+      "configurePreset": "msvc",
+      "configuration": "Release"
+    },
+    {
+      "name": "msvc-debug",
+      "displayName": "MSVC Debug",
+      "configurePreset": "msvc",
+      "configuration": "Debug"
+    },
+    {
+      "name": "mingw",
+      "displayName": "MinGW Release",
+      "configurePreset": "mingw"
+    }
+  ],
+  "workflowPresets": [
+    {
+      "name": "msvc",
+      "displayName": "Configure and build with MSVC",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "msvc"
+        },
+        {
+          "type": "build",
+          "name": "msvc"
+        }
+      ]
+    },
+    {
+      "name": "mingw",
+      "displayName": "Configure and build with MinGW",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "mingw"
+        },
+        {
+          "type": "build",
+          "name": "mingw"
+        }
+      ]
+    }
+  ]
+}

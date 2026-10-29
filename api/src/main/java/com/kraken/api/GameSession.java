@@ -1,6 +1,7 @@
 package com.kraken.api;
 
 import com.kraken.api.eventbus.EventBus;
+import com.kraken.api.internal.GameFocus;
 import com.kraken.api.internal.event.EventSource;
 import com.kraken.api.internal.event.NativeEvent;
 import com.kraken.api.internal.event.ScriptHook;
@@ -227,7 +228,9 @@ public final class GameSession implements AutoCloseable {
         ProcessMemory memory = ProcessMemory.attach((int) pid, MODULE);
         log.info("Attached to " + MODULE + " pid " + pid + " (client " + build.version() + ", base 0x"
                 + Long.toHexString(memory.moduleBase()) + ")");
-        return new GameSession(memory, mapping, eventBus);
+        GameSession session = new GameSession(memory, mapping, eventBus);
+        session.client().setFocusSource(new GameFocus(pid));
+        return session;
     }
 
     /**
@@ -366,9 +369,9 @@ public final class GameSession implements AutoCloseable {
 
     /**
      * Hands the API a connection to a native hook that reports scripts, or takes it away. While it is set, the hook
-     * reports scripts starting while {@code ScriptPreFired} has subscribers and returning while
-     * {@code ScriptPostFired} does. Internal: the client's native hook calls this as its connection comes up and
-     * drops. Safe to call from any thread.
+     * reports scripts starting while {@code ScriptPreFired} has subscribers, returning while {@code ScriptPostFired}
+     * does, and the XP drop script starting while {@code FakeXpDrop} does. Internal: the client's native hook calls
+     * this as its connection comes up and drops. Safe to call from any thread.
      *
      * @param hook the connection, or null while there is none
      */

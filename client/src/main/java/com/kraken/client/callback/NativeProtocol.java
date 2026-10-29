@@ -25,7 +25,7 @@ import java.util.function.IntFunction;
  * with the id, the argument registers and the captured values, one per script event it was asked for, and status
  * messages with reserved ids. After the handshake Java sends commands: batches of calls for the game thread, the
  * overlay surface to draw, the frame cap and which script events to send. Every field and op code here matches the
- * constants in {@code kraken_hook.cpp}; {@code docs/in-game-drawing.md} and {@code docs/event-hooks-design.md}
+ * constants in the DLL's {@code src/protocol.h}; {@code docs/in-game-drawing.md} and {@code docs/event-hooks-design.md}
  * describe the format.
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
@@ -113,6 +113,11 @@ final class NativeProtocol {
      * Command type: which script events to send.
      */
     static final int COMMAND_SCRIPTS = 4;
+
+    /**
+     * The most root scripts a script events command asks for by id; the DLL keeps as many.
+     */
+    static final int MAX_SCRIPT_ROOTS = 8;
 
     /**
      * How a script message encodes a value: a kind byte, then an int32, a u16 length and UTF-8 bytes, an int64, or
@@ -292,19 +297,26 @@ final class NativeProtocol {
     }
 
     /**
-     * Frames the script events command: {@code {u32 len, u8 4, u8 flags}}, bit 0 asking for scripts starting and bit 1
-     * for scripts returning. The length counts the bytes after it.
+     * Frames the script events command: {@code {u32 len, u8 4, u8 flags, u8 count, count x i32 id}}, bit 0 asking for
+     * scripts starting, bit 1 for scripts returning and bit 2 for the listed root scripts starting (with bit 0 off, only
+     * those). At most {@link #MAX_SCRIPT_ROOTS} ids are sent. The length counts the bytes after it.
      *
-     * @param pre  whether to send scripts starting
-     * @param post whether to send scripts returning
+     * @param pre   whether to send scripts starting
+     * @param post  whether to send scripts returning
+     * @param roots root scripts to send as they start, by id
      * @return the framed command
      */
-    static byte[] scriptCapture(boolean pre, boolean post) {
-        int body = 1 + 1;
+    static byte[] scriptCapture(boolean pre, boolean post, int[] roots) {
+        int count = Math.min(roots.length, MAX_SCRIPT_ROOTS);
+        int body = 1 + 1 + 1 + 4 * count;
         ByteBuffer buf = ByteBuffer.allocate(4 + body).order(ByteOrder.LITTLE_ENDIAN);
         buf.putInt(body);
         buf.put((byte) COMMAND_SCRIPTS);
-        buf.put((byte) ((pre ? 1 : 0) | (post ? 2 : 0)));
+        buf.put((byte) ((pre ? 1 : 0) | (post ? 2 : 0) | (count > 0 ? 4 : 0)));
+        buf.put((byte) count);
+        for (int i = 0; i < count; i++) {
+            buf.putInt(roots[i]);
+        }
         return buf.array();
     }
 

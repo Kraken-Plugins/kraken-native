@@ -3,11 +3,15 @@ package com.kraken.api.internal.event;
 import com.kraken.api.Client;
 import com.kraken.api.eventbus.EventBus;
 import com.kraken.api.events.CanvasSizeChanged;
+import com.kraken.api.events.ChatMessage;
 import com.kraken.api.events.ClientTick;
+import com.kraken.api.events.FakeXpDrop;
+import com.kraken.api.events.FocusChanged;
 import com.kraken.api.events.GameStateChanged;
 import com.kraken.api.events.GameTick;
 import com.kraken.api.events.GraphicsObjectCreated;
 import com.kraken.api.events.GraphicsObjectDestroyed;
+import com.kraken.api.events.HitsplatApplied;
 import com.kraken.api.events.InteractingChanged;
 import com.kraken.api.events.ItemContainerChanged;
 import com.kraken.api.events.MenuEntryAdded;
@@ -60,13 +64,15 @@ import java.util.logging.Logger;
  * ends a load is held back until those spawns are posted, so plugins see loading, spawns, logged in.
  *
  * <p>Events in one poll are posted in this order: {@link GameStateChanged} (a {@code LOGGED_IN} after the scene's
- * events), object despawns then spawns, ground item despawns, quantity changes then spawns, {@link CanvasSizeChanged},
- * {@link StatChanged}, {@link VarbitChanged}, {@link ItemContainerChanged}, interfaces closed and loaded
- * ({@link WidgetClosed}, {@link WidgetLoaded}), NPC despawns then spawns, player despawns then spawns,
- * {@link InteractingChanged}, {@link ProjectileMoved} per new or retargeted projectile, graphics objects
- * destroyed then created ({@link GraphicsObjectDestroyed}, {@link GraphicsObjectCreated}), {@link MenuOptionClicked},
+ * events), object despawns then spawns, ground item despawns, quantity changes then spawns, {@link FocusChanged},
+ * {@link CanvasSizeChanged}, {@link StatChanged}, {@link VarbitChanged}, {@link ItemContainerChanged},
+ * {@link ChatMessage} per new chat line, interfaces closed and loaded ({@link WidgetClosed}, {@link WidgetLoaded}),
+ * NPC despawns then spawns, player despawns then spawns, {@link InteractingChanged}, {@link HitsplatApplied},
+ * {@link ProjectileMoved} per new or retargeted projectile, graphics objects destroyed then created
+ * ({@link GraphicsObjectDestroyed}, {@link GraphicsObjectCreated}), {@link MenuOptionClicked},
  * {@link MenuEntryRemoved} then {@link MenuEntryAdded}, {@link MenuOpened}, a {@link GameTick} per step of the
- * client's tick counter, then a {@link ClientTick} per step of its cycle counter.
+ * client's tick counter, then a {@link ClientTick} per step of its cycle counter. The script events
+ * ({@code ScriptPreFired}, {@code ScriptPostFired}, {@link FakeXpDrop}) come outside the polls, one report at a time.
  *
  * <p><b>Ticks come from the game's counters.</b> {@code GameTick} and {@code ClientTick} follow the client's own tick
  * and cycle counters, one event per step each counter takes, so they stay in step with the game however the polls are
@@ -74,9 +80,9 @@ import java.util.logging.Logger;
  * need to know whether a tick happened), the cycle counter at the end. A native raise makes the poll happen sooner; it
  * never counts a tick itself, so a dropped or repeated raise can't lose or double one.
  *
- * <p>How often each looks: the scene's objects once per game tick (a whole-scene read, the costly one); ground items
- * and targets on the tick's poll and the one after it, in case the tick's updates land after the counter moves;
- * projectiles, graphics objects and the menu every poll.
+ * <p>How often each looks: the scene's objects once per game tick (a whole-scene read, the costly one); ground items,
+ * targets and hitsplats on the tick's poll and the one after it, in case the tick's updates land after the counter
+ * moves; projectiles, graphics objects, the menu, the chat's line counter and the keyboard focus every poll.
  */
 public final class EventSource {
 
@@ -136,8 +142,9 @@ public final class EventSource {
         this.context = new TrackerContext(client, bus);
         this.gameState = new GameStateTracker(context);
         this.sceneTrackers = List.of(new LocTracker(context), new ItemTracker(context));
-        this.trackers = List.of(new CanvasTracker(context), new StatTracker(context), new VarTracker(context),
-                new ContainerTracker(context), new WidgetTracker(context),
+        this.trackers = List.of(new FocusTracker(context), new CanvasTracker(context), new StatTracker(context),
+                new VarTracker(context), new ContainerTracker(context), new ChatTracker(context),
+                new WidgetTracker(context),
                 new ActorTracker<>(context, Set.of("ON_NPC_LOAD", "ON_NPC_UNLOAD", NativeEvent.NPC_INFO_DECODE),
                         client::npcIndices, client::npc, NpcDespawned::new, NpcSpawned::new,
                         NpcSpawned.class, NpcDespawned.class),
@@ -145,7 +152,8 @@ public final class EventSource {
                         NativeEvent.PLAYER_INFO_DECODE),
                         client::playerIndices, client::player, PlayerDespawned::new, PlayerSpawned::new,
                         PlayerSpawned.class, PlayerDespawned.class),
-                new InteractingTracker(context), new ProjectileTracker(context), new GraphicsObjectTracker(context),
+                new InteractingTracker(context), new HitsplatTracker(context), new ProjectileTracker(context),
+                new GraphicsObjectTracker(context),
                 new MenuClickTracker(context), new MenuTracker(context));
 
         this.scripts = new ScriptEvents(client, bus);
@@ -202,8 +210,8 @@ public final class EventSource {
 
     /**
      * Takes the connection to a native hook that reports scripts, or drops it. While one is set, each poll tells it to
-     * report scripts starting while {@code ScriptPreFired} has subscribers and returning while
-     * {@code ScriptPostFired} does. Poll thread only.
+     * report scripts starting while {@code ScriptPreFired} has subscribers, returning while {@code ScriptPostFired}
+     * does, and the XP drop script starting while {@code FakeXpDrop} does. Poll thread only.
      *
      * @param hook the hook, or null while there is none
      */

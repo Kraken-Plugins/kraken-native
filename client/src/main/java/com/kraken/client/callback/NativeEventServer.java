@@ -27,6 +27,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -71,7 +72,7 @@ import java.util.logging.Level;
 public final class NativeEventServer {
 
     /**
-     * Loopback port the injected DLL connects back on; must match {@code KRAKEN_PORT} in kraken_hook.cpp.
+     * Loopback port the injected DLL connects back on; must match {@code KRAKEN_PORT} in the DLL's src/protocol.h.
      */
     static final int PORT = 42069;
     private static final String DLL_PROP = "kraken.hook.dll";
@@ -529,11 +530,12 @@ public final class NativeEventServer {
      * @return the hook; it throws {@link UncheckedIOException} if the connection broke
      */
     private static ScriptHook scriptHook(Connection open) {
-        return (pre, post) -> {
+        return (pre, post, roots) -> {
             try {
-                open.send(NativeProtocol.scriptCapture(pre, post));
+                open.send(NativeProtocol.scriptCapture(pre, post, roots));
                 log.fine("Native event hook: script events " + (pre ? "on start" : "") + (pre && post ? " and " : "")
-                        + (post ? "on return" : "") + (pre || post ? "" : "off"));
+                        + (post ? "on return" : "") + (pre || post ? "" : "off")
+                        + (roots.length > 0 ? ", root scripts " + Arrays.toString(roots) : ""));
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }

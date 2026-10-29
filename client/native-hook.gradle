@@ -1,0 +1,91 @@
+// kraken_hook.dll, the DLL the client injects into the game: the CMake project in src/main/native/kraken_hook (its
+// README.md has the details). compileNativeHook runs one of the project's workflow presets, which configures and
+// builds it into build/native/kraken_hook/<preset>, and buildNativeHook stages the DLL into a generated resources
+// directory, so the jar carries it as native/kraken_hook.dll for NativeEventServer to extract and inject.
+// processResources depends on it, so every client jar (and :client:run) carries a current DLL; Gradle skips the
+// compile while the sources and build files are unchanged.
+//
+// The preset is msvc when Visual Studio's C++ tools are installed, otherwise mingw when g++ is on PATH; pass
+// -PnativeHookPreset=<name> to choose. CMake comes from PATH, otherwise from the copy Visual Studio bundles.
+
+def nativeHookDir = layout.projectDirectory.dir('src/main/native/kraken_hook')
+def nativeHookResources = layout.buildDirectory.dir('generated-resources/native-hook')
+def vswhere = new File(System.getenv('ProgramFiles(x86)') ?: 'C:/Program Files (x86)',
+        'Microsoft Visual Studio/Installer/vswhere.exe')
+
+// The first answer vswhere gives about the newest Visual Studio with the x64 C++ tools, or null
+def askVisualStudio = { List<String> query ->
+    if (!vswhere.isFile()) {
+        return null
+    }
+    def answer = providers.exec {
+        commandLine([vswhere.path, '-latest', '-products', '*',
+                     '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64'] + query)
+        ignoreExitValue = true
+    }.standardOutput.asText.get()
+    return answer.readLines().find { !it.isBlank() }?.trim()
+}
+
+// An executable on PATH, or null
+def onPath = { String name ->
+    (System.getenv('PATH') ?: '').split(File.pathSeparator).collect { new File(it, name) }.find { it.isFile() }
+}
+
+// memoize() keeps the answer, so vswhere runs once per build however often the preset is read
+def detectPreset = {
+    if (askVisualStudio(['-property', 'installationPath'])) {
+        return 'msvc'
+    }
+    if (onPath('g++.exe')) {
+        return 'mingw'
+    }
+    throw new GradleException('''No C++ toolchain found to build kraken_hook.dll. Install one of:
+  - Visual Studio or its Build Tools with the "Desktop development with C++" workload
+    (https://visualstudio.microsoft.com/downloads/; Build Tools is the smaller, free option)
+  - a 64-bit MinGW-w64 g++ on PATH (e.g. TDM-GCC)''')
+}.memoize()
+
+def nativeHookPreset = providers.gradleProperty('nativeHookPreset').orElse(providers.provider { detectPreset() })
+
+def cmake = providers.provider {
+    def found = onPath('cmake.exe')
+            ?: askVisualStudio(['-find', 'Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe'])
+    if (!found) {
+        throw new GradleException('CMake 3.25 or later is needed to build kraken_hook.dll: install it from '
+                + 'https://cmake.org/download/, or add Visual Studio\'s "C++ CMake tools for Windows" component.')
+    }
+    return found.toString()
+}
+
+def nativeHookDll = nativeHookPreset.flatMap { preset ->
+    layout.buildDirectory.file("native/kraken_hook/${preset}/bin/Release/kraken_hook.dll")
+}
+
+tasks.register('compileNativeHook', Exec) {
+    description = 'Compiles kraken_hook.dll from its C++ sources with CMake (needs a C++ toolchain).'
+    group = 'build'
+    workingDir nativeHookDir.asFile
+    inputs.dir(nativeHookDir.dir('src'))
+    inputs.files(nativeHookDir.file('CMakeLists.txt'), nativeHookDir.file('CMakePresets.json'))
+    inputs.property('preset', nativeHookPreset)
+    outputs.file(nativeHookDll)
+    // Resolved when the task runs, so a machine without the toolchain only fails once it has to build the DLL
+    doFirst {
+        executable cmake.get()
+        args '--workflow', '--preset', nativeHookPreset.get()
+    }
+}
+
+tasks.register('buildNativeHook', Copy) {
+    description = 'Builds kraken_hook.dll and stages it into the client resources (bundled into the jar as native/kraken_hook.dll).'
+    group = 'build'
+    dependsOn 'compileNativeHook'
+    from nativeHookDll
+    into nativeHookResources.map { it.dir('native') }
+}
+
+sourceSets.main.resources.srcDir(nativeHookResources)
+
+tasks.named('processResources') {
+    dependsOn 'buildNativeHook'
+}

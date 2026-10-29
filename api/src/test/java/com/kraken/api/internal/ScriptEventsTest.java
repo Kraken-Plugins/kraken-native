@@ -3,7 +3,9 @@ package com.kraken.api.internal;
 import com.kraken.api.Client;
 import com.kraken.api.GameFixture;
 import com.kraken.api.ScriptEvent;
+import com.kraken.api.Skill;
 import com.kraken.api.eventbus.EventBus;
+import com.kraken.api.events.FakeXpDrop;
 import com.kraken.api.events.ScriptPostFired;
 import com.kraken.api.events.ScriptPreFired;
 import com.kraken.api.internal.event.EventSource;
@@ -15,6 +17,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -26,7 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 /**
  * The script events: {@link EventSource#onScript} posts {@link ScriptPreFired} and {@link ScriptPostFired} for each
  * script the native hook reports, with the client's stack getters giving the captured stacks while the handlers run,
- * and each poll tells the hook which of them have subscribers.
+ * and {@link FakeXpDrop} for the XP drop script's runs; each poll tells the hook which of them have subscribers.
  */
 class ScriptEventsTest {
 
@@ -138,18 +141,55 @@ class ScriptEventsTest {
     @Test
     void theHookIsToldWhichEventsHaveSubscribersOnEachPoll() {
         List<String> told = new ArrayList<>();
-        source.setScriptHook((pre, post) -> told.add(pre + "," + post));
-        assertEquals(List.of("false,false"), told, "a new hook is told at once");
+        source.setScriptHook((pre, post, roots) -> told.add(pre + "," + post + "," + Arrays.toString(roots)));
+        assertEquals(List.of("false,false,[]"), told, "a new hook is told at once");
 
         on(ScriptPreFired.class, event -> { });
         source.poll();
         on(ScriptPostFired.class, event -> { });
         source.poll();
         source.poll();
-        assertEquals(List.of("false,false", "true,false", "true,true"), told, "only changes are sent");
+        on(FakeXpDrop.class, event -> { });
+        source.poll();
+        assertEquals(List.of("false,false,[]", "true,false,[]", "true,true,[]", "true,true,[2091]"), told,
+                "only changes are sent; the XP drop script is watched while FakeXpDrop has subscribers");
 
         source.setScriptHook(null);
         source.poll();
-        assertEquals(3, told.size(), "nothing is sent without a hook");
+        assertEquals(4, told.size(), "nothing is sent without a hook");
+    }
+
+    private static ScriptRequest xpDropRequest(Object... arguments) {
+        return new ScriptRequest(-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, "", arguments);
+    }
+
+    @Test
+    void theXpDropScriptStartingPostsAFakeXpDropAfterItsPreFired() {
+        List<Object> seen = new ArrayList<>();
+        on(ScriptPreFired.class, seen::add);
+        on(FakeXpDrop.class, seen::add);
+
+        source.onScript(run(ScriptRun.Kind.PRE_ROOT, 2091, ScriptStack.EMPTY, xpDropRequest(2091, 14, 350)));
+
+        assertEquals(2, seen.size());
+        assertEquals(2091, ((ScriptPreFired) seen.get(0)).getScriptId());
+        assertEquals(new FakeXpDrop(Skill.MINING, 350), seen.get(1));
+    }
+
+    @Test
+    void onlyTheXpDropScriptsRootRunWithASkillAndXpPostsADrop() {
+        List<FakeXpDrop> drops = new ArrayList<>();
+        on(FakeXpDrop.class, drops::add);
+
+        source.onScript(run(ScriptRun.Kind.PRE_ROOT, 2090, ScriptStack.EMPTY, xpDropRequest(2090, 14, 350)));
+        source.onScript(run(ScriptRun.Kind.PRE_GOSUB, 2091, ScriptStack.EMPTY, null));
+        source.onScript(run(ScriptRun.Kind.POST, 2091, ScriptStack.EMPTY, null));
+        source.onScript(run(ScriptRun.Kind.PRE_ROOT, 2091, ScriptStack.EMPTY, null));
+        source.onScript(run(ScriptRun.Kind.PRE_ROOT, 2091, ScriptStack.EMPTY, xpDropRequest(2091, 99, 350)));
+        source.onScript(run(ScriptRun.Kind.PRE_ROOT, 2091, ScriptStack.EMPTY, xpDropRequest(2091, "14", 350)));
+        assertEquals(List.of(), drops);
+
+        source.onScript(run(ScriptRun.Kind.PRE_ROOT, 2091, ScriptStack.EMPTY, xpDropRequest(2091, 0, 4)));
+        assertEquals(List.of(new FakeXpDrop(Skill.ATTACK, 4)), drops);
     }
 }

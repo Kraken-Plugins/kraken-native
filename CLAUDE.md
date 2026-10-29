@@ -25,7 +25,7 @@ Java, from the repo root (the Gradle toolchain auto-provisions JDK 21):
 ./gradlew :client:test                                    # plugins, config, settings pages, overlay layout (headless)
 ./gradlew :client:run --args="D:/path/to/osclient.exe"   # Windows only; arg optional (defaults to the Jagex Launcher install)
 ./gradlew :client:run --args="--plugin com.example.MyPlugin --developer-mode"   # extra plugin; load developer plugins
-./gradlew :client:buildNativeHook                         # compile kraken_hook.dll (build.ps1) into client resources (also runs on every client build)
+./gradlew :client:buildNativeHook                         # compile kraken_hook.dll (CMake) into client resources (also runs on every client build)
 ./gradlew :api:generateGameval [-PgamevalCommit=<sha>]   # rewrite com.kraken.api.gameval from RuneLite's (by hand)
 ```
 
@@ -51,8 +51,10 @@ crash, 2 when the mapping was written but some key was left out or a P0 key is o
 ### Platform
 
 - Windows only: the client attaches to, reads and injects into `osclient.exe`. A full `:client` build compiles
-  `kraken_hook.dll`, so a C++ toolchain must be on PATH (see `client/src/main/native/kraken_hook/README.md`); the Java
-  test suites use fakes and run headless. Run Ghidra `export` from Windows too.
+  `kraken_hook.dll`, a CMake project (`client/native-hook.gradle` runs its presets), so it needs Visual Studio's C++
+  tools or a MinGW g++, and CMake 3.25+ (Visual Studio bundles one; see `client/src/main/native/kraken_hook/README.md`
+  for its layout and build). Build output goes to `client/build/native/kraken_hook/<preset>`. The Java test suites use
+  fakes and run headless. Run Ghidra `export` from Windows too.
 - The `updater/` Python tooling runs under WSL: `uv` is a shell function there that sets
   `UV_PROJECT_ENVIRONMENT=.venv-linux` under `/mnt/*`, keeping Windows' `.venv` intact. Invoke uv through that function.
 - `tests/test_golden.py` skips unless the corpus build's binary and `program.db` are cached in `~/.kraken-native` (from
@@ -72,7 +74,8 @@ other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED
   the minimenu row bodies and packet helpers behind menu actions are `spec/62-menu-actions.yaml` (`menuops.py`); the
   script runtime the DLL's script hooks sit on (runner, stacks, listener request) is `spec/66-scripts.yaml`
   (`scripts.py`); the interface open and close functions and the top-level interface are `spec/67-interfaces.yaml`
-  (`interfaces.py`).
+  (`interfaces.py`); the chat history (line layout, id counter, id-to-line map) is `spec/68-chat.yaml` (`chat.py`);
+  each actor's hitmark vector is `spec/69-hitmarks.yaml` (`hitmarks.py`).
 - The mapping JSON holds only PROVEN/ANCHORED/INFERRED, non-`internal` keys. The evidence behind each value, plus every
   Lua binding's handler RVA, goes to `~/.kraken-native/cache/<sha256>/analysis.json`; read that when a value looks
   wrong.
@@ -126,6 +129,9 @@ other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED
   per report, and `Client.getIntStack()` and the other stack getters give the captured stacks while its handlers run.
   `WidgetTracker` (`WidgetLoaded`/`WidgetClosed`) compares the component table every poll and also applies the
   interface open and close hooks' reports in order, since a dialogue reopening its group shows no change in the table.
+  `ChatMessage` follows the chat's next-id counter, `HitsplatApplied` compares each actor's hitmark slots,
+  `FocusChanged` follows `Client.isFocused()` (Windows' focus: the client keeps none), and `FakeXpDrop` comes from the
+  script reports for the server's XP drop script (the API asks the hook for that root script by id).
 - The `kraken-api-poll` thread is the "client thread": every 20 ms, or at once on a raise, it runs `invoke*` tasks,
   the events (`GameTick` after the tick's other events, a `ClientTick` per client cycle; with the hook connected only
   when a raise asks or every 250 ms), `invokeAtTickEnd` tasks, the frame listener (overlays), then the 150 ms poll
@@ -188,7 +194,8 @@ other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED
 - `docs/updater-design.md`: anchor classes, verdict rules, carry-forward and delta propagation. Read before changing
   `consensus.py`, `carry.py` or `verify.py`.
 - `docs/event-hooks-design.md`: the native raise sites, the hook DLL and its protocol, how raises trigger trackers,
-  the script hooks behind `ScriptPreFired`/`ScriptPostFired` (§2.6) and the interface events (§2.7).
+  the script hooks behind `ScriptPreFired`/`ScriptPostFired` (§2.6), the interface events (§2.7), and chat,
+  hitsplats, focus and fake XP drops (§2.8).
 - `docs/in-game-drawing.md`: the highlight functions, the pump and present hooks, protocol v3's commands and the
   overlay surface layout; its last section lists the live checks still pending.
 - `docs/menu-actions.md`: the minimenu row bodies and packet helpers behind `Actions`, protocol v4's scratch and

@@ -1,0 +1,78 @@
+# Chat (docs/event-hooks-design.md §2.8): the client's chat history, for ChatMessage. The API reads the next line id
+# every poll and looks each new id up in the id-to-line map; the hook DLL's ON_CHAT_TRANSMIT raise, which the add
+# function fires right after filing a line, makes it read at once.
+#
+# Every chat line goes through one function, (type, name, text, sender). It finds the type's history buffer (a ring of
+# 100 lines, in a global hash map keyed by type), reuses the buffer's oldest line or makes a new one, fills it in
+# (a fresh id from a global counter, the client cycle, the type and the three strings), files it under its id in a
+# second global hash map, then raises ON_CHAT_TRANSMIT through its dedicated deferred wrapper (extractor
+# `chat_history`, chat.py).
+keys:
+  - key: functions.chatAddLine
+    type: "void(i32 type, const eastl.string* name, const eastl.string* text, const eastl.string* sender)"
+    priority: P1
+    internal: true
+    doc: Adds a line to the chat history and raises ON_CHAT_TRANSMIT; the anchor the line's layout and the maps are
+      found from.
+    strategies:
+      - extractor: { name: chat_history, field: functions.chatAddLine, cls: A }
+  - key: global.chatLines.buckets
+    type: ptr<ptr<ChatLineNode>[]>
+    priority: P1
+    live: chat
+    doc: The bucket pointer of the hash map from a line's id to the line (a node holds the key, then a
+      jag.shared_ptr<ChatLine>). Lines a type's buffer reuses are taken out and filed again under their new id.
+    strategies:
+      - extractor: { name: chat_history, field: global.chatLines.buckets, cls: A }
+  - key: global.chatLines.bucketCount
+    type: i64
+    priority: P1
+    live: chat
+    doc: That map's bucket count; a key's bucket is the id modulo its low 32 bits.
+    strategies:
+      - extractor: { name: chat_history, field: global.chatLines.bucketCount, cls: A }
+    invariants:
+      - equals: "global.chatLines.buckets + 8"
+  - key: global.chatLines.nextId
+    type: i32
+    priority: P1
+    live: chat
+    doc: The id the next chat line gets. Ids count up from 0 with every line of every type, so the lines added since
+      a read are the ids from that read's value up to this one.
+    strategies:
+      - extractor: { name: chat_history, field: global.chatLines.nextId, cls: A }
+  - key: ChatLine.type
+    type: i32
+    priority: P1
+    live: chat
+    doc: The chat type (0 game message, 2 public chat, 3 private chat, ...).
+    strategies:
+      - extractor: { name: chat_history, field: ChatLine.type, cls: A }
+  - key: ChatLine.cycle
+    type: i32
+    priority: P1
+    live: chat
+    doc: The client cycle (global.cycle) the line was added on.
+    strategies:
+      - extractor: { name: chat_history, field: ChatLine.cycle, cls: A }
+  - key: ChatLine.name
+    type: eastl.string
+    priority: P1
+    live: chat
+    doc: Who sent the line, with any icon tags; empty for game messages.
+    strategies:
+      - extractor: { name: chat_history, field: ChatLine.name, cls: A }
+  - key: ChatLine.text
+    type: eastl.string
+    priority: P1
+    live: chat
+    doc: The line's text, with its colour and image tags.
+    strategies:
+      - extractor: { name: chat_history, field: ChatLine.text, cls: A }
+  - key: ChatLine.sender
+    type: eastl.string
+    priority: P1
+    live: chat
+    doc: The channel the line came through (the friends chat's or clan's name); empty for most types.
+    strategies:
+      - extractor: { name: chat_history, field: ChatLine.sender, cls: A }

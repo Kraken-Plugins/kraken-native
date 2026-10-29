@@ -11,6 +11,7 @@ import com.kraken.api.definition.ObjectComposition;
 import com.kraken.api.definition.VarbitComposition;
 import com.kraken.api.highlight.Highlights;
 import com.kraken.api.internal.reader.ActorReader;
+import com.kraken.api.internal.reader.ChatReader;
 import com.kraken.api.internal.ConfigTypes;
 import com.kraken.api.internal.reader.GameReader;
 import com.kraken.api.internal.reader.GraphicsObjectReader;
@@ -45,6 +46,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BooleanSupplier;
 
 /**
  * The game client: the root of the API. Get it from {@code GameSession.client()}.
@@ -129,6 +131,17 @@ public final class Client extends GameReader {
      */
     @Getter
     private final MenuReader menuReader;
+
+    /**
+     * The reader the chat events read through. Internal plumbing for the API's own packages.
+     */
+    @Getter
+    private final ChatReader chatReader;
+
+    /**
+     * Whether the game has the keyboard focus; never, until {@code GameSession.attach} sets the check.
+     */
+    private volatile BooleanSupplier focus = () -> false;
 
     /**
      * The client's own highlights: model and tile outlines and fills drawn inside the 3D scene. Changes reach the
@@ -224,6 +237,7 @@ public final class Client extends GameReader {
         this.widgetReader = new WidgetReader(memory, mapping);
         this.scripts = new ScriptReader(memory, mapping);
         this.menuReader = new MenuReader(memory, mapping, this);
+        this.chatReader = new ChatReader(memory, mapping);
         this.topLevelWorldView = new WorldView(this);
         this.highlights = new Highlights(mapping);
         this.actions = new Actions(this, mapping);
@@ -322,6 +336,27 @@ public final class Client extends GameReader {
      */
     public int getGameCycle() {
         return cycleRva < 0 ? -1 : safeInt(memory.moduleBase() + cycleRva, -1);
+    }
+
+    /**
+     * Whether the game has the keyboard focus: the foreground window's focus is on one of the game's windows.
+     * Alt-tabbing away, clicking another window, or clicking a control beside the game in a window it is embedded in
+     * takes it away. Windows' focus state, not the client's: the client keeps none.
+     *
+     * @return true if keys typed now go to the game; false for a client not attached to a running game
+     */
+    public boolean isFocused() {
+        return focus.getAsBoolean();
+    }
+
+    /**
+     * Sets how {@link #isFocused()} finds out.
+     * Internal: {@code GameSession.attach} sets it for the attached process; tests set their own.
+     *
+     * @param focus the check
+     */
+    public void setFocusSource(BooleanSupplier focus) {
+        this.focus = focus;
     }
 
     /**

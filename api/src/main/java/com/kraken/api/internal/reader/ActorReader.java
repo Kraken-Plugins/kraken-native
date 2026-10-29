@@ -1,6 +1,7 @@
 package com.kraken.api.internal.reader;
 
 import com.kraken.api.Client;
+import com.kraken.api.Hitsplat;
 import com.kraken.api.actor.Actor;
 import com.kraken.api.actor.NPC;
 import com.kraken.api.actor.Player;
@@ -15,6 +16,8 @@ import com.kraken.api.memory.Memory;
 import com.kraken.api.memory.MemoryException;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Reads players and NPCs: finding one by index, and everything {@link Actor}, {@link NPC} and {@link Player} read from
@@ -42,6 +45,7 @@ public final class ActorReader extends GameReader {
     static final int MAX_PLAYER_INDEX = 0x7ff;
 
     private static final int MAX_LIST = 64;          // headbars per actor, updates per headbar
+    private static final int MAX_HITSPLATS = 16;
     private static final int MAX_FOLLOWER_VARPS = 64;
     private static final int MAX_WORLDS = 256;
     private static final int MAX_INDICES = 65536;
@@ -93,6 +97,8 @@ public final class ActorReader extends GameReader {
     private final int aHeadbarCount;
     private final int aHidden;          // nonzero = model hidden (render3D(false))
     private final int aRender2D;        // nonzero = 2D elements drawn
+    private final int aHitmarks;        // eastl::vector<Hitmark>: begin, then end
+    private final int aHitmarksEnd;
 
     // Npc and NpcType (the native struct the NPC points at)
     private final int npcType;
@@ -129,6 +135,12 @@ public final class ActorReader extends GameReader {
     private final int hueHealth;
     private final int hueHealth2;
     private final int hueCycleOffset;
+
+    // Hitmarks
+    private final int hmType;
+    private final int hmValue;
+    private final int hmEndCycle;
+    private final int hmSize;
 
     // World flags, followers and the varp array varbits read
     private final int cWorldFlags;
@@ -193,6 +205,8 @@ public final class ActorReader extends GameReader {
         this.aHeadbarCount = optionalOffset("Actor.headbarCount");
         this.aHidden = optionalOffset("Actor.hidden");
         this.aRender2D = optionalOffset("Actor.render2D");
+        this.aHitmarks = optionalOffset("Actor.hitmarks");
+        this.aHitmarksEnd = optionalOffset("Actor.hitmarksEnd");
 
         this.npcType = mapping.offset("Npc.type");
         this.npcIndex = mapping.has("Npc.index") ? mapping.offset("Npc.index") : optionalOffset("Npc.uidLow");
@@ -228,6 +242,10 @@ public final class ActorReader extends GameReader {
         this.hueHealth2 = mapping.has("HeadbarEntry.health2") ? mapping.offset("HeadbarEntry.health2")
                 : optionalOffset("HeadbarEntry.b");
         this.hueCycleOffset = optionalOffset("HeadbarEntry.cycleOffset");
+        this.hmType = optionalOffset("Hitmark.type");
+        this.hmValue = optionalOffset("Hitmark.value");
+        this.hmEndCycle = optionalOffset("Hitmark.endCycle");
+        this.hmSize = optionalOffset("Hitmark.size");
 
         this.cWorldFlags = optionalOffset("Client.worldFlags");
         this.cFollowerVarps = optionalOffset("Client.followerVarps");
@@ -647,6 +665,56 @@ public final class ActorReader extends GameReader {
     /** {@code isDead}: the native handler is exactly {@code isHealthbarRendered && isHeadbarEmpty}. */
     public boolean dead(long actor) {
         return healthbarRendered(actor) && headbarEmpty(actor);
+    }
+
+    /**
+     * The hitsplats an actor holds (the client's hitmarks), in the order of its slots. The client keeps a few per
+     * actor and writes each new one over a slot whose hitsplat has ended, onto the end while there is room, or over
+     * the one its type's rule picks, so the list holds ended hitsplats too. Not a Lua read.
+     *
+     * @param actor the actor's address
+     * @return the hitsplats, empty if it holds none; null if they can't be read or this build's mapping lacks them
+     */
+    public List<Hitsplat> hitsplats(long actor) {
+        if (actor == 0 || aHitmarks < 0 || aHitmarksEnd < 0 || hmType < 0 || hmValue < 0 || hmEndCycle < 0
+                || hmSize <= 0) {
+            return null;
+        }
+        long begin;
+        long end;
+        if (aHitmarksEnd == aHitmarks + 8) {
+            ByteBuffer pair = readBlock(actor + aHitmarks, 16);
+            if (pair == null) {
+                return null;
+            }
+            begin = pair.getLong(0);
+            end = pair.getLong(8);
+        } else {
+            begin = safeLong(actor + aHitmarks, -1);
+            end = safeLong(actor + aHitmarksEnd, -1);
+        }
+        if (begin == -1 || end == -1) {
+            return null;
+        }
+        if (begin == end) {
+            return List.of();
+        }
+        long bytes = end - begin;
+        if (begin == 0 || bytes <= 0 || bytes % hmSize != 0 || bytes / hmSize > MAX_HITSPLATS) {
+            return null;
+        }
+        ByteBuffer entries = readBlock(begin, (int) bytes);
+        if (entries == null) {
+            return null;
+        }
+        int count = (int) (bytes / hmSize);
+        List<Hitsplat> hitsplats = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            int at = i * hmSize;
+            hitsplats.add(new Hitsplat(entries.getInt(at + hmType), entries.getInt(at + hmValue),
+                    entries.getInt(at + hmEndCycle)));
+        }
+        return hitsplats;
     }
 
     private boolean hasHeadbars() {

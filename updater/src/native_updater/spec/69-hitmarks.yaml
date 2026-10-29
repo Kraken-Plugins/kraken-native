@@ -1,0 +1,60 @@
+# Hitmarks (docs/event-hooks-design.md §2.8): the hitsplats an actor shows, for HitsplatApplied. The API compares each
+# loaded actor's entries on the tick's polls and right after the NPC and player update decoders run.
+#
+# The NPC and player update masks hand each hitmark to one function, (actor, type, value, delay, cycle, a count from
+# the packet). The actor keeps its hitmarks in an eastl::vector of {type, value, end cycle} entries reused in place:
+# the new one goes over the first entry that has ended, onto the end while there is room, or over the entry its type's
+# rule picks, or nowhere. The add function takes too many arguments for the hook DLL's generic detour, so it isn't
+# hooked (extractor `actor_hitmarks`, hitmarks.py).
+keys:
+  - key: functions.addHitmark
+    type: "void(Actor*, i32 type, i32 value, i32 delay, i32 cycle, i32)"
+    priority: P1
+    internal: true
+    doc: Adds a hitmark to an actor; the anchor the vector and the entry layout are found from.
+    strategies:
+      - extractor: { name: actor_hitmarks, field: functions.addHitmark, cls: E }
+  - key: Actor.hitmarks
+    type: eastl.vector<Hitmark>
+    priority: P1
+    live: hitmarks
+    doc: The begin pointer of the actor's hitmark entries.
+    strategies:
+      - extractor: { name: actor_hitmarks, field: Actor.hitmarks, cls: E }
+  - key: Actor.hitmarksEnd
+    type: ptr<Hitmark>
+    priority: P1
+    live: hitmarks
+    doc: The vector's end pointer.
+    strategies:
+      - extractor: { name: actor_hitmarks, field: Actor.hitmarksEnd, cls: E }
+    invariants:
+      - equals: "Actor.hitmarks + 8"
+  - key: Hitmark.size
+    type: i32
+    priority: P1
+    live: hitmarks
+    doc: Bytes per entry.
+    strategies:
+      - extractor: { name: actor_hitmarks, field: Hitmark.size, cls: E }
+  - key: Hitmark.type
+    type: i32
+    priority: P1
+    live: hitmarks
+    doc: The hitmark type (a HitmarkType id, the hitsplat's look).
+    strategies:
+      - extractor: { name: actor_hitmarks, field: Hitmark.type, cls: E }
+  - key: Hitmark.value
+    type: i32
+    priority: P1
+    live: hitmarks
+    doc: The number it shows.
+    strategies:
+      - extractor: { name: actor_hitmarks, field: Hitmark.value, cls: E }
+  - key: Hitmark.endCycle
+    type: i32
+    priority: P1
+    live: hitmarks
+    doc: The client cycle it stops showing on (the cycle it arrived, plus its delay and its type's duration).
+    strategies:
+      - extractor: { name: actor_hitmarks, field: Hitmark.endCycle, cls: E }

@@ -290,6 +290,28 @@ def run_checks(r, log):
             hb_bad.append((kind, aid, cnt, steps))
     ok("headbars", actors and not hb_bad, "headbar lists terminate at their sentinel with the recorded count" if not hb_bad else f"{hb_bad[:3]}")
 
+    # Hitmarks: each actor's vector of {type, value, end cycle} entries is whole entries, a handful at most, and an
+    # entry's end cycle is never far past the client cycle (a hitmark shows for a few seconds).
+    if "Hitmark" not in m["structs"]:
+        skipped("hitmarks", "the mapping has no Hitmark keys")
+    else:
+        size, now, hm_bad, shown = r.off("Hitmark", "size"), r.i32(r.rva("cycle")), [], 0
+        for kind, aid, a in actors:
+            begin, end = r.ptr(a + r.off("Actor", "hitmarks")), r.ptr(a + r.off("Actor", "hitmarksEnd"))
+            if begin == 0 and end == 0:
+                continue
+            if end < begin or (end - begin) % size or (end - begin) // size > 16:
+                hm_bad.append((kind, aid, begin, end))
+                continue
+            for k in range((end - begin) // size):
+                entry = begin + k * size
+                ends = r.i32(entry + r.off("Hitmark", "endCycle"))
+                if ends - now > 2000:
+                    hm_bad.append((kind, aid, r.i32(entry + r.off("Hitmark", "type")), ends))
+                shown += ends > now
+        ok("hitmarks", actors and not hm_bad, f"hitmark vectors are whole entries; {shown} showing now" if not hm_bad
+           else f"{hm_bad[:3]}")
+
     # Projectiles: the list ends at its sentinel; every projectile has a plausible id, endpoints and timing, and a
     # placed one sits inside the scene.
     head = client + r.off("Client", "projectiles")
@@ -481,6 +503,26 @@ def run_checks(r, log):
            f"{len(subs)} sub-interfaces, all between open groups; inventory opened in {inventory}; modes "
            f"{sorted({t for _, _, t in subs})}; top-level {top}" if not bad
            else f"entries outside the open groups: {[(f'{c >> 16}:{c & 0xffff}', g) for c, g, _ in bad][:5]}")
+
+    # Chat: the newest lines, looked up by id below the next id. Logged in, the welcome message is there at least; every
+    # line has a chat type, text and a cycle no later than now.
+    if "ChatLine" not in m["structs"]:
+        skipped("chat", "the mapping has no ChatLine keys")
+    else:
+        next_id, now = r.i32(r.rva("chatLines.nextId")), r.i32(r.rva("cycle"))
+        lines_map = r.rva("chatLines.buckets") - r.const("hash_map", "buckets")
+        lines, chat_bad = [], []
+        for line_id in range(next_id - 1, max(next_id - 20, -1), -1):
+            line = r.hash_lookup(lines_map, line_id)
+            if line is None:
+                continue
+            kind, cyc = r.i32(line + r.off("ChatLine", "type")), r.i32(line + r.off("ChatLine", "cycle"))
+            text = r.string(line + r.off("ChatLine", "text"))
+            lines.append((line_id, kind, r.string(line + r.off("ChatLine", "name")), text))
+            if not (0 <= kind < 256) or not text or not (0 <= cyc <= now):
+                chat_bad.append((line_id, kind, cyc, text))
+        ok("chat", lines and not chat_bad, f"next id {next_id}; newest lines {lines[:3]}" if not chat_bad
+           else f"{chat_bad[:3]}")
 
     # The minimenu: the rows of what the mouse is over (or of the open menu), top first; the bottom row is "Cancel".
     if "Minimenu" not in m["structs"]:

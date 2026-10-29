@@ -48,38 +48,8 @@ tasks.withType(JavaExec).configureEach {
     systemProperties = System.properties
 }
 
-// The injected native event hook (client/src/main/native/kraken_hook). Its DLL is compiled from C++ by build.ps1 and
-// staged into a generated resources directory so the jar bundles it as native/kraken_hook.dll, which NativeEventServer
-// extracts and injects at runtime. processResources depends on the build below, so every client jar (and :client:run)
-// carries a current DLL. compileNativeHook is incremental - it re-runs only when the C++ source or build.ps1 changes -
-// and needs a C++ toolchain on PATH (see client/src/main/native/kraken_hook/README.md).
-def nativeHookDir = layout.projectDirectory.dir('src/main/native/kraken_hook')
-def nativeHookDll = nativeHookDir.file('kraken_hook.dll')
-def nativeHookResources = layout.buildDirectory.dir('generated-resources/native-hook')
-
-tasks.register('compileNativeHook', Exec) {
-    description = 'Compiles kraken_hook.dll from its C++ source via build.ps1 (needs a C++ toolchain).'
-    group = 'build'
-    workingDir nativeHookDir.asFile
-    commandLine 'powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'build.ps1'
-    inputs.file(nativeHookDir.file('kraken_hook.cpp'))
-    inputs.file(nativeHookDir.file('build.ps1'))
-    outputs.file(nativeHookDll)
-}
-
-tasks.register('buildNativeHook', Copy) {
-    description = 'Builds kraken_hook.dll and stages it into the client resources (bundled into the jar as native/kraken_hook.dll).'
-    group = 'build'
-    dependsOn 'compileNativeHook'
-    from nativeHookDll
-    into nativeHookResources.map { it.dir('native') }
-}
-
-sourceSets.main.resources.srcDir(nativeHookResources)
-
-tasks.named('processResources') {
-    dependsOn 'buildNativeHook'
-}
+// The injected native hook, kraken_hook.dll, built from C++ with CMake and bundled into the jar
+apply from: 'native-hook.gradle'
 
 application {
     mainClass = 'com.kraken.client.KrakenClient'

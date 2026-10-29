@@ -13,7 +13,10 @@
     "cameraTarget": "0xcfb0c4",
     "inventories.buckets": "0x154fab8",
     "inventories.bucketCount": "0x154fac0",
-    "scriptRunner": "0x154fe50"
+    "scriptRunner": "0x154fe50",
+    "chatLines.buckets": "0x154fa48",
+    "chatLines.bucketCount": "0x154fa50",
+    "chatLines.nextId": "0xe98b70"
   },
   "structs": {
     "Client": {
@@ -115,7 +118,9 @@
       "pathLength": "0x3ec",
       "poseAnims": "0x280",
       "overheadTimer": "0x2f4",
-      "name": "0x710"
+      "name": "0x710",
+      "hitmarks": "0x330",
+      "hitmarksEnd": "0x338"
     },
     "Headbar": {
       "type": "0x8",
@@ -446,6 +451,19 @@
       "keyCode": "0x68",
       "keyChar": "0x6c",
       "opbase": "0x70"
+    },
+    "ChatLine": {
+      "type": "0x40",
+      "cycle": "0x8",
+      "name": "0x48",
+      "text": "0x70",
+      "sender": "0xa0"
+    },
+    "Hitmark": {
+      "size": "0xc",
+      "type": "0x0",
+      "value": "0x4",
+      "endCycle": "0x8"
     },
     "Js5Archive": {
       "groupCount": "0x28",

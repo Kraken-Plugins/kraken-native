@@ -113,8 +113,10 @@ byte and the body, at most 4 MiB.
   stops the overlay.
 - `3 FRAME_LIMIT`: `u32 fps`, 0 (or over 1000) for none. The pump waits out each frame until it is due
   (`docs/in-game-drawing.md` §2.3). A new cap wakes a waiting pump; a dropped connection lifts it.
-- `4 SCRIPTS`: `u8 flags`, bit 0 for scripts starting and bit 1 for scripts returning. Ignored until
-  the script hooks are live; a dropped connection clears it.
+- `4 SCRIPTS`: `u8 flags`, `u8 count`, `count` � `i32` script id. Bit 0 asks for scripts starting,
+  bit 1 for scripts returning, bit 2 for root runs of the listed scripts starting (at most 8; the API
+  lists the XP drop script while `FakeXpDrop` has subscribers). Ignored until the script hooks are
+  live; a dropped connection clears it.
 
 The surface layout and its lock-free triple-buffer handshake are in `docs/in-game-drawing.md` §2.4.
 
@@ -149,32 +151,86 @@ The surface layout and its lock-free triple-buffer handshake are in `docs/in-gam
 - `client/.../callback/NativeEventServer.java` — the server, handshake builder, message reader and the
   read-only `onEvent` tap; bound in `SessionModule` and installed by `KrakenClient`'s attach listener.
 - `client/.../callback/NativeProtocol.java`, `NativeEvents.java` — the wire format and the capture plans.
-- `kraken_hook.cpp` — connects back, reads the handshake, installs the MinHook hooks, pushes messages,
-  runs call batches in the pump and draws the overlay in the present hook.
+- `src/` — the DLL: connects back, reads the handshake, installs the MinHook hooks, pushes messages,
+  runs call batches in the pump and draws the overlay in the present hook (see Source layout).
+
+## Source layout
+
+C++17, one module per feature. Each module is a header, declaring what other modules call, and a
+`.cpp`, holding the implementation and its state in an anonymous namespace so nothing else can touch
+it. Everything is in namespace `kraken`, one nested namespace per module (`kraken::pump`,
+`kraken::overlay`...).
+
+| File | What it does |
+|---|---|
+| `src/dllmain.cpp` | `DllMain` refuses a second injection and starts the init thread, which sets up the modules and runs the connection |
+| `src/protocol.h` | The wire format: every constant that `NativeProtocol`, `NativeEventServer` and `GameSurface` must match |
+| `src/connection.*` | The socket: connecting back, the handshake, the reader thread (commands) and the writer thread (the ring, STATUS, FRAME and FPS) |
+| `src/raises.*` | The raise hooks: one generic detour per slot and the capture plans |
+| `src/calls.*` | `CALLS`: the call queue, and running each call on the game thread under a guard |
+| `src/pump.*` | The pump hook: the frame cap (`FRAME_LIMIT`), then the queued calls |
+| `src/scripts.*` | The script hooks, `SCRIPTS` and the SCRIPT messages |
+| `src/overlay/overlay.*` | The present hook: uploading and drawing the overlay frame, and what FRAME reports |
+| `src/overlay/surface.*` | `SURFACE`: opening the shared-memory surface and handing it to the present thread |
+| `src/overlay/gl.*`, `gl_state.*` | The GL constants and entry points beyond GL 1.1; saving and restoring the client's GL state |
+| `src/core/ring.*` | The lock-free message ring between the game thread and the writer thread |
+| `src/core/hooks.*` | MinHook's setup and `installOnce` |
+| `src/core/memory.*`, `guard.h` | Guarded reads of the game's memory, and the SEH guard macros |
+| `src/core/process.*` | osclient.exe's base and image size, and the performance counter's frequency |
+| `src/core/frame_reader.h` | A bounds-checked reader over a command frame |
+
+A new source file goes in `add_library` in `CMakeLists.txt`. A new command takes a constant in
+`protocol.h` (and `NativeProtocol`), a handler in its module that reads the body from a `FrameReader`,
+and a `case` in `connection.cpp`'s reader thread. A guard (`GUARD_BEGIN`/`GUARD_END`) sits in a small
+function of its own: MSVC refuses `__try` in a function that holds objects with destructors.
 
 ## Build
 
-Needs a 64-bit C++ toolchain: Visual Studio / Build Tools with the "Desktop development with C++"
-workload, or a 64-bit MinGW `g++` (e.g. TDM-GCC) on PATH. The script finds the toolchain itself —
-from any PowerShell, no "x64 Native Tools" prompt needed — preferring MSVC (located via `vswhere` and
-initialised from `vcvars64.bat`) and falling back to `g++`. MinHook is cloned on first run. It is
-built as C++17.
+A CMake project (`CMakeLists.txt`, with named configurations in `CMakePresets.json`). It needs:
 
-A client build runs the script automatically: `processResources` depends on the `buildNativeHook` Gradle
-task, which compiles the DLL and stages it into the client resources, so every jar carries it as
-`native/kraken_hook.dll`. The compile is incremental — it re-runs only when `kraken_hook.cpp` or
-`build.ps1` changes — so it costs nothing on an unchanged tree. To build it on its own:
+- a 64-bit C++ toolchain: Visual Studio or its Build Tools with the "Desktop development with C++"
+  workload (preferred: only MSVC builds have the SEH guards), or a 64-bit MinGW `g++` and
+  `mingw32-make` on PATH (e.g. TDM-GCC);
+- CMake 3.25 or later. The Visual Studio workload installs one ("C++ CMake tools for Windows"), which
+  the Gradle build finds by itself; a CMake on PATH is used first.
+
+MinHook is downloaded on the first configure, at the commit `CMakeLists.txt` pins, and checked against
+its SHA-256. To build offline, point CMake at a MinHook folder with
+`-DFETCHCONTENT_SOURCE_DIR_MINHOOK=<path>`.
+
+A client build compiles the DLL automatically: `processResources` depends on `buildNativeHook`
+(`client/native-hook.gradle`), which runs the `msvc` preset when Visual Studio's C++ tools are installed
+and `mingw` otherwise, then stages the DLL into the client resources, so every jar carries it as
+`native/kraken_hook.dll`. Gradle skips the compile while `src/`, `CMakeLists.txt` and
+`CMakePresets.json` are unchanged. To build it on its own:
 
 ```bash
 ./gradlew :client:buildNativeHook
+./gradlew :client:buildNativeHook -PnativeHookPreset=mingw   # choose the preset
 ```
 
-To run the script directly instead:
+Everything the build writes goes to `client/build/native/kraken_hook/<preset>/`, which
+`./gradlew clean` removes: the DLL and, for MSVC, its `.pdb` in `bin/<config>/`, the object files and
+the MinHook download. Nothing is written next to the sources.
 
-```powershell
-cd client\src\main\native\kraken_hook
-powershell -ExecutionPolicy Bypass -File build.ps1
+To use CMake directly, from this folder, in any shell (the `msvc` preset needs no "x64 Native Tools"
+prompt):
+
+```bash
+cmake --workflow --preset msvc       # configure and build Release
+cmake --build --preset msvc-debug    # a Debug build, once msvc is configured
+cmake --workflow --preset mingw
 ```
+
+Visual Studio (Open Folder), VS Code (the CMake Tools extension) and CLion read the presets, so opening
+this folder in one of them gives code navigation and builds with no other setup.
+
+### Updating MinHook
+
+`CMakeLists.txt` names MinHook by commit in the download URL, with the archive's SHA-256 under it. To
+move to another commit, change it in the URL and change the hash: take the new archive's SHA-256
+(`certutil -hashfile <archive> SHA256`), or run a build and copy the actual hash from the mismatch
+error CMake prints.
 
 ## Run
 
@@ -184,7 +240,10 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 
 The DLL is loaded from the jar (the `native/kraken_hook.dll` resource staged by `buildNativeHook`) and
 extracted to a temporary file before injection; point `-Dkraken.hook.dll=<path>` at a built DLL on disk
-to use that instead (handy when iterating on the DLL without re-staging). Add
+to use that instead (handy when iterating on the DLL without re-staging), such as
+`client/build/native/kraken_hook/msvc/bin/Debug/kraken_hook.dll` from the `msvc-debug` preset. An MSVC
+DLL records where its `.pdb` is, so a debugger attached to `osclient.exe` (Visual Studio: Debug >
+Attach to Process) shows the DLL's own functions and lines. Add
 `-Dkraken.hook.projectileStep=true` to also hook the per-cycle projectile step (about 50 messages a
 second per projectile; off by default). While the hook is connected the API's timer poll slows to a
 safety-net rate and the hook drives the reads.

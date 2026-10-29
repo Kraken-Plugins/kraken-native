@@ -63,6 +63,8 @@ final class NativeEvents {
         map.put("ON_VAR_TRANSMIT", List.of());
         map.put("ON_STAT_TRANSMIT", List.of());
         map.put("ON_INV_TRANSMIT", List.of());
+        // Raised right after the client adds a chat line: the chat tracker reads the history's next id at once
+        map.put("ON_CHAT_TRANSMIT", List.of());
         // The op events: the client copies the menu entry it runs into the minimenu, then raises one of these, so the
         // click tracker reads the copy instead of a payload. ON_OBJ_OP is left out: its raiser takes its fifth and
         // sixth arguments (the obj's count and tile) on the stack, which the generic four-register detour can't

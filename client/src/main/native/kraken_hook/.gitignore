@@ -1,6 +1,6 @@
-# Build artifacts and the vendored hooking library (cloned by build.ps1)
-minhook/
-*.dll
-*.obj
-*.lib
-*.exp
+# The presets build into client/build/native/kraken_hook. These are the build folders and settings IDEs
+# keep next to a CMake project, and per-user presets.
+cmake-build-*/
+out/
+.vs/
+CMakeUserPresets.json

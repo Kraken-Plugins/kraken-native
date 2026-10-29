@@ -18,6 +18,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -132,15 +133,29 @@ class NativeProtocolTest {
     }
 
     @Test
-    void scriptCaptureFramesTheTwoFlags() {
-        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.scriptCapture(true, false)).order(ByteOrder.LITTLE_ENDIAN);
-        assertEquals(2, buf.getInt(), "the type byte and the flags");
+    void scriptCaptureFramesTheFlagsAndTheRootScripts() {
+        int[] none = {};
+        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.scriptCapture(true, false, none)).order(ByteOrder.LITTLE_ENDIAN);
+        assertEquals(3, buf.getInt(), "the type byte, the flags and the count");
         assertEquals(NativeProtocol.COMMAND_SCRIPTS, buf.get());
         assertEquals(1, buf.get(), "starts only");
+        assertEquals(0, buf.get(), "no root scripts");
         assertEquals(0, buf.remaining());
-        assertEquals(2, NativeProtocol.scriptCapture(false, true)[5], "returns only");
-        assertEquals(3, NativeProtocol.scriptCapture(true, true)[5]);
-        assertEquals(0, NativeProtocol.scriptCapture(false, false)[5]);
+        assertEquals(2, NativeProtocol.scriptCapture(false, true, none)[5], "returns only");
+        assertEquals(3, NativeProtocol.scriptCapture(true, true, none)[5]);
+        assertEquals(0, NativeProtocol.scriptCapture(false, false, none)[5]);
+
+        byte[] xpDrops = NativeProtocol.scriptCapture(false, false, new int[]{2091});
+        buf = ByteBuffer.wrap(xpDrops).order(ByteOrder.LITTLE_ENDIAN);
+        assertEquals(7, buf.getInt());
+        assertEquals(NativeProtocol.COMMAND_SCRIPTS, buf.get());
+        assertEquals(4, buf.get(), "the listed root scripts only");
+        assertEquals(1, buf.get());
+        assertEquals(2091, buf.getInt());
+        assertEquals(0, buf.remaining());
+
+        int[] many = IntStream.range(0, 20).toArray();
+        assertEquals(NativeProtocol.MAX_SCRIPT_ROOTS, NativeProtocol.scriptCapture(false, false, many)[6]);
     }
 
     @Test
@@ -358,7 +373,7 @@ class NativeProtocolTest {
 
     /**
      * Builds a message body in the DLL's format, so {@link NativeProtocol#parse} can be tested against bytes laid out
-     * the way {@code kraken_hook.cpp} lays them.
+     * the way the DLL lays them ({@code src/core/ring.cpp} and {@code src/raises.cpp}).
      *
      * @param seq     the sequence number
      * @param eventId the event id

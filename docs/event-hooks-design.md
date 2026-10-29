@@ -72,7 +72,7 @@ payload interpretations marked "to confirm" need the live check in §7):
 | ON_OBJ_OP (27) | `0x3928e0` fixed | 4, plus 2 on the stack | same dispatch: RDX → `char*` option, R8 → `int` as for NPCs, R9 → `int` obj id, then the obj count and the tile on the stack. `events.py` counts register arguments only, so the mapping says 4; the generic detour can't forward the stack arguments, so it is not hooked (§4.3) |
 | ON_CLIENTSCRIPT (38) | `0xc69a0` fixed | 3 | raised from the packet handler for the server's run-clientscript packet (`0x8c530` builds the Lua table from the request): script id and arguments. Not hooked; the script hooks (§2.6) see the run itself |
 | ON_VAR_TRANSMIT (11), ON_INV_TRANSMIT (12), ON_STAT_TRANSMIT (13), run energy/weight, reboot, friends, clans, stock, offers | `0x520b0` id in RCX, deferred | 1 | none in the arguments; the data is in the client's transmit state and the normal fields |
-| ON_CHAT_TRANSMIT (14), ON_FRIEND_CHANNEL_TRANSMIT (20), and second raisers for friends (15) and clan records (18) | dedicated deferred wrappers | 1 | RCX = client |
+| ON_CHAT_TRANSMIT (14), ON_FRIEND_CHANNEL_TRANSMIT (20), and second raisers for friends (15) and clan records (18) | dedicated deferred wrappers | 1 | RCX = client. ON_CHAT_TRANSMIT's (`0x63e70`) only caller is the chat add function, right after it files a line (§2.8) |
 
 Two hook targets that are not Lua events:
 
@@ -170,8 +170,9 @@ Wire format (protocol v5, `KRK5`): the handshake ends with a `u16` length and a 
 function RVAs and the runner's, the runner, frame, script and VarValue offsets, the three VarValue kinds, the
 request's fields, `IfType.packedId`/`subId` and the eastl string layout; `NativeProtocol.scriptLayout` writes it,
 `parseScriptLayout` in the DLL reads it); an empty block installs no script hooks. STATUS sets feature bit 8 once all
-four are hooked. Command `4 SCRIPTS {u8 flags}` (bit 0 starts, bit 1 returns) says what to send; nothing is sent
-until it asks, and a dropped connection resets it. A script message is id -6 with
+four are hooked. Command `4 SCRIPTS {u8 flags, u8 count, count x i32 id}` (bit 0 starts, bit 1 returns, bit 2 root
+runs of the listed scripts starting, at most 8) says what to send; nothing is sent until it asks, and a dropped
+connection resets it. A script message is id -6 with
 `regs = {kind (0 root start, 1 gosub, 2 return), id, depth, 0}`, no plan values, then the int stack's size, a `u16`
 count and up to 64 ints from its top, the object stack's size and up to 16 values from its top, then a request flag
 and, for a root run a request started, the source and target components' ids and indices, the op, sub-op, mouse x
@@ -242,6 +243,65 @@ Deliberate differences from posting in the client itself:
   every close is an unload.
 - The top-level interface posts `WidgetLoaded` when it changes, and never `WidgetClosed`.
 - ON_IF_LOAD isn't used: it fires once per component with an on-load script, not once per group.
+
+### 2.8 Chat, hitsplats, focus and fake XP drops
+
+Four more events, each from what the client keeps rather than a hook of their own. The addresses are 241.3's.
+
+**`ChatMessage`** comes from the chat history, mapped by `updater/src/native_updater/chat.py` (`spec/68-chat.yaml`).
+Every line goes through one function, `functions.chatAddLine` (`0x2e280`, `(type, name, text, sender)` with eastl
+strings; internal, the recipe's anchor): it finds the type's history buffer (a ring of 100 lines in a global hash map
+keyed by type, `0x154fa18`), reuses the buffer's oldest line or makes a new one, fills it in (`0x2f070`), files it
+under its id in a second global hash map (`global.chatLines.buckets` `0x154fa48`, `bucketCount` beside it; a node
+holds the id and a `shared_ptr<ChatLine>`), then raises ON_CHAT_TRANSMIT. Filling a line takes the id from a global
+counter (`global.chatLines.nextId`, `0xe98b70`; the counter's old value is the id), stores the client cycle
+(`ChatLine.cycle`) and the type (`ChatLine.type`), and copies the name, text and sender (`ChatLine.name`, `text`,
+`sender`). The client's own "[HH:MM]" timestamp string sits in the line too, unmapped. Logout (`0x8b800`) and one other
+reset (`0x8a5e0`) clear both maps and set the counter back to 0 (`0x2e730`).
+
+`ChatTracker` reads the counter every poll (one int) and, when it moved, looks each id from its last value up in the
+id map, posting a `ChatMessage` per line found, oldest first; a counter that went back means the history was cleared,
+so every id from 0 is new. The hook adds ON_CHAT_TRANSMIT to `NativeEvents`, which only makes the read happen at
+once. `MessageNode` is a snapshot of the line; its timestamp is when the API read it.
+
+**`HitsplatApplied`** comes from each actor's hitmarks, mapped by `updater/src/native_updater/hitmarks.py`
+(`spec/69-hitmarks.yaml`). The NPC and player update masks hand each hitmark to `functions.addHitmark` (`0x9e200`,
+`(actor, type, value, delay, cycle, count)`, called from `0x98dc0` and `0x1e7ad0` with `global.cycle`; internal). The
+actor keeps its hitmarks in an `eastl::vector` (`Actor.hitmarks` `0x330`, `hitmarksEnd` `0x338`) of 12-byte entries
+(`Hitmark.size`): `{type, value, end cycle}` (`Hitmark.type`, `value`, `endCycle`; end = arrival cycle + delay +
+the type's duration), reused in place. A new hitmark goes over the first entry that has ended, onto the end while the
+vector has fewer entries than the count allows, or, when every entry still shows, over the one its HitmarkType's rule
+picks (lowest end cycle, or lowest value if that is below the new one), or nowhere.
+
+The add function takes two stack arguments, so the generic detour can't hook it. `HitsplatTracker` compares every
+NPC's and player's entries on the tick's poll and the one after, and on the poll after `npcInfoDecode` or
+`playerInfoDecode` (hitmarks only arrive in those updates): a slot holding a different entry than at the last read is
+a new hitsplat. An actor seen for the first time posts the entries it still shows (it came into view with them).
+
+**`FocusChanged`** has no client state behind it. The game's window procedures (`0x6d21d0` for the frame, `0x6d1e00`
+and the input handler `0xadcbd0` for the render view) only move the focus to the render view and let go of held keys
+on `WM_KILLFOCUS`; nothing records whether the game has the focus, and the client sends no focus packet. So
+`Client.isFocused()` asks Windows (`internal.GameFocus`): the focus window of the foreground thread
+(`GetGUIThreadInfo(0)`) belongs to the game's process. That holds for a top-level game window and for one embedded in
+another process's window, since an embedded window shares its parent's input state. `FocusTracker` compares it every
+poll. Nothing is mapped for it.
+
+**`FakeXpDrop`** comes from the script hooks (§2.6). The server shows an XP drop that adds no XP (a skill at 200M XP)
+by running script 2091 with the skill and the XP through its run-clientscript packet (the case near `0x93fea`: the
+ON_CLIENTSCRIPT raise, then `0x198ef0` runs the request through `executeScript`), so the interpreter hook sees it as a
+root run with the request's arguments `{2091, skill, xp}`. While `FakeXpDrop` has subscribers, the API lists 2091 in
+the SCRIPTS command (bit 2), so the DLL reports that root run even with `ScriptPreFired` off, and `ScriptEvents`
+posts a `FakeXpDrop` after the script's `ScriptPreFired`.
+
+Deliberate differences from posting in the client itself:
+
+- All four come after the fact; a handler sees the game as it is now.
+- `ChatMessage`: lines added after the history was cleared and refilled to the same count between two polls aren't
+  seen (logout and login take many polls). Lines already there when tracking starts post nothing.
+- `HitsplatApplied`: a hitmark the client doesn't keep (every entry showing and the new one ranking below them) posts
+  nothing, nor does one written over within one update; the event's hitsplat is the entry as kept.
+- `FocusChanged` is Windows' keyboard focus, so clicking a control beside the embedded game counts as losing it.
+- `FakeXpDrop` needs the hook connected; without it the script reports never come.
 
 ## 3. The mapping contract
 
@@ -348,6 +408,9 @@ spawns before `GameTick`.
 | ON_NPC_OP, ON_LOC_OP, ON_TILE_OP, ON_PLAYER_OP, ON_COMPONENT_OP | `MenuClickTracker` | reads `Minimenu.clicked` now and posts `MenuOptionClicked` if the copy or its cycle count shows a new run; ON_OBJ_OP is not hooked (stack arguments), so ground item clicks come from the poll |
 | `objAdd` / `objDel` / `objCount` | `ItemTracker` | wired, but not hooked (stack arguments); piles are read on the poll |
 | `ifOpenSub` / `ifCloseSub` | `WidgetTracker` | applies the open and close reports in order, then compares the component table (§2.7); the table is also compared on every poll |
+| ON_CHAT_TRANSMIT | `ChatTracker` | reads the chat's next line id now (§2.8); it is also read on every poll |
+| `npcInfoDecode` / `playerInfoDecode` | `HitsplatTracker` | compares every actor's hitmarks right after the update (§2.8); also on the tick's polls |
+| (none) | `FocusTracker` | compares Windows' keyboard focus on every poll (§2.8) |
 
 While the hook is connected the events are read when a raise asks for it, and at least every 250 ms as a safety net,
 so a dropped message costs latency, not an event. Without a hook they are read every 20 ms.
@@ -435,3 +498,13 @@ events shows up as a `new`/`gone` `events.*` key in the run's diff.
   call on the game thread, that a dialogue's next line closes its group without unloading and opens it again in the
   same component, that the modes read 0, 1 or 3, what clears the table without closing each node (`0x8cde0`) and when,
   and that a `WidgetLoaded` handler finds the group's widgets.
+- Chat (§2.8): that the probe's `chat` check passes (the newest lines by id have text, a type and a past cycle), that
+  ON_CHAT_TRANSMIT fires once per line, what `0x8a5e0` (the second history reset) is, and that a busy public chat
+  posts every line once.
+- Hitsplats (§2.8): the probe's `hitmarks` check, that one hit posts one `HitsplatApplied` on the right actor with the
+  shown amount, what the count argument the update passes is (a cap on the entries), and that the end cycle matches
+  when the hitsplat disappears.
+- Focus (§2.8): `FocusChanged` on alt-tab, on clicking the Kraken sidebar and back into the game, and with the game
+  standalone.
+- Fake XP drops (§2.8): that a skill at 200M XP gaining XP makes the server run script 2091 with the skill and the XP,
+  as a root run the interpreter hook sees.
