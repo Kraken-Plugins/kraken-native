@@ -177,6 +177,50 @@ class ActorTest {
     }
 
     @Test
+    void theStrictDeathReadTellsAFailedReadFromAlive() {
+        NPC goblin = npc(5);
+        assertEquals(Boolean.TRUE, goblin.readDead());
+        assertEquals(Boolean.FALSE, client.getLocalPlayer().readDead(), "no head bars: not dead");
+
+        game.breakHeadbars(GameFixture.NPC);
+        assertFalse(goblin.isDead(), "Lua's read can only say no");
+        assertFalse(goblin.isHealthbarRendered());
+        assertNull(goblin.readDead(), "the strict read can't tell");
+
+        game.setHealthbar(GameFixture.NPC, 7);
+        assertEquals(Boolean.FALSE, goblin.readDead());
+        assertTrue(goblin.isHealthbarRendered());
+    }
+
+    @Test
+    void animationsReadTheSequenceTheClientSet() {
+        NPC goblin = npc(5);
+        assertEquals(-1, goblin.getAnimation(), "none");
+
+        game.setAnimation(GameFixture.NPC, 422);
+        assertEquals(422, goblin.getAnimation());
+        assertEquals(422, goblin.readAnimation());
+
+        game.setNpcLoaded(5, false);
+        assertEquals(-1, goblin.getAnimation(), "gone");
+        assertNull(goblin.readAnimation());
+    }
+
+    @Test
+    void theStrictTypeReadTellsAClearedTypeFromAnId() {
+        NPC goblin = npc(5);
+        assertEquals(3029, goblin.readId());
+
+        game.setNpcType(5, 3030);
+        assertEquals(3030, goblin.readId());
+        assertEquals(3030, goblin.getId());
+
+        game.setNpcType(5, -1);
+        assertNull(goblin.readId(), "the client clears the type as it removes the NPC");
+        assertEquals(-1, goblin.getId());
+    }
+
+    @Test
     void aMultiNpcShowsItsTransformedComposition() {
         NPC multi = npc(6);
         assertEquals(3100, multi.getId(), "the base type");

@@ -47,6 +47,9 @@ public record NativeEvent(String name, int id, long[] regs, Map<Integer, Object>
     public static final String PROJECTILE_STEP = "projectileStep";
     public static final String IF_OPEN_SUB = "ifOpenSub";
     public static final String IF_CLOSE_SUB = "ifCloseSub";
+    public static final String SET_VARC_INT = "setVarcInt";
+    public static final String SET_VARC_STRING = "setVarcString";
+    public static final String SET_SEQUENCE = "setSequence";
 
     /**
      * A captured {@code int32}, from a {@code RAW}, {@code I32} or {@code I64} value.

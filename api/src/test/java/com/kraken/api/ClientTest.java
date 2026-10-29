@@ -7,6 +7,7 @@ import com.kraken.api.definition.ObjectComposition;
 import com.kraken.api.gameval.InventoryID;
 import com.kraken.api.internal.ConfigTypes;
 import com.kraken.api.internal.ScriptStack;
+import com.kraken.api.internal.VarcValues;
 import com.kraken.api.item.EquipmentInventorySlot;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -246,6 +247,28 @@ class ClientTest {
     @Test
     void listsVarcs() {
         assertEquals(Map.of(10, 42, 30, -5, 20, "hello"), client.getVarcMap());
+    }
+
+    @Test
+    void readsEveryIntAndStringVarcInOneGo() {
+        game.setVarcs(Map.of(10, 42, 20, "hello", 30, -5, 40, GameFixture.LONG_TEXT));
+        VarcValues varcs = client.readVarcs();
+        assertEquals(Map.of(10, 42, 30, -5), varcs.ints());
+        assertEquals(Map.of(20, "hello", 40, GameFixture.LONG_TEXT), varcs.strings());
+
+        game.setVarcs(Map.of());
+        assertEquals(new VarcValues(Map.of(), Map.of()), client.readVarcs(), "an empty store");
+    }
+
+    @Test
+    void aVarcReadThatFailsPartWayGivesNothing() {
+        game.setVarcs(Map.of(10, 42, 40, GameFixture.LONG_TEXT));
+        game.memory.putLong(GameFixture.VARC_ENTRIES + game.map.offset("VarcEntry.size")
+                + game.map.offset("VarcEntry.value"), 0xdead0000L);
+        assertNull(client.readVarcs(), "a string whose text can't be read");
+
+        game.memory.putLong(GameFixture.CLIENT + game.map.offset("Client.varcs"), 0xdead0000L);
+        assertNull(client.readVarcs(), "a store that can't be read");
     }
 
     @Test

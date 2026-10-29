@@ -18,6 +18,7 @@ from .scripts import script_runner
 from .interfaces import sub_interfaces
 from .chat import chat_history
 from .hitmarks import actor_hitmarks
+from .varcs import varc_setters
 from .session import Blocked
 
 _cache = {}
@@ -1303,7 +1304,7 @@ EXTRACTORS = {
     "obj_pile_ops": obj_pile_ops, "player_lifecycle": player_lifecycle,
     "projectiles": projectiles, "minimenu": minimenu, "menu_ops": menu_ops, "dialog_packets": dialog_packets,
     "script_runner": script_runner, "sub_interfaces": sub_interfaces, "chat_history": chat_history,
-    "actor_hitmarks": actor_hitmarks,
+    "actor_hitmarks": actor_hitmarks, "varc_setters": varc_setters,
     "keyed_projectiles": keyed_projectiles,
     "graphics_objects": graphics_objects, "graphics_object_ctor": graphics_object_ctor,
     "loc_tag_kind": loc_tag_kind, "collision_record": collision_record, "renderer_layout": renderer_layout,

@@ -106,6 +106,25 @@ public final class StructReader {
      * @return the text, or "" if the block doesn't cover the string or the text can't be read
      */
     public String string(byte[] block, long blockAddress, int offset) {
+        try {
+            return readString(block, blockAddress, offset);
+        } catch (MemoryException e) {
+            return "";
+        }
+    }
+
+    /**
+     * Decodes an EASTL string held in a block of a struct read earlier, as {@link #string(byte[], long, int)}, but heap
+     * text that can't be read throws instead of reading as "", for callers that must tell a failed read from an empty
+     * string.
+     *
+     * @param block        the struct's bytes
+     * @param blockAddress where the block was read from, or -1 if unknown
+     * @param offset       where the string object starts in the block
+     * @return the text, or "" if the block doesn't cover the string or the string holds no text
+     * @throws MemoryException if the heap text can't be read
+     */
+    public String readString(byte[] block, long blockAddress, int offset) {
         if (offset < 0 || offset + strSize > block.length) {
             return "";
         }
@@ -124,11 +143,7 @@ public final class StructReader {
         if (blockAddress >= 0 && inBlock >= 0 && inBlock + length <= block.length) {
             return new String(block, (int) inBlock, (int) length, StandardCharsets.UTF_8);
         }
-        try {
-            return new String(memory.read(textAddress, (int) length), StandardCharsets.UTF_8);
-        } catch (MemoryException e) {
-            return "";
-        }
+        return new String(memory.read(textAddress, (int) length), StandardCharsets.UTF_8);
     }
 
     /**

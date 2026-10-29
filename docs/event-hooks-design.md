@@ -131,6 +131,9 @@ means the state is still there at the entry.
 | `setGameState` | `0x5b810` | pre | RCX Client*, EDX new state | `GameStateChanged` on every write |
 | `ifOpenSub` | `0x84fe0` | pre | RCX Client*, EDX component, R8D group, R9D modal mode | `WidgetLoaded` (§2.7) |
 | `ifCloseSub` | `0x851d0` | pre | RCX Client*, EDX component, R8D group, R9B unload | `WidgetClosed` (§2.7) |
+| `setVarcInt` | `0x33080` | pre | RCX the varc store, EDX varc id, R8D value | `VarClientIntChanged` (§2.9) |
+| `setVarcString` | `0x33340` | pre | RCX the varc store, EDX varc id, R8 → the script's string value | `VarClientStrChanged` (§2.9) |
+| `setSequence` | `0x9fe50` | post | RCX Actor*, EDX sequence, R8D delay | `AnimationChanged` (§2.10): an NPC's animation set by its update or the NPC animation packet |
 
 How they were found, so a new build can be checked by hand: `objAdd` is the one function that allocates, stores
 `GroundItem.id` and `GroundItem.count` and reads `Client.tickCount` (despawn timers); `objCount` and `objDel` are
@@ -303,6 +306,131 @@ Deliberate differences from posting in the client itself:
 - `FocusChanged` is Windows' keyboard focus, so clicking a control beside the embedded game counts as losing it.
 - `FakeXpDrop` needs the hook connected; without it the script reports never come.
 
+### 2.9 Varc events
+
+`VarClientIntChanged` and `VarClientStrChanged` come from the client's varc store and two plain function hooks, mapped
+by `updater/src/native_updater/varcs.py` (`spec/64-varcs.yaml`). The addresses are 241.3's.
+
+The Client points at the varc store (`Client.varcs`, `0x417ca8`): a vector of 48-byte entries sorted by id
+(`Varcs.entries`, `entriesEnd`), each holding the id (`VarcEntry.key`), a variant value (`VarcEntry.value`) and its kind
+(`VarcEntry.type`: 1 int, 2 string, 5 long, 4 a shared value the client builds for a few varcs). Lua's
+`getIntegerVarc` and `getStringVarc` binary-search it, and so do `Client.getVarcIntValue` and `getVarcStrValue`.
+
+Scripts are the only writers that set one varc. Each setter is called from one case of the interpreter
+(`functions.executeScriptInner`) and nowhere else:
+
+| Function | 241.3 | Called by | What it does |
+|---|---|---|---|
+| `functions.setVarcInt` | `0x33080` | op 43, SET_VARC_INT | `(store, id, value)`: finds the id's entry with the store's lower bound (`0x47a90`), inserts one if there is none, assigns the int, and marks the store for saving when the varc is a saved one |
+| `functions.setVarcString` | `0x33340` | op 50, SET_VARC_STRING | `(store, id, value)`: the same with the string value the case pops off the object stack |
+| (`0x331d0`) | | op 52 | the same for a long varc; not mapped, since neither event covers longs |
+
+The other writers work on the whole store: the logout reset (`0x8b800`) calls `0x33ae0`, which drops every varc that
+isn't saved, and `0x342f0` (called from `0x32d30` and `0x8c2e0`) loads the saved ones from `preferences*.dat`. The
+recipe takes the interpreter's dispatch (`scripts._op_cases`) and, in the case of each op, the one call whose first
+argument is the store (`[[global.client] + Client.varcs]`) and whose callee inserts into `Varcs.entries`. The ops are
+the cache's script opcodes, so they hold across builds.
+
+`VarcTracker` reads every int and string varc in one block read per poll (`Client.readVarcs`; strict, so a read that
+fails part way gives nothing rather than looking like varcs being dropped) and compares it with the values it knows: a
+varc whose value changed, or that was set or dropped, posts its event, ints then strings, each in id order.
+
+The two hooks are entry hooks whose payload is the raw registers (no plan): `setVarcInt` reports the id and the value,
+`setVarcString` only the id (a string's text can be on the heap, past what a capture plan reads). The tracker applies
+the reports in order before it compares. An int report posts if its value differs from the one the tracker knows, so
+each change a script makes posts, even several between two polls; a string report posts if the poll's read shows a
+new value for that varc. An entry hook's report can come before the write, so the varcs the reports touched sit out
+that poll's comparison, and a string write the read missed posts on the next poll.
+
+Deliberate differences from posting in the client itself:
+
+- The events come after the fact: a handler reads the varc's value as it is now.
+- A set to the value the varc already holds posts nothing.
+- A string varc set several times between two polls posts once. Without the hook, so does an int varc, and a varc
+  changed and changed back between two polls posts nothing.
+- Varcs the logout reset drops and the saved ones loading at login post too.
+- Long varcs and the shared values post nothing.
+
+`VarbitChanged` needed nothing new: `VarTracker` compares the client's varps every poll, and ON_VAR_TRANSMIT and
+ON_VARBIT_UPDATE make it read at once (§4.3).
+
+### 2.10 Animations, deaths and NPC changes
+
+`AnimationChanged`, `ActorDeath` and `NpcChanged` come from fields the mapping already had, plus one more function hook;
+nothing new in the mapping. The addresses are 241.3's.
+
+The three trackers compare one value per loaded actor (`internal.event.ActorValues`), keyed by slot (an NPC's index, or
+a player's index past every NPC index). The reads are strict: an actor that is gone or can't be read gives no value
+rather than a "nothing" value, and an actor the client lists but whose handle can't be pinned for a moment keeps the
+value the last read saw, so a failed read never looks like a change, or like an actor leaving and coming back.
+
+**`AnimationChanged`** comes from the actor's sequence, `Actor.anim` (`0x4d8`), read by `Actor.getAnimation()`. It sits
+in an animation block at `0x4c8` (the SeqType shared pointer, `Actor.animSeqType` at `0x4d0`, then the sequence, frame
+and loop count) that the client's animation helpers take whole; `0x5e4880` sets a block's sequence (a negative id
+clears it to -1) and `0x5e4b50` steps its frames. No Lua function reads it. The functions that change it:
+
+| Function | 241.3 | Called by | What it does |
+|---|---|---|---|
+| `functions.setSequence` | `0x9fe50` | the NPC update mask's sequence block (in `0x98dc0`, under `npcInfoDecode`) and the NPC animation packet (in the packet handler `0x8e500`) | `(actor, seq, delay)`: the sequence playing restarts by its SeqType's restart mode (`+0xe4`: 1 resets the frame and the delay, 2 the loop count) and isn't written again; another one is written unless it ranks below the one playing (SeqType priority, `+0xc8`); -1 always clears |
+| (`0x71470`) | | the player update mask's sequence block (`0x1e7d90`, a closure `playerInfoDecode` applies through `0x1dc130` and `0x1b7ed0`), the appearance block (`0x1e7550`, which clears the sequence), the local player's animation packet (`0x8e500`), a cs2 op (`0x1a59d0`) and a callback that animates the local player (`0x3a3b20`) | `(client, actor, seq, delay)`: the same rules, after swapping the sequence id through a table on the Client (`+0x26b0`). Not mapped: its calls with server updates run inside `playerInfoDecode`, which is hooked |
+| (`0x70d80`) | | the per-cycle actor step (`clientCycle` → `0x6b400` → `0x61680` → `0x6fdb0` per actor) | counts `Actor.animDelay` down, then steps the frames; when the step reports the sequence finished, clears it (`0x71221`) |
+| (`0x6fdb0`, `0x9f7f0`, `0x9f8c0`, `0xa2220`) | | the actor step; movement in the NPC and player updates | clear the sequence when the actor leaves the scene, or when it moves and its SeqType says moving cancels it (`+0xe0` = 1) |
+
+So the server starts animations inside the update decoders and the animation packets, while the client ends them on its
+own, any cycle. `AnimationTracker` reads every NPC's and player's animation on the tick's poll and the one after, and on
+the poll after `setSequence`, `npcInfoDecode` or `playerInfoDecode`; on the other polls it reads again only the actors
+playing an animation, whose animations can end between ticks, which keeps the per-poll cost to the animating actors. An
+actor seen for the first time posts one if it is playing an animation, and tracking that starts as the API attaches
+posts one per actor playing one (the replay rule, as for targets).
+
+The `setSequence` hook is an entry hook with no plan: the call can be refused (a lower priority) or only restart the
+sequence, so the tracker reads the actors rather than trusting the sequence in EDX. It takes three register arguments,
+so the generic detour forwards it.
+
+Deliberate differences from posting where the client writes the sequence:
+
+- The events come after the fact: a handler reads the animation as it is now.
+- An animation that starts and ends between two reads posts nothing, nor does one replaced and set back.
+- Restarting the sequence an actor is playing posts nothing, since the client doesn't write it again.
+- A start the local-player packet or a script makes between ticks (through `0x71470`, which isn't hooked) is seen on
+  the next tick's poll.
+
+**`ActorDeath`** comes from `Actor.isDead()`, Lua's `isDead`: a health bar (head bar type 0) is showing and one of the
+actor's head bars' current update shows 0/0. Head bar updates arrive in the NPC and player update masks, each with a
+start cycle (the server can delay it) and a duration (`HeadbarType.duration`). `DeathTracker` reads every actor's head
+bars on the tick's poll and the one after, and on the poll after `npcInfoDecode` or `playerInfoDecode`, and posts when
+`isDead()` turns true. The read is strict (`ActorReader.readDead`; Lua's three getters now share its walk and read a
+failure as false): a head bar or update list that can't be read, or breaks off at a null link, keeps the last answer, so
+it can't look like the actor coming back to life and dying again. An actor seen for the first time posts one if it is
+dead; tracking that starts posts none.
+
+Deliberate differences from posting as the update arrives:
+
+- The event comes when the empty bar starts showing: an update the server delays posts on the first tick's poll after
+  its start cycle.
+- An actor dies again only after a read shows it not dead: its empty bar timed out, or a later update shows health. A
+  second empty update while the first still shows posts nothing.
+- An actor the server kills without an empty health bar posts nothing.
+
+**`NpcChanged`** comes from each NPC's base type id (`Npc.type` → `NpcType.id`), read by `NPC.getId()`. A transform
+rewrites the type in place: the NPC update decoder (`0x98dc0`), for mask bit `0x2`, reads a 16-bit type id, loads the
+type (`functions.npcTypeLoader`, `0x5f18f0`) and assigns it to the NPC's type shared pointer (`0x3d440` on
+`npc + 0x728`, the control block; `Npc.type` at `0x730` is the object), then `0x9dad0` copies the new type's size and
+pose animations onto the NPC. The NPC's address and `Npc.spawnCycle` stay as they were, so its handle survives, and
+`ActorTracker` posts no despawn or spawn. Other writers: the add pass (`0x98470`) reuses an NPC it still holds at the
+index (looked up in `World.npcs`) or makes a new one, assigns the type and restamps `Npc.spawnCycle` from the packet;
+the removal (`0x9d070`) raises ON_NPC_UNLOAD, then clears the type pointer before it erases the NPC, which the strict
+read takes as no value.
+
+`NpcChangeTracker` compares every NPC's base type id on the tick's poll and the one after, and on the poll after
+`npcInfoDecode`, and posts the event with the old type's definition (`Client.getNpcDefinition`). A multi-NPC showing
+another child type isn't a change: its base type stays the same.
+
+Deliberate differences from posting as the type is assigned:
+
+- The event comes after the fact, and its old definition is decoded from the config archive by id.
+- A transform and its reversal between two reads post nothing.
+
 ## 3. The mapping contract
 
 ```json
@@ -411,6 +539,10 @@ spawns before `GameTick`.
 | ON_CHAT_TRANSMIT | `ChatTracker` | reads the chat's next line id now (§2.8); it is also read on every poll |
 | `npcInfoDecode` / `playerInfoDecode` | `HitsplatTracker` | compares every actor's hitmarks right after the update (§2.8); also on the tick's polls |
 | (none) | `FocusTracker` | compares Windows' keyboard focus on every poll (§2.8) |
+| `setVarcInt` / `setVarcString` | `VarcTracker` | applies the set reports in order, then compares the varc store (§2.9); the store is also compared on every poll |
+| `npcInfoDecode` | `NpcChangeTracker` | compares every NPC's base type id right after the update (§2.10); also on the tick's polls |
+| `setSequence`, `npcInfoDecode` / `playerInfoDecode` | `AnimationTracker` | reads every actor's animation now (§2.10); also on the tick's polls, and the animating actors on every poll |
+| `npcInfoDecode` / `playerInfoDecode` | `DeathTracker` | compares every actor's head bars right after the update (§2.10); also on the tick's polls |
 
 While the hook is connected the events are read when a raise asks for it, and at least every 250 ms as a safety net,
 so a dropped message costs latency, not an event. Without a hook they are read every 20 ms.
@@ -508,3 +640,15 @@ events shows up as a `new`/`gone` `events.*` key in the run's diff.
   standalone.
 - Fake XP drops (§2.8): that a skill at 200M XP gaining XP makes the server run script 2091 with the skill and the XP,
   as a root run the interpreter hook sees.
+- Varcs (§2.9): that typing in the chatbox reports `setVarcString` for `VarClientID.CHATINPUT` and posts
+  `VarClientStrChanged`, that opening an input dialogue posts `VarClientIntChanged` for `MESLAYERMODE`, how many sets a
+  second a busy interface makes (the ring and the poll keep up), and which varcs logging out drops.
+- Animations (§2.10): the probe's `anim` check; that chopping a tree posts `AnimationChanged` with the woodcutting
+  animation and, within a poll of the client clearing it, -1 when the player stops; that an NPC attacking raises
+  `setSequence` on the game thread; the poll's cost with many animating actors (a busy bank or a crowded fight); and
+  what `0x71470`'s swap table on the Client holds.
+- Deaths (§2.10): that killing an NPC posts one `ActorDeath` as its bar shows empty, that the local player's death
+  posts one, and how long an empty bar shows before it times out.
+- NPC changes (§2.10): that an NPC transforming (a boss's next phase) posts `NpcChanged` with the old definition and the
+  same handle, and whether the add pass ever reuses an NPC at an index while keeping its `Npc.spawnCycle` (that would
+  post `NpcChanged` where a new NPC came in).

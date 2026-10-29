@@ -712,6 +712,8 @@
     "packetWriteString": "0x3eb20",
     "packetSend": "0x202600",
     "packetRelease": "0x679720",
+    "setVarcInt": "0x33080",
+    "setVarcString": "0x33340",
     "dispatchEvent": "0xc44d0",
     "clientCycle": "0x58b70",
     "setGameState": "0x5b810",

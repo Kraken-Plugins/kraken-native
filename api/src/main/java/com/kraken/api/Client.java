@@ -20,6 +20,7 @@ import com.kraken.api.internal.MapCoord;
 import com.kraken.api.internal.reader.MenuReader;
 import com.kraken.api.internal.reader.ProjectileReader;
 import com.kraken.api.internal.ScriptStack;
+import com.kraken.api.internal.VarcValues;
 import com.kraken.api.internal.reader.ScriptReader;
 import com.kraken.api.internal.reader.SceneReader;
 import com.kraken.api.internal.reader.WidgetReader;
@@ -36,12 +37,14 @@ import com.kraken.api.widgets.WidgetNode;
 import lombok.Getter;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -719,6 +722,48 @@ public final class Client extends GameReader {
             }
         }
         return out;
+    }
+
+    /**
+     * Internal: every int and string varc, in one read of the varc store, for the varc events. The read is strict: a
+     * store, entry array or string text that can't be read gives null rather than part of the varcs, so a failed read
+     * never looks like varcs being dropped.
+     *
+     * @return the varcs (empty maps for an empty store), or null if the mapping lacks the varc keys or the store can't
+     *         be read
+     */
+    public VarcValues readVarcs() {
+        long client = varcsMapped() ? clientBase() : 0;
+        if (client == 0) {
+            return null;
+        }
+        try {
+            long store = memory.readPointer(client + cVarcs);
+            if (store == 0) {
+                return null;
+            }
+            long begin = memory.readPointer(store + varcsBegin);
+            long size = memory.readPointer(store + varcsEnd) - begin;
+            if (size < 0 || size % varcStride != 0 || size / varcStride > MAX_VARCS || (begin == 0 && size != 0)) {
+                return null;
+            }
+            Map<Integer, Integer> ints = new HashMap<>();
+            Map<Integer, String> strings = new HashMap<>();
+            byte[] block = size == 0 ? new byte[0] : memory.read(begin, (int) size);
+            ByteBuffer buffer = ByteBuffer.wrap(block).order(ByteOrder.LITTLE_ENDIAN);
+            for (int at = 0; at < block.length; at += varcStride) {
+                int id = buffer.getInt(at + varcKey);
+                int type = block[at + varcType] & 0xff;
+                if (type == VARC_INT) {
+                    ints.put(id, buffer.getInt(at + varcValue));
+                } else if (type == VARC_STRING) {
+                    strings.put(id, structs.readString(block, begin, at + varcValue));
+                }
+            }
+            return new VarcValues(ints, strings);
+        } catch (MemoryException e) {
+            return null;
+        }
     }
 
     /**
@@ -1403,9 +1448,7 @@ public final class Client extends GameReader {
      * @return {begin address, entry count}, or null if the mapping lacks the varc keys or the store can't be read
      */
     private long[] varcEntries() {
-        boolean mapped = cVarcs >= 0 && varcsBegin >= 0 && varcsEnd >= 0 && varcStride > 0 && varcKey >= 0
-                && varcValue >= 0 && varcType >= 0;
-        long client = mapped ? clientBase() : 0;
+        long client = varcsMapped() ? clientBase() : 0;
         long store = client == 0 ? 0 : safePointer(client + cVarcs);
         if (store == 0) {
             return null;
@@ -1417,6 +1460,16 @@ public final class Client extends GameReader {
             return null;
         }
         return new long[]{begin, count};
+    }
+
+    /**
+     * Whether the mapping has every key the varc reads need.
+     *
+     * @return true if the varc store can be read
+     */
+    private boolean varcsMapped() {
+        return cVarcs >= 0 && varcsBegin >= 0 && varcsEnd >= 0 && varcStride > 0 && varcKey >= 0 && varcValue >= 0
+                && varcType >= 0;
     }
 
     /**

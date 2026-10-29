@@ -10,6 +10,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.TreeSet;
 
 import static com.kraken.api.TestSupport.seedMapping;
 
@@ -54,7 +55,8 @@ import static com.kraken.api.TestSupport.seedMapping;
  *       2^40 (a string, an int and a long).
  *   <li>The chat history: lines 0 (a game message, {@link #WELCOME}) and 1 (public chat from Zezima), the next id 2.
  *       {@link #addChatLine} adds more, {@link #clearChat} empties it as logout does.
- *   <li>No hitsplats; {@link #setHitsplats} gives an actor some.
+ *   <li>No hitsplats; {@link #setHitsplats} gives an actor some. No actor plays an animation; {@link #setAnimation}
+ *       starts one. {@link #setHealthbar} gives an actor a health bar, {@link #setNpcType} transforms an NPC.
  * </ul>
  */
 public final class GameFixture {
@@ -80,6 +82,14 @@ public final class GameFixture {
     public static final long HEADBAR_TYPE = 0x440000000L;
     public static final long HEADBAR_UPDATE_NODE = 0x450000000L;
     public static final long HEADBAR_UPDATE = 0x460000000L;
+    /**
+     * Health bars {@link #setHealthbar} gives actors are allocated from here, a block per actor.
+     */
+    private static final long HEADBARS = 0x470000000L;
+    /**
+     * NPC types {@link #setNpcType} points NPCs at are allocated from here.
+     */
+    private static final long NPC_TYPES = 0x530000000L;
     public static final long PLAYER = 0x600000000L;
     public static final long PLAYER_NAME = 0x610000000L;
     public static final long BUCKETS_NPC = 0x700000000L;
@@ -92,6 +102,16 @@ public final class GameFixture {
     public static final long VARC_STORE = 0x810000000L;
     public static final long VARC_ENTRIES = 0x820000000L;
     public static final long VARC_STRING_HEAP = 0x830000000L;
+
+    /**
+     * The most varcs {@link #setVarcs} lays out.
+     */
+    public static final int MAX_VARCS = 16;
+
+    /**
+     * The heap room each varc's string has.
+     */
+    private static final int VARC_HEAP_SLOT = 0x100;
     public static final long FOLLOWER_VARPS = 0x840000000L;
     public static final long FRIEND_MANAGER = 0x850000000L;
     public static final long NAME_LISTS = 0x860000000L;
@@ -231,6 +251,8 @@ public final class GameFixture {
     private long pileHeap = PILE_HEAP;
     private long chatHeap = CHAT_HEAP;
     private final Map<Long, Long> hitsplatVectors = new HashMap<>();
+    private final Map<Long, Long> healthbars = new HashMap<>();
+    private final Map<Integer, Long> npcTypes = new HashMap<>();
 
     public GameFixture() throws IOException {
         map = seedMapping();
@@ -730,6 +752,60 @@ public final class GameFixture {
         memory.putInt(address + map.offset("Actor.pathZ"), z);
     }
 
+    /**
+     * Sets the animation an actor plays, as the client's sequence setters do.
+     *
+     * @param address  the NPC's or player's address, e.g. {@link #NPC}
+     * @param sequence the animation id, or -1 for none
+     */
+    public void setAnimation(long address, int sequence) {
+        memory.putInt(address + map.offset("Actor.anim"), sequence);
+    }
+
+    /**
+     * Points NPC 5 or 6 at another type, as the client does when the server transforms an NPC in place.
+     *
+     * @param index  5 or 6
+     * @param typeId the new type's id (3029 is the Goblin NPC 5 starts as), or -1 to clear the type pointer as the
+     *               client does while it removes an NPC
+     */
+    public void setNpcType(int index, int typeId) {
+        long type = typeId < 0 ? 0 : typeId == 3029 ? NPC_TYPE : npcTypes.computeIfAbsent(typeId, id -> {
+            long struct = NPC_TYPES + npcTypes.size() * 0x200L;
+            memory.alloc(struct, 0x200);
+            memory.putInt(struct + map.offset("NpcType.id"), id);
+            memory.putInt(struct + map.offset("NpcType.multiVarbit"), -1);
+            memory.putInt(struct + map.offset("NpcType.multiVarp"), -1);
+            return struct;
+        });
+        memory.putLong((index == 5 ? NPC : NPC_MULTI) + map.offset("Npc.type"), type);
+    }
+
+    /**
+     * Gives an actor one health bar (head bar type 0, 300 cycles) in place of the bars it had, its update from cycle
+     * 100 showing a health value: 0 shows the bar empty, so the actor dead.
+     *
+     * @param address the NPC's or player's address, e.g. {@link #PLAYER}
+     * @param health  the health both of the update's values show
+     */
+    public void setHealthbar(long address, int health) {
+        long block = healthbars.computeIfAbsent(address, a -> {
+            long at = HEADBARS + healthbars.size() * 0x100L;
+            memory.alloc(at, 0x100);
+            return at;
+        });
+        headbar(address, block, block + 0x20, block + 0x60, block + 0x80, health);
+    }
+
+    /**
+     * Breaks an actor's head bar list as a read racing the client's changes to it can find it: its first link is null.
+     *
+     * @param address the NPC's or player's address
+     */
+    public void breakHeadbars(long address) {
+        memory.putLong(address + map.offset("Actor.headbars") + map.container("list.node.next"), 0);
+    }
+
     private void buildClient() {
         memory.alloc(MODULE_BASE + map.global("client"), 8);
         memory.alloc(CLIENT, 0x420000);
@@ -844,6 +920,7 @@ public final class GameFixture {
         memory.putByte(NPC + map.offset("Actor.render2D"), 1);
         memory.putByte(NPC + map.offset("Actor.interactingType"), 2);
         memory.putInt(NPC + map.offset("Actor.interacting"), 7);
+        setAnimation(NPC, -1);
         buildHeadbar(NPC);
         memory.alloc(NPC_TYPE, 0x200);
         memory.putInt(NPC_TYPE + map.offset("NpcType.id"), 3029);
@@ -858,6 +935,7 @@ public final class GameFixture {
         memory.putInt(NPC_MULTI + map.offset("Actor.pathZ"), 3218);
         memory.putSsoString(NPC_MULTI + map.offset("Actor.name"), "");
         memory.putByte(NPC_MULTI + map.offset("Actor.render2D"), 1);
+        setAnimation(NPC_MULTI, -1);
         memory.putLong(NPC_MULTI + map.offset("Npc.type"), NPC_MULTI_TYPE);
         memory.putInt(NPC_MULTI + map.offset("Npc.index"), 6);
         memory.alloc(NPC_MULTI_TYPE, 0x200);
@@ -893,6 +971,7 @@ public final class GameFixture {
         memory.putInt(player + map.offset("Actor.pathX"), x);
         memory.putInt(player + map.offset("Actor.pathZ"), z);
         memory.putByte(player + map.offset("Actor.render2D"), 1);
+        setAnimation(player, -1);
         memory.putInt(player + map.offset("Player.index"), index);
         memory.putInt(player + map.offset("Player.level"), 0);
         memory.alloc(name, 0x30);
@@ -908,36 +987,51 @@ public final class GameFixture {
      * @param actor the NPC or player to give the bar to
      */
     private void buildHeadbar(long actor) {
+        memory.alloc(HEADBAR_TYPE, 0x40);
+        memory.putInt(HEADBAR_TYPE + map.offset("HeadbarType.id"), 0);
+        memory.putInt(HEADBAR_TYPE + map.offset("HeadbarType.duration"), 300);
+        memory.alloc(HEADBAR_NODE, 0x20);
+        memory.alloc(HEADBAR, 0x40);
+        memory.alloc(HEADBAR_UPDATE_NODE, 0x20);
+        memory.alloc(HEADBAR_UPDATE, 0x10);
+        headbar(actor, HEADBAR_NODE, HEADBAR, HEADBAR_UPDATE_NODE, HEADBAR_UPDATE, 0);
+    }
+
+    /**
+     * Links one health bar of type {@link #HEADBAR_TYPE} into an actor's list, in place of the bars it had, with one
+     * update at cycle 100.
+     *
+     * @param actor      the NPC or player
+     * @param node       the list node, 0x20 bytes
+     * @param headbar    the head bar, 0x40 bytes
+     * @param updateNode the update's list node, 0x20 bytes
+     * @param update     the update, 0x10 bytes
+     * @param health     the health both of the update's values show
+     */
+    private void headbar(long actor, long node, long headbar, long updateNode, long update, int health) {
         int next = map.container("list.node.next");
         int prev = map.container("list.node.prev");
         int value = map.container("list.node.value");
         long sentinel = actor + map.offset("Actor.headbars");
-        memory.putLong(sentinel + next, HEADBAR_NODE);
-        memory.putLong(sentinel + prev, HEADBAR_NODE);
+        memory.putLong(sentinel + next, node);
+        memory.putLong(sentinel + prev, node);
         memory.putLong(actor + map.offset("Actor.headbarCount"), 1);
-        memory.alloc(HEADBAR_NODE, 0x20);
-        memory.putLong(HEADBAR_NODE + next, sentinel);
-        memory.putLong(HEADBAR_NODE + prev, sentinel);
-        memory.putLong(HEADBAR_NODE + value, HEADBAR);
+        memory.putLong(node + next, sentinel);
+        memory.putLong(node + prev, sentinel);
+        memory.putLong(node + value, headbar);
 
-        memory.alloc(HEADBAR, 0x40);
-        memory.putLong(HEADBAR + map.offset("Headbar.type"), HEADBAR_TYPE);
-        long updates = HEADBAR + map.offset("Headbar.updates");
-        memory.putLong(updates + next, HEADBAR_UPDATE_NODE);
-        memory.putLong(updates + prev, HEADBAR_UPDATE_NODE);
-        memory.putLong(HEADBAR + map.offset("Headbar.updateCount"), 1);
-        memory.alloc(HEADBAR_TYPE, 0x40);
-        memory.putInt(HEADBAR_TYPE + map.offset("HeadbarType.id"), 0);
-        memory.putInt(HEADBAR_TYPE + map.offset("HeadbarType.duration"), 300);
-        memory.alloc(HEADBAR_UPDATE_NODE, 0x20);
-        memory.putLong(HEADBAR_UPDATE_NODE + next, updates);
-        memory.putLong(HEADBAR_UPDATE_NODE + prev, updates);
-        memory.putLong(HEADBAR_UPDATE_NODE + value, HEADBAR_UPDATE);
-        memory.alloc(HEADBAR_UPDATE, 0x10);
-        memory.putInt(HEADBAR_UPDATE + map.offset("HeadbarEntry.cycle"), 100);
-        memory.putInt(HEADBAR_UPDATE + map.offset("HeadbarEntry.health"), 0);
-        memory.putInt(HEADBAR_UPDATE + map.offset("HeadbarEntry.health2"), 0);
-        memory.putInt(HEADBAR_UPDATE + map.offset("HeadbarEntry.cycleOffset"), 0);
+        memory.putLong(headbar + map.offset("Headbar.type"), HEADBAR_TYPE);
+        long updates = headbar + map.offset("Headbar.updates");
+        memory.putLong(updates + next, updateNode);
+        memory.putLong(updates + prev, updateNode);
+        memory.putLong(headbar + map.offset("Headbar.updateCount"), 1);
+        memory.putLong(updateNode + next, updates);
+        memory.putLong(updateNode + prev, updates);
+        memory.putLong(updateNode + value, update);
+        memory.putInt(update + map.offset("HeadbarEntry.cycle"), 100);
+        memory.putInt(update + map.offset("HeadbarEntry.health"), health);
+        memory.putInt(update + map.offset("HeadbarEntry.health2"), health);
+        memory.putInt(update + map.offset("HeadbarEntry.cycleOffset"), 0);
     }
 
     /**
@@ -976,17 +1070,36 @@ public final class GameFixture {
         memory.putLong(CLIENT + map.offset("Client.followerVarps"), FOLLOWER_VARPS);
         memory.putLong(CLIENT + map.offset("Client.followerVarpsEnd"), FOLLOWER_VARPS + 4);
 
-        int stride = map.offset("VarcEntry.size");
         memory.putLong(CLIENT + map.offset("Client.varcs"), VARC_STORE);
         memory.alloc(VARC_STORE, 0x100);
-        memory.alloc(VARC_ENTRIES, 3 * stride);
+        memory.alloc(VARC_ENTRIES, MAX_VARCS * map.offset("VarcEntry.size"));
+        memory.alloc(VARC_STRING_HEAP, MAX_VARCS * VARC_HEAP_SLOT);
         memory.putLong(VARC_STORE + map.offset("Varcs.entries"), VARC_ENTRIES);
-        memory.putLong(VARC_STORE + map.offset("Varcs.entriesEnd"), VARC_ENTRIES + 3L * stride);
-        putIntVarc(VARC_ENTRIES, 10, 42);
-        putStringVarc(VARC_ENTRIES + stride, 20, "hello");
-        putIntVarc(VARC_ENTRIES + 2L * stride, 30, -5);
+        setVarcs(Map.of(10, 42, 20, "hello", 30, -5));
 
         setWorldFlags(0);
+    }
+
+    /**
+     * Rewrites the varc store with these varcs, in id order: an {@code Integer} is an int varc, a {@code String} a
+     * string varc (inline up to 23 bytes, else on the heap).
+     *
+     * @param varcs varc id to value, at most {@link #MAX_VARCS}
+     */
+    public void setVarcs(Map<Integer, Object> varcs) {
+        int stride = map.offset("VarcEntry.size");
+        int at = 0;
+        for (int id : new TreeSet<>(varcs.keySet())) {
+            long entry = VARC_ENTRIES + (long) at * stride;
+            memory.putBytes(entry, new byte[stride]);
+            if (varcs.get(id) instanceof Integer value) {
+                putIntVarc(entry, id, value);
+            } else {
+                putStringVarc(entry, id, (String) varcs.get(id), VARC_STRING_HEAP + (long) at * VARC_HEAP_SLOT);
+            }
+            at++;
+        }
+        memory.putLong(VARC_STORE + map.offset("Varcs.entriesEnd"), VARC_ENTRIES + (long) at * stride);
     }
 
     private void putIntVarc(long entry, int id, int value) {
@@ -995,9 +1108,18 @@ public final class GameFixture {
         memory.putByte(entry + map.offset("VarcEntry.type"), 1);
     }
 
-    private void putStringVarc(long entry, int id, String value) {
+    private void putStringVarc(long entry, int id, String value, long heap) {
         memory.putInt(entry + map.offset("VarcEntry.key"), id);
-        memory.putSsoString(entry + map.offset("VarcEntry.value"), value);
+        long text = entry + map.offset("VarcEntry.value");
+        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length <= map.container("string.ssoCapacity")) {
+            memory.putSsoString(text, value);
+        } else {
+            memory.putBytes(heap, bytes);
+            memory.putLong(text, heap);
+            memory.putLong(text + 8, bytes.length);
+            memory.putByte(text + map.container("string.heapFlagByte"), map.container("string.heapFlagMask"));
+        }
         memory.putByte(entry + map.offset("VarcEntry.type"), 2);
     }
 

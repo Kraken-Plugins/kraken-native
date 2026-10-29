@@ -1,0 +1,24 @@
+# Varc events (docs/event-hooks-design.md §2.9): where scripts set varcs, for VarClientIntChanged and
+# VarClientStrChanged. The API compares the varc store (Client.varcs) every poll; the hook DLL's entry hooks on the two
+# setters below make it post at once, one event per set, as the client makes them.
+#
+# Scripts are the only writers that set one varc. The interpreter's SET_VARC_INT case (op 43) calls the int setter
+# with the store, the varc id and the popped int; the SET_VARC_STRING case (op 50) calls the string setter with the
+# store, the id and the popped string value. Each setter inserts the id's entry if it has none and assigns the value.
+# The logout reset (dropping the varcs that aren't saved) and the login load (the saved ones) work on the whole store
+# and are left to the comparison (extractor `varc_setters`, varcs.py).
+keys:
+  - key: functions.setVarcInt
+    type: "void(Varcs*, i32 id, i32 value)"
+    priority: P1
+    doc: Sets an int varc; called only by the SET_VARC_INT case of the interpreter. Entry hook for
+      VarClientIntChanged; the id is in EDX and the value in R8D.
+    strategies:
+      - extractor: { name: varc_setters, field: functions.setVarcInt, cls: C }
+  - key: functions.setVarcString
+    type: "void(Varcs*, i32 id, const VarValue* value)"
+    priority: P1
+    doc: Sets a string varc from a script's string value; called only by the SET_VARC_STRING case of the interpreter.
+      Entry hook for VarClientStrChanged; the id is in EDX.
+    strategies:
+      - extractor: { name: varc_setters, field: functions.setVarcString, cls: C }

@@ -70,6 +70,16 @@ public final class NPC extends Actor {
     }
 
     /**
+     * The NPC's base type id, as {@link #getId()}, but read strictly: a read that fails gives null rather than -1.
+     * Internal: the NPC change events read through it; plugins call {@link #getId()}.
+     *
+     * @return the type id; null if the NPC is gone or its type can't be read
+     */
+    public Integer readId() {
+        return actors.readNpcTypeId(address());
+    }
+
+    /**
      * The NPC's index, the key the client keeps it under.
      *
      * @return the index

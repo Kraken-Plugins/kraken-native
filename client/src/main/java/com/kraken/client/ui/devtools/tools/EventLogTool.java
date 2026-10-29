@@ -12,6 +12,8 @@ import com.kraken.api.coords.LocalPoint;
 import com.kraken.api.coords.WorldPoint;
 import com.kraken.api.eventbus.Subscriber;
 import com.kraken.api.events.CanvasSizeChanged;
+import com.kraken.api.events.ActorDeath;
+import com.kraken.api.events.AnimationChanged;
 import com.kraken.api.events.ChatMessage;
 import com.kraken.api.events.FakeXpDrop;
 import com.kraken.api.events.FocusChanged;
@@ -29,6 +31,7 @@ import com.kraken.api.events.MenuEntryAdded;
 import com.kraken.api.events.MenuEntryRemoved;
 import com.kraken.api.events.MenuOpened;
 import com.kraken.api.events.MenuOptionClicked;
+import com.kraken.api.events.NpcChanged;
 import com.kraken.api.events.NpcDespawned;
 import com.kraken.api.events.NpcSpawned;
 import com.kraken.api.events.PlayerDespawned;
@@ -40,6 +43,8 @@ import com.kraken.api.events.ScriptPreFired;
 import com.kraken.api.events.StatChanged;
 import com.kraken.api.events.TileObjectDespawned;
 import com.kraken.api.events.TileObjectSpawned;
+import com.kraken.api.events.VarClientIntChanged;
+import com.kraken.api.events.VarClientStrChanged;
 import com.kraken.api.events.VarbitChanged;
 import com.kraken.api.events.WidgetClosed;
 import com.kraken.api.events.WidgetLoaded;
@@ -89,11 +94,15 @@ final class EventLogTool extends DevTool<List<String>> {
     private static final String OBJECTS = "objects";
     private static final String ITEMS = "items";
     private static final String INTERACTING = "interacting";
+    private static final String ANIMATIONS = "animations";
+    private static final String DEATHS = "deaths";
+    private static final String NPC_CHANGES = "npcChanges";
     private static final String PROJECTILES = "projectiles";
     private static final String GRAPHICS = "graphics";
     private static final String INVENTORIES = "inventories";
     private static final String STATS = "stats";
     private static final String VARS = "vars";
+    private static final String VARCS = "varcs";
     private static final String TICKS = "ticks";
     private static final String RESIZE = "resize";
     private static final String MENU_CLICKS = "menuClicks";
@@ -112,12 +121,16 @@ final class EventLogTool extends DevTool<List<String>> {
     private final ToolOption objectSpawns = option("objectSpawns", "Object spawns", false);
     private final ToolOption itemSpawns = option("itemSpawns", "Ground item spawns", false);
     private final ToolOption interacting = option("interacting", "Interacting changes", false);
+    private final ToolOption animations = option("animations", "Animation changes", false);
+    private final ToolOption deaths = option("deaths", "Actor deaths", true);
+    private final ToolOption npcChanges = option("npcChanges", "NPC transforms", true);
     private final ToolOption projectiles = option("projectiles", "Projectiles", true);
     private final ToolOption graphics = option("graphics", "Graphics objects", true);
     private final ToolOption inventories = option("inventories", "Inventory transmits", true);
     private final ToolOption stats = option("stats", "Stat transmits", true);
     private final ToolOption vars = option("vars", "Var transmits", false);
     private final ToolOption varbits = option("varbits", "Varbit updates", false);
+    private final ToolOption varcs = option("varcs", "Varc changes", false);
     private final ToolOption ticks = option("ticks", "Game ticks", false);
     private final ToolOption resize = option("resize", "Screen resizes", true);
     private final ToolOption menuClicks = option("menuClicks", "Menu clicks", true);
@@ -140,9 +153,9 @@ final class EventLogTool extends DevTool<List<String>> {
     EventLogTool() {
         super("events", "Event log", Category.DIAGNOSTICS, MaterialDesignL.LIGHTNING_BOLT_OUTLINE,
                 "A live log of the API's events (game state, NPC and player spawns, objects, ground items, "
-                        + "targets, projectiles, graphics objects, inventories, stats, vars, varbits, ticks, resizes, "
-                        + "menu clicks, menu entries, interfaces, scripts, chat messages, hitsplats, focus changes and "
-                        + "fake XP drops) as they're seen.");
+                        + "targets, animations, deaths, NPC transforms, projectiles, graphics objects, inventories, "
+                        + "stats, vars, varbits, varcs, ticks, resizes, menu clicks, menu entries, interfaces, "
+                        + "scripts, chat messages, hitsplats, focus changes and fake XP drops) as they're seen.");
     }
 
     @Override
@@ -216,11 +229,15 @@ final class EventLogTool extends DevTool<List<String>> {
         keep(OBJECTS, objectSpawns.isOn(), this::subscribeObjects);
         keep(ITEMS, itemSpawns.isOn(), this::subscribeItems);
         keep(INTERACTING, interacting.isOn(), this::subscribeInteracting);
+        keep(ANIMATIONS, animations.isOn(), this::subscribeAnimations);
+        keep(DEATHS, deaths.isOn(), this::subscribeDeaths);
+        keep(NPC_CHANGES, npcChanges.isOn(), this::subscribeNpcChanges);
         keep(PROJECTILES, projectiles.isOn(), this::subscribeProjectiles);
         keep(GRAPHICS, graphics.isOn(), this::subscribeGraphics);
         keep(INVENTORIES, inventories.isOn(), this::subscribeInventories);
         keep(STATS, stats.isOn(), this::subscribeStats);
         keep(VARS, vars.isOn() || varbits.isOn(), this::subscribeVars);
+        keep(VARCS, varcs.isOn(), this::subscribeVarcs);
         keep(TICKS, ticks.isOn(), this::subscribeTicks);
         keep(RESIZE, resize.isOn(), this::subscribeResize);
         keep(MENU_CLICKS, menuClicks.isOn(), this::subscribeMenuClicks);
@@ -310,6 +327,31 @@ final class EventLogTool extends DevTool<List<String>> {
         });
     }
 
+    private void subscribeAnimations() {
+        on(ANIMATIONS, AnimationChanged.class, e -> {
+            if (animations.isOn()) {
+                add("AnimationChanged  " + actor(e.getActor()) + " → " + e.getActor().getAnimation());
+            }
+        });
+    }
+
+    private void subscribeDeaths() {
+        on(DEATHS, ActorDeath.class, e -> {
+            if (deaths.isOn()) {
+                add("ActorDeath  " + actor(e.getActor()));
+            }
+        });
+    }
+
+    private void subscribeNpcChanges() {
+        on(NPC_CHANGES, NpcChanged.class, e -> {
+            if (npcChanges.isOn()) {
+                add("NpcChanged  " + npc(e.getNpc()) + " was "
+                        + (e.getOld() == null ? "unknown" : e.getOld().getName() + " (" + e.getOld().getId() + ")"));
+            }
+        });
+    }
+
     private void subscribeProjectiles() {
         on(PROJECTILES, ProjectileSpawned.class, e -> {
             if (projectiles.isOn()) {
@@ -360,6 +402,21 @@ final class EventLogTool extends DevTool<List<String>> {
                 add("VarbitChanged  varp " + e.getVarpId() + " = " + e.getValue());
             } else if (e.getVarbitId() != -1 && varbits.isOn()) {
                 add("VarbitChanged  varbit " + e.getVarbitId() + " (varp " + e.getVarpId() + ") = " + e.getValue());
+            }
+        });
+    }
+
+    private void subscribeVarcs() {
+        Client client = session.client();
+        on(VARCS, VarClientIntChanged.class, e -> {
+            if (varcs.isOn()) {
+                add("VarClientIntChanged  varc " + e.getIndex() + " = " + client.getVarcIntValue(e.getIndex()));
+            }
+        });
+        on(VARCS, VarClientStrChanged.class, e -> {
+            if (varcs.isOn()) {
+                add("VarClientStrChanged  varc " + e.getIndex() + " = \"" + client.getVarcStrValue(e.getIndex())
+                        + "\"");
             }
         });
     }

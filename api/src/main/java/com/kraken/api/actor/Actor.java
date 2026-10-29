@@ -249,6 +249,39 @@ public abstract class Actor {
     }
 
     /**
+     * Whether the actor is dead, as {@link #isDead()}, but read strictly: a read that fails gives null rather than
+     * false.
+     * Internal: the death events read through it; plugins call {@link #isDead()}.
+     *
+     * @return true if dead, false if not; null if the actor is gone or its head bars can't be read
+     */
+    public Boolean readDead() {
+        return actors.readDead(address());
+    }
+
+    /**
+     * The animation the actor is playing: the sequence the server (or a script) last set, until the client finishes or
+     * cancels it. Read from the field the client's sequence setters write; no Lua function reads it.
+     *
+     * @return the animation id; -1 for none, or once the actor is gone
+     */
+    public int getAnimation() {
+        Integer animation = readAnimation();
+        return animation == null ? -1 : animation;
+    }
+
+    /**
+     * The actor's animation, as {@link #getAnimation()}, but read strictly: a read that fails gives null rather than
+     * -1.
+     * Internal: the animation events read through it; plugins call {@link #getAnimation()}.
+     *
+     * @return the animation id, -1 for none; null if the actor is gone or it can't be read
+     */
+    public Integer readAnimation() {
+        return actors.readAnimation(address());
+    }
+
+    /**
      * The hitsplats the actor holds, in the order of the client's slots, ended ones included.
      * Internal: the hitsplat events read through it; plugins subscribe to {@code HitsplatApplied}.
      *

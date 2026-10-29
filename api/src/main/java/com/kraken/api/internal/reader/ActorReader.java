@@ -99,6 +99,7 @@ public final class ActorReader extends GameReader {
     private final int aRender2D;        // nonzero = 2D elements drawn
     private final int aHitmarks;        // eastl::vector<Hitmark>: begin, then end
     private final int aHitmarksEnd;
+    private final int aAnim;
 
     // Npc and NpcType (the native struct the NPC points at)
     private final int npcType;
@@ -207,6 +208,7 @@ public final class ActorReader extends GameReader {
         this.aRender2D = optionalOffset("Actor.render2D");
         this.aHitmarks = optionalOffset("Actor.hitmarks");
         this.aHitmarksEnd = optionalOffset("Actor.hitmarksEnd");
+        this.aAnim = optionalOffset("Actor.anim");
 
         this.npcType = mapping.offset("Npc.type");
         this.npcIndex = mapping.has("Npc.index") ? mapping.offset("Npc.index") : optionalOffset("Npc.uidLow");
@@ -632,39 +634,82 @@ public final class ActorReader extends GameReader {
         return actor == 0 || aRender2D < 0 || safeU8(actor + aRender2D, 1) != 0;
     }
 
-    /** {@code isHealthbarRendered}: some head bar in the actor's list is a health bar (head bar type 0). */
+    /**
+     * The actor's animation: the sequence the client last set ({@code Actor.anim}, which {@code setSequence} and the
+     * player's sequence setter write), set back to -1 when the animation finishes or is cancelled. Not a Lua read: no
+     * Lua function reads it.
+     *
+     * @param actor the actor's address
+     * @return the sequence id, -1 for none; null if it can't be read or this build's mapping lacks it
+     */
+    public Integer readAnimation(long actor) {
+        if (actor == 0 || aAnim < 0) {
+            return null;
+        }
+        try {
+            return memory.readInt(actor + aAnim);
+        } catch (MemoryException e) {
+            return null;
+        }
+    }
+
+    /**
+     * {@code isHealthbarRendered}: some head bar in the actor's list is a health bar (head bar type 0).
+     *
+     * @param actor the actor's address
+     * @return true if a health bar shows; false if not, or if the head bars can't be read
+     */
     public boolean healthbarRendered(long actor) {
-        if (!hasHeadbars()) {
+        try {
+            long[] headbars = headbars(actor);
+            return headbars != null && hasHealthbar(headbars);
+        } catch (MemoryException e) {
             return false;
         }
-        for (long headbar : headbars(actor)) {
-            long type = safePointer(headbar + hbType);
-            if (type != 0 && safeInt(type + hbtId, -1) == 0) {
-                return true;
-            }
-        }
-        return false;
     }
 
-    /** {@code isHeadbarEmpty}: some head bar's current update shows both health values at zero. */
+    /**
+     * {@code isHeadbarEmpty}: some head bar's current update shows both health values at zero.
+     *
+     * @param actor the actor's address
+     * @return true if a head bar shows empty; false if not, or if the head bars can't be read
+     */
     public boolean headbarEmpty(long actor) {
-        if (!hasHeadbars() || hueCycle < 0 || hueHealth < 0 || hueHealth2 < 0 || hueCycleOffset < 0
-                || hbtDuration < 0 || cycleRva < 0) {
+        try {
+            long[] headbars = headbars(actor);
+            return headbars != null && Boolean.TRUE.equals(showsEmpty(headbars));
+        } catch (MemoryException e) {
             return false;
         }
-        int cycle = safeInt(memory.moduleBase() + cycleRva, 0);
-        for (long headbar : headbars(actor)) {
-            long update = currentUpdate(headbar, cycle);
-            if (update != 0 && safeInt(update + hueHealth, -1) == 0 && safeInt(update + hueHealth2, -1) == 0) {
-                return true;
-            }
-        }
-        return false;
     }
 
-    /** {@code isDead}: the native handler is exactly {@code isHealthbarRendered && isHeadbarEmpty}. */
+    /**
+     * {@code isDead}: the native handler is exactly {@code isHealthbarRendered && isHeadbarEmpty}.
+     *
+     * @param actor the actor's address
+     * @return true if dead; false if not, or if the head bars can't be read
+     */
     public boolean dead(long actor) {
-        return healthbarRendered(actor) && headbarEmpty(actor);
+        return Boolean.TRUE.equals(readDead(actor));
+    }
+
+    /**
+     * {@link #dead}, read strictly for the death events: a head bar or update list that can't be read or breaks off
+     * gives null rather than "not dead", so a failed read never looks like the actor coming back to life.
+     *
+     * @param actor the actor's address
+     * @return true if dead, false if not; null if the head bars can't be read or this build's mapping lacks their keys
+     */
+    public Boolean readDead(long actor) {
+        try {
+            long[] headbars = headbars(actor);
+            if (headbars == null) {
+                return null;
+            }
+            return hasHealthbar(headbars) ? showsEmpty(headbars) : Boolean.FALSE;
+        } catch (MemoryException e) {
+            return null;
+        }
     }
 
     /**
@@ -722,63 +767,132 @@ public final class ActorReader extends GameReader {
                 && hbUpdateCount >= 0;
     }
 
-    /** The head bars in the actor's list (the list holds shared_ptrs; each node's value is the head bar). */
-    private long[] headbars(long actor) {
-        if (actor == 0 || safeLong(actor + aHeadbarCount, 0) <= 0) {
-            return new long[0];
+    /**
+     * Whether some head bar is a health bar (head bar type 0).
+     *
+     * @param headbars the actor's head bars
+     * @return true if one is a health bar
+     * @throws MemoryException if a head bar or its type can't be read
+     */
+    private boolean hasHealthbar(long[] headbars) {
+        for (long headbar : headbars) {
+            long type = memory.readPointer(headbar + hbType);
+            if (type != 0 && memory.readInt(type + hbtId) == 0) {
+                return true;
+            }
         }
-        return listValues(actor + aHeadbars);
+        return false;
     }
 
-    /** The values of an eastl::list given its sentinel, at most {@link #MAX_LIST} of them. */
-    private long[] listValues(long sentinel) {
+    /**
+     * Whether some head bar's current update shows both health values at zero.
+     *
+     * @param headbars the actor's head bars
+     * @return true if one shows empty, false if none does; null if an update list breaks off or this build's mapping
+     *         lacks the update keys
+     * @throws MemoryException if the cycle, an update or a head bar type can't be read
+     */
+    private Boolean showsEmpty(long[] headbars) {
+        if (hueCycle < 0 || hueHealth < 0 || hueHealth2 < 0 || hueCycleOffset < 0 || hbtDuration < 0 || cycleRva < 0) {
+            return null;
+        }
+        int cycle = memory.readInt(memory.moduleBase() + cycleRva);
+        for (long headbar : headbars) {
+            long update = currentUpdate(headbar, cycle);
+            if (update == -1) {
+                return null;
+            }
+            if (update != 0 && memory.readInt(update + hueHealth) == 0 && memory.readInt(update + hueHealth2) == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The head bars in the actor's list (the list holds shared_ptrs; each node's value is the head bar), at most
+     * {@link #MAX_LIST} of them.
+     *
+     * @param actor the actor's address
+     * @return the head bars; null if the actor is 0, the list breaks off (a null link) or this build's mapping lacks
+     *         the head bar keys
+     * @throws MemoryException if the count or a link can't be read
+     */
+    private long[] headbars(long actor) {
+        if (actor == 0 || !hasHeadbars()) {
+            return null;
+        }
+        if (memory.readLong(actor + aHeadbarCount) <= 0) {
+            return new long[0];
+        }
+        long sentinel = actor + aHeadbars;
         long[] values = new long[MAX_LIST];
         int n = 0;
-        long node = safePointer(sentinel + listNext);
-        while (node != 0 && node != sentinel && n < MAX_LIST) {
-            long value = safePointer(node + listValue);
+        long node = memory.readPointer(sentinel + listNext);
+        for (int guard = 0; node != sentinel && guard < MAX_LIST; guard++) {
+            if (node == 0) {
+                return null;
+            }
+            long value = memory.readPointer(node + listValue);
             if (value != 0) {
                 values[n++] = value;
             }
-            node = safePointer(node + listNext);
+            node = memory.readPointer(node + listNext);
         }
         return java.util.Arrays.copyOf(values, n);
     }
 
     /**
-     * The head bar's update showing at {@code cycle}, or 0, like the client's lookup: the last update whose cycle has
+     * The head bar's update showing at {@code cycle}, like the client's lookup: the last update whose cycle has
      * started, if it hasn't expired (type duration + its offset + its cycle still ahead of now). The client also prunes
      * stale updates as it goes; that doesn't change the answer.
+     *
+     * @param headbar the head bar's address
+     * @param cycle   the client cycle now
+     * @return the update's address; 0 if none shows; -1 if the update list breaks off (a null link)
+     * @throws MemoryException if a link or a field can't be read
      */
     private long currentUpdate(long headbar, int cycle) {
-        if (safeLong(headbar + hbUpdateCount, 0) <= 0) {
+        if (memory.readLong(headbar + hbUpdateCount) <= 0) {
             return 0;
         }
         long sentinel = headbar + hbUpdates;
-        long first = safePointer(sentinel + listNext);
-        if (first == 0 || first == sentinel) {
+        long first = memory.readPointer(sentinel + listNext);
+        if (first == 0) {
+            return -1;
+        }
+        if (first == sentinel) {
             return 0;
         }
-        long firstUpdate = safePointer(first + listValue);
-        if (firstUpdate == 0 || safeInt(firstUpdate + hueCycle, Integer.MAX_VALUE) > cycle) {
+        long firstUpdate = memory.readPointer(first + listValue);
+        if (firstUpdate == 0 || memory.readInt(firstUpdate + hueCycle) > cycle) {
             return 0;
         }
         long node = first;
-        for (int guard = 0; node != 0 && node != sentinel && guard < MAX_LIST; guard++) {
-            long update = safePointer(node + listValue);
-            if (update == 0 || safeInt(update + hueCycle, Integer.MAX_VALUE) > cycle) {
+        for (int guard = 0; node != sentinel && guard < MAX_LIST; guard++) {
+            if (node == 0) {
+                return -1;
+            }
+            long update = memory.readPointer(node + listValue);
+            if (update == 0 || memory.readInt(update + hueCycle) > cycle) {
                 break;
             }
-            node = safePointer(node + listNext);
+            node = memory.readPointer(node + listNext);
         }
-        long selected = safePointer(node + listPrev);
-        long update = selected == 0 ? 0 : safePointer(selected + listValue);
-        long type = safePointer(headbar + hbType);
+        if (node == 0) {
+            return -1;
+        }
+        long selected = memory.readPointer(node + listPrev);
+        if (selected == 0) {
+            return -1;
+        }
+        long update = memory.readPointer(selected + listValue);
+        long type = memory.readPointer(headbar + hbType);
         if (update == 0 || type == 0) {
             return 0;
         }
-        long expires = (long) safeInt(type + hbtDuration, 0) + safeInt(update + hueCycleOffset, 0)
-                + safeInt(update + hueCycle, 0);
+        long expires = (long) memory.readInt(type + hbtDuration) + memory.readInt(update + hueCycleOffset)
+                + memory.readInt(update + hueCycle);
         return expires > cycle ? update : 0;
     }
 
@@ -791,6 +905,25 @@ public final class ActorReader extends GameReader {
     public int npcTypeId(long npc) {
         long type = npcTypeStruct(npc);
         return type == 0 ? -1 : safeInt(type + ntId, -1);
+    }
+
+    /**
+     * {@link #npcTypeId}, read strictly for the NPC change events: a type pointer that is 0 (the client clears it as
+     * it removes the NPC) or can't be read gives null rather than -1.
+     *
+     * @param npc the NPC's address
+     * @return the base type's id; null if it can't be read
+     */
+    public Integer readNpcTypeId(long npc) {
+        if (npc == 0) {
+            return null;
+        }
+        try {
+            long type = memory.readPointer(npc + npcType);
+            return type == 0 ? null : memory.readInt(type + ntId);
+        } catch (MemoryException e) {
+            return null;
+        }
     }
 
     /**

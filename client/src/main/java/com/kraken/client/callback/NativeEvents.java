@@ -101,6 +101,14 @@ final class NativeEvents {
         // the component table can't.
         map.put(NativeEvent.IF_OPEN_SUB, List.of());
         map.put(NativeEvent.IF_CLOSE_SUB, List.of());
+        // Scripts setting varcs: the varc tracker reads the id (and an int varc's value) from the raw registers, so it
+        // posts each change a script makes, even several between two polls
+        map.put(NativeEvent.SET_VARC_INT, List.of());
+        map.put(NativeEvent.SET_VARC_STRING, List.of());
+        // NPC animations being set (the update mask and the NPC animation packet): the animation tracker reads every
+        // actor's animation at once. The call can be refused (a lower-priority sequence), so it reads rather than
+        // trusting the sequence in EDX. Players' animations are set inside playerInfoDecode, already hooked.
+        map.put(NativeEvent.SET_SEQUENCE, List.of());
         return Collections.unmodifiableMap(map);
     }
 }
