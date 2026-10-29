@@ -56,6 +56,7 @@
       "keyedProjectiles": "0xcc88",
       "connection": "0x31a0",
       "pluginGate": "0x418690",
+      "topLevelInterface": "0x413bc8",
       "highlightManager": "0x89680"
     },
     "Varcs": {
@@ -230,7 +231,8 @@
     "SubInterfaceNode": {
       "key": "0x0",
       "next": "0x10",
-      "group": "0x4"
+      "group": "0x4",
+      "type": "0x8"
     },
     "IfStore": {
       "groupCount": "0x6888",
@@ -709,6 +711,8 @@
     "executeScriptInner": "0x199cc0",
     "scriptLookup": "0x322a0",
     "scriptSwapLocals": "0x198740",
+    "ifOpenSub": "0x84fe0",
+    "ifCloseSub": "0x851d0",
     "highlightNpcOn": "0x1b9ef0",
     "highlightNpcOff": "0x1bbdf0",
     "highlightNpcTypeOn": "0x1ba460",

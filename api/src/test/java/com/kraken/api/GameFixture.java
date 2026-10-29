@@ -171,6 +171,14 @@ public final class GameFixture {
     public static final String LONG_TEXT = "A line of chat long enough for the heap";
 
     /**
+     * The component table's buckets, and how many nodes its node area holds before {@link #setComponentTable} reuses
+     * them.
+     */
+    private static final int SUB_BUCKETS = 7;
+    private static final int SUB_NODES = 120;
+    private static final int SUB_NODE_SIZE = 0x20;
+
+    /**
      * Spot anim ids of the two projectiles in flight: the spell (first in the list) and the arrow.
      */
     public static final int SPELL_PROJECTILE = 91;
@@ -201,6 +209,7 @@ public final class GameFixture {
     private long tilePool = TILE_POOL;
     private long ifTypes = IF_TYPES;
     private long ifSlots = IF_SLOTS;
+    private int subNodes;
     private final Map<Integer, TreeMap<Integer, byte[]>> configFiles = new TreeMap<>();
     private long archiveHeap = ARCHIVE_HEAP;
     private long pileHeap = PILE_HEAP;
@@ -1371,16 +1380,56 @@ public final class GameFixture {
         openGroup(second, 149, 0, 970, 328, 0, 0);
         openGroup(third, 161, 0, 0, 0, 0, 0);
 
-        // The component table: the inventory is opened in the toplevel's first side panel; the chatbox in nothing
-        int subBuckets = 7;
-        memory.alloc(IF_SUB, 0x100);
+        // The component table: the inventory is opened in the toplevel's first side panel (not modal); the chatbox in
+        // nothing. The toplevel is the top-level interface
+        memory.alloc(IF_SUB, 0x100 + SUB_NODES * SUB_NODE_SIZE);
         memory.putLong(CLIENT + map.offset("Client.subInterfaces.buckets"), IF_SUB);
-        memory.putInt(CLIENT + map.offset("Client.subInterfaces.bucketCount"), subBuckets);
-        long node = IF_SUB + 0x80;
-        memory.putLong(IF_SUB + (long) Integer.remainderUnsigned(top | 1, subBuckets) * 8, node);
-        memory.putInt(node + map.offset("SubInterfaceNode.key"), top | 1);
-        memory.putInt(node + map.offset("SubInterfaceNode.group"), 149);
-        memory.putLong(node + map.offset("SubInterfaceNode.next"), 0);
+        memory.putInt(CLIENT + map.offset("Client.subInterfaces.bucketCount"), SUB_BUCKETS);
+        setComponentTable(new int[]{top | 1, 149, 1});
+        setTopLevelInterface(161);
+    }
+
+    /**
+     * Lays the client's component table out again with these entries, as its open and close functions leave it:
+     * each a group opened in a component, with the mode it was opened with. Each entry gets a new node, appended to
+     * its bucket's chain.
+     *
+     * @param entries each {@code {component, group, modalMode}}
+     */
+    public void setComponentTable(int[]... entries) {
+        long[] tails = new long[SUB_BUCKETS];
+        for (int b = 0; b < SUB_BUCKETS; b++) {
+            memory.putLong(IF_SUB + b * 8L, 0);
+        }
+        for (int[] entry : entries) {
+            long node = IF_SUB + 0x100 + (long) (subNodes++ % SUB_NODES) * SUB_NODE_SIZE;
+            memory.putInt(node + map.offset("SubInterfaceNode.key"), entry[0]);
+            memory.putInt(node + map.offset("SubInterfaceNode.group"), entry[1]);
+            memory.putInt(node + map.offset("SubInterfaceNode.type"), entry[2]);
+            memory.putLong(node + map.offset("SubInterfaceNode.next"), 0);
+            int bucket = Integer.remainderUnsigned(entry[0], SUB_BUCKETS);
+            memory.putLong(tails[bucket] == 0 ? IF_SUB + bucket * 8L : tails[bucket] + map.offset("SubInterfaceNode.next"),
+                    node);
+            tails[bucket] = node;
+        }
+    }
+
+    /**
+     * Sets the client's top-level interface.
+     *
+     * @param group the group, -1 for none
+     */
+    public void setTopLevelInterface(int group) {
+        memory.putInt(CLIENT + map.offset("Client.topLevelInterface"), group);
+    }
+
+    /**
+     * Gives the interface store a group of one layer, as the client loads a group's components when it opens it.
+     *
+     * @param group the group, below {@link #IF_GROUP_COUNT}
+     */
+    public void loadGroup(int group) {
+        groupSlots(group, component(group << 16, -1, -1, -1, WidgetType.LAYER, 0, 0, 10, 10));
     }
 
     /**

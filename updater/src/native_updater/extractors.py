@@ -15,6 +15,7 @@ from .minimenu import minimenu
 from .menuops import menu_ops
 from .dialogs import dialog_packets
 from .scripts import script_runner
+from .interfaces import sub_interfaces
 from .session import Blocked
 
 _cache = {}
@@ -1299,7 +1300,7 @@ EXTRACTORS = {
     "event_raisers": event_raisers, "cycle_function": cycle_function, "game_state_setter": game_state_setter,
     "obj_pile_ops": obj_pile_ops, "player_lifecycle": player_lifecycle,
     "projectiles": projectiles, "minimenu": minimenu, "menu_ops": menu_ops, "dialog_packets": dialog_packets,
-    "script_runner": script_runner,
+    "script_runner": script_runner, "sub_interfaces": sub_interfaces,
     "keyed_projectiles": keyed_projectiles,
     "graphics_objects": graphics_objects, "graphics_object_ctor": graphics_object_ctor,
     "loc_tag_kind": loc_tag_kind, "collision_record": collision_record, "renderer_layout": renderer_layout,

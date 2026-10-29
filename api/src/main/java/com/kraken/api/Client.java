@@ -111,7 +111,12 @@ public final class Client extends GameReader {
      */
     @Getter
     private final GraphicsObjectReader graphicsObjectReader;
-    private final WidgetReader widgets;
+
+    /**
+     * The reader the widgets and the interface events read through. Internal plumbing for the API's own packages.
+     */
+    @Getter
+    private final WidgetReader widgetReader;
     private final ScriptReader scripts;
 
     /**
@@ -216,7 +221,7 @@ public final class Client extends GameReader {
         this.inventories = new InventoryReader(memory, mapping, configTypes);
         this.projectileReader = new ProjectileReader(memory, mapping, this);
         this.graphicsObjectReader = new GraphicsObjectReader(memory, mapping, this, sceneReader);
-        this.widgets = new WidgetReader(memory, mapping);
+        this.widgetReader = new WidgetReader(memory, mapping);
         this.scripts = new ScriptReader(memory, mapping);
         this.menuReader = new MenuReader(memory, mapping, this);
         this.topLevelWorldView = new WorldView(this);
@@ -812,7 +817,7 @@ public final class Client extends GameReader {
      * @return the widget, or null if the client holds none there
      */
     public Widget getWidget(int groupId, int childId) {
-        return widgets.getWidget(groupId, childId);
+        return widgetReader.getWidget(groupId, childId);
     }
 
     /**
@@ -823,7 +828,7 @@ public final class Client extends GameReader {
      * @return the group's widgets by child id, null where the client holds none; null if it holds none for the group
      */
     public Widget[] getWidgetGroup(int groupId) {
-        return widgets.getGroup(groupId);
+        return widgetReader.getGroup(groupId);
     }
 
     /**
@@ -832,21 +837,30 @@ public final class Client extends GameReader {
      * @return the group ids, sorted; empty if they can't be read
      */
     public List<Integer> getOpenWidgetGroups() {
-        return widgets.getOpenGroups();
+        return widgetReader.getOpenGroups();
     }
 
     /**
      * The interfaces opened inside components, read now: the client's sub-interface table, which says, for example,
-     * which side panel the inventory is opened in. The top-level interface is opened in no component, so it isn't in
-     * it.
+     * which side panel the inventory is opened in, and how each was opened ({@link WidgetNode#getModalMode()}). The
+     * top-level interface is opened in no component, so it isn't in it ({@link #getTopLevelInterfaceId()}).
      *
      * @return each interface by the packed id of the component it is opened in; empty if the table can't be read or
      *         this build's mapping lacks it
      */
     public Map<Integer, WidgetNode> getComponentTable() {
-        Map<Integer, WidgetNode> table = new LinkedHashMap<>();
-        widgets.getSubInterfaces().forEach((component, group) -> table.put(component, new WidgetNode(group)));
-        return table;
+        return widgetReader.getComponentTable();
+    }
+
+    /**
+     * The top-level interface: the group every other open interface hangs from (the fixed, resizable or side-panel
+     * layout), opened in no component.
+     *
+     * @return its group id, e.g. {@code InterfaceID.TOPLEVEL_OSRS_STRETCH}; -1 while there is none (on the login
+     *         screen) or if it can't be read
+     */
+    public int getTopLevelInterfaceId() {
+        return widgetReader.getTopLevelInterface();
     }
 
     /**

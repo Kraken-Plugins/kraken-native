@@ -21,6 +21,8 @@ import com.kraken.api.events.PlayerSpawned;
 import com.kraken.api.events.ProjectileMoved;
 import com.kraken.api.events.StatChanged;
 import com.kraken.api.events.VarbitChanged;
+import com.kraken.api.events.WidgetClosed;
+import com.kraken.api.events.WidgetLoaded;
 import com.kraken.api.memory.MemoryException;
 
 import java.util.ArrayList;
@@ -47,9 +49,10 @@ import java.util.logging.Logger;
  *
  * <p><b>The replay rule.</b> A tracker that starts on the first poll (when the API attaches) posts the current state
  * as events: the game state, every object and ground item of the scene, every loaded NPC and player as spawned, every
- * actor's target, every skill's stats and every held inventory. From a plugin's point of view the client just logged
- * in. A tracker that starts later takes a silent baseline and sees no spawns until the next scene load. Vars, the
- * canvas size, projectiles already in flight and graphics objects already playing aren't replayed.
+ * actor's target, every skill's stats, every held inventory and every open interface as loaded. From a plugin's point
+ * of view the client just logged in. A tracker that starts later takes a silent baseline and sees no spawns until the
+ * next scene load. Vars, the canvas size, projectiles already in flight and graphics objects already playing aren't
+ * replayed.
  *
  * <p><b>Scene loads.</b> A newly loaded scene posts a spawn for every object and ground item in it, and no despawns
  * for the old scene's: plugins clear on {@code GameStateChanged(LOADING)}. A scene counts as new when the client comes
@@ -58,8 +61,9 @@ import java.util.logging.Logger;
  *
  * <p>Events in one poll are posted in this order: {@link GameStateChanged} (a {@code LOGGED_IN} after the scene's
  * events), object despawns then spawns, ground item despawns, quantity changes then spawns, {@link CanvasSizeChanged},
- * {@link StatChanged}, {@link VarbitChanged}, {@link ItemContainerChanged}, NPC despawns then spawns, player despawns
- * then spawns, {@link InteractingChanged}, {@link ProjectileMoved} per new or retargeted projectile, graphics objects
+ * {@link StatChanged}, {@link VarbitChanged}, {@link ItemContainerChanged}, interfaces closed and loaded
+ * ({@link WidgetClosed}, {@link WidgetLoaded}), NPC despawns then spawns, player despawns then spawns,
+ * {@link InteractingChanged}, {@link ProjectileMoved} per new or retargeted projectile, graphics objects
  * destroyed then created ({@link GraphicsObjectDestroyed}, {@link GraphicsObjectCreated}), {@link MenuOptionClicked},
  * {@link MenuEntryRemoved} then {@link MenuEntryAdded}, {@link MenuOpened}, a {@link GameTick} per step of the
  * client's tick counter, then a {@link ClientTick} per step of its cycle counter.
@@ -133,7 +137,7 @@ public final class EventSource {
         this.gameState = new GameStateTracker(context);
         this.sceneTrackers = List.of(new LocTracker(context), new ItemTracker(context));
         this.trackers = List.of(new CanvasTracker(context), new StatTracker(context), new VarTracker(context),
-                new ContainerTracker(context),
+                new ContainerTracker(context), new WidgetTracker(context),
                 new ActorTracker<>(context, Set.of("ON_NPC_LOAD", "ON_NPC_UNLOAD", NativeEvent.NPC_INFO_DECODE),
                         client::npcIndices, client::npc, NpcDespawned::new, NpcSpawned::new,
                         NpcSpawned.class, NpcDespawned.class),

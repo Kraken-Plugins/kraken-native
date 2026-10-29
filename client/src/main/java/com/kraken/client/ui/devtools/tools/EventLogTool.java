@@ -36,6 +36,8 @@ import com.kraken.api.events.StatChanged;
 import com.kraken.api.events.TileObjectDespawned;
 import com.kraken.api.events.TileObjectSpawned;
 import com.kraken.api.events.VarbitChanged;
+import com.kraken.api.events.WidgetClosed;
+import com.kraken.api.events.WidgetLoaded;
 import com.kraken.api.item.Item;
 import com.kraken.api.item.ItemContainer;
 import com.kraken.api.scene.GraphicsObject;
@@ -91,6 +93,7 @@ final class EventLogTool extends DevTool<List<String>> {
     private static final String RESIZE = "resize";
     private static final String MENU_CLICKS = "menuClicks";
     private static final String MENU_ENTRIES = "menuEntries";
+    private static final String INTERFACES = "interfaces";
     private static final String SCRIPT_STARTS = "scriptStarts";
     private static final String SCRIPT_RETURNS = "scriptReturns";
 
@@ -110,6 +113,7 @@ final class EventLogTool extends DevTool<List<String>> {
     private final ToolOption resize = option("resize", "Screen resizes", true);
     private final ToolOption menuClicks = option("menuClicks", "Menu clicks", true);
     private final ToolOption menuEntries = option("menuEntries", "Menu entries and opens", false);
+    private final ToolOption interfaces = option("interfaces", "Interfaces opened and closed", true);
     private final ToolOption scriptStarts = option("scriptStarts", "Scripts starting", false);
     private final ToolOption scriptReturns = option("scriptReturns", "Scripts returning", false);
 
@@ -124,7 +128,7 @@ final class EventLogTool extends DevTool<List<String>> {
         super("events", "Event log", Category.DIAGNOSTICS, MaterialDesignL.LIGHTNING_BOLT_OUTLINE,
                 "A live log of the API's events (game state, NPC and player spawns, objects, ground items, targets, "
                         + "projectiles, graphics objects, inventories, stats, vars, varbits, ticks, resizes, menu clicks, "
-                        + "menu entries and scripts) as they're seen.");
+                        + "menu entries, interfaces and scripts) as they're seen.");
     }
 
     @Override
@@ -207,6 +211,7 @@ final class EventLogTool extends DevTool<List<String>> {
         keep(RESIZE, resize.isOn(), this::subscribeResize);
         keep(MENU_CLICKS, menuClicks.isOn(), this::subscribeMenuClicks);
         keep(MENU_ENTRIES, menuEntries.isOn(), this::subscribeMenuEntries);
+        keep(INTERFACES, interfaces.isOn(), this::subscribeInterfaces);
         keep(SCRIPT_STARTS, scriptStarts.isOn(), this::subscribeScriptStarts);
         keep(SCRIPT_RETURNS, scriptReturns.isOn(), this::subscribeScriptReturns);
     }
@@ -385,6 +390,33 @@ final class EventLogTool extends DevTool<List<String>> {
                         + (e.getFirstEntry() == null ? "none" : menu(e.getFirstEntry())));
             }
         });
+    }
+
+    private void subscribeInterfaces() {
+        WidgetNames names = WidgetNames.get();
+        on(INTERFACES, WidgetLoaded.class, e -> {
+            if (interfaces.isOn()) {
+                add("WidgetLoaded  " + group(names, e.getGroupId()));
+            }
+        });
+        on(INTERFACES, WidgetClosed.class, e -> {
+            if (interfaces.isOn()) {
+                add("WidgetClosed  " + group(names, e.getGroupId()) + ", mode " + e.getModalMode()
+                        + (e.isUnload() ? "" : ", reopening"));
+            }
+        });
+    }
+
+    /**
+     * An interface group for the log: its id, and its name if it has one.
+     *
+     * @param names   the names from {@code gameval}
+     * @param groupId the group
+     * @return e.g. "149 INVENTORY"
+     */
+    private static String group(WidgetNames names, int groupId) {
+        String name = names.group(groupId);
+        return name.isEmpty() ? String.valueOf(groupId) : groupId + " " + name;
     }
 
     private void subscribeScriptStarts() {

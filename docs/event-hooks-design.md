@@ -65,7 +65,7 @@ payload interpretations marked "to confirm" need the live check in §7):
 | ON_NPC_LOAD (42), ON_NPC_UNLOAD (43) | `0xc7930` id in RCX | 3 | RDX → `char*` NPC name (an eastl::string's data), R8 → `int` = `hi << 16 \| lo` from two NPC fields, believed to be the NPC type id and its slot (to confirm) |
 | ON_LOC_LOAD (40), ON_LOC_UNLOAD (41) | `0xc7b20` / `0xc7c80` fixed | 4 | RDX → packed coord (to confirm: `plane<<28 \| x<<14 \| z`, world or scene), R8 → `char*` LocType name, R9 → `byte` from the loc record |
 | ON_VARBIT_UPDATE (46) | `0xc6ca0` fixed | 3 | RDX → `{int varbitId, int previous}`, R8 → `int` new value; only for varbits the client watches, inside the var packet handler |
-| ON_IF_LOAD (47) | `0x1b2030` fixed | 3 | RDX → `int` interface id (high 16 bits of the component key), R8 → `int` low 16 bits |
+| ON_IF_LOAD (47) | `0x1b2030` fixed | 3 | raised by the on-load runner (`0x19bff0`) once per component with an on-load script, after the script ran: RDX → `int` interface id (high 16 bits of the component key), R8 → `int` low 16 bits. Not hooked; the interface events hook the open function (§2.7) |
 | ON_TARGET_ENTER (21), ON_TARGET_LEAVE (22) | `0x3902b0` id in RCX | 2 | RDX → an object (not decoded) |
 | ON_NPC_OP (23), ON_PLAYER_OP (26), ON_COMPONENT_OP (28) | `0x3924f0` id in RCX | 4 | raised by the op dispatch (`0x3803d0`) for the menu entry being run, right after it is copied to `Minimenu.clicked`: RDX → `char*` option text, R8 → `int` (for an entry aimed by a selected item or spell, a field of the selection; else -1; to confirm), R9 → `int` the entry's `subjectIndex` (NPC or player index, component sub id) |
 | ON_LOC_OP (24), ON_TILE_OP (25) | `0x3926e0` / `0x3922f0` fixed | 4 / 3 | same dispatch: RDX → `char*` option; loc: R8 → `int` loc id, R9 → the world tile `{level, x, z}`; tile: R8 → the tile |
@@ -129,6 +129,8 @@ means the state is still there at the entry.
 | `projectileListUpdate` | `0xc5e10` | post | RCX Client*, RDX the list | once per cycle after every projectile stepped: a cheaper single trigger for the projectile tracker |
 | `clientCycle` | `0x58b70` | pre | RCX Client* | `ClientTick` |
 | `setGameState` | `0x5b810` | pre | RCX Client*, EDX new state | `GameStateChanged` on every write |
+| `ifOpenSub` | `0x84fe0` | pre | RCX Client*, EDX component, R8D group, R9D modal mode | `WidgetLoaded` (§2.7) |
+| `ifCloseSub` | `0x851d0` | pre | RCX Client*, EDX component, R8D group, R9B unload | `WidgetClosed` (§2.7) |
 
 How they were found, so a new build can be checked by hand: `objAdd` is the one function that allocates, stores
 `GroundItem.id` and `GroundItem.count` and reads `Client.tickCount` (despawn timers); `objCount` and `objDel` are
@@ -195,6 +197,51 @@ Deliberate differences from posting in the script engine itself:
 - A root run a trigger started has no request: its event's arguments are just its id, and its id is the trigger key
   `ClientScript.id` holds (at least `0x10000`).
 - There is no `ScriptCallbackEvent`: the native client's scripts have no callback op for plugins to hook.
+
+### 2.7 Interface events
+
+`WidgetLoaded` and `WidgetClosed` come from the client's component table and two plain function hooks, mapped by
+`updater/src/native_updater/interfaces.py` (`spec/67-interfaces.yaml`). The addresses are 241.3's.
+
+The client keeps the groups opened inside components in a hash map on the Client (`Client.subInterfaces`: a
+component's packed id to a node holding the group, `SubInterfaceNode.group`, and the modal mode the server opened it
+with, `SubInterfaceNode.type`: 0, 1 or 3), and the top-level interface in `Client.topLevelInterface` (-1 on the login
+screen). Every change to the table goes through two functions:
+
+| Function | 241.3 | What it is | Called by |
+|---|---|---|---|
+| `functions.ifOpenSub` | `0x84fe0` | `(client, component, group, mode)`: inserts the node, stores the group and the mode, lays the parent out again, then runs the group's on-load (`0x198f30`, a stub into `0x19bff0`, the one function raising ON_IF_LOAD: it loads the group's components and runs each one's on-load script) | the packet handler's open case and its resync |
+| `functions.ifCloseSub` | `0x851d0` | `(client, component, group, unload)`: erases the node, unloads the group's components if `unload` is set, drops the group's event flags, lays the top-level interface out again | the packet handler's open case (on a component already holding a group: `unload` unless it is the same group), close case, move case (on the destination) and resync (on the groups the server no longer lists); close-modal (`0x84e40`, the nodes of mode 0 and 3); the logout reset (`0x8b800`, every node) |
+
+The open-top case (and the resync, when the top-level interface changes) unloads the old top-level group, writes the
+new one and runs its on-load itself, with no function to hook. One path (`0x8cde0`) clears the table without closing
+each node.
+
+`WidgetTracker` compares the component table and the top-level interface on every poll with what it last saw: a group
+gone from its component posts `WidgetClosed` (with the mode it was opened with, `unload` true), a group come into one
+posts `WidgetLoaded`, and a group that moved to another component (the move case) posts neither. A new top-level
+interface posts `WidgetLoaded`, and the one it replaced posts nothing, since the client replaces it rather than
+closing it. The read is strict: one that fails part way, or finds a group id above `0xffff` (the table changing under
+the read), is dropped, and the next poll compares again.
+
+The two hooks are entry hooks whose payload is the raw registers (no plan). The tracker applies their reports in order
+before it compares, which adds what a comparison can't see: a group closed and opened again in the same component (the
+open case with the same group, which a dialogue does for each new line: `WidgetClosed` with `unload` false, then
+`WidgetLoaded`), and a group opened and closed between two polls. A report of a change a read already showed (an open
+of the group the component holds, a close of a group it doesn't hold) is passed over. An entry hook's report can reach
+the tracker before the change reaches memory, so the components the reports touched sit out that poll's comparison.
+
+`WidgetLoaded` waits until the interface store holds the group's components (`IfStoreGroup.count` above 0; the on-load
+runner loads them), for at most 50 polls, so a handler can read the widgets. The events behind it wait with it.
+
+Deliberate differences from posting in the client itself:
+
+- The events come after the fact: a handler sees the interface as it is now, and `WidgetClosed`'s widgets may already
+  be unloaded.
+- Without the hook, a group reopened in the same component or opened and closed between two polls posts nothing, and
+  every close is an unload.
+- The top-level interface posts `WidgetLoaded` when it changes, and never `WidgetClosed`.
+- ON_IF_LOAD isn't used: it fires once per component with an on-load script, not once per group.
 
 ## 3. The mapping contract
 
@@ -300,6 +347,7 @@ spawns before `GameTick`.
 | (none) | `GraphicsObjectTracker` | diffs the world's graphics object list on every poll (§2.4) |
 | ON_NPC_OP, ON_LOC_OP, ON_TILE_OP, ON_PLAYER_OP, ON_COMPONENT_OP | `MenuClickTracker` | reads `Minimenu.clicked` now and posts `MenuOptionClicked` if the copy or its cycle count shows a new run; ON_OBJ_OP is not hooked (stack arguments), so ground item clicks come from the poll |
 | `objAdd` / `objDel` / `objCount` | `ItemTracker` | wired, but not hooked (stack arguments); piles are read on the poll |
+| `ifOpenSub` / `ifCloseSub` | `WidgetTracker` | applies the open and close reports in order, then compares the component table (§2.7); the table is also compared on every poll |
 
 While the hook is connected the events are read when a raise asks for it, and at least every 250 ms as a safety net,
 so a dropped message costs latency, not an event. Without a hook they are read every 20 ms.
@@ -383,3 +431,7 @@ events shows up as a `new`/`gone` `events.*` key in the run's diff.
   `ScriptPostFired` pair up), that a component op's request carries the expected op, sub-op and source, how many
   scripts a busy interface (the bank) runs a frame and whether the ring keeps up, and the game's frame time with both
   kinds switched on.
+- Interface events (§2.7): that opening and closing the bank, a dialogue and the side panels each make one open or close
+  call on the game thread, that a dialogue's next line closes its group without unloading and opens it again in the
+  same component, that the modes read 0, 1 or 3, what clears the table without closing each node (`0x8cde0`) and when,
+  and that a `WidgetLoaded` handler finds the group's widgets.

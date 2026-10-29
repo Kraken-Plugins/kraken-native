@@ -45,6 +45,8 @@ public record NativeEvent(String name, int id, long[] regs, Map<Integer, Object>
     public static final String OBJ_COUNT = "objCount";
     public static final String PROJECTILE_CTOR = "projectileCtor";
     public static final String PROJECTILE_STEP = "projectileStep";
+    public static final String IF_OPEN_SUB = "ifOpenSub";
+    public static final String IF_CLOSE_SUB = "ifCloseSub";
 
     /**
      * A captured {@code int32}, from a {@code RAW}, {@code I32} or {@code I64} value.

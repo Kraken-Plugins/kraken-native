@@ -184,7 +184,8 @@ class WidgetTest {
     @Test
     void aGroupsTopLevelWidgetsParentIsTheComponentItIsOpenedIn() {
         int panel = TOPLEVEL << 16 | 1;
-        assertEquals(Map.of(panel, new WidgetNode(INVENTORY)), client.getComponentTable());
+        assertEquals(Map.of(panel, new WidgetNode(INVENTORY, WidgetModalMode.NON_MODAL)), client.getComponentTable());
+        assertEquals(TOPLEVEL, client.getTopLevelInterfaceId());
 
         Widget root = client.getWidget(INVENTORY, 0);
         assertEquals(panel, root.getParentId());

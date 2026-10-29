@@ -1,0 +1,41 @@
+# Interface events (docs/event-hooks-design.md §2.7): where the client opens and closes interfaces, for WidgetLoaded and
+# WidgetClosed. The API compares the open interfaces (the top-level one and Client.subInterfaces) every poll; the hook
+# DLL's entry hooks on the two functions below make it read at once and tell it about a group closed and opened again
+# in the same component (a dialogue moving to its next line), which a comparison can't see.
+#
+# The packet handler's interface cases (open, close, move, resync), the close-modal path and the logout reset all go
+# through the two functions. The open function inserts the component's node into Client.subInterfaces, stores the
+# group and the modal mode into it, then runs the group's on-load scripts (the on-load runner is the one function
+# raising ON_IF_LOAD). The close function erases the node and, when asked, unloads the group's components. Both lay
+# the top-level interface out again unless it is -1 (extractor `sub_interfaces`, interfaces.py).
+keys:
+  - key: functions.ifOpenSub
+    type: "void(Client*, i32 component, i32 group, i32 modalMode)"
+    priority: P1
+    doc: Opens a group in a component (the component's packed id) and runs the group's on-load scripts. Entry hook for
+      WidgetLoaded; the arguments are in EDX, R8D and R9D.
+    strategies:
+      - extractor: { name: sub_interfaces, field: functions.ifOpenSub, cls: A }
+  - key: functions.ifCloseSub
+    type: "void(Client*, i32 component, i32 group, bool unload)"
+    priority: P1
+    doc: Closes the group opened in a component, unloading its components when the last argument is set (it isn't
+      when the same group is opened again in the component right after). Entry hook for WidgetClosed; the arguments
+      are in EDX, R8D and R9B.
+    strategies:
+      - extractor: { name: sub_interfaces, field: functions.ifCloseSub, cls: A }
+  - key: Client.topLevelInterface
+    type: i32
+    priority: P1
+    live: subInterfaces
+    doc: The top-level interface's group, -1 while there is none (on the login screen).
+    strategies:
+      - extractor: { name: sub_interfaces, field: Client.topLevelInterface, cls: A }
+  - key: SubInterfaceNode.type
+    type: i32
+    priority: P1
+    live: subInterfaces
+    doc: The modal mode the group was opened with (0 modal, 1 not modal, 3 modal but clicks pass through); closing the
+      modal interfaces closes the nodes of mode 0 and 3.
+    strategies:
+      - extractor: { name: sub_interfaces, field: SubInterfaceNode.type, cls: A }

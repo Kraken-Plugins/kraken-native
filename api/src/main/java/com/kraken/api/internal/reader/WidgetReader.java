@@ -1,9 +1,11 @@
 package com.kraken.api.internal.reader;
 
 import com.kraken.api.Point;
+import com.kraken.api.internal.OpenInterfaces;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.api.memory.Memory;
 import com.kraken.api.widgets.Widget;
+import com.kraken.api.widgets.WidgetNode;
 import com.kraken.api.widgets.WidgetType;
 
 import java.nio.ByteBuffer;
@@ -22,7 +24,8 @@ import java.util.Map;
  * per static component, and per static component, a slot per dynamic child. A slot is a {@code jag::shared_ptr} to the
  * component. The groups on screen are also in a hash map from group id to where they are drawn
  * ({@link Coordinates}), and the groups opened inside a component in a hash map from that component's id to the group
- * (its sub-interfaces; the layer drawer draws the group it finds there after the layer's own children).
+ * and the mode it was opened with (its sub-interfaces; the layer drawer draws the group it finds there after the
+ * layer's own children). The top-level interface, opened in no component, is a field of the client.
  */
 public final class WidgetReader extends GameReader {
 
@@ -51,6 +54,8 @@ public final class WidgetReader extends GameReader {
     private static final int MAX_OPS = 64;
     private static final int MAX_CHAIN = 4096;
     private static final int MAX_DEPTH = 64;
+    private static final int MAX_GROUP = 0xffff;
+    private static final int MAX_MODE = 0xff;
 
     private final Map<String, Integer> fields = new HashMap<>();
     private final int snapshotSize;
@@ -73,6 +78,10 @@ public final class WidgetReader extends GameReader {
     private final int subKey;
     private final int subGroup;
     private final int subNext;
+    private final int subMode;
+    private final int subLow;
+    private final int subSpan;
+    private final int cTopLevel;
     private final int[] coordinates;
     private final boolean storeReady;
     private final boolean dynamicReady;
@@ -113,6 +122,16 @@ public final class WidgetReader extends GameReader {
         this.subKey = optionalOffset("SubInterfaceNode.key");
         this.subGroup = optionalOffset("SubInterfaceNode.group");
         this.subNext = optionalOffset("SubInterfaceNode.next");
+        this.subMode = optionalOffset("SubInterfaceNode.type");
+        this.cTopLevel = optionalOffset("Client.topLevelInterface");
+        int low = Math.min(Math.min(subKey, subGroup), subNext);
+        int high = Math.max(Math.max(subKey + 4, subGroup + 4), subNext + 8);
+        if (subMode >= 0) {
+            low = Math.min(low, subMode);
+            high = Math.max(high, subMode + 4);
+        }
+        this.subLow = low;
+        this.subSpan = high - low;
         this.storeReady = cStore >= 0 && storeGroupCount >= 0 && storeGroups >= 0 && groupStride > 0 && groupCount >= 0
                 && groupSlots >= 0 && slotStride > 0;
         this.dynamicReady = field("dynCount") >= 0 && field("dynSlots") >= 0 && field("layerSubId") >= 0;
@@ -186,33 +205,59 @@ public final class WidgetReader extends GameReader {
     /**
      * The groups opened inside components: the client's sub-interface table, read now.
      *
-     * @return each group by the packed id of the component it is opened in; empty if the table can't be read or this
-     *         build's mapping lacks it
+     * @return each group, with the mode it was opened with, by the packed id of the component it is opened in; empty if
+     *         the table can't be read or this build's mapping lacks it
      */
-    public Map<Integer, Integer> getSubInterfaces() {
-        Map<Integer, Integer> out = new LinkedHashMap<>();
+    public Map<Integer, WidgetNode> getComponentTable() {
+        Map<Integer, WidgetNode> table = readComponentTable(false);
+        return table == null ? new LinkedHashMap<>() : table;
+    }
+
+    /**
+     * The top-level interface: the group opened in no component, which the others hang from.
+     *
+     * @return its group id; -1 while there is none (on the login screen), if it can't be read or this build's mapping
+     *         lacks it
+     */
+    public int getTopLevelInterface() {
+        long client = clientBase();
+        return client == 0 || cTopLevel < 0 ? -1 : safeInt(client + cTopLevel, -1);
+    }
+
+    /**
+     * Internal. The top-level interface and the component table in one read, for the interface events. Strict where
+     * {@link #getComponentTable()} is lenient: a read that fails part way, or finds an entry no open interface could
+     * have (the table changing under the read), gives null rather than fewer entries.
+     *
+     * @return the open interfaces, or null if they can't be read now or this build's mapping lacks the table
+     */
+    public OpenInterfaces readOpenInterfaces() {
         long client = clientBase();
         if (client == 0 || !hasSubInterfaces()) {
-            return out;
+            return null;
         }
-        int count = safeInt(client + cSubCount, 0);
-        ByteBuffer heads = count <= 0 || count > MAX_SLOTS ? null : readBlock(safePointer(client + cSub), count * 8);
-        if (heads == null) {
-            return out;
-        }
-        int steps = 0;
-        for (int b = 0; b < count; b++) {
-            long node = heads.getLong(b * 8);
-            while (node != 0 && steps++ < MAX_CHAIN) {
-                int component = safeInt(node + subKey, -1);
-                int group = safeInt(node + subGroup, -1);
-                if (component != -1 && group >= 0) {
-                    out.put(component, group);
-                }
-                node = safePointer(node + subNext);
+        int top = -1;
+        if (cTopLevel >= 0) {
+            ByteBuffer field = readBlock(client + cTopLevel, 4);
+            if (field == null) {
+                return null;
             }
+            top = field.getInt(0);
         }
-        return out;
+        Map<Integer, WidgetNode> table = readComponentTable(true);
+        return table == null ? null : new OpenInterfaces(top, table);
+    }
+
+    /**
+     * Internal. How many static components the client holds for a group: 0 from when it opens the group until it has
+     * loaded the group's components from the cache.
+     *
+     * @param groupId the group
+     * @return the component count, or -1 if the interface store can't be read or doesn't reach the group
+     */
+    public int getGroupSize(int groupId) {
+        long entry = groupEntry(groupId);
+        return entry == 0 ? -1 : (int) Math.min(safeLong(entry + groupCount, -1), Integer.MAX_VALUE);
     }
 
     /**
@@ -223,12 +268,54 @@ public final class WidgetReader extends GameReader {
      *         can't be read
      */
     public int getMount(int groupId) {
-        for (Map.Entry<Integer, Integer> entry : getSubInterfaces().entrySet()) {
-            if (entry.getValue() == groupId) {
+        for (Map.Entry<Integer, WidgetNode> entry : getComponentTable().entrySet()) {
+            if (entry.getValue().getId() == groupId) {
                 return entry.getKey();
             }
         }
         return -1;
+    }
+
+    /**
+     * Walks the sub-interface table, reading each node (component, group, mode, next) at once.
+     *
+     * @param strict give null for a read that fails part way or an entry out of range, instead of skipping it
+     * @return each group by the packed id of the component it is opened in; null if strict and the read failed
+     */
+    private Map<Integer, WidgetNode> readComponentTable(boolean strict) {
+        Map<Integer, WidgetNode> out = new LinkedHashMap<>();
+        long client = clientBase();
+        if (client == 0 || !hasSubInterfaces()) {
+            return strict ? null : out;
+        }
+        int count = safeInt(client + cSubCount, 0);
+        ByteBuffer heads = count <= 0 || count > MAX_SLOTS ? null : readBlock(safePointer(client + cSub), count * 8);
+        if (heads == null) {
+            return strict ? null : out;
+        }
+        int steps = 0;
+        for (int b = 0; b < count; b++) {
+            long node = heads.getLong(b * 8);
+            while (node != 0) {
+                ByteBuffer fields = steps++ < MAX_CHAIN ? readBlock(node + subLow, subSpan) : null;
+                if (fields == null) {
+                    if (strict) {
+                        return null;
+                    }
+                    break;
+                }
+                int component = fields.getInt(subKey - subLow);
+                int group = fields.getInt(subGroup - subLow);
+                int mode = subMode >= 0 ? fields.getInt(subMode - subLow) : -1;
+                if (component >= 0 && group >= 0 && group <= MAX_GROUP && mode >= -1 && mode <= MAX_MODE) {
+                    out.put(component, new WidgetNode(group, mode));
+                } else if (strict) {
+                    return null;
+                }
+                node = fields.getLong(subNext - subLow);
+            }
+        }
+        return out;
     }
 
     /**

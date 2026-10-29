@@ -71,7 +71,8 @@ other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED
   functions, `HighlightConfig` layout and the DLL's pump/present hook sites are `spec/90-draw.yaml` (`highlights.py`);
   the minimenu row bodies and packet helpers behind menu actions are `spec/62-menu-actions.yaml` (`menuops.py`); the
   script runtime the DLL's script hooks sit on (runner, stacks, listener request) is `spec/66-scripts.yaml`
-  (`scripts.py`).
+  (`scripts.py`); the interface open and close functions and the top-level interface are `spec/67-interfaces.yaml`
+  (`interfaces.py`).
 - The mapping JSON holds only PROVEN/ANCHORED/INFERRED, non-`internal` keys. The evidence behind each value, plus every
   Lua binding's handler RVA, goes to `~/.kraken-native/cache/<sha256>/analysis.json`; read that when a value looks
   wrong.
@@ -123,6 +124,8 @@ other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED
   supertypes and interfaces of an event. `ScriptPreFired`/`ScriptPostFired` have no tracker: the hook reports each
   script with the top of the stacks (`GameSession.onScript`, only while they have subscribers), the API posts one event
   per report, and `Client.getIntStack()` and the other stack getters give the captured stacks while its handlers run.
+  `WidgetTracker` (`WidgetLoaded`/`WidgetClosed`) compares the component table every poll and also applies the
+  interface open and close hooks' reports in order, since a dialogue reopening its group shows no change in the table.
 - The `kraken-api-poll` thread is the "client thread": every 20 ms, or at once on a raise, it runs `invoke*` tasks,
   the events (`GameTick` after the tick's other events, a `ClientTick` per client cycle; with the hook connected only
   when a raise asks or every 250 ms), `invokeAtTickEnd` tasks, the frame listener (overlays), then the 150 ms poll
@@ -185,7 +188,7 @@ other keys) → consensus verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED
 - `docs/updater-design.md`: anchor classes, verdict rules, carry-forward and delta propagation. Read before changing
   `consensus.py`, `carry.py` or `verify.py`.
 - `docs/event-hooks-design.md`: the native raise sites, the hook DLL and its protocol, how raises trigger trackers,
-  and the script hooks behind `ScriptPreFired`/`ScriptPostFired` (§2.6).
+  the script hooks behind `ScriptPreFired`/`ScriptPostFired` (§2.6) and the interface events (§2.7).
 - `docs/in-game-drawing.md`: the highlight functions, the pump and present hooks, protocol v3's commands and the
   overlay surface layout; its last section lists the live checks still pending.
 - `docs/menu-actions.md`: the minimenu row bodies and packet helpers behind `Actions`, protocol v4's scratch and

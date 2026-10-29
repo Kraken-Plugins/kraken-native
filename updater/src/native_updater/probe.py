@@ -455,25 +455,32 @@ def run_checks(r, log):
     ok("widgets", any(g in (149, 162, 548, 161, 164) for g in groups), f"{len(groups)} interface groups open; known root ids present: {sorted(set(groups) & {149, 162, 548, 161, 164})}")
 
     # Sub-interfaces: component -> the group opened in it. Every entry's group is open, and so is the group its
-    # component is in; logged in, the inventory (149) is one of them.
+    # component is in; logged in, the inventory (149) is one of them. Each was opened with a modal mode (0, 1 or 3),
+    # and the top-level interface is an open root group.
     if "SubInterfaceNode" not in m["structs"]:
         skipped("subInterfaces", "the mapping has no SubInterfaceNode keys")
     else:
         sb = r.ptr(client + r.off("Client", "subInterfaces.buckets"))
         sc = r.i32(client + r.off("Client", "subInterfaces.bucketCount"))
+        has_mode = "type" in m["structs"]["SubInterfaceNode"]
         subs = []
         if 0 < sc < 8192 and sb:
             for b in range(min(sc, 256)):
                 node, steps = r.ptr(sb + 8 * b), 0
                 while node and steps < 32:
-                    subs.append((r.i32(node + r.off("SubInterfaceNode", "key")), r.i32(node + r.off("SubInterfaceNode", "group"))))
+                    subs.append((r.i32(node + r.off("SubInterfaceNode", "key")), r.i32(node + r.off("SubInterfaceNode", "group")),
+                                 r.i32(node + r.off("SubInterfaceNode", "type")) if has_mode else 0))
                     node = r.ptr(node + r.off("SubInterfaceNode", "next"))
                     steps += 1
-        bad = [(c, g) for c, g in subs if g not in groups or (c >> 16) not in groups]
-        inventory = [f"{c >> 16}:{c & 0xffff}" for c, g in subs if g == 149]
-        ok("subInterfaces", bool(subs) and not bad and bool(inventory),
-           f"{len(subs)} sub-interfaces, all between open groups; inventory opened in {inventory}" if not bad
-           else f"entries outside the open groups: {[(f'{c >> 16}:{c & 0xffff}', g) for c, g in bad][:5]}")
+        bad = [(c, g) for c, g, _ in subs if g not in groups or (c >> 16) not in groups]
+        bad_modes = sorted({t for _, _, t in subs if t not in (0, 1, 3)})
+        inventory = [f"{c >> 16}:{c & 0xffff}" for c, g, _ in subs if g == 149]
+        top = r.i32(client + r.off("Client", "topLevelInterface")) if "topLevelInterface" in m["structs"]["Client"] else None
+        top_ok = top is None or (top in groups and top in (161, 164, 165, 548))
+        ok("subInterfaces", bool(subs) and not bad and bool(inventory) and not bad_modes and top_ok,
+           f"{len(subs)} sub-interfaces, all between open groups; inventory opened in {inventory}; modes "
+           f"{sorted({t for _, _, t in subs})}; top-level {top}" if not bad
+           else f"entries outside the open groups: {[(f'{c >> 16}:{c & 0xffff}', g) for c, g, _ in bad][:5]}")
 
     # The minimenu: the rows of what the mouse is over (or of the open menu), top first; the bottom row is "Cancel".
     if "Minimenu" not in m["structs"]:

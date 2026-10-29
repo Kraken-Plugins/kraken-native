@@ -94,6 +94,11 @@ final class NativeEvents {
         map.put(NativeEvent.NPC_INFO_DECODE, List.of());
         map.put(NativeEvent.PLAYER_INFO_DECODE, List.of());
         map.put(NativeEvent.PROJECTILE_CTOR, List.of());
+        // Interfaces opening and closing: the interface tracker reads the component, group and mode (or unload flag)
+        // from the raw registers, so it sees a group closed and opened again in the same component, which a read of
+        // the component table can't.
+        map.put(NativeEvent.IF_OPEN_SUB, List.of());
+        map.put(NativeEvent.IF_CLOSE_SUB, List.of());
         return Collections.unmodifiableMap(map);
     }
 }
