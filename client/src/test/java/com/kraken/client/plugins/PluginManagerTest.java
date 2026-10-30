@@ -445,7 +445,7 @@ class PluginManagerTest {
         manager.loadCorePlugins(parent);
         List<String> names = manager.getPlugins().stream().map(Plugin::getName).toList();
         assertTrue(names.contains("Tick Counter"), names.toString());
-        assertTrue(names.contains("NPC Highlight"), names.toString());
+        assertTrue(names.contains("NPC Indicators"), names.toString());
         assertTrue(names.contains("Object Markers"), names.toString());
         assertFalse(names.contains("Good"), names.toString());
         for (Plugin plugin : manager.getPlugins()) {

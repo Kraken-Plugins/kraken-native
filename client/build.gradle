@@ -25,6 +25,8 @@ dependencies {
     implementation 'com.google.inject:guice:7.0.0'
     // Finds the built-in plugins (@PluginDescriptor classes under com.kraken.client.plugins)
     implementation 'io.github.classgraph:classgraph:4.8.180'
+    // Plugins' saved lists, such as Ground Markers' marked tiles, are JSON
+    implementation 'com.google.code.gson:gson:2.10.1'
 
     compileOnly 'org.projectlombok:lombok:1.18.30'
     annotationProcessor 'org.projectlombok:lombok:1.18.30'
