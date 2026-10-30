@@ -1,6 +1,8 @@
 package com.kraken.api;
 
 import com.kraken.api.actor.NPC;
+import com.kraken.api.coords.LocalPoint;
+import com.kraken.api.coords.WorldPoint;
 import com.kraken.api.definition.ItemComposition;
 import com.kraken.api.definition.NPCComposition;
 import com.kraken.api.definition.ObjectComposition;
@@ -9,6 +11,7 @@ import com.kraken.api.internal.ConfigTypes;
 import com.kraken.api.internal.ScriptStack;
 import com.kraken.api.internal.VarcValues;
 import com.kraken.api.item.EquipmentInventorySlot;
+import com.kraken.api.scene.WorldView;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -53,6 +56,18 @@ class ClientTest {
     void setUp() throws IOException {
         game = new GameFixture();
         client = new Client(game.memory, game.map);
+    }
+
+    @Test
+    void theDestinationIsTheFlaggedSceneTile() {
+        assertNull(client.getLocalDestinationLocation(), "(0, 0) is no destination");
+        game.setDestination(20, 31);
+        LocalPoint destination = client.getLocalDestinationLocation();
+        assertEquals(new LocalPoint(20 * 128 + 64, 31 * 128 + 64, WorldView.TOPLEVEL), destination);
+        assertEquals(new WorldPoint(GameFixture.BASE_X + 20, GameFixture.BASE_Z + 31, 0),
+                WorldPoint.fromLocal(client, destination));
+        game.setDestination(0, 0);
+        assertNull(client.getLocalDestinationLocation(), "cleared once the player arrives");
     }
 
     @Test

@@ -157,6 +157,10 @@ public final class GameFixture {
      * Overhead texts too long to fit inline are written here, a slot per actor.
      */
     private static final long OVERHEAD_HEAP = 0xd40000000L;
+    /**
+     * The object holding the walk destination, behind {@code Client.destination}.
+     */
+    public static final long DESTINATION = 0xd50000000L;
     private static final int OVERHEAD_HEAP_SLOT = 0x100;
     /**
      * The timer the client's actor constructor sets, with the text empty.
@@ -300,6 +304,24 @@ public final class GameFixture {
         buildMenu();
         buildScripts();
         buildChat();
+        buildDestination();
+    }
+
+    /**
+     * Sets the walk destination as the client keeps it: a scene tile, (0, 0) for none.
+     *
+     * @param sceneX the scene x
+     * @param sceneZ the scene z
+     */
+    public void setDestination(int sceneX, int sceneZ) {
+        memory.putInt(DESTINATION + map.offset("Destination.x"), sceneX);
+        memory.putInt(DESTINATION + map.offset("Destination.z"), sceneZ);
+    }
+
+    private void buildDestination() {
+        memory.alloc(DESTINATION, 0x10);
+        memory.putLong(CLIENT + map.offset("Client.destination"), DESTINATION);
+        setDestination(0, 0);
     }
 
     /**

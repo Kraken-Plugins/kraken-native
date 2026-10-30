@@ -1,6 +1,8 @@
 package com.kraken.api.scene;
 
 import com.kraken.api.Client;
+import com.kraken.api.MenuAction;
+import com.kraken.api.MenuEntry;
 import com.kraken.api.Perspective;
 import com.kraken.api.actor.IndexedObjectSet;
 import com.kraken.api.actor.NPC;
@@ -145,6 +147,24 @@ public final class WorldView {
      */
     public int getSizeY() {
         return scene.getSizeY();
+    }
+
+    /**
+     * The tile under the mouse, the one a click on the scene walks to: the tile of the menu's Walk here row. While the
+     * menu is closed the client rebuilds the rows every cycle from what the mouse is over, so this follows the mouse;
+     * while it is open, it is the tile the menu was opened over. The client keeps no hovered tile of its own.
+     *
+     * @return the tile; null while the mouse isn't over the scene (the menu has no Walk here row), or if the menu
+     *         can't be read
+     */
+    public Tile getSelectedSceneTile() {
+        for (MenuEntry entry : client.getMenuEntries()) {
+            WorldPoint tile = entry.getWorldLocation();
+            if (entry.getType() == MenuAction.WALK && tile != null) {
+                return scene.getTile(tile.getPlane(), entry.getParam0(), entry.getParam1());
+            }
+        }
+        return null;
     }
 
     /**

@@ -57,6 +57,15 @@ class SceneTest {
     }
 
     @Test
+    void theSelectedTileIsTheWalkRowsTile() {
+        Tile tile = client.getTopLevelWorldView().getSelectedSceneTile();
+        assertNotNull(tile, "the menu has a Walk here row");
+        assertEquals(new WorldPoint(BASE_X + 2, BASE_Z + 3, 0), tile.getWorldLocation());
+        game.setMenuRows(GameFixture.MENU_ATTACK, GameFixture.MENU_CANCEL);
+        assertNull(client.getTopLevelWorldView().getSelectedSceneTile(), "no Walk here row: the mouse is off the scene");
+    }
+
+    @Test
     void theSceneIsTheTopLevelWorldViews() {
         assertSame(client.getTopLevelWorldView().getScene(), scene);
         assertEquals(BASE_X, scene.getBaseX());

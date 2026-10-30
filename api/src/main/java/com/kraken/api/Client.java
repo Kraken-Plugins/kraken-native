@@ -4,6 +4,7 @@ import com.kraken.api.action.Actions;
 import com.kraken.api.actor.Actor;
 import com.kraken.api.actor.NPC;
 import com.kraken.api.actor.Player;
+import com.kraken.api.coords.LocalPoint;
 import com.kraken.api.coords.WorldPoint;
 import com.kraken.api.definition.ItemComposition;
 import com.kraken.api.definition.NPCComposition;
@@ -176,6 +177,9 @@ public final class Client extends GameReader {
     private final int cWorldFlags;
     private final long cycleRva;
     private final int cActorSteps;
+    private final int cDestination;
+    private final int dX;
+    private final int dZ;
 
     private final int cSkillLevel;
     private final int cSkillBase;
@@ -253,6 +257,9 @@ public final class Client extends GameReader {
         this.cWorldFlags = optionalOffset("Client.worldFlags");
         this.cycleRva = optionalGlobal("cycle");
         this.cActorSteps = optionalOffset("Client.actorSteps");
+        this.cDestination = optionalOffset("Client.destination");
+        this.dX = optionalOffset("Destination.x");
+        this.dZ = optionalOffset("Destination.z");
 
         this.cSkillLevel = mapping.offset("Client.skillLevel");
         this.cSkillBase = mapping.offset("Client.skillBase");
@@ -430,6 +437,30 @@ public final class Client extends GameReader {
     public Player getLocalPlayer() {
         int index = actorReader.localPlayerIndex();
         return index < 0 ? null : player(index);
+    }
+
+    /**
+     * Where the local player is walking to: the tile the client marks with its flag after a click on the scene or on
+     * something to interact with. The client clears it once the local player stands on it.
+     *
+     * @return the centre of the destination tile, or null when there is none or it can't be read
+     */
+    public LocalPoint getLocalDestinationLocation() {
+        long client = clientBase();
+        if (client == 0 || cDestination < 0 || dX < 0 || dZ < 0) {
+            return null;
+        }
+        long destination = safeLong(client + cDestination, 0);
+        if (destination == 0) {
+            return null;
+        }
+        int x = safeInt(destination + dX, 0);
+        int z = safeInt(destination + dZ, 0);
+        // The client clears the destination by setting it to 0, the scene's edge, which can't be walked to
+        if (x <= 0 || z <= 0) {
+            return null;
+        }
+        return LocalPoint.fromScene(x, z, topLevelWorldView);
     }
 
     /**
