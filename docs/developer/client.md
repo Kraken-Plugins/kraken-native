@@ -26,6 +26,8 @@ Paths are under [`client/src/main/java/com/kraken/client/`](../../client/src/mai
 | [`plugins/PluginManager.java`](../../client/src/main/java/com/kraken/client/plugins/PluginManager.java) | Plugin discovery, injection, order, lifecycle |
 | [`plugins/Plugin.java`](../../client/src/main/java/com/kraken/client/plugins/Plugin.java), [`PluginDescriptor.java`](../../client/src/main/java/com/kraken/client/plugins/PluginDescriptor.java), [`PluginDependency.java`](../../client/src/main/java/com/kraken/client/plugins/PluginDependency.java) | The plugin base class and its annotations |
 | [`plugins/config/`](../../client/src/main/java/com/kraken/client/plugins/config/) | `ConfigManager`, the proxy, the descriptors, the settings annotations |
+| [`input/`](../../client/src/main/java/com/kraken/client/input/) | `KeyManager` and `HotkeyListener`: which keys are held while the game has the keyboard |
+| [`util/`](../../client/src/main/java/com/kraken/client/util/), [`game/`](../../client/src/main/java/com/kraken/client/game/) | Helpers for plugins: wildcard and list matching, text and colour tags, quantities, whether an NPC is dying |
 | [`ui/KrakenFrame.java`](../../client/src/main/java/com/kraken/client/ui/KrakenFrame.java) | The main window: layout, window state, settings that reach the window |
 | [`ui/Sidebar.java`](../../client/src/main/java/com/kraken/client/ui/Sidebar.java), [`HomePanel.java`](../../client/src/main/java/com/kraken/client/ui/HomePanel.java), [`PluginListPanel.java`](../../client/src/main/java/com/kraken/client/ui/PluginListPanel.java), [`ConfigPanel.java`](../../client/src/main/java/com/kraken/client/ui/ConfigPanel.java), [`ConsolePanel.java`](../../client/src/main/java/com/kraken/client/ui/ConsolePanel.java), [`Theme.java`](../../client/src/main/java/com/kraken/client/ui/Theme.java) | The sidebar pages, the console, the theme |
 | [`ui/overlay/`](../../client/src/main/java/com/kraken/client/ui/overlay/) | Overlay manager, renderer, compositor, editor, and the two drawing targets |
@@ -107,7 +109,7 @@ flowchart TD
 | Level | Bound explicitly | Created on first use |
 |---|---|---|
 | Root, `KrakenModule` | `@Named("exe") File`, `@Named("developerMode") boolean`, `@Named("settings") Path`, the `EventBus` instance, `@Named("edt") Executor`, `KrakenConfig` (a provider), and a `ScheduledExecutorService` provider that makes the `kraken-scheduler` thread | Every `@Singleton` class of the client: `KrakenFrame`, `GameView`, `GameLauncher`, `HomePanel`, `Sidebar`, `ConsolePanel`, `DevToolsPanel`, `DevToolManager`, `PluginListPanel`, `ExitHandler`, `ConfigManager`, `FrameRates`, `ProcessAttacher`, `PluginManager`, `OverlayManager`, `OverlayRenderer`, `OverlayEditor`, `GameOverlay`, `GameSurface`, `FpsOverlay` |
-| Session, `SessionModule` | `GameSession`, `Client`, `Mapping`, `@Named("pid") long`, `ClientThread` (singleton), `NativeEventServer` (singleton) | Nothing; the session services above are bound explicitly so that every plugin shares one |
+| Session, `SessionModule` | `GameSession`, `Client`, `Mapping`, `@Named("pid") long`, `ClientThread` (singleton), `NativeEventServer` (singleton), `KeyManager` (singleton) | Nothing; the session services above are bound explicitly so that every plugin shares one |
 | Plugin | The plugin instance itself, and the plugin's own module (its `@Provides` methods) | Its `@Inject` fields, drawn from the session injector and its dependencies' public modules |
 
 Two rules follow from this layout:
@@ -383,9 +385,11 @@ plugin's settings use the same classes.
 | `Dimension` | `WIDTHxHEIGHT` | Two spinners |
 | `Point` | `X:Y` | Two spinners |
 | `Rectangle` | `X:Y:WIDTH:HEIGHT` | No control, so it suits hidden items |
+| `Keybind` | `KEYCODE:MODIFIERS`, as `KeyEvent` codes and `InputEvent` masks; a modifier alone is stored as the modifier with key 0, so Alt is `0:512` | Button that records the keys pressed after it is clicked |
 | `Button` | Nothing is stored | Button |
 
-Keybinds aren't supported, since Kraken never sees the game's input.
+A `Keybind` setting only stores keys. The game reads the keyboard itself, so a plugin learns that a keybind is held
+through [`KeyManager`](#keyboard), which can't stop the game from seeing the key.
 
 ### The Proxy
 
@@ -431,8 +435,8 @@ client thread, since the list comes from the game.
 
 `getConfigDescriptor(config)` reads the interface once per page. It takes the group from `@ConfigGroup`, the sections from
 the `String` fields annotated `@ConfigSection`, and the items from the no-argument getters annotated `@ConfigItem`. Both
-lists are sorted by `position`, then by name. Each item carries its `Range`, `Alpha`, `Units`, `Suggestions` and `@ShowIf`
-annotations, and each section carries its own `@ShowIf`.
+lists are sorted by `position`, then by name. Each item carries its `Range`, `Alpha`, `Units`, `Suggestions`, `@ShowIf`
+and `@Unsupported` annotations, and each section carries its own `@ShowIf`.
 
 `@ShowIf` decides visibility through `isShown`:
 
@@ -472,10 +476,32 @@ descriptor. Its behaviour is:
   updates the visibility of every item and section.
 * Text fields save after a 600 ms pause in typing, or when they lose focus.
 * An item with `warning` asks before its value changes.
+* An item with [`@Unsupported`](../../client/src/main/java/com/kraken/client/plugins/config/Unsupported.java) is greyed
+  out: its name and control are disabled, and both show a tooltip starting **Currently unsupported**, then the
+  annotation's reason and the item's description. The value is still stored and read; the annotation marks a setting
+  of a ported plugin that the client can't act on yet ([Plugin ports](plugin-ports.md)).
+* A `Keybind` control shows the keybind. Clicked, it records the keys pressed together and stores them once they are
+  all let go; Backspace or Delete stores `Keybind.NOT_SET`, and Escape or leaving the control keeps the old value.
 * **Reset** asks first, then unsets every item that isn't hidden. Hidden items hold plugin state, so Reset leaves them.
 
 [`KrakenConfig`](../../client/src/main/java/com/kraken/client/KrakenConfig.java) is the Settings tab. It is a
 `@ConfigGroup("kraken")` interface like any other. Its hidden items hold the window's layout from the last run.
+
+## Keyboard
+
+The game window takes the keyboard, so Kraken gets none of the game's key events.
+[`KeyManager`](../../client/src/main/java/com/kraken/client/input/KeyManager.java), a session service, reads the keys'
+state from Windows (`GetAsyncKeyState`) instead, and counts keys only while `Client.isFocused()`:
+
+* `isKeyPressed(keyCode)` and `isPressed(keybind)` read the keys when called, from any thread.
+* A [`HotkeyListener`](../../client/src/main/java/com/kraken/client/input/HotkeyListener.java) registered with
+  `registerHotkeyListener` is polled on the client thread at each pass while any listener is registered. It gets
+  `hotkeyPressed` when all its keybind's keys are held and no other modifier, and `hotkeyReleased` when one is let go
+  or the game loses the keyboard. A press shorter than a pass (about 20 ms) can be missed.
+* `toWindows` turns `KeyEvent` codes into Windows virtual-key codes; letters, digits, F1-F12, arrows and most control
+  keys share theirs.
+
+Nothing here can consume or change a key: the game always sees it.
 
 ## The Window
 

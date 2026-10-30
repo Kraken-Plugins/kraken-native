@@ -36,6 +36,7 @@ Outside the Kraken client, attach to the game yourself; see [Using the API on it
 | Interfaces | `getWidget(group, child)`, `getWidget(packedId)`, `getOpenWidgetGroups()`, `getTopLevelInterfaceId()` |
 | Scene | `getScene()`: `getTiles()`, `getTile(plane, x, y)`, `getTileObjects()`, `getGroundItems()` |
 | Collision | `getTopLevelWorldView()`: `getCollisionFlags(WorldPoint)`, `lineOfWalk(from, to)`, `lineOfSight(from, to)` |
+| Walking and the mouse | `getLocalDestinationLocation()`, the tile you're walking to; `getTopLevelWorldView().getSelectedSceneTile()`, the tile under the mouse (the one Walk here would walk to) |
 | Camera and projection | `getCameraX()` and friends, `getCameraPitch()`, `getCameraYaw()`, `getCameraZoom()`; `Perspective` turns game positions into screen points |
 | Menu | `getMenuEntries()` (the bottom row first), `isMenuOpen()` |
 | Projectiles and spot animations | `getProjectiles()`, `getGraphicsObjects()` |

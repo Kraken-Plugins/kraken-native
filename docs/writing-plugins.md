@@ -191,6 +191,7 @@ they only appear then. Your plugin's on/off state, and its settings, are saved i
 | `ConfigManager` | Reads and writes settings: `getConfig`, `getConfiguration`, `setConfiguration` |
 | `OverlayManager` | Adds and removes overlays |
 | `GameSession` | The attached game session |
+| `KeyManager` | Which keys are held while the game has the keyboard; see [Keys](#keys) |
 | `ScheduledExecutorService` | A shared background scheduler, for work that shouldn't hold up the client thread |
 | Your plugin, config and overlays | Each plugin has its own injector, so its classes can inject each other |
 
@@ -206,9 +207,10 @@ they only appear then. Your plugin's on/off state, and its settings, are saved i
 | `@Alpha` | A `Color` | Lets the colour picker set transparency |
 | `@ShowIf(key, values)` | An item or section | Shows it only while another item has one of the values |
 | `@Suggestions` | A `String` | Adds a drop-down your plugin fills when it opens |
+| `@Unsupported("reason")` | An item | Greys it out, with a tooltip saying it's currently unsupported and why. For a setting your plugin can't act on yet |
 
 Supported types are `boolean`, `int`, `long`, `float`, `double`, `String`, enums, `Set`s of an enum, `Color`,
-`Dimension`, `Point`, `Rectangle` (no control, so for hidden items) and `Button`. Keybinds aren't supported.
+`Dimension`, `Point`, `Rectangle` (no control, so for hidden items), `Keybind` and `Button`.
 
 A `void` method with the same `keyName` and one parameter is a setter. Changes post `ConfigChanged`, usually on the
 Swing thread; check `event.getGroup()` and hand any game work to the client thread.
@@ -254,6 +256,46 @@ public void onConfigSuggestionsRequested(ConfigSuggestionsRequested event) {
 }
 ```
 
+## Keys
+
+The game takes the keyboard, so Kraken never gets its key events. `KeyManager` reads which keys are held instead, while
+the game has the keyboard. It can't stop the game from seeing a key, so a hotkey should be one the game doesn't use.
+
+Give the user a `Keybind` setting and listen for it with a `HotkeyListener`; both methods run on the client thread:
+
+```java
+@ConfigItem(keyName = "hotkey", name = "Hotkey", description = "Hold to show everything")
+default Keybind hotkey() {
+    return Keybind.ALT;
+}
+```
+
+```java
+private final HotkeyListener hotkeyListener = new HotkeyListener(() -> config.hotkey()) {
+    @Override
+    public void hotkeyPressed() {
+        showAll = true;
+    }
+
+    @Override
+    public void hotkeyReleased() {
+        showAll = false;
+    }
+};
+
+@Override
+protected void startUp() {
+    keyManager.registerHotkeyListener(hotkeyListener);
+}
+
+@Override
+protected void shutDown() {
+    keyManager.unregisterHotkeyListener(hotkeyListener);
+}
+```
+
+`keyManager.isKeyPressed(KeyEvent.VK_SHIFT)` reads one key now, from any thread.
+
 ## Events and the Client Thread
 
 Any public or private method annotated `@Subscribe` that takes one event is a handler. [Events](events.md) lists them
@@ -264,7 +306,7 @@ Keep a plugin's game state on the client thread, in handlers, `clientThread.invo
 methods, and it needs no locking.
 
 Spawn events only report what appears after tracking starts. A plugin switched on mid-game doesn't get spawns for what
-was already there, so read it when it starts. NPC Highlight does it like this:
+was already there, so read it when it starts, for example:
 
 ```java
 @Override
@@ -276,7 +318,7 @@ private void rebuild() {
     highlighted.clear();
     for (NPC npc : client.getNpcs()) {
         if (matches(npc)) {
-            highlighted.put(npc, HighlightTarget.npc(npc));
+            highlighted.add(npc);
         }
     }
 }
@@ -304,14 +346,16 @@ To draw on things in the scene, project them to the canvas:
 * `LocalPoint.fromWorld(client.getTopLevelWorldView(), worldPoint)` to turn a world tile into a local point.
 
 `OverlayUtil` draws the common shapes: `renderPolygon`, `renderTextLocation`, `renderActorOverlay`,
-`renderActorTextOverlay`, `renderTileOverlay` and `renderImageLocation`. The Tile Markers overlay is a short example:
+`renderActorTextOverlay`, `renderTileOverlay` and `renderImageLocation`. The Tile Indicators overlay is a short example:
 
 ```java
-WorldView view = client.getTopLevelWorldView();
-LocalPoint local = LocalPoint.fromWorld(view, tile);
+Player player = client.getLocalPlayer();
+WorldPoint position = player == null ? null : player.getWorldLocation();
+LocalPoint local = position == null ? null : LocalPoint.fromWorld(client.getTopLevelWorldView(), position);
 Polygon poly = local == null ? null : Perspective.getCanvasTilePoly(client, local);
 if (poly != null) {
-    OverlayUtil.renderPolygon(graphics, poly, colour);
+    OverlayUtil.renderPolygon(graphics, poly, config.highlightCurrentColor(), config.currentTileFillColor(),
+            new BasicStroke((float) config.currentTileBorderWidth()));
 }
 ```
 
@@ -319,7 +363,7 @@ Each overlay's placement is saved under its class name, so give your overlays di
 
 For outlines on NPCs, objects, items and tiles, [highlights](api.md#highlights) look better: the game draws them
 itself, around the model, following the camera. They need the native hook, so a plugin can draw its own outline as a
-fallback while `client.getHighlights().isAvailable()` is false, as NPC Highlight does.
+fallback while `client.getHighlights().isAvailable()` is false, as NPC Indicators does.
 
 ## Logging
 
@@ -351,8 +395,9 @@ Most of RuneLite's plugin API carries over, under `com.kraken` package names. Th
 | `clientThread.invoke(() -> value)` returning a value | Only `Runnable` and `BooleanSupplier` tasks |
 | `client.menuAction(...)` | `client.getActions()`, which needs the native hook and reports whether it sent |
 | `@ConfigItem(hidden = ...)` with `hide`/`unhide` | `@ShowIf` |
-| Keybind settings | Not supported |
+| Keybind settings and `KeyManager` | `Keybind` settings and `KeyManager` work, but Kraken only sees which keys are held: register a `HotkeyListener`, not a `KeyListener`, and a key can't be consumed or remapped |
 | Adding menu entries, consuming clicks | Not supported: Kraken can't change the game's menu |
+| A setting the client can't back | Keep it and mark it `@Unsupported("reason")`; the settings page greys it out |
 | `ItemManager`, `SpriteManager`, info boxes, `Notifier`, `ClientToolbar` | Not available yet |
 | Minimap and clickbox helpers, actor hulls | Not available yet |
 | Plugin on/off key | `kraken.<class name in lower case>`, such as `kraken.tickcounterplugin` |

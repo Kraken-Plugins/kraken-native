@@ -33,6 +33,7 @@ and links to the deep dives below.
 | [Menu actions](menu-actions.md) | How actions run the client's own menu row code and packet helpers on the game thread |
 | [Menu action walkthrough](menu-action-walkthrough.md) | One action, attacking an NPC, followed from Java to the game, for readers new to x64, DLLs and the client |
 | [Reverse engineering](reverse-engineering.md) | Exploring a build to find or fix a value: the primer, Lua bindings, `program.db`, provenance, `analysis.json`, the debug symbols, the probe |
+| [Plugin ports](plugin-ports.md) | Which RuneLite plugins are ported, which of their settings work, and what the client needs for the rest |
 
 ## By Goal
 
@@ -48,6 +49,7 @@ and links to the deep dives below.
 | Understand how a menu action reaches the game | [Menu action walkthrough](menu-action-walkthrough.md) |
 | Add a kind of menu action | [Menu actions](menu-actions.md) |
 | Work on the client UI, plugins or settings | [Client internals](client.md) |
+| Port a RuneLite plugin, or make an unsupported setting work | [Plugin ports](plugin-ports.md) |
 
 ## Conventions
 

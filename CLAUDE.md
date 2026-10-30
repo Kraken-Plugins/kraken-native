@@ -129,8 +129,15 @@ consensus verdicts (`consensus.py`, `carry.py`) → invariants (`verify.py`) →
 - Overlays (`ui.overlay`): `OverlayRenderer` draws on the poll thread, `OverlayCompositor` lays out. Frames go to the
   DLL's shared-memory `GameSurface` while it is active, otherwise to `GameOverlay` (a click-through window; dev tool
   overlays always use it). Alt + drag moves or resizes overlays (`OverlayEditor`), right-click resets; `OverlayManager`
-  saves placements in group `overlays`. Worked examples: `plugins.npchighlight`, `objectmarkers`, `tilemarkers`,
-  `tickcounter`, `actiontester`.
+  saves placements in group `overlays`. Worked examples: `plugins.npchighlight` (NPC Indicators), `objectmarkers`,
+  `groundmarkers`, `tileindicators`, `tickcounter`, `actiontester`.
+- Ported RuneLite plugins (`npchighlight`, `grounditems`, `groundmarkers`, `tileindicators`) keep RuneLite's config group,
+  keys, names and defaults. A setting the client can't back yet stays, marked `@Unsupported("reason")` (greyed out);
+  `docs/developer/plugin-ports.md` tracks the gaps and where to wire each one. Shared helpers: `util.*`
+  (`WildcardMatcher`, `Text`, `QuantityFormatter`, `ColorUtil`), `game.NpcUtil`.
+- Keys: the game owns the keyboard. `input.KeyManager` (session service) reads held keys with `GetAsyncKeyState` while
+  `Client.isFocused()`, and polls `HotkeyListener`s on the client thread; `Keybind` settings store `keyCode:modifiers`.
+  Nothing can consume or remap a key.
 - Dev tools: subclass `DevTool<S>` and list it in `DevToolCatalog.create()`. `read(api)` runs on the poll thread and
   returns an immutable snapshot; `paintOverlay`/`createView` run on the EDT. Tools read and subscribe only while
   showing. `PlannedTool` holds spots for features the API can't read yet; `view.GamePicker` lets the user click

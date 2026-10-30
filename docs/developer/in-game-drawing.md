@@ -194,8 +194,8 @@ failed send logs `Could not send highlights to the native hook` once per connect
 | `release()`, `close()` | `highlightChannelClear`, if the channel is still registered. Frees the channel | Further use throws `IllegalStateException` |
 
 A target of another category throws `IllegalArgumentException`. The plugins that use highlights take a channel in
-`startUp`, call `set`, `add` or `remove` as things spawn and despawn, and release it in `shutDown`. The NPC Highlight,
-Object Markers and Tile Markers plugins use the NPC, LOC and TILE categories.
+`startUp`, call `set`, `add` or `remove` as things spawn and despawn, and release it in `shutDown`. The NPC Indicators
+and Object Markers plugins use the NPC and LOC categories.
 
 **Targets to calls.** Each `HighlightTarget` record maps to one pair of functions. The manager is always the first
 argument, passed as `CLIENT` (`Client + 0x89680`).
