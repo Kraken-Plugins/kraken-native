@@ -8,19 +8,18 @@
 <h3 align="center">Kraken Native</h3>
 
   <p align="center">
-    A RuneLite-style client, offset updater and API for the official native Old School RuneScape client.
+    A RuneLite-style client, API and offset updater for the official native Old School RuneScape client.
     <br />
+    <a href="docs/README.md"><strong>Read the docs »</strong></a>
   </p>
 </div>
 
 ---
 
-# Getting Started
-
-Kraken Native brings the Kraken tooling to the official C++ client (`osclient.exe`) that ships with the Jagex Launcher.
-A Java client wraps the game window in a RuneLite-style frame. A Python updater maps the client's struct offsets,
-globals and functions for each build. A Java API that mirrors the client's Lua plugin API reads game state through
-those mappings, and the client's dev tools show what it sees.
+Kraken Native brings RuneLite-style plugins to the official C++ client (`osclient.exe`) that ships with the Jagex
+Launcher. It starts the game inside a window of its own, with a sidebar of plugins, dev tools and settings, and reads
+the game's state through a Java API shaped like RuneLite's. Plugins draw overlays and highlights in the game, and
+react to events such as `GameTick`, `NpcSpawned` or `StatChanged`.
 
 This project is not meant for "botting", automation or rule-breaking purposes, and any material provided by this
 project or its documentation is purely for educational purposes only. Kraken Native is not affiliated with or endorsed
@@ -28,161 +27,113 @@ by Jagex.
 
 Use at your own risk. The developers are not responsible for any consequences resulting from the use of this software.
 
-## Project Status
+## What's Inside
 
-| Module | Status | What it is |
+| Part | Status | What it does |
 |---|---|---|
-| [`client/`](client) | Proof of concept | Java 21 Swing client that launches `osclient.exe` and embeds its window, with a RuneLite-style sidebar, plugins and log console |
-| [`updater/`](updater) | Working | Python updater that maps a client build and writes the API's `mappings/<version>.json` |
-| [`api/src/main/resources/mappings/`](api/src/main/resources/mappings) | Seed build | One mapping per client version (e.g. `241.3.json`): the offsets the API reads, nothing else. Bundled on the API's classpath |
-| [`api/`](api) | In progress | RuneLite-shaped Java API (`Client`, `NPC`, `WorldPoint`, `Widget`, events…) read from outside the process, each getter replaying what the client's Lua plugin API reads |
-| [`client/src/main/native/kraken_hook/`](client/src/main/native/kraken_hook) | Working | `kraken_hook.dll`, injected into the game to push its native event raises to the API, so events are read the moment they happen, and to draw in the game: the client's own highlights, and the plugins' overlays inside its frame |
-| [`docs/`](docs) | | Design documents for the updater, the native event hooks and drawing in the game, and a Ghidra walkthrough |
+| [Client](docs/client.md) (`client/`) | Proof of concept | Launches the game, embeds its window and hosts the plugins, overlays and [dev tools](docs/dev-tools.md) |
+| [API](docs/api.md) (`api/`) | In progress | Reads the game from outside its process: players, NPCs, objects, inventories, interfaces, [events](docs/events.md) and more |
+| [Updater](docs/updater.md) (`updater/`) | Working | Maps each new game build, so the API knows where to find everything in memory |
+| [Native hook](docs/client.md#the-native-hook) (`kraken_hook.dll`) | Working | Loaded into the game by the client, to report events as they happen, draw in the game and run menu actions |
 
-The seed build, client 241.3, maps 400 of 407 keys as PROVEN or ANCHORED (the other 7 are INFERRED), with none failed.
+The repository includes the mapping for game version 241.3. When the game updates, [run the updater](docs/updater.md)
+to make one for the new build.
 
 ## Prerequisites
 
-You need:
-
-* Windows, with Old School RuneScape installed through the [Jagex Launcher](https://www.jagex.com/launcher).
+* Windows 10 or 11, 64-bit, with Old School RuneScape installed through the [Jagex Launcher](https://www.jagex.com/launcher).
 * [Java 21](https://adoptium.net/). The Gradle wrapper is included.
-* For the updater only: [uv](https://docs.astral.sh/uv/) (it installs Python and PyYAML for you), plus
-  [Ghidra](https://github.com/NationalSecurityAgency/ghidra) 12.1 and JDK 21 for the one-off export of each new client
-  build.
+* [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/) with the **Desktop development with C++**
+  workload, to build the native hook. You can [build without it](#without-a-c-compiler).
 
-## Running the Client
+The [updater](docs/updater.md) needs [uv](https://docs.astral.sh/uv/) and [Ghidra](https://github.com/NationalSecurityAgency/ghidra)
+as well, but only when you're mapping a new game build.
 
-```bash
-./gradlew :client:run
-```
-
-The client starts `osclient.exe` from the Jagex Launcher's default install folder. To use a different copy, pass its
-path:
-
-```bash
-./gradlew :client:run --args="D:/Games/OSRS/osclient.exe"
-```
-
-What you get:
-
-* The game window embedded in a resizable frame with a custom title bar, which supports dragging, Windows snap,
-  minimize, maximize and close. Closing Kraken closes the game, and the other way round.
-* A sidebar on the right, like RuneLite's. The Kraken tab shows the client's process ID, build hash and game size.
-  Opening a panel widens the window instead of shrinking the game; you can change this in Settings.
-* A collapsible log console at the bottom. Anything logged through `java.util.logging` appears there, as does the
-  client's own output.
-* A Plugins tab, like RuneLite's plugin list: search, and a switch per plugin. Which plugins are on is saved in
-  `~/.kraken-native/settings.properties`. A plugin that fails to start is switched off and marked "failed".
-* Movable overlays: hold Alt to outline the overlay panels, then drag one to move it or drag its edges to resize it.
-  Alt and right-click puts it back in its default spot and size. Where you put each one is saved for the next launch.
-
-### Writing a Plugin
-
-Plugins are written as RuneLite plugins are: a `Plugin` subclass with `@PluginDescriptor`, injected `Client` and
-`ClientThread`, `startUp`/`shutDown`, and `@Subscribe` methods for events such as `GameTick`, `NpcSpawned` or
-`StatChanged` (see the example plugins under `com.kraken.client.plugins`: `tickcounter`, `npchighlight`,
-`objectmarkers`, `tilemarkers` and `actiontester`). A plugin package under `com.kraken.client.plugins` is found at
-launch. To run one
-from elsewhere, pass its class:
-
-```bash
-./gradlew :client:run --args="--plugin com.example.MyPlugin"
-```
-
-or start Kraken from your own `main` with `KrakenClient.launch(args, MyPlugin.class)`. `--developer-mode` also loads
-plugins marked `developerPlugin = true`.
-
-Overlays are drawn inside the game's own frame while the native hook is connected, and in a window over the game
-otherwise. For outlines, use the game's highlights instead: take a channel with
-`client.getHighlights().channel(HighlightCategory.NPC)`, give it a `HighlightConfig` and `set` the
-`HighlightTarget`s to light. The game draws them in the scene, with its depth, following the camera
-(see [in-game-drawing.md](docs/in-game-drawing.md)).
-
-A plugin can also run a menu action as a click on the menu would, without the mouse: `client.getActions().click(x, y,
-0, 0, MenuAction.NPC_SECOND_OPTION, npc.getIndex())` sends the mouse click packet and then has the client's own code
-send the op and start the interaction (see [menu-actions.md](docs/menu-actions.md); the `actiontester` plugin runs
-every kind of action from its settings page).
-
-### Logging In With a Jagex Account
-
-When you press Play, the Jagex Launcher logs you in and hands the session to `osclient.exe` in environment variables.
-Kraken starts the client itself, so you supply those variables instead: Kraken passes its own environment to the
-client unchanged. Without them, the client shows the legacy login screen, which doesn't accept Jagex accounts.
-
-| Variable | What it holds |
-|---|---|
-| `JX_SESSION_ID` | Your Jagex account's login session. Treat it like a password. |
-| `JX_CHARACTER_ID` | The character to log in as. |
-| `JX_DISPLAY_NAME` | That character's display name. |
-
-The client also reads `JX_ACCESS_TOKEN` and `JX_REFRESH_TOKEN`, but Jagex account logins don't need them.
-
-To get the values, have RuneLite write them out once:
-
-1. In the Jagex Launcher, choose RuneLite as the Old School client.
-2. Run `RuneLite (configure)` from the Start menu and add `--insecure-write-credentials` to **Client arguments**.
-3. Pick the character in the Jagex Launcher and press Play. RuneLite saves the variables, under the same names, to
-   `%USERPROFILE%\.runelite\credentials.properties`.
-4. Copy the values, then remove the flag and delete `credentials.properties`. While the file exists, RuneLite logs in
-   with it instead of with the launcher.
-
-Alternatively, start the official client from the launcher and open `osclient.exe`'s properties in
-[Process Explorer](https://learn.microsoft.com/sysinternals/downloads/process-explorer); the variables are listed on
-its Environment tab.
-
-Then set them in PowerShell and start Kraken from the same window:
+## Quick Start
 
 ```powershell
-$env:JX_SESSION_ID   = "<session id>"
-$env:JX_CHARACTER_ID = "<character id>"
-$env:JX_DISPLAY_NAME = "<display name>"
+git clone https://github.com/Kraken-Plugins/kraken-native.git
+cd kraken-native
 ./gradlew :client:run
 ```
 
-The variables last until you close that window. In IntelliJ, put them in the run configuration's environment
-variables instead. To play a different character on the same Jagex account, change `JX_CHARACTER_ID` and
-`JX_DISPLAY_NAME`; a character on another Jagex account needs that account's session ID.
+The first run downloads its dependencies and builds everything, which takes a few minutes. Then Kraken starts the
+game from the Jagex Launcher's install folder, takes its window in, and attaches to it. When the **Kraken** tab's
+status line reads **Attached**, open the **Plugins** tab and switch a plugin on;
+[Tick Counter](docs/plugins.md#tick-counter) is a good first one.
 
-Don't commit or share these values. If they leak, use **End sessions** in your account settings on runescape.com to
-invalidate them.
+Don't start the game from the launcher first: Kraken starts its own copy, and closing Kraken closes it.
 
-## Mapping a Client Build
+### Logging In
 
-When Jagex ships a new client, the updater maps it and writes the contract the API consumes:
+The Jagex Launcher normally hands your Jagex account session to the game. When Kraken starts the game, you hand it over
+instead, through three environment variables. See [Logging in with a Jagex account](docs/jagex-accounts.md).
 
-```bash
+### Launch Options
+
+```powershell
+./gradlew :client:run --args="D:/Games/OSRS/osclient.exe"          # a copy of the game somewhere else
+./gradlew :client:run --args="--plugin com.example.MyPlugin"       # load a plugin from the classpath
+./gradlew :client:run --args="--developer-mode"                    # also load developer plugins
+```
+
+More options and settings are in [Using the client](docs/client.md).
+
+### Without a C++ Compiler
+
+```powershell
+./gradlew :client:run -x buildNativeHook
+```
+
+This skips the native hook. Kraken still reads the game and runs plugins, but overlays are drawn in a window over the
+game, the game's own highlights and menu actions aren't available, and events arrive a little later.
+
+### When the Game Updates
+
+Each game build needs a mapping. When Jagex ships a new client, Kraken's status line says there's no mapping for it,
+and no plugins load. Make one with the updater, then run Kraken again:
+
+```powershell
 cd updater
-uv run native-updater run --binary "<path to osclient.exe>"
+uv run native-updater run --previous ../api/src/main/resources/mappings/241.3.json
 ```
 
-The first `uv run` creates `updater/.venv` and installs the locked dependencies from `uv.lock`.
+[Mapping a new game build](docs/updater.md) covers setting up Ghidra, reading the results and checking the mapping
+against the game.
 
-This writes `api/src/main/resources/mappings/<version>.json` (change it with `--out`), named after the client version in the exe's
-version resource (for example `241.3.json`). The API bundles that folder as a classpath resource, so rebuild the API
-(or the client) to pick up a new mapping. It holds only the values the API reads. The evidence behind them (a verdict per key, the instructions it
-came from, Lua binding and fingerprint addresses) goes to `analysis.json` in the build's cache folder. Client binaries,
-Ghidra models and those analyses are cached outside the repository in `~/.kraken-native`.
-See [updater/README.md](updater/README.md) for the full flow, exit codes, how to write a recipe, and the known gaps.
+## Writing Plugins
 
-Run the updater's tests from `updater/`:
+Plugins are written as RuneLite plugins are. A plugin that logs your Hitpoints whenever they change:
 
-```bash
-uv run python -m unittest discover -s tests -t .
+```java
+@Log(topic = "kraken")
+@PluginDescriptor(name = "Hitpoints Logger", description = "Logs your Hitpoints when they change")
+public class HitpointsLoggerPlugin extends Plugin {
+
+    @Subscribe
+    public void onStatChanged(StatChanged event) {
+        if (event.getSkill() == Skill.HITPOINTS) {
+            log.info("Hitpoints: " + event.getBoostedLevel());
+        }
+    }
+}
 ```
 
-## Roadmap
+Put it in a package under `client/src/main/java/com/kraken/client/plugins/` and Kraken finds it at launch.
+[Writing a plugin](docs/writing-plugins.md) covers settings, overlays, highlights and the client thread, and the
+[API guide](docs/api.md) covers what you can read.
 
-The API is built in sections you can test live with the dev tools. The milestones below are the longer-term plan.
+## Documentation
 
-* **A0** (done) Load the mapping, attach to the client and verify its identity, then read `Client` scalars such as the game
-  state, tick, skills and varps.
-* **A1** (done) Players, NPCs, inventories, ground items, locs, and a tick loop with events.
-* **A2** (done) Widgets, collision, tile heights and projection, projectiles and graphics objects.
-* **A3** Orientation, hitsplats, overhead text, appearance, chat and other remaining surface.
-* **A4** An in-process backend, injected into the client, for actions. Native events already come from the injected
-  `kraken_hook.dll` (see [event-hooks-design.md](docs/event-hooks-design.md)), which also draws highlights and
-  overlays in the game ([in-game-drawing.md](docs/in-game-drawing.md)).
+* [Using the client](docs/client.md)
+* [Logging in with a Jagex account](docs/jagex-accounts.md)
+* [Plugins](docs/plugins.md)
+* [Dev tools](docs/dev-tools.md)
+* [Mapping a new game build](docs/updater.md)
+* [Writing a plugin](docs/writing-plugins.md)
+* [The API](docs/api.md)
+* [Events](docs/events.md)
+* [Troubleshooting](docs/troubleshooting.md)
 
 ## Acknowledgements
 
