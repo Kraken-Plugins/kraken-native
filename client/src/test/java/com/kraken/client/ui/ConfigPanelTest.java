@@ -10,16 +10,21 @@ import com.kraken.client.plugins.config.ConfigGroup;
 import com.kraken.client.plugins.config.ConfigItem;
 import com.kraken.client.plugins.config.ConfigManager;
 import com.kraken.client.plugins.config.ConfigSection;
+import com.kraken.client.plugins.config.Keybind;
 import com.kraken.client.plugins.config.Range;
 import com.kraken.client.plugins.config.ShowIf;
 import com.kraken.client.plugins.config.Suggestions;
 import com.kraken.client.plugins.config.Units;
+import com.kraken.client.plugins.config.Unsupported;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.awt.*;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
+import java.awt.event.KeyListener;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -150,6 +155,21 @@ class ConfigPanelTest {
         }
     }
 
+    @ConfigGroup("limited")
+    interface LimitedConfig extends Config {
+
+        @Unsupported("Needs menu edits")
+        @ConfigItem(keyName = "menu", name = "Menu colour", description = "Colours the menu", position = 0)
+        default boolean menu() {
+            return true;
+        }
+
+        @ConfigItem(keyName = "hotkey", name = "Hotkey", description = "", position = 1)
+        default Keybind hotkey() {
+            return Keybind.ALT;
+        }
+    }
+
     @BeforeEach
     void setUp() {
         scheduler = Executors.newSingleThreadScheduledExecutor();
@@ -268,6 +288,76 @@ class ConfigPanelTest {
         SwingUtilities.invokeAndWait(() -> target.setSelectedItem("Moss giant"));
         assertEquals("Moss giant", manager.getConfiguration("dynamic", "target"), "a pick is stored at once");
         assertEquals("Moss giant", field.getText());
+    }
+
+    @Test
+    void anUnsupportedItemIsGreyedOutShowingItsValueAndWhy() throws Exception {
+        ConfigPanel page = page(manager.getConfig(LimitedConfig.class));
+        JToggleButton toggle = find(page, JToggleButton.class).get(0);
+        assertFalse(toggle.isEnabled(), "it can't be changed");
+        assertTrue(toggle.isSelected(), "it still shows the value");
+        String tooltip = toggle.getToolTipText();
+        assertTrue(tooltip.contains("Currently unsupported") && tooltip.contains("Needs menu edits")
+                && tooltip.contains("Colours the menu"), tooltip);
+        JLabel name = find(page, JLabel.class).stream().filter(l -> l.getText().contains("Menu colour")).findFirst()
+                .orElseThrow();
+        assertFalse(name.isEnabled());
+        assertEquals(tooltip, name.getToolTipText(), "the name says why too");
+        assertTrue(keybindButton(page).isEnabled(), "other items are untouched");
+    }
+
+    @Test
+    void aKeybindIsStoredOnceItsKeysAreLetGo() throws Exception {
+        ConfigPanel page = page(manager.getConfig(LimitedConfig.class));
+        JButton hotkey = keybindButton(page);
+        assertEquals("Alt", hotkey.getText());
+        SwingUtilities.invokeAndWait(hotkey::doClick);
+        assertEquals("Press a key...", hotkey.getText());
+        SwingUtilities.invokeAndWait(() -> {
+            key(hotkey, KeyEvent.KEY_PRESSED, KeyEvent.VK_CONTROL, InputEvent.CTRL_DOWN_MASK);
+            key(hotkey, KeyEvent.KEY_PRESSED, KeyEvent.VK_F, InputEvent.CTRL_DOWN_MASK);
+            key(hotkey, KeyEvent.KEY_RELEASED, KeyEvent.VK_F, InputEvent.CTRL_DOWN_MASK);
+        });
+        assertNull(manager.getConfiguration("limited", "hotkey"), "Ctrl is still held");
+        SwingUtilities.invokeAndWait(() -> key(hotkey, KeyEvent.KEY_RELEASED, KeyEvent.VK_CONTROL, 0));
+        assertEquals("70:128", manager.getConfiguration("limited", "hotkey"));
+        assertEquals("Ctrl+F", hotkey.getText());
+
+        SwingUtilities.invokeAndWait(() -> {
+            hotkey.doClick();
+            key(hotkey, KeyEvent.KEY_PRESSED, KeyEvent.VK_ESCAPE, 0);
+        });
+        assertEquals("70:128", manager.getConfiguration("limited", "hotkey"), "Escape keeps it");
+        SwingUtilities.invokeAndWait(() -> {
+            hotkey.doClick();
+            key(hotkey, KeyEvent.KEY_PRESSED, KeyEvent.VK_BACK_SPACE, 0);
+        });
+        assertEquals("0:0", manager.getConfiguration("limited", "hotkey"), "Backspace clears it");
+        assertEquals("Not set", hotkey.getText());
+    }
+
+    private static JButton keybindButton(Container page) {
+        return find(page, JButton.class).stream().filter(b -> "Alt".equals(b.getText())).findFirst().orElseThrow();
+    }
+
+    /**
+     * Hands a key event to a component's key listeners, as the focus manager would to the focused component; a
+     * headless test has no focus owner to route it through.
+     *
+     * @param target    the component
+     * @param id        {@link KeyEvent#KEY_PRESSED} or {@link KeyEvent#KEY_RELEASED}
+     * @param keyCode   the key
+     * @param modifiers the modifiers held
+     */
+    private static void key(JComponent target, int id, int keyCode, int modifiers) {
+        KeyEvent event = new KeyEvent(target, id, 0, modifiers, keyCode, KeyEvent.CHAR_UNDEFINED);
+        for (KeyListener listener : target.getKeyListeners()) {
+            if (id == KeyEvent.KEY_PRESSED) {
+                listener.keyPressed(event);
+            } else {
+                listener.keyReleased(event);
+            }
+        }
     }
 
     @Test

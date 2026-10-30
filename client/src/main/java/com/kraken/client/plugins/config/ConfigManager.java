@@ -50,8 +50,9 @@ import java.util.stream.Collectors;
  *       enums (stored by name), {@code Color} ({@code #AARRGGBB}; a decimal ARGB integer also reads),
  *       {@code Dimension} ({@code WIDTHxHEIGHT}), {@code Point} ({@code X:Y}), {@code Rectangle}
  *       ({@code X:Y:WIDTH:HEIGHT}; the settings page has no control for it, so it suits hidden items),
- *       {@code Set} of an enum (names, comma-separated) and {@link Button} (a button on the settings page; nothing is
- *       stored). Keybinds aren't supported: Kraken never sees the game's input.
+ *       {@code Set} of an enum (names, comma-separated), {@link Keybind} ({@code KEYCODE:MODIFIERS}, as
+ *       {@link java.awt.event.KeyEvent} codes and {@link java.awt.event.InputEvent} masks) and {@link Button} (a
+ *       button on the settings page; nothing is stored).
  *   <li><b>The settings page.</b> {@link ShowIf} shows an item or section only while another item has certain
  *       values ({@link #isShown} says what the page shows), and {@link Suggestions} gives a text item a drop-down
  *       the plugin fills.
@@ -150,7 +151,7 @@ public class ConfigManager {
                 items.add(new ConfigItemDescriptor(item, method.getGenericReturnType(),
                         method.getAnnotation(Range.class), method.getAnnotation(Alpha.class),
                         method.getAnnotation(Units.class), method.getAnnotation(Suggestions.class),
-                        List.of(method.getAnnotationsByType(ShowIf.class))));
+                        List.of(method.getAnnotationsByType(ShowIf.class)), method.getAnnotation(Unsupported.class)));
             }
         }
         items.sort(order);
@@ -489,13 +490,20 @@ public class ConfigManager {
                 && set.getActualTypeArguments()[0] instanceof Class<?> element && element.isEnum()) {
             return enumSet(element, text);
         }
+        if (raw == Keybind.class) {
+            String[] parts = text.split(":");
+            if (parts.length != 2) {
+                throw new IllegalArgumentException("not KEYCODE:MODIFIERS");
+            }
+            return new Keybind(Integer.parseInt(parts[0].trim()), Integer.parseInt(parts[1].trim()));
+        }
         throw new IllegalArgumentException("unsupported setting type " + type.getTypeName());
     }
 
     /**
      * Turns a value into the text it is stored as: {@code #AARRGGBB} for a colour, {@code WIDTHxHEIGHT} for a
      * dimension, {@code X:Y} for a point, {@code X:Y:WIDTH:HEIGHT} for a rectangle, the name for an enum,
-     * comma-separated names for a set; anything else's {@code toString}.
+     * {@code KEYCODE:MODIFIERS} for a keybind, comma-separated names for a set; anything else's {@code toString}.
      *
      * @param value the value
      * @return the text to store
@@ -515,6 +523,9 @@ public class ConfigManager {
         }
         if (value instanceof Enum<?> constant) {
             return constant.name();
+        }
+        if (value instanceof Keybind keybind) {
+            return keybind.getKeyCode() + ":" + keybind.getModifiers();
         }
         if (value instanceof Collection<?> collection) {
             return collection.stream().map(this::objectToString).collect(Collectors.joining(","));

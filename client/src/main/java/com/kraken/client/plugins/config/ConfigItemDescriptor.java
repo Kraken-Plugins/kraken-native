@@ -47,6 +47,11 @@ public class ConfigItemDescriptor implements ConfigObject {
      */
     List<ShowIf> showIf;
 
+    /**
+     * Present if the client can't act on the setting yet, or null.
+     */
+    Unsupported unsupported;
+
     @Override
     public String getKey() {
         return item.keyName();

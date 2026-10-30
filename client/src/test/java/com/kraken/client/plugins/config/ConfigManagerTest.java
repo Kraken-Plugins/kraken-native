@@ -11,6 +11,8 @@ import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Point;
 import java.awt.Rectangle;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -48,6 +50,21 @@ class ConfigManagerTest {
 
     enum Shape {
         SQUARE, CIRCLE, TRIANGLE
+    }
+
+    @ConfigGroup("limited")
+    interface LimitedConfig extends Config {
+
+        @Unsupported("Needs menu edits")
+        @ConfigItem(keyName = "menu", name = "Menu colour", description = "Colours the menu")
+        default boolean menu() {
+            return true;
+        }
+
+        @ConfigItem(keyName = "hotkey", name = "Hotkey", description = "")
+        default Keybind hotkey() {
+            return Keybind.ALT;
+        }
     }
 
     @ConfigGroup("example")
@@ -323,6 +340,26 @@ class ConfigManagerTest {
         assertEquals(new Color(1, 2, 3, 4), config.colour(), "decimal form");
         manager.setConfiguration("example", "shapes", "");
         assertEquals(EnumSet.noneOf(Shape.class), config.shapes());
+    }
+
+    @Test
+    void keybindsAreStoredAsKeyCodeAndModifiers() {
+        assertEquals("0:512", manager.objectToString(Keybind.ALT));
+        assertEquals("70:128", manager.objectToString(new Keybind(KeyEvent.VK_F, InputEvent.CTRL_DOWN_MASK)));
+        assertEquals(Keybind.ALT, manager.stringToObject("18:0", Keybind.class), "Alt as the key is the modifier");
+        assertEquals(new Keybind(KeyEvent.VK_F, InputEvent.CTRL_DOWN_MASK),
+                manager.stringToObject("70:128", Keybind.class));
+        assertEquals(Keybind.NOT_SET, manager.stringToObject("0:0", Keybind.class));
+        assertEquals("Ctrl+F", new Keybind(KeyEvent.VK_F, InputEvent.CTRL_DOWN_MASK).toString());
+        assertEquals("Not set", Keybind.NOT_SET.toString());
+    }
+
+    @Test
+    void anUnsupportedItemsDescriptorSaysWhy() {
+        ConfigItemDescriptor item = manager.getConfigDescriptor(manager.getConfig(LimitedConfig.class)).item("menu");
+        assertEquals("Needs menu edits", item.getUnsupported().value());
+        assertNull(manager.getConfigDescriptor(manager.getConfig(LimitedConfig.class)).item("hotkey").getUnsupported());
+        assertTrue(manager.getConfig(LimitedConfig.class).menu(), "its getter still works");
     }
 
     @Test

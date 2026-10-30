@@ -14,9 +14,11 @@ import com.kraken.client.plugins.config.ConfigItemDescriptor;
 import com.kraken.client.plugins.config.ConfigManager;
 import com.kraken.client.plugins.config.ConfigObject;
 import com.kraken.client.plugins.config.ConfigSectionDescriptor;
+import com.kraken.client.plugins.config.Keybind;
 import com.kraken.client.plugins.config.Range;
 import com.kraken.client.plugins.config.ShowIf;
 import com.kraken.client.plugins.config.Suggestions;
+import com.kraken.client.plugins.config.Unsupported;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignA;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignR;
@@ -26,6 +28,8 @@ import org.kordamp.ikonli.swing.FontIcon;
 import java.awt.*;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.lang.reflect.InvocationTargetException;
@@ -79,10 +83,11 @@ import static com.formdev.flatlaf.FlatClientProperties.*;
  *   <tr><td>{@code Color}</td><td>swatch opening a colour picker, with transparency if {@code @Alpha}</td></tr>
  *   <tr><td>{@code Dimension}, {@code Point}</td><td>two spinners, each bounded by {@code @Range}</td></tr>
  *   <tr><td>{@link Button}</td><td>a button with the item's name, which posts {@link ConfigButtonClicked}</td></tr>
+ *   <tr><td>{@link Keybind}</td><td>a button that records the keys pressed after clicking it</td></tr>
  * </table>
  *
- * <p>An item with a {@code warning} asks before its value changes. Hidden items aren't shown, and Reset leaves them
- * alone (plugins keep their own state in them). Changes made elsewhere (a plugin's setter) show up while the page is
+ * <p>An item with a {@code warning} asks before its value changes. An {@link Unsupported} item is greyed out, its
+ * tooltip saying why. Hidden items aren't shown, and Reset leaves them alone (plugins keep their own state in them). Changes made elsewhere (a plugin's setter) show up while the page is
  * open. EDT only.
  */
 public final class ConfigPanel extends JPanel {
@@ -299,6 +304,10 @@ public final class ConfigPanel extends JPanel {
             east.add(control.component());
             row.add(east, BorderLayout.EAST);
         }
+        if (item.getUnsupported() != null) {
+            name.setForeground(Theme.MEDIUM);
+            disable(row, unsupportedTooltip(item));
+        }
         return new JPanel(new BorderLayout()) {
             {
                 setAlignmentX(LEFT_ALIGNMENT);
@@ -337,6 +346,9 @@ public final class ConfigPanel extends JPanel {
         }
         if (type == Button.class) {
             return button(item);
+        }
+        if (type == Keybind.class) {
+            return keybind(item);
         }
         if (type instanceof Class<?> clazz && clazz.isEnum()) {
             return choice(item, (Class) clazz);
@@ -704,6 +716,71 @@ public final class ConfigPanel extends JPanel {
     }
 
     /**
+     * A button showing a keybind. Clicked, it waits for keys: the keys pressed together are stored once they are all
+     * let go, Backspace or Delete stores {@link Keybind#NOT_SET}, and Escape or clicking elsewhere keeps the old one.
+     *
+     * @param item a {@link Keybind} item
+     * @return the control
+     */
+    private Control keybind(ConfigItemDescriptor item) {
+        JButton button = new JButton();
+        button.setFocusable(true);
+        Keybind[] pending = {null};
+        boolean[] capturing = {false};
+        Runnable load = () -> {
+            capturing[0] = false;
+            pending[0] = null;
+            button.setText(value(item) instanceof Keybind keybind ? keybind.toString() : Keybind.NOT_SET.toString());
+        };
+        button.addActionListener(e -> {
+            capturing[0] = true;
+            pending[0] = null;
+            button.setText("Press a key...");
+            button.requestFocusInWindow();
+        });
+        button.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                if (!capturing[0]) {
+                    return;
+                }
+                e.consume();
+                int code = e.getKeyCode();
+                if (code == KeyEvent.VK_ESCAPE) {
+                    load.run();
+                } else if (code == KeyEvent.VK_BACK_SPACE || code == KeyEvent.VK_DELETE) {
+                    capturing[0] = false;
+                    apply(item, Keybind.NOT_SET, load);
+                    load.run();
+                } else {
+                    pending[0] = Keybind.of(e);
+                    button.setText(pending[0].toString());
+                }
+            }
+
+            @Override
+            public void keyReleased(KeyEvent e) {
+                if (capturing[0] && pending[0] != null && (e.getModifiersEx() & Keybind.MODIFIER_MASK) == 0) {
+                    e.consume();
+                    Keybind chosen = pending[0];
+                    capturing[0] = false;
+                    apply(item, chosen, load);
+                    load.run();
+                }
+            }
+        });
+        button.addFocusListener(new FocusAdapter() {
+            @Override
+            public void focusLost(FocusEvent e) {
+                if (capturing[0]) {
+                    load.run();
+                }
+            }
+        });
+        return new Control(button, false, load);
+    }
+
+    /**
      * Saves a value the user chose, asking first if the item has a warning.
      *
      * @param item   the item
@@ -862,6 +939,44 @@ public final class ConfigPanel extends JPanel {
     private static String tooltip(String description) {
         return description == null || description.isBlank() ? null
                 : "<html><div style='width:220px'>" + Theme.escape(description) + "</div></html>";
+    }
+
+    /**
+     * The tooltip of an {@link Unsupported} item: that it is currently unsupported, why, then its description.
+     *
+     * @param item an item with {@link Unsupported}
+     * @return the tooltip's HTML
+     */
+    static String unsupportedTooltip(ConfigItemDescriptor item) {
+        String reason = item.getUnsupported().value();
+        String description = item.getItem().description();
+        StringBuilder html = new StringBuilder("<html><div style='width:220px'><b>Currently unsupported</b>");
+        if (!reason.isBlank()) {
+            html.append(": ").append(Theme.escape(reason));
+        }
+        if (description != null && !description.isBlank()) {
+            html.append("<br><br>").append(Theme.escape(description));
+        }
+        return html.append("</div></html>").toString();
+    }
+
+    /**
+     * Greys out a row and everything in it, each part showing the tooltip, so the user can't change the setting but
+     * can still see its value and read why.
+     *
+     * @param component the row or one of its parts
+     * @param tooltip   the tooltip
+     */
+    private static void disable(Component component, String tooltip) {
+        component.setEnabled(false);
+        if (component instanceof JComponent part) {
+            part.setToolTipText(tooltip);
+        }
+        if (component instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                disable(child, tooltip);
+            }
+        }
     }
 
     /**
