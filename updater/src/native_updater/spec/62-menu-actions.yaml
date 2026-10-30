@@ -46,6 +46,26 @@ keys:
       and shift keys' state, the world x and z) and sets the client's destination marker.
     strategies:
       - extractor: { name: menu_ops, field: functions.menuWalk, cls: A }
+  - key: Client.destination
+    type: ptr
+    priority: P1
+    doc: The object holding the walk destination, the tile the flag marks, at its start. The Walk here row body and the
+      op row bodies set it after sending their packet, through a setter (client, world, sceneX, sceneZ); the client
+      sets it back to (0, 0) when the local player stands on it and when it resets the session (walk_destination).
+    strategies:
+      - extractor: { name: walk_destination, field: Client.destination, cls: A }
+  - key: Destination.x
+    type: i32
+    priority: P1
+    doc: The walk destination's scene x, counted from the loaded area's south-west corner; 0 when there is none.
+    strategies:
+      - extractor: { name: walk_destination, field: Destination.x, cls: A }
+  - key: Destination.z
+    type: i32
+    priority: P1
+    doc: The walk destination's scene z (north).
+    strategies:
+      - extractor: { name: walk_destination, field: Destination.z, cls: A }
   - key: functions.menuNpcTargetOp
     type: "void(void* unused, const struct {i32 index}* args)"
     priority: P1

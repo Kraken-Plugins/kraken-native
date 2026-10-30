@@ -12,7 +12,7 @@ from .events import event_raisers
 from .highlights import highlight_config_fields, highlight_script_ops
 from .hooks import obj_pile_ops, player_lifecycle
 from .minimenu import minimenu
-from .menuops import menu_ops
+from .menuops import menu_ops, walk_destination
 from .dialogs import dialog_packets
 from .scripts import script_runner
 from .interfaces import sub_interfaces
@@ -1304,7 +1304,8 @@ def game_state_setter(session, p):
 EXTRACTORS = {
     "event_raisers": event_raisers, "cycle_function": cycle_function, "game_state_setter": game_state_setter,
     "obj_pile_ops": obj_pile_ops, "player_lifecycle": player_lifecycle,
-    "projectiles": projectiles, "minimenu": minimenu, "menu_ops": menu_ops, "dialog_packets": dialog_packets,
+    "projectiles": projectiles, "minimenu": minimenu, "menu_ops": menu_ops, "walk_destination": walk_destination,
+    "dialog_packets": dialog_packets,
     "script_runner": script_runner, "sub_interfaces": sub_interfaces, "chat_history": chat_history,
     "actor_hitmarks": actor_hitmarks, "varc_setters": varc_setters, "overhead_countdown": overhead_countdown,
     "actor_spot_anims": actor_spot_anims,

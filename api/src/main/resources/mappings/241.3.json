@@ -58,6 +58,7 @@
       "minimenu": "0x4133f0",
       "projectiles": "0xcc70",
       "keyedProjectiles": "0xcc88",
+      "destination": "0x40eab0",
       "connection": "0x31a0",
       "pluginGate": "0x418690",
       "topLevelInterface": "0x413bc8",
@@ -433,6 +434,10 @@
       "fineZ": "0x2e8",
       "yaw": "0x318",
       "pitch": "0x31c"
+    },
+    "Destination": {
+      "x": "0x0",
+      "z": "0x4"
     },
     "Connection": {
       "outCipher": "0xa08"

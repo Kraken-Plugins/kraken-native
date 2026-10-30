@@ -37,7 +37,7 @@ class MenuOpsTests(unittest.TestCase):
     TRAMPOLINE, CREATE, SEND, RELEASE, WRITE = 0x9000, 0x8000, 0xa000, 0xb000, 0xf000
     WRITE_BYTE, WRITE_INT, WRITE_STRING, STRINGS = 0xf100, 0xf200, 0xf300, 0xf400
     DECODE, HANDLER, CYCLE = 0xc000, 0xd000, 0xe000
-    TILE_BUILDER, WALK_STUB, WALK = 0x1100, 0x7000, 0x7100
+    TILE_BUILDER, WALK_STUB, WALK, SET_TILE, SET_DESTINATION = 0x1100, 0x7000, 0x7100, 0x7200, 0x7300
     IMAGE = 0x140000000
 
     def program(self):
@@ -133,6 +133,33 @@ class MenuOpsTests(unittest.TestCase):
         self.assertEqual((row, fn), (self.WALK_STUB, self.WALK))
         self.assertEqual(rva, self.WALK + 4, "the first compare")
         self.assertEqual(menuops._row_address(s.model, self.SENDER), None, "no row holds the sender's address")
+
+    def test_the_walk_destination_is_stored_through_a_client_pointer(self):
+        s = self.session()
+        s.values["functions.menuWalk"] = self.WALK_STUB
+        s.model = FakeModel({**self.program(), **self.destination_program()})
+        s.prov = Provenance(s.model)
+        out = {k: v[0] for k, v in menuops.walk_destination(s, {}).items()}
+        self.assertEqual(out, {"Client.destination": 0x40eab0, "Destination.x": 0, "Destination.z": 4})
+
+    def test_no_walk_destination_without_the_setter(self):
+        s = self.session()
+        s.values["functions.menuWalk"] = self.WALK_STUB
+        self.assertEqual(menuops.walk_destination(s, {}), {})
+        self.assertIn("walk destination: 0 setters store a scene tile through a client pointer", s.notes)
+
+    def destination_program(self):
+        """The walk body calling (client, captures) after its send; that function tail-jumps to the setter
+        (client, world, sceneX, sceneZ), which stores the scene tile through [client + 0x40eab0]."""
+        walk = self.program()[self.WALK]
+        return {
+            self.WALK: ["MOV RDI,RDX"] + walk[:-1] + ["MOV RDX,RDI", "MOV RCX,qword ptr [0x140e98c18]",
+                                                      f"CALL {self.IMAGE + self.SET_TILE:#x}", "RET"],
+            self.SET_TILE: ["MOV RDI,RCX", "MOV R8D,dword ptr [RDX + 0x4]", "MOV R9D,dword ptr [RDX + 0x8]",
+                            f"JMP {self.IMAGE + self.SET_DESTINATION:#x}"],
+            self.SET_DESTINATION: ["MOV RAX,qword ptr [RCX + 0x40eab0]", "MOV dword ptr [RAX],R8D",
+                                   "MOV RAX,qword ptr [RCX + 0x40eab0]", "MOV dword ptr [RAX + 0x4],R9D", "RET"],
+        }
 
     def test_writers_are_told_apart_by_their_position_step(self):
         s = self.session()

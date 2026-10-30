@@ -40,7 +40,7 @@ functions.menuComponentTargetOp, functions.menuComponentSelect, functions.menuCo
 functions.menuComponentButton, functions.menuComponentToggle, functions.menuComponentSet,
 functions.menuComponentClose, IfType.subOpCount, IfType.subOpNames, functions.packetCreate,
 functions.packetWrite{Byte,Short,Int,String}, functions.packetSend, functions.packetRelease, Client.connection,
-Connection.outCipher, enums.clientProt.
+Connection.outCipher, enums.clientProt. `walk_destination` adds Client.destination, Destination.x and Destination.z.
 """
 from collections import Counter
 
@@ -503,6 +503,61 @@ def _walk_body(session, create):
         session.notes.append(f"menu ops: {len(found)} row bodies compare their captures with the last walk target")
         return None
     return found[0]
+
+
+def walk_destination(session, p):
+    """Client.destination, Destination.x, Destination.z: where the client keeps the walk destination (the tile the
+    flag marks). After sending the walk packet, the Walk here row body calls a client method with (client, captures)
+    that turns the captured world tile into a scene tile and hands it, through a call or a tail jump, to the
+    destination setter (client, world, sceneX, sceneZ). The setter loads one pointer from the client and stores its
+    third argument at one offset of it and its fourth at another. The client clears the destination by setting it to
+    (0, 0), as it does when the local player stands on it."""
+    model = session.model
+    client = session.value("global.client")
+    body = _jump_target(model, session.value("functions.menuWalk"))
+    found = []
+    for call in session.prov.facts(body).calls:
+        if call.target is None or len(call.args) < 2 or not _is_client(call.args[0], client) or call.args[1] != Arg(1):
+            continue
+        candidates = [call.target] + [c.target for c in session.prov.facts(call.target).calls
+                                      if c.target is not None and c.args and c.args[0] == Arg(0)]
+        for setter in candidates:
+            stores = _destination_stores(session, setter)
+            if stores is not None:
+                found.append((setter, stores))
+    if len({stores[:3] for _, stores in found}) != 1:
+        session.notes.append(f"walk destination: {len(found)} setters store a scene tile through a client pointer")
+        return {}
+    setter, (pointer, x, z, rva) = found[0]
+    ev = [session.evidence(rva, setter, "disp")]
+    return {
+        "Client.destination": (pointer, ev, f"the pointer the destination setter {setter:#x} loads from the client"),
+        "Destination.x": (x, ev, "where the setter stores its scene x (its third argument)"),
+        "Destination.z": (z, ev, "where the setter stores its scene z (its fourth argument)"),
+    }
+
+
+def _destination_stores(session, fn):
+    """(pointer offset, x offset, z offset, rva of the x store) if fn stores Arg 2 and Arg 3 as i32s through one
+    pointer loaded from [Arg 0 + pointer offset], else None."""
+    stores = {}
+    for s in session.prov.facts(fn).stores:
+        t = s.target
+        if s.value in (Arg(2), Arg(3)) and isinstance(t, Deref) and t.size == 4 and t.index is None \
+                and isinstance(t.base, Deref) and t.base.base == Arg(0) and t.base.size == 8 and t.base.index is None:
+            stores.setdefault(s.value, (t.base.off, t.off, s.rva))
+    if Arg(2) not in stores or Arg(3) not in stores or stores[Arg(2)][0] != stores[Arg(3)][0]:
+        return None
+    (pointer, x, rva), (_, z, _) = stores[Arg(2)], stores[Arg(3)]
+    return pointer, x, z, rva
+
+
+def _jump_target(model, fn):
+    """The function a one-instruction jump stub goes to, or fn itself."""
+    body = model.insns(fn)
+    if len(body) == 1 and body[0].is_jump and body[0].target is not None:
+        return body[0].target
+    return fn
 
 
 def _row_address(model, fn):
