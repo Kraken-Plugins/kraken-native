@@ -41,7 +41,6 @@ Options Kraken doesn't recognise are reported in the console.
 |---|---|
 | `kraken.settings=<file>` | Keeps settings in this file instead of `~/.kraken-native/settings.properties`. Handy for a separate test profile |
 | `kraken.mappings=<dir>` | Reads game mappings from this folder instead of the bundled ones. See [Mapping a new game build](updater.md) |
-| `kraken.hook.dll=<path>` | Injects this `kraken_hook.dll` instead of the one built into the client |
 | `kraken.hook.projectileStep=true` | Has the native hook report every projectile's movement each frame. Off by default, as it's about 50 messages a second per projectile |
 
 Pass them to Gradle with `-D`. In PowerShell, quote each one, or PowerShell splits it at the first dot:

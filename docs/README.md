@@ -23,6 +23,5 @@ New here? Start with the [README](../README.md) to get Kraken running.
 
 ## How It Works
 
-Developer documentation, on how the updater, the API, the client and the native hook fit together, will go in
-`docs/developer/`. Until then, the module READMEs cover the internals: [the updater](../updater/README.md) and
-[the native hook](../client/src/main/native/kraken_hook/README.md).
+The [developer documentation](developer/README.md) explains how the updater, the API, the client and the native hook
+work and fit together, for people changing Kraken itself. Start with [Architecture](developer/architecture.md).

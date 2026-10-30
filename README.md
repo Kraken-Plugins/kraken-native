@@ -135,6 +135,8 @@ Put it in a package under `client/src/main/java/com/kraken/client/plugins/` and 
 * [Events](docs/events.md)
 * [Troubleshooting](docs/troubleshooting.md)
 
+How it all works inside, for contributors: the [developer documentation](docs/developer/README.md).
+
 ## Acknowledgements
 
 The API and client are modelled on [RuneLite](https://github.com/runelite/runelite). The API's classes, method names

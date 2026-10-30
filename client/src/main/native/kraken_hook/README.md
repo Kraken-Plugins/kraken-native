@@ -8,9 +8,9 @@ A DLL injected into `osclient.exe`. It does four things for the Kraken client:
 - runs the client functions the Kraken client asks for (the highlight functions) **on the game
   thread**, at the start of each frame;
 - draws the Kraken client's overlay **inside the game's own OpenGL frame**, just before it is
-  presented. See `docs/in-game-drawing.md`;
+  presented. See [in-game-drawing.md](../../../../../docs/developer/in-game-drawing.md);
 - reports each script the client runs (a root run starting, a gosub, a return) with the top of the
-  script engine's stacks, while the Kraken client asks for them. See `docs/event-hooks-design.md` §2.6.
+  script engine's stacks, while the Kraken client asks for them. See [events.md](../../../../../docs/developer/events.md).
 
 It is installed on every launch, once the API attaches (`NativeEventServer`, created by the session
 injector). It is the one place the client writes to the game process. If the DLL can't be found or
@@ -40,7 +40,7 @@ planned values, pushes a message, then forwards to the original unchanged.
 > Note: `objAdd`/`objDel`/`objCount` (ground items) pass their item id and count **on the stack**, so
 > the generic four-register detour cannot forward them without corrupting the call. They are left out
 > until the DLL grows a stack-preserving detour; the API's `ItemTracker` reads the piles on its safety
-> poll meanwhile. See `docs/event-hooks-design.md` §2.5.
+> poll meanwhile. See [native-hook.md](../../../../../docs/developer/native-hook.md#raise-hooks).
 
 ### The pump and present hooks
 
@@ -88,7 +88,7 @@ block (empty for no script hooks; its 147-byte layout is `NativeProtocol.scriptL
 | -3 | FRAME | framebuffer width, height, GL version (`major << 16 \| minor`), surface generation drawn (0 = none) |
 | -4 | CALLS_DONE | batch id, calls run, calls faulted or skipped, last return value |
 | -5 | FPS | frames since the last FPS, microseconds since it, frame cap in force, 1 if presents were counted (0: frame steps) |
-| -6 | SCRIPT | kind (0 root start, 1 gosub, 2 return), script id, depth, 0; then the top of both stacks and, for a root run a listener started, the request (`docs/event-hooks-design.md` §2.6) |
+| -6 | SCRIPT | kind (0 root start, 1 gosub, 2 return), script id, depth, 0; then the top of both stacks and, for a root run a listener started, the request ([native-protocol.md](../../../../../docs/developer/native-protocol.md#the-script-payload)) |
 
 STATUS, FRAME and FPS are written by the writer thread straight to the socket, so they can arrive out
 of `seq` order with ring messages; CALLS_DONE and SCRIPT go through the ring. FPS goes out about once a second
@@ -112,13 +112,14 @@ byte and the body, at most 4 MiB.
   it over at its next present. `nameLen` 0, a mapping that fails the check, or a dropped connection
   stops the overlay.
 - `3 FRAME_LIMIT`: `u32 fps`, 0 (or over 1000) for none. The pump waits out each frame until it is due
-  (`docs/in-game-drawing.md` §2.3). A new cap wakes a waiting pump; a dropped connection lifts it.
-- `4 SCRIPTS`: `u8 flags`, `u8 count`, `count` � `i32` script id. Bit 0 asks for scripts starting,
+  ([native-hook.md](../../../../../docs/developer/native-hook.md#the-pump-hook)). A new cap wakes a waiting pump; a dropped connection lifts it.
+- `4 SCRIPTS`: `u8 flags`, `u8 count`, `count` × `i32` script id. Bit 0 asks for scripts starting,
   bit 1 for scripts returning, bit 2 for root runs of the listed scripts starting (at most 8; the API
   lists the XP drop script while `FakeXpDrop` has subscribers). Ignored until the script hooks are
   live; a dropped connection clears it.
 
-The surface layout and its lock-free triple-buffer handshake are in `docs/in-game-drawing.md` §2.4.
+The surface layout and its lock-free triple-buffer handshake are in
+[in-game-drawing.md](../../../../../docs/developer/in-game-drawing.md).
 
 ## Flow
 
@@ -251,9 +252,9 @@ safety-net rate and the hook drives the reads.
 ## Caveats
 
 - x64 only.
-- Live checks are still pending for some payloads and hook sites (see `docs/event-hooks-design.md` §7).
+- Live checks are still pending for some payloads and hook sites (see [events.md](../../../../../docs/developer/events.md)).
   The trackers keep their whole-read fallback, so an unconfirmed payload costs latency, not a missed
   event.
 - The pump, the calls and the overlay are not checked against a running client yet (see
-  `docs/in-game-drawing.md` §4). Under MinGW the calls, the capture plans and the GL drawing run
+  [in-game-drawing.md](../../../../../docs/developer/in-game-drawing.md)). Under MinGW the calls, the capture plans and the GL drawing run
   without SEH guards; build with MSVC for anything but local testing.

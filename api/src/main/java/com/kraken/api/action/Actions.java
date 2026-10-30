@@ -688,8 +688,7 @@ public final class Actions {
      * @return the call, or null if the action isn't supported, the tile can't be worked out or a component op or
      * sub-option is out of range
      */
-    NativeCall actionCall(int param0, int param1, MenuAction action, int identifier, int itemId, int subOp,
-                          WorldPoint where) {
+    NativeCall actionCall(int param0, int param1, MenuAction action, int identifier, int itemId, int subOp, WorldPoint where) {
         Op op = ops.get(action);
         if (op == null) {
             return null;
@@ -920,6 +919,5 @@ public final class Actions {
      * @param subject the kind
      * @param op      the op, 1-based, or 0 when the action's identifier is the op or the body has no op
      */
-    private record Op(Subject subject, int op) {
-    }
+    private record Op(Subject subject, int op) {}
 }

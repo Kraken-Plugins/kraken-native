@@ -78,7 +78,8 @@ Each value gets a verdict:
 | `NEEDS_REVIEW` | The evidence disagrees, or a check failed | No |
 | `FAILED` | Nothing found | No |
 
-Every value that isn't `PROVEN` or `ANCHORED` is listed with the reason. The exit code sums it up:
+Every value left out (`NEEDS_REVIEW` or `FAILED`) is listed with the reason. `INFERRED` values are counted but not
+listed; `analysis.json` names them. The exit code sums it up:
 
 | Exit code | Meaning |
 |---|---|

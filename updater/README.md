@@ -1,7 +1,8 @@
 # Kraken native updater
 
 Maps struct offsets, globals and functions of a new `osclient.exe` build and writes the contract the native API
-consumes (`api/src/main/resources/mappings/<version>.json`, e.g. `241.3.json`). Implements [docs/updater-design.md](../docs/updater-design.md).
+consumes (`api/src/main/resources/mappings/<version>.json`, e.g. `241.3.json`). How it works inside is in [docs/developer/updater.md](../docs/developer/updater.md); running it is in
+[docs/updater.md](../docs/updater.md).
 
 Python 3.10+, PyYAML, SQLite (stdlib). Ghidra 12.1 + JDK 21 only for the one-off export per build.
 
@@ -88,7 +89,7 @@ never applied to a different binary. It holds values only, keyed like the spec:
 
 `events` lists, per native event (ids in `enums.events`), the functions the client calls to raise it: hook `fn`,
 forward `args` integer register arguments, and take the event id from argument `idArg` (0 = RCX) or as the fixed
-`id`. These feed the client module's injected hook DLL (`docs/event-hooks-design.md`).
+`id`. These feed the client module's injected hook DLL ([docs/developer/events.md](../docs/developer/events.md)).
 
 Only PROVEN, ANCHORED and INFERRED keys are written; NEEDS_REVIEW and FAILED keys are left out, so the API fails
 loudly on a missing key rather than reading a doubtful one. Keys marked `internal: true` in the spec (inputs to other
@@ -141,7 +142,7 @@ reads it for carry-forward. Repair bundles (`repair/<key>.md`) go in the same fo
   strategies:
     - getter: { in: osrs.Entity.isInteracting, base: sp_result, load: i32, select: { returned: true } }
   invariants:
-    - adjacent: { key: Actor.interactingValid, delta: -1 }
+    - adjacent: { key: Actor.interactingType, delta: -1 }
 ```
 
 `in` names the function: a Lua binding (`Table.name`), a fingerprint (`@Name`), a string anchor

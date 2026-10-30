@@ -8,8 +8,8 @@ moment the game raises them instead of on the API's next read, which is up to 20
 *sharper with the hook*, it also catches changes that undo themselves between two reads, such as an interface closed
 and reopened at once.
 
-Events are posted on the client thread. Within one read, they're posted in a fixed order, ending with `GameTick` when a
-tick has passed.
+Events are posted on the client thread. Within one read they're posted in a fixed order: the trackers' events
+first, then `GameTick` if a tick passed, then a `ClientTick` for each client cycle.
 
 ## Ticks and the Client
 
