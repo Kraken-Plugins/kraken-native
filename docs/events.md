@@ -72,7 +72,7 @@ A newly loaded area posts a spawn for each of its objects and ground items, and 
 |---|---|---|
 | `MenuOpened` | The right-click menu opens | `menuEntries`, `getFirstEntry()` |
 | `MenuEntryAdded`, `MenuEntryRemoved` | A row appears in, or leaves, the menu | `menuEntry`, with shortcuts such as `getOption()` and `getTarget()` |
-| `MenuOptionClicked` | The game runs a menu entry. Posted after it ran, so it can't be cancelled. *Sharper with the hook* | `menuEntry`, `getMenuOption()`, `getMenuAction()`, `getId()` |
+| `MenuOptionClicked` | The game runs a menu entry, or a row a plugin added is clicked (which runs nothing in the game). Posted after the game's own row ran, so `consume()` can't cancel it. *Sharper with the hook* | `menuEntry`, `getMenuOption()`, `getMenuAction()`, `getId()`, `consume()` |
 
 ## Projectiles and Spot Animations
 

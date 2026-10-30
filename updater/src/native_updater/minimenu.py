@@ -141,6 +141,8 @@ def minimenu(session, p):
                                  "calls the NPC, loc and tile op raisers with the entry being run")
     rebuild = _rebuild(session, events)
     if rebuild is not None:
+        out["MinimenuRebuild"] = (rebuild, [session.evidence(rebuild, rebuild, "rip")],
+                                  "raises ON_MINIMENU_REBUILD after rebuilding the view")
         out.update(_owner_layout(session, rebuild, out))
     return out
 

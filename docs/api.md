@@ -6,8 +6,8 @@ and the rest. Its classes, method names and events follow RuneLite's API, so if 
 of it will look familiar. Each getter reads what the game's own Lua plugin API reads.
 
 Everything is read-only, with two exceptions that go through the [native hook](client.md#the-native-hook):
-[highlights](#highlights), which have the game outline things itself, and [menu actions](#menu-actions), which run a
-menu option as a click would.
+[highlights](#highlights), which have the game outline things itself, [menu actions](#menu-actions), which run a
+menu option as a click would, and [menu edits](#menu-edits), which change the right-click menu.
 
 This page is a tour. The Javadoc on each class has the details.
 
@@ -208,6 +208,45 @@ Actions aren't queued: while the hook isn't connected, they're dropped and retur
 
 Every action is sent to the game's servers like a real click. Read the disclaimer in the [README](../README.md).
 
+## Menu Edits
+
+`client.getMenuEdits()` changes the right-click menu through the native hook, which applies **rules** every time the
+game rebuilds the menu (every client cycle while it's closed), so a swapped option is the left click from the moment a
+row shows and a left click never sees the unswapped menu.
+
+```java
+MenuEdits edits = client.getMenuEdits();
+// "Bank" becomes the left click on anyone with a Talk-to and a Bank option
+int bank = edits.add(MenuRule.Swap.options("Talk-to", "Bank", ShiftState.ANY));
+// Shift-clicking any NPC walks there instead
+int walk = edits.add(MenuRule.Edit.of(MenuMatch.any().kind(MenuSubject.NPC), ShiftState.HELD,
+        MenuRule.Edit.Action.DEPRIORITIZE));
+// a row of your own above every tile's Walk here while Shift is held
+int mark = edits.add(new MenuRule.Add(MenuMatch.any().action(MenuAction.WALK), ShiftState.HELD, false,
+        MenuRule.Add.Position.ABOVE, MenuRow.of("Mark tile", "", e -> mark())));
+// later
+edits.removeAll(List.of(bank, walk, mark));
+```
+
+| Rule | What it does |
+|---|---|
+| `MenuRule.Edit` | On every row a `MenuMatch` names: hide, deprioritize (move to the bottom), promote (swap with the top row), promote within its subject, write the option or target, report clicks |
+| `MenuRule.Swap` | Swap a row with the row below it that has another option and the same target: the left-click swaps |
+| `MenuRule.Add` | A row of your own (with a sub-menu) next to the rows a match names. Clicking it runs your callback and posts `MenuOptionClicked`, and nothing in the game |
+
+A `MenuMatch` narrows by subject kind, action (a component op with its op number), type id, index, interface, world
+tile, and option and target text (`TextMatch`: exact, contains, prefix, suffix or wildcard, with colour tags removed
+and case ignored). Each rule says whether it applies with Shift held, not held or either.
+
+The entry setters work too, as they do in RuneLite, with one difference: on an entry you read from the game,
+`setOption`, `setTarget`, `setDeprioritized` and `onClick` become a rule on that row from the game's **next** rebuild
+(about 20 ms later) for as long as the row shows, so make them from `MenuEntryAdded` rather than `MenuOpened` (an open
+menu isn't rebuilt). `client.createMenuEntry(idx)` adds a row of your own next to the row at `idx` the same way, with
+`createSubMenu()` for a sub-menu; `client.setMenuEntries(entries)` hides the rows left out and promotes a new top row.
+
+Rules are remembered without the hook and sent when it connects; `isAvailable()` says whether they reach the game now.
+[Menu edits](developer/menu-edits.md) has the details.
+
 ## Using the API on Its Own
 
 The API also works without the Kraken client, from any Java 21 program on Windows. It isn't published to a Maven
@@ -236,15 +275,16 @@ try (GameSession session = GameSession.attach(game.pid(), exe)) {
 `GameSession.attach(pid, exe, Path.of("D:/kraken-mappings"))`. If there's no mapping for the build, or it was made from
 a different binary, `attach` throws `UnsupportedBuildException`.
 
-On its own, the API doesn't load the native hook, so highlights, menu actions and the script events aren't available,
-and other events come from reading the game every 20 ms.
+On its own, the API doesn't load the native hook, so highlights, menu actions, menu edits and the script events aren't
+available, and other events come from reading the game every 20 ms.
 
 ## What's Missing
 
 Some things RuneLite's API has aren't here yet, or can't be read from outside the game:
 
-* Writes to the game other than highlights and menu actions: no camera control, no widget changes.
-* `ScriptCallbackEvent`, sound effect events, and consuming a `MenuOptionClicked`.
+* Writes to the game other than highlights, menu actions and menu edits: no camera control, no widget changes.
+* `ScriptCallbackEvent` and sound effect events. `MenuOptionClicked.consume()` exists but can't stop the game's own
+  row, which has already run when the event is posted.
 * Sub-worlds such as boats, a world number getter, and a chat history getter (use the `ChatMessage` event).
 * NPC and player health ratios: there's `isDead()` and whether a health bar is showing.
 * Object rotation, so `GameObject` sizes are as if unrotated.

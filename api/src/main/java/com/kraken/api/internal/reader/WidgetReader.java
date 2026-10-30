@@ -9,6 +9,7 @@ import com.kraken.api.widgets.WidgetNode;
 import com.kraken.api.widgets.WidgetType;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -42,8 +43,13 @@ public final class WidgetReader extends GameReader {
             "model2Id", "modelAnim", "modelAnim2", "modelXOf", "modelYOf", "modelXAn", "modelYAn", "modelZAn",
             "modelZoom", "modelWid", "modelHei", "modelSpin", "orthog", "text", "text2", "overlayId", "baseOpName",
             "opCount", "opNames", "linkObjType", "linkObjCount", "dynCount", "dynSlots", "renderCycle", "subOpCount",
-            "subOpNames"
+            "subOpNames", "onKey"
     };
+
+    /**
+     * The most arguments a component listener is read with; a count beyond it is a bad read.
+     */
+    private static final int MAX_LISTENER_ARGS = 64;
 
     /**
      * The size of a vector of strings in the sub-option table: its begin, end and capacity pointers.
@@ -82,6 +88,13 @@ public final class WidgetReader extends GameReader {
     private final int subLow;
     private final int subSpan;
     private final int cTopLevel;
+    private final int listenerCount;
+    private final int listenerArgs;
+    private final int valueSize;
+    private final int valueType;
+    private final int kindInt;
+    private final int kindString;
+    private final int kindLong;
     private final int[] coordinates;
     private final boolean storeReady;
     private final boolean dynamicReady;
@@ -124,6 +137,13 @@ public final class WidgetReader extends GameReader {
         this.subNext = optionalOffset("SubInterfaceNode.next");
         this.subMode = optionalOffset("SubInterfaceNode.type");
         this.cTopLevel = optionalOffset("Client.topLevelInterface");
+        this.listenerCount = optionalOffset("IfListener.count");
+        this.listenerArgs = optionalOffset("IfListener.args");
+        this.valueSize = optionalOffset("VarValue.size");
+        this.valueType = optionalOffset("VarValue.type");
+        this.kindInt = mapping.enumValue("varValueType", "INT", -1);
+        this.kindString = mapping.enumValue("varValueType", "STRING", -1);
+        this.kindLong = mapping.enumValue("varValueType", "LONG", -1);
         int low = Math.min(Math.min(subKey, subGroup), subNext);
         int high = Math.max(Math.max(subKey + 4, subGroup + 4), subNext + 8);
         if (subMode >= 0) {
@@ -518,6 +538,46 @@ public final class WidgetReader extends GameReader {
      */
     public int field(String name) {
         return fields.getOrDefault(name, -1);
+    }
+
+    /**
+     * Reads a component's listener held in a snapshot: its arguments, the script id first, as the client's
+     * {@code cc_setonkey} and its siblings stored them.
+     *
+     * @param data the snapshot
+     * @param name the listener field, e.g. "onKey"
+     * @return the arguments ({@code Integer}s, {@code String}s and {@code Long}s, null for other kinds), or null if
+     * the component has no such listener or this build's mapping lacks the listener layout
+     */
+    public Object[] listener(byte[] data, String name) {
+        int offset = field(name);
+        if (offset < 0 || listenerCount < 0 || listenerArgs < 0 || valueSize <= 0 || valueType < 0
+                || offset + Math.max(listenerCount, listenerArgs) + 8 > data.length) {
+            return null;
+        }
+        ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);
+        long count = buffer.getLong(offset + listenerCount);
+        long args = buffer.getLong(offset + listenerArgs);
+        if (count <= 0 || count > MAX_LISTENER_ARGS || args == 0) {
+            return null;
+        }
+        ByteBuffer block = readBlock(args, (int) count * valueSize);
+        if (block == null) {
+            return null;
+        }
+        Object[] values = new Object[(int) count];
+        for (int i = 0; i < values.length; i++) {
+            int at = i * valueSize;
+            int kind = block.get(at + valueType) & 0xff;
+            if (kind == kindInt) {
+                values[i] = block.getInt(at);
+            } else if (kind == kindString) {
+                values[i] = structs.string(args + at);
+            } else if (kind == kindLong) {
+                values[i] = block.getLong(at);
+            }
+        }
+        return values;
     }
 
     /**

@@ -156,6 +156,10 @@ void setClientGlobal(uint64_t rva) {
     g_clientGlobal.store(rva, std::memory_order_relaxed);
 }
 
+uint64_t clientPointer() {
+    return readClient();
+}
+
 void runPending() {
     // Takes the queue with a try-lock, so a reader thread that holds it costs one frame's delay rather
     // than a stall. Each batch gets a fresh, zeroed scratch block its calls can build an object in and

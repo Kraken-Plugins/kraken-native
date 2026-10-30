@@ -7,8 +7,12 @@ import com.kraken.api.GameSession;
 import com.kraken.api.internal.event.NativeEvent;
 import com.kraken.api.internal.event.ScriptHook;
 import com.kraken.api.internal.invoke.NativeCall;
+import com.kraken.api.internal.menu.MenuHook;
+import com.kraken.api.internal.menu.WireRule;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.client.FrameRates;
+import com.kraken.client.input.KeyHook;
+import com.kraken.client.input.KeyManager;
 import com.kraken.client.ui.overlay.GameSurface;
 import lombok.extern.java.Log;
 
@@ -64,6 +68,12 @@ import java.util.logging.Level;
  * hooks, the API gets a {@link ScriptHook} that tells the DLL which script events to send, and each script event the
  * DLL sends goes to {@link GameSession#onScript}, which posts {@code ScriptPreFired} or {@code ScriptPostFired}.
  *
+ * <p>It names the minimenu ({@link NativeProtocol#menuLayout}) and the game window's procedure
+ * ({@link NativeProtocol#keyLayout}) too. Once the DLL reports its menu hooks, the API's menu edits get a
+ * {@link MenuHook} to send their rules through, and the clicks and expiries the DLL reports go to
+ * {@link GameSession#onMenuClick} and {@link GameSession#onMenuExpired}; once it reports the key hook, the
+ * {@link KeyManager} gets a {@link KeyHook} for its remapping, and the DLL's key reports go back to it.
+ *
  * <p>Nothing here is hard-coded per client build: every RVA, event id and capture plan comes from the mapping and is
  * handed to the DLL in the handshake. See {@code docs/event-hooks-design.md}.
  */
@@ -94,6 +104,7 @@ public final class NativeEventServer {
     private final long pid;
     private final GameSurface surface;
     private final FrameRates frameRates;
+    private final KeyManager keyManager;
     private final AtomicBoolean armed = new AtomicBoolean();
     private final List<Tap> taps = new CopyOnWriteArrayList<>();
     private final AtomicInteger batches = new AtomicInteger();
@@ -118,15 +129,17 @@ public final class NativeEventServer {
      * @param pid     the {@code osclient.exe} process id to inject into
      * @param surface    the overlay surface, handed to the DLL once it draws
      * @param frameRates where the game's frame rate goes, and the frame cap comes from
+     * @param keyManager the key manager, handed the DLL's key remapping
      */
     @Inject
     NativeEventServer(GameSession session, Mapping mapping, @Named("pid") long pid, GameSurface surface,
-                      FrameRates frameRates) {
+                      FrameRates frameRates, KeyManager keyManager) {
         this.session = session;
         this.mapping = mapping;
         this.pid = pid;
         this.surface = surface;
         this.frameRates = frameRates;
+        this.keyManager = keyManager;
         frameRates.addFrameLimitListener(this::sendFrameLimit);
     }
 
@@ -178,12 +191,23 @@ public final class NativeEventServer {
             log.info("Native event hook: no script runtime in mapping " + mapping.version()
                     + "; ScriptPreFired and ScriptPostFired won't be posted.");
         }
-        if (build.slots.isEmpty() && drawing.pumpFn() == 0 && drawing.presentFn() == 0 && scripts.length == 0) {
+        byte[] menu = NativeProtocol.menuLayout(mapping);
+        if (menu.length == 0) {
+            log.info("Native event hook: no minimenu functions in mapping " + mapping.version()
+                    + "; the right-click menu can't be edited.");
+        }
+        byte[] keys = NativeProtocol.keyLayout(mapping);
+        if (keys.length == 0) {
+            log.info("Native event hook: no window procedure in mapping " + mapping.version()
+                    + "; keys can't be remapped.");
+        }
+        if (build.slots.isEmpty() && drawing.pumpFn() == 0 && drawing.presentFn() == 0 && scripts.length == 0
+                && menu.length == 0 && keys.length == 0) {
             log.warning("Native event hook: mapping " + mapping.version()
                     + " has no hookable events or drawing functions; continuing on the timer poll.");
             return;
         }
-        byte[] handshake = NativeProtocol.handshake(build.slots, drawing, scripts);
+        byte[] handshake = NativeProtocol.handshake(build.slots, drawing, scripts, menu, keys);
         ServerSocket server = null;
         try {
             server = new ServerSocket();
@@ -376,6 +400,8 @@ public final class NativeEventServer {
                     frameRates.gameDisconnected();
                     session.setNativeInvoker(null);
                     session.setScriptHook(null);
+                    session.setMenuHook(null);
+                    keyManager.setKeyHook(null);
                     surface.disconnected();
                     session.setHookConnected(false);
                     synchronized (this) {
@@ -390,8 +416,8 @@ public final class NativeEventServer {
 
     /**
      * Reads framed messages from one connection, parses each and hands it to the API and the taps, until EOF. Script
-     * events go to the API as such; the DLL's status messages (other reserved negative ids) set up the drawing
-     * instead.
+     * events, menu clicks and expiries and key reports go where they belong; the DLL's status messages (the other
+     * reserved negative ids) set up the drawing instead.
      *
      * @param in       the connection's input
      * @param idToName an event id to its name
@@ -404,7 +430,7 @@ public final class NativeEventServer {
             byte[] body = new byte[len];
             in.readFully(body);
             int id = NativeProtocol.eventId(body);
-            if (id < 0 && id != NativeProtocol.SCRIPT_EVENT_ID) {
+            if (id < 0 && !ringReserved(id)) {
                 // Status messages skip the DLL's ring, so their sequence numbers interleave with the raises'
                 status(NativeProtocol.parse(body, idToName::get), open);
                 continue;
@@ -419,6 +445,18 @@ public final class NativeEventServer {
                 continue;
             }
             NativeEvent event = NativeProtocol.parse(body, idToName::get);
+            if (id == NativeProtocol.MENU_CLICK_EVENT_ID) {
+                session.onMenuClick(NativeProtocol.parseMenuClick(event));
+                continue;
+            }
+            if (id == NativeProtocol.MENU_EXPIRED_EVENT_ID) {
+                session.onMenuExpired((int) event.reg(NativeEvent.RCX));
+                continue;
+            }
+            if (id == NativeProtocol.KEY_EVENT_ID) {
+                keyManager.onKeyReport(NativeProtocol.parseKey(event));
+                continue;
+            }
             session.onNative(event);
             for (Tap tap : taps) {
                 if (tap.name() == null || tap.name().equals(event.name())) {
@@ -426,6 +464,18 @@ public final class NativeEventServer {
                 }
             }
         }
+    }
+
+    /**
+     * Whether a reserved id's messages go through the DLL's ring, in sequence with the raises, rather than straight
+     * from the writer thread.
+     *
+     * @param id the reserved id
+     * @return true for script events, menu clicks and expiries and key reports
+     */
+    private static boolean ringReserved(int id) {
+        return id == NativeProtocol.SCRIPT_EVENT_ID || id == NativeProtocol.MENU_CLICK_EVENT_ID
+                || id == NativeProtocol.MENU_EXPIRED_EVENT_ID || id == NativeProtocol.KEY_EVENT_ID;
     }
 
     /**
@@ -444,12 +494,20 @@ public final class NativeEventServer {
                         + ", calls " + ((features & NativeProtocol.FEATURE_CALLS) != 0) + ", overlay "
                         + ((features & NativeProtocol.FEATURE_OVERLAY) != 0) + ", frame rate "
                         + ((features & NativeProtocol.FEATURE_FRAME_RATE) != 0) + ", scripts "
-                        + ((features & NativeProtocol.FEATURE_SCRIPTS) != 0) + ").");
+                        + ((features & NativeProtocol.FEATURE_SCRIPTS) != 0) + ", menu "
+                        + ((features & NativeProtocol.FEATURE_MENU) != 0) + ", keys "
+                        + ((features & NativeProtocol.FEATURE_KEYS) != 0) + ").");
                 if ((features & NativeProtocol.FEATURE_CALLS) != 0) {
                     session.setNativeInvoker(batch -> sendCalls(open, batch));
                 }
                 if ((features & NativeProtocol.FEATURE_SCRIPTS) != 0) {
                     session.setScriptHook(scriptHook(open));
+                }
+                if ((features & NativeProtocol.FEATURE_MENU) != 0) {
+                    session.setMenuHook(menuHook(open));
+                }
+                if ((features & NativeProtocol.FEATURE_KEYS) != 0) {
+                    keyManager.setKeyHook(keyHook(open));
                 }
                 if ((features & NativeProtocol.FEATURE_OVERLAY) != 0) {
                     surface.connected((generation, name) -> sendSurface(open, generation, name), pid);
@@ -538,6 +596,72 @@ public final class NativeEventServer {
                         + (roots.length > 0 ? ", root scripts " + Arrays.toString(roots) : ""));
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
+            }
+        };
+    }
+
+    /**
+     * The sender the API's menu edits push their rules through, over one connection.
+     *
+     * @param open the connection
+     * @return the hook; it throws {@link UncheckedIOException} if the connection broke
+     */
+    private static MenuHook menuHook(Connection open) {
+        return new MenuHook() {
+            @Override
+            public void replace(List<WireRule> rules) {
+                write(NativeProtocol.menuRules(NativeProtocol.MENU_REPLACE, rules));
+            }
+
+            @Override
+            public void upsert(List<WireRule> rules) {
+                write(NativeProtocol.menuRules(NativeProtocol.MENU_UPSERT, rules));
+            }
+
+            @Override
+            public void remove(int[] ids) {
+                write(NativeProtocol.menuRemove(ids));
+            }
+
+            private void write(byte[] frame) {
+                try {
+                    open.send(frame);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            }
+        };
+    }
+
+    /**
+     * The sender the key manager pushes its remapping through, over one connection.
+     *
+     * @param open the connection
+     * @return the hook; it throws {@link UncheckedIOException} if the connection broke
+     */
+    private static KeyHook keyHook(Connection open) {
+        return new KeyHook() {
+            @Override
+            public void table(List<Mode> modes) {
+                write(NativeProtocol.keysTable(modes));
+            }
+
+            @Override
+            public void mode(int mode) {
+                write(NativeProtocol.keysMode(mode));
+            }
+
+            @Override
+            public void report(boolean on) {
+                write(NativeProtocol.keysReport(on));
+            }
+
+            private void write(byte[] frame) {
+                try {
+                    open.send(frame);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
             }
         };
     }

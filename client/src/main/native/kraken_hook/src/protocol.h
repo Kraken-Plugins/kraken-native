@@ -1,4 +1,4 @@
-// The wire format shared with the Kraken client: protocol v5, little-endian. Every value here must match
+// The wire format shared with the Kraken client: protocol v6, little-endian. Every value here must match
 // NativeProtocol, NativeEventServer and GameSurface on the Java side, so change them together. README.md
 // describes the format, and docs/in-game-drawing.md section 2.4 the overlay surface.
 #pragma once
@@ -11,7 +11,7 @@ namespace kraken {
 // Must match NativeEventServer.PORT on the Java side.
 inline constexpr unsigned short KRAKEN_PORT = 42069;
 
-inline constexpr uint32_t PROTOCOL_VERSION = 5;
+inline constexpr uint32_t PROTOCOL_VERSION = 6;
 inline constexpr int MAX_PLAN = 8;  // capture-plan entries per slot
 inline constexpr int CSTR_MAX = 64; // longest NUL-terminated string captured
 
@@ -29,24 +29,37 @@ inline constexpr uint8_t OP_CSTR = 4;  // NUL-terminated bytes at [register], at
 // were counted (0: frame steps)}.
 // SCRIPT: regs = {kind (SCRIPT_PRE_ROOT, SCRIPT_PRE_GOSUB or SCRIPT_POST), script id, frame depth,
 // 0}, then the stacks and the request (see sendScript in scripts.cpp).
+// MENU_CLICK: regs = {CLICK_ROW or CLICK_RULE, the row id or the rule id, the parent row id (NO_ROW
+// for a top row or a rule), mouse x | mouse y << 32}. MENU_EXPIRED: regs = {rule id, 0, 0, 0}.
+// KEY: regs = {message, the key or character it carried, what was done (KEY_*) << 16 | the key it
+// became, mode before | mode after << 8}.
 inline constexpr int32_t STATUS_EVENT_ID = -2;
 inline constexpr int32_t FRAME_EVENT_ID = -3;
 inline constexpr int32_t CALLS_DONE_EVENT_ID = -4;
 inline constexpr int32_t FPS_EVENT_ID = -5;
 inline constexpr int32_t SCRIPT_EVENT_ID = -6;
+inline constexpr int32_t MENU_CLICK_EVENT_ID = -7;
+inline constexpr int32_t MENU_EXPIRED_EVENT_ID = -8;
+inline constexpr int32_t KEY_EVENT_ID = -9;
 
 // STATUS feature bits. FRAME_RATE: FPS is sent, and FRAME_LIMIT is honoured while the pump is hooked.
-// SCRIPTS: the four script hooks are live, and SCRIPTS commands are honoured.
+// SCRIPTS: the four script hooks are live, and SCRIPTS commands are honoured. MENU: the minimenu
+// hooks are live, and MENU commands are honoured. KEYS: the window procedure is hooked, and KEYS
+// commands are honoured.
 inline constexpr uint64_t FEATURE_PUMP = 1;
 inline constexpr uint64_t FEATURE_PRESENT = 2;
 inline constexpr uint64_t FEATURE_FRAME_RATE = 4;
 inline constexpr uint64_t FEATURE_SCRIPTS = 8;
+inline constexpr uint64_t FEATURE_MENU = 16;
+inline constexpr uint64_t FEATURE_KEYS = 32;
 
 // Command frames (Java -> DLL): {u32 len, u8 type, body}, len counting the type byte and the body.
 inline constexpr uint8_t CMD_CALLS = 1;
 inline constexpr uint8_t CMD_SURFACE = 2;
 inline constexpr uint8_t CMD_FRAME_LIMIT = 3;
 inline constexpr uint8_t CMD_SCRIPTS = 4;
+inline constexpr uint8_t CMD_MENU = 5;
+inline constexpr uint8_t CMD_KEYS = 6;
 inline constexpr uint32_t MAX_FRAME_LIMIT = 1000; // a higher cap is no cap
 inline constexpr uint32_t MAX_FRAME = 4u << 20;   // bytes per command frame
 inline constexpr int MAX_ARGS = 8;                // arguments per call
@@ -80,6 +93,82 @@ inline constexpr uint8_t VALUE_LONG = 3;
 
 // A VarValue kind the handshake leaves unnamed.
 inline constexpr uint8_t NO_KIND = 0xff;
+
+// MENU command operations: replace every rule, add or replace rules by id, remove rules by id.
+inline constexpr uint8_t MENU_REPLACE = 0;
+inline constexpr uint8_t MENU_UPSERT = 1;
+inline constexpr uint8_t MENU_REMOVE = 2;
+
+// Menu rule types and flags. EDIT changes the rows it matches; SWAP moves a row another row's
+// presence asks for (MES-style swaps); ADD puts a row of Kraken's own next to the rows it matches.
+inline constexpr uint8_t RULE_EDIT = 1;
+inline constexpr uint8_t RULE_SWAP = 2;
+inline constexpr uint8_t RULE_ADD = 3;
+inline constexpr uint8_t RULE_SHIFT_DOWN = 1; // only while Shift is held
+inline constexpr uint8_t RULE_SHIFT_UP = 2;   // only while Shift isn't held
+inline constexpr uint8_t RULE_SCOPED = 4;     // expires once nothing matches it for MENU_GRACE rebuilds
+inline constexpr uint8_t RULE_FINAL = 8;      // a row it matches takes no swaps from later rules
+
+// What a row match compares; the text modes compare the row's text with colour tags removed and
+// ASCII lower-cased against a pattern sent the same way.
+inline constexpr uint16_t MATCH_KIND = 1;
+inline constexpr uint16_t MATCH_TYPE_ID = 2;
+inline constexpr uint16_t MATCH_INDEX = 4;
+inline constexpr uint16_t MATCH_OP = 8;
+inline constexpr uint16_t MATCH_TILE = 16;
+inline constexpr uint16_t MATCH_OPTION = 32;
+inline constexpr uint16_t MATCH_TARGET = 64;
+inline constexpr uint16_t MATCH_SUB_ROWS = 128; // match the rows of a component op's sub-menu instead
+inline constexpr uint16_t MATCH_GROUP = 256;    // a component's interface: type id >> 16
+inline constexpr uint8_t TEXT_ANY = 0;
+inline constexpr uint8_t TEXT_EXACT = 1;
+inline constexpr uint8_t TEXT_CONTAINS = 2;
+inline constexpr uint8_t TEXT_PREFIX = 3;
+inline constexpr uint8_t TEXT_SUFFIX = 4;
+inline constexpr uint8_t TEXT_WILDCARD = 5;
+
+// EDIT actions.
+inline constexpr uint8_t EDIT_HIDE = 1;
+inline constexpr uint8_t EDIT_DEPRIORITIZE = 2;
+inline constexpr uint8_t EDIT_PROMOTE = 4;         // swap with the top row (a sub-menu row: copy it to the top)
+inline constexpr uint8_t EDIT_PROMOTE_SUBJECT = 8; // swap with the highest of the rows above it on the same subject
+inline constexpr uint8_t EDIT_SET_OPTION = 16;
+inline constexpr uint8_t EDIT_SET_TARGET = 32;
+inline constexpr uint8_t EDIT_REPORT = 64;         // report a click on the row as MENU_CLICK; the row still runs
+
+// SWAP flags: which row the swapped match must be, and where it goes.
+inline constexpr uint8_t SWAP_SAME_TARGET = 1;  // its target text equals the trigger's
+inline constexpr uint8_t SWAP_SAME_SUBJECT = 2; // same subject kind, type id, index and tile
+inline constexpr uint8_t SWAP_BELOW = 4;        // below the trigger
+inline constexpr uint8_t SWAP_TO_TOP = 8;       // swap with the top row, not with the trigger
+
+// ADD positions.
+inline constexpr uint8_t ADD_ABOVE = 0;
+inline constexpr uint8_t ADD_BELOW = 1;
+inline constexpr uint8_t ADD_TOP = 2;
+
+// A Kraken row's entry: subject kind 0, this op index, its row id as the type id and its parent's
+// row id (NO_ROW for a top row) as the subject index. Must match MenuEdits.ROW_OP on the Java side.
+inline constexpr int32_t MENU_ROW_OP = 0x4b524b4e; // "NKRK"
+inline constexpr uint32_t NO_ROW = 0xffffffffu;
+inline constexpr int MENU_GRACE = 25; // rebuilds a scoped rule may go unmatched before it expires
+inline constexpr uint64_t CLICK_ROW = 0;  // MENU_CLICK kinds: a row of Kraken's own, a rule's EDIT_REPORT
+inline constexpr uint64_t CLICK_RULE = 1;
+
+// KEYS command operations: the mode table, the mode in force, whether to report keys.
+inline constexpr uint8_t KEYS_TABLE = 0;
+inline constexpr uint8_t KEYS_MODE = 1;
+inline constexpr uint8_t KEYS_REPORT = 2;
+inline constexpr uint8_t KEY_MODE_BLOCK_TYPING = 1; // drop typed printable characters in this mode
+inline constexpr uint8_t KEY_SHIFT = 1;             // key rule modifier bits
+inline constexpr uint8_t KEY_CTRL = 2;
+inline constexpr uint8_t KEY_ALT = 4;
+inline constexpr uint16_t KEY_TO_BLOCK = 0xffff;    // a rule's key that drops the key
+inline constexpr uint8_t KEY_STAY = 0xff;           // a rule's next mode that keeps the mode
+inline constexpr int MAX_KEY_MODES = 8;
+inline constexpr uint64_t KEY_PASSED = 0;  // KEY report actions
+inline constexpr uint64_t KEY_REMAPPED = 1;
+inline constexpr uint64_t KEY_BLOCKED = 2;
 
 // Overlay surface layout (docs/in-game-drawing.md section 2.4).
 inline constexpr uint32_t SURFACE_MAGIC = 0x31564F4B; // "KOV1"

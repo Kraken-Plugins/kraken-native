@@ -15,6 +15,7 @@ import com.kraken.client.plugins.config.ConfigManager;
 import com.kraken.client.plugins.config.ConfigObject;
 import com.kraken.client.plugins.config.ConfigSectionDescriptor;
 import com.kraken.client.plugins.config.Keybind;
+import com.kraken.client.plugins.config.ModifierlessKeybind;
 import com.kraken.client.plugins.config.Range;
 import com.kraken.client.plugins.config.ShowIf;
 import com.kraken.client.plugins.config.Suggestions;
@@ -347,8 +348,8 @@ public final class ConfigPanel extends JPanel {
         if (type == Button.class) {
             return button(item);
         }
-        if (type == Keybind.class) {
-            return keybind(item);
+        if (type == Keybind.class || type == ModifierlessKeybind.class) {
+            return keybind(item, type == ModifierlessKeybind.class);
         }
         if (type instanceof Class<?> clazz && clazz.isEnum()) {
             return choice(item, (Class) clazz);
@@ -719,10 +720,11 @@ public final class ConfigPanel extends JPanel {
      * A button showing a keybind. Clicked, it waits for keys: the keys pressed together are stored once they are all
      * let go, Backspace or Delete stores {@link Keybind#NOT_SET}, and Escape or clicking elsewhere keeps the old one.
      *
-     * @param item a {@link Keybind} item
+     * @param item         a {@link Keybind} item
+     * @param modifierless whether the item is a {@link ModifierlessKeybind}, stored without the modifiers held
      * @return the control
      */
-    private Control keybind(ConfigItemDescriptor item) {
+    private Control keybind(ConfigItemDescriptor item, boolean modifierless) {
         JButton button = new JButton();
         button.setFocusable(true);
         Keybind[] pending = {null};
@@ -753,7 +755,7 @@ public final class ConfigPanel extends JPanel {
                     apply(item, Keybind.NOT_SET, load);
                     load.run();
                 } else {
-                    pending[0] = Keybind.of(e);
+                    pending[0] = modifierless ? new ModifierlessKeybind(e.getKeyCode(), 0) : Keybind.of(e);
                     button.setText(pending[0].toString());
                 }
             }

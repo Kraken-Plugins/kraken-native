@@ -288,6 +288,7 @@
       "renderCycle": "0xb78",
       "subOpCount": "0x2f8",
       "subOpNames": "0x300",
+      "onKey": "0x758",
       "subId": "0x8",
       "x": "0x5c",
       "y": "0x60",
@@ -484,6 +485,10 @@
       "type": "0x0",
       "value": "0x4",
       "endCycle": "0x8"
+    },
+    "IfListener": {
+      "count": "0x8",
+      "args": "0x10"
     },
     "Js5Archive": {
       "groupCount": "0x28",
@@ -708,6 +713,11 @@
     "npcTypeLoader": "0x5f18f0",
     "objTypeLoader": "0x5f5cd0",
     "varbitRead": "0x5ae330",
+    "minimenuRun": "0x37d280",
+    "minimenuViewRebuild": "0x37cf30",
+    "minimenuNodeDestroy": "0x38fb60",
+    "minimenuNodeReserve": "0x390610",
+    "minimenuTextAssign": "0xe39a0",
     "menuNpcOp": "0x388870",
     "menuLocOp": "0x387cd0",
     "menuObjOp": "0x3893d0",
@@ -753,6 +763,7 @@
     "scriptSwapLocals": "0x198740",
     "ifOpenSub": "0x84fe0",
     "ifCloseSub": "0x851d0",
+    "renderViewWndProc": "0x6d1e00",
     "highlightNpcOn": "0x1b9ef0",
     "highlightNpcOff": "0x1bbdf0",
     "highlightNpcTypeOn": "0x1ba460",

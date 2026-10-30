@@ -29,13 +29,13 @@ To turn on an unsupported setting:
 | Ground Items | `plugins.grounditems` | Ported. High alchemy values only; menu changes, notifications, despawn timers, ownership and lootbeams don't work |
 | Entity Hider | | Not ported: needs [writes to the game](#writing-to-the-game) |
 | Anti Drag | | Not ported: needs [writes to the game](#writing-to-the-game) |
-| Key Remapping | | Not ported: needs [key interception](#key-interception) |
-| Menu Entry Swapper | | Not ported: needs [menu edits](#menu-edits) for every setting |
+| Key Remapping | `plugins.keyremapping` | Ported. Every setting works; the chat input doesn't show "Press Enter to Chat...", typed text isn't cleared on Escape, and an interface's own text field doesn't lift the remapping |
+| Menu Entry Swapper | `plugins.menuentryswapper` | Ported. Every setting works; swaps to a sub-option aren't applied or offered, and Shift-click Walk here applies to every object or NPC, including one with a Shift-click swap of its own |
 
 NPC Indicators replaces Kraken's NPC Highlight plugin, and Ground Markers replaces Tile Markers. Neither old plugin's
 settings carry over.
 
-Nothing here has been checked against a running game yet.
+Nothing here has been checked against a running game yet; the menu edits and key interception least of all.
 
 ## Capabilities Needed
 
@@ -43,49 +43,39 @@ Each capability lists the plugins waiting on it, what exists today, and what has
 
 ### Menu Edits
 
-**Waiting:** Menu Entry Swapper (all of it), NPC Indicators (Tag, Un-tag, Tag-All and their colour and style
-sub-menus; menu colours), Ground Items (menu colours, quantities, hiding and collapsing rows), Ground Markers (Mark,
-Unmark, Label and Color on a tile; Import, Export and Clear on the world map orb).
+**Built** ([Menu edits](menu-edits.md)). The hook DLL holds rules the client sends and applies them inside every menu
+rebuild, on the game thread: `MenuRule.Edit` (hide, deprioritize, promote, rewrite a row's option or target, report
+its clicks), `MenuRule.Swap` (left-click swaps) and `MenuRule.Add` (rows of a plugin's own, with sub-menus, whose
+clicks come back as `MenuOptionClicked` and run nothing in the game), each matched by subject, action, id, interface,
+tile and text, and by the Shift key. The API has `MenuEntry.setOption`, `setTarget`, `setDeprioritized` and
+`onClick`, `Client.createMenuEntry` (with `createSubMenu`), `Client.setMenuEntries`, `Client.getMenuEdits()` for a
+plugin's own rules, and `MenuOptionClicked.consume()`. Menu Entry Swapper is built on it.
 
-**Exists:** the API reads the menu (`Client.getMenuEntries`, `MenuReader`), posts `MenuOpened`, `MenuEntryAdded`,
-`MenuEntryRemoved` and `MenuOptionClicked` after the fact, and can run a row's own code ([Menu actions](menu-actions.md)).
-The mapping has the minimenu's layout: `Minimenu.rows`, `MinimenuEntry.option` and `target` (game strings), the subject
-fields, and the `ON_MINIMENU_REBUILD` raise.
+**Still waiting:** NPC Indicators (Tag, Un-tag, Tag-All and their colour and style sub-menus; menu colours), Ground
+Items (menu colours, quantities, hiding and collapsing rows) and Ground Markers (Mark, Unmark, Label and Color on a
+tile; Import, Export and Clear on the world map orb) can now be wired as their tables say. Two things to know when
+wiring them: an entry setter made from `MenuEntryAdded` takes effect from the next rebuild (about 20 ms later), so a
+persistent `MenuRule` from the plugin's settings is better where the rows are known in advance (a recolour of every
+highlighted NPC's target, say); and `setMenuEntries` only expresses hidden rows and a new top row, so collapsing
+duplicate ground item rows needs a hide rule per duplicate. The Ground Markers options also need a text prompt for
+labels (RuneLite uses the chatbox) and a colour picker.
 
-**Needed:** while the menu is closed the client rebuilds it every cycle, so edits have to be applied inside the rebuild,
-on the game thread, every cycle. The socket round trip to Java is too slow for that, so the hook DLL has to hold the
-edits and apply them itself:
-
-* rules pushed from Java, re-applied after each rebuild: recolour or rewrite a row's option or target by subject and
-  name, move a row to the top (left-click swaps), drop or deprioritize rows, collapse duplicate rows;
-* rows of Java's own, added by subject kind (Tag on NPCs, Mark on tiles), whose click raises an event back to Java
-  instead of running a body. That needs a row body in the DLL and a new report type in the
-  [protocol](native-protocol.md);
-* writes into the client's strings (`MinimenuEntry.option` and `target` are eastl strings: short ones inline, long ones
-  allocated by the client's allocator).
-
-The API then gains `MenuEntry.setOption`, `setTarget`, `setDeprioritized`, `onClick`, `Client.createMenuEntry`,
-`Client.setMenuEntries` and a consumable `MenuOptionClicked`. The Ground Markers right-click options also need a text
-prompt for labels (RuneLite uses the chatbox) and a colour picker.
+**Not covered:** rules on the rows of a sub-menu other than rewriting their text and copying one to the top; a
+consumed `MenuOptionClicked` stopping the game's own row (it has run by then); menus other than the right-click
+menu.
 
 ### Key Interception
 
-**Waiting:** Key Remapping (all of it).
+**Built** ([Key interception](key-interception.md)). The hook DLL detours the game window's procedure and rewrites or
+drops `WM_KEYDOWN`, `WM_KEYUP` and `WM_CHAR` by a table of modes the client sends
+(`KeyManager.setRemapTable`, `setRemapMode`); a mode can block every typed character, and a rule can move to another
+mode as its key goes down, so Enter and Escape switch between locked and typing with no round trip. What the hook did
+with each key comes back as `KeyReport`s. `Widget.getOnKeyListener()` reads a component's key listener. Key Remapping
+is built on it.
 
-**Exists:** [`KeyManager`](../../client/src/main/java/com/kraken/client/input/KeyManager.java) reads which keys are
-held while the game has the keyboard (`GetAsyncKeyState`), and `HotkeyListener`s hear a keybind go down and up. Nothing
-can stop or change a key the game receives.
-
-**Needed:**
-
-* In the DLL, a subclass of the game window's procedure (or an in-process keyboard hook) that rewrites `WM_KEYDOWN`,
-  `WM_KEYUP` and `WM_CHAR` by a remap table and a blocked-character set pushed from Java, decided on the game thread
-  without a round trip.
-* The plugin's "Press Enter to Chat" lock: RuneLite injects callbacks into the chat scripts (`blockChatInput`,
-  `setChatboxInput`) that don't exist in the native client. The DLL could block typed characters while chat is locked,
-  but showing "Press Enter to Chat" in the chat input needs a write to the chatbox widget's text.
-* Reads the plugin makes to decide when keys go to the chat: whether a component has a key listener
-  (`Widget.getOnKeyListener`), the focused input field (`Client.getFocusedInputFieldWidget`). Neither is mapped.
+**Not covered:** showing "Press Enter to Chat..." in the chat input and clearing the typed text on Escape, both writes
+to the chatbox the API doesn't make; the focused input field (`Client.getFocusedInputFieldWidget`), which the Windows
+build gives no string or type name to anchor on; a key Kraken itself could hear, as the game still owns the keyboard.
 
 ### Writing to the Game
 
@@ -227,8 +217,35 @@ gives no tier colours; **Hide under value** is decided by the alchemy value.
 
 Labels sit a fixed height above the ground, as the API doesn't read item model heights.
 
-### Entity Hider, Anti Drag, Key Remapping, Menu Entry Swapper
+### Menu Entry Swapper
 
-Not ported. Each needs a capability above for its main job: Entity Hider and Anti Drag [writes to the
-game](#writing-to-the-game), Key Remapping [key interception](#key-interception), and Menu Entry Swapper
-[menu edits](#menu-edits) for every one of its settings.
+The settings become `MenuRule`s ([`MenuEntrySwapperRules`](../../client/src/main/java/com/kraken/client/plugins/menuentryswapper/MenuEntrySwapperRules.java)):
+the built-in swaps are `Swap` rules on option and target text, the Walk here settings `DEPRIORITIZE` edits on a subject
+kind while Shift is held, the bank and shop Shift-clicks `PROMOTE` edits on an interface's op, and the swaps the player
+picked (stored under RuneLite's keys: `item_<id>`, `npc_<id>`, `object_<id>`, `wornitem_<id>`, `ui_<component>`, and
+their `shift` variants) `PROMOTE`, `PROMOTE_SUBJECT` or `DEPRIORITIZE` edits on the subject. The Swap left-click and
+Swap shift-click sub-menus are `Add` rules made when an Examine row appears while Shift is held.
+
+| Setting or feature | State | Needs | Where to wire it |
+|---|---|---|---|
+| Every built-in swap, Shift-click Walk here, bank and shop Shift-clicks, Remove dead NPC menus | Works | | |
+| Customizable left- and shift-click on items, NPCs, objects, worn items and interfaces | Works, with differences | | Item and worn item swaps match the row by the item's name, as the hook sees no item ids |
+| Swaps to a sub-option (an item's or object's sub-menu) | Missing | A sub row's identity in the entry (the op index of a sub-option row), and its option names from the item or object type | `MenuEntrySwapperRules.storedRule` for the hash-coded values; `MenuEntrySwapperPlugin`'s Swap rows |
+| An object's or NPC's own Shift-click swap overriding Shift-click Walk here | Missing | A rule that excludes rows another rule matched | `MenuEntrySwapperRules.rules` |
+
+### Key Remapping
+
+The settings become a table of five modes ([`KeyRemappingTable`](../../client/src/main/java/com/kraken/client/plugins/keyremapping/KeyRemappingTable.java)):
+off, locked, locked with a dialog taking numbers, locked with an options dialog, and typing; the plugin picks the mode
+from the chatbox's key listener and the dialog widgets on every client tick and follows the hook's own moves through
+the key reports.
+
+| Setting or feature | State | Needs | Where to wire it |
+|---|---|---|---|
+| Camera and F-key remapping, Space and Control, Enter to type, Escape and Enter to lock again, Backspace emptying the input | Works | | |
+| "Press Enter to Chat..." in the chat input, clearing the typed text on Escape | Missing | [Writes to the game](#writing-to-the-game): the chatbox input's text and the chat input varc | `KeyRemappingPlugin.onKeyReport`, on the moves to and from typing |
+| Lifting the remapping for an interface's own text field | Missing | `Client.getFocusedInputFieldWidget` | `KeyRemappingPlugin.chatboxFocused` |
+
+### Entity Hider, Anti Drag
+
+Not ported. Each needs [writes to the game](#writing-to-the-game) for its main job.

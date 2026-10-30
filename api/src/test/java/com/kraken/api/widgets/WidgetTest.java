@@ -68,6 +68,13 @@ class WidgetTest {
     }
 
     @Test
+    void aKeyListenerReadsAsItsArgumentsTheScriptFirst() {
+        assertArrayEquals(new Object[]{GameFixture.CHAT_KEY_SCRIPT, "chat"},
+                client.getWidget(CHATBOX, 0).getOnKeyListener());
+        assertNull(client.getWidget(CHATBOX, 1).getOnKeyListener(), "a component without one");
+    }
+
+    @Test
     void componentsMissingFromTheStoreAreNull() {
         assertNull(client.getWidget(CHATBOX, 3), "past the group's last component");
         assertNull(client.getWidget(GameFixture.IF_GROUP_COUNT, 0), "a group outside the store");

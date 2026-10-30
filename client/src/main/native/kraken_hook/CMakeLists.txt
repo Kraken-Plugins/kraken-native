@@ -48,6 +48,10 @@ add_library(kraken_hook SHARED
     src/pump.cpp
     src/scripts.h
     src/scripts.cpp
+    src/menus.h
+    src/menus.cpp
+    src/keys.h
+    src/keys.cpp
     src/core/frame_reader.h
     src/core/guard.h
     src/core/hooks.h

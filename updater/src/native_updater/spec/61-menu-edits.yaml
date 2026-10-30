@@ -1,0 +1,44 @@
+# Editing the minimenu (docs/developer/menu-edits.md): the functions the hook DLL hooks and calls to swap, recolour,
+# hide and add rows. While the menu is closed the client rebuilds it every cycle: the rebuild (MinimenuRebuild, the
+# function raising ON_MINIMENU_REBUILD) hands owner + Minimenu.view to the view rebuild, which clears the rows and
+# builds them again. The DLL hooks the view rebuild, edits the rows after it returns and takes its own rows back out
+# before it runs; it hooks the run to catch clicks on its own rows, and the node destroy so the client never frees a
+# child vector of the DLL's. It calls the node reserve to make room for added rows, and the text assignment to rewrite
+# an entry's option or target (menuedits.py).
+keys:
+  - key: functions.minimenuRun
+    type: "bool(MinimenuView* view, const eastl::vector<u64>* path, i32 mouseX, i32 mouseY, u8 flag)"
+    priority: P1
+    doc: Runs the row at a path (row index, then child indices) as a click does. Looks the node up, copies its entry
+      into Minimenu.clicked, raises the op event and calls the row's callback. View vtable slot 1; the left click calls
+      it with the path [0].
+    strategies:
+      - extractor: { name: minimenu, field: MinimenuRun, cls: A }
+  - key: functions.minimenuViewRebuild
+    type: "void(MinimenuView* view, void* source)"
+    priority: P1
+    doc: Clears the view's rows and builds them again from the entry lists. The rebuild calls it with owner +
+      Minimenu.view every cycle the menu is closed, right before raising ON_MINIMENU_REBUILD.
+    strategies:
+      - extractor: { name: menu_edit_points, field: functions.minimenuViewRebuild, cls: A }
+  - key: functions.minimenuNodeDestroy
+    type: "void(eastl::vector<MinimenuNode>** children)"
+    priority: P1
+    doc: Destroys a node's children (the slot at node + container.minimenu.node.children), calling itself for theirs,
+      then frees their buffer and deletes the vector. The rows clear calls it on every row.
+    strategies:
+      - extractor: { name: menu_edit_points, field: functions.minimenuNodeDestroy, cls: A }
+  - key: functions.minimenuNodeReserve
+    type: "void(eastl::vector<MinimenuNode>* nodes, u64 count)"
+    priority: P1
+    doc: Grows a node vector's capacity to at least count nodes, moving the nodes with the client's allocator; does
+      nothing when it is large enough.
+    strategies:
+      - extractor: { name: menu_edit_points, field: functions.minimenuNodeReserve, cls: A }
+  - key: functions.minimenuTextAssign
+    type: "eastl::fixed_string* (eastl::fixed_string* dst, const eastl::string* src)"
+    priority: P1
+    doc: Assigns one string to an entry's option or target (fixed-capacity strings that overflow to the client's heap).
+      The run's copy calls it for both.
+    strategies:
+      - extractor: { name: menu_edit_points, field: functions.minimenuTextAssign, cls: A }

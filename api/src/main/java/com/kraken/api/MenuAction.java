@@ -16,9 +16,9 @@ import java.util.Map;
  * selected item or spell ("Use Knife -> Goblin") is the subject's {@code WIDGET_TARGET_ON_*}.
  *
  * <p>Not provided: the deprecated {@code ITEM_USE*}, {@code ITEM_*_OPTION} and {@code WIDGET_*_OPTION} actions, the
- * world entity and {@code SET_HEADING} actions, and the actions of menus a client adds itself
- * ({@code RUNELITE*}), since no native entry reads as one; and {@code MENU_ACTION_DEPRIORITIZE_OFFSET}, since the
- * native client keeps an entry's priority apart from its action.
+ * world entity and {@code SET_HEADING} actions, the {@code RUNELITE_*} variants other than {@link #RUNELITE}, since
+ * a row added through {@link Client#createMenuEntry} runs nothing in the client; and
+ * {@code MENU_ACTION_DEPRIORITIZE_OFFSET}, since the native client keeps an entry's priority apart from its action.
  */
 public enum MenuAction {
 
@@ -227,6 +227,12 @@ public enum MenuAction {
      * the op.
      */
     CC_OP_LOW_PRIORITY(1007),
+
+    /**
+     * A row added by a plugin ({@link Client#createMenuEntry}): clicking it runs the plugin's callback, nothing in the
+     * client.
+     */
+    RUNELITE(1500),
 
     /**
      * An entry the API can't name: a subject or op this enum has no action for.

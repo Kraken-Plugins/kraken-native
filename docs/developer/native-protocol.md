@@ -1,6 +1,6 @@
 # The Native Protocol
 
-The Kraken client and `kraken_hook.dll` talk over one TCP connection on the loopback interface, using protocol v5.
+The Kraken client and `kraken_hook.dll` talk over one TCP connection on the loopback interface, using protocol v6.
 This page is the byte-level reference. [The native hook](native-hook.md) explains what each side does with the
 messages.
 
@@ -18,9 +18,9 @@ sequenceDiagram
     participant J as NativeEventServer (Java)
     participant D as kraken_hook.dll
     D->>J: connect to 127.0.0.1:42069
-    J->>D: handshake (KRK5, slots, drawing RVAs, script block)
+    J->>D: handshake (KRK6, slots, drawing RVAs, script, menu and key blocks)
     D->>D: install the hooks it names
-    D->>J: STATUS (installed, requested, features, version 5)
+    D->>J: STATUS (installed, requested, features, version 6)
     J->>D: FRAME_LIMIT (if the DLL paces frames)
     loop while connected
         D-->>J: raise messages (event id, registers, captured values)
@@ -30,10 +30,14 @@ sequenceDiagram
         D-->>J: FRAME (framebuffer size, GL version, generation drawn)
         J->>D: SCRIPTS (which script events to send)
         D-->>J: SCRIPT (kind, id, depth, stacks, request)
+        J->>D: MENU (rules to apply at each menu rebuild)
+        D-->>J: MENU_CLICK (a row of a plugin's own), MENU_EXPIRED (a scoped rule)
+        J->>D: KEYS (the remapping table, the mode, reporting)
+        D-->>J: KEY (a key message handled)
         D-->>J: FPS (about once a second)
     end
     Note over J,D: socket drops
-    D->>D: drop queued calls, stop the overlay and script capture, lift the frame cap
+    D->>D: drop queued calls, stop the overlay and script capture, drop the menu rules and key table, lift the frame cap
     D->>J: reconnect after 1 s, and the handshake starts again
 ```
 
@@ -44,7 +48,7 @@ field.
 
 | Field | Type | Meaning |
 |---|---|---|
-| magic | 4 bytes | `KRK5`. Any other value makes the DLL drop the connection |
+| magic | 4 bytes | `KRK6`. Any other value makes the DLL drop the connection |
 | slot count | `u16` | The number of raise slots that follow |
 | slots | | Each as below |
 | client global | `u64` | RVA of the global holding the `Client*`, for `CLIENT` and `INDIRECT` call arguments; 0 for none |
@@ -52,6 +56,10 @@ field.
 | present function | `u64` | RVA of `functions.present`, where the overlay is drawn; 0 for none (no overlay) |
 | script block length | `u16` | 0 for no script hooks |
 | script block | bytes | See [The Script Block](#the-script-block) |
+| menu block length | `u16` | 0 for no menu hooks |
+| menu block | bytes | See [The Menu Block](#the-menu-block) |
+| key block length | `u16` | 0 for no key hook |
+| key block | bytes | See [The Key Block](#the-key-block) |
 
 An **RVA** is an address relative to the start of the loaded `osclient.exe`; the DLL adds the module base to it.
 
@@ -127,6 +135,53 @@ sends an empty block unless the mapping has `globals.scriptRunner`, all four scr
 The first handshake whose block is complete fixes the layout for the life of the process; later ones only retry hooks
 that failed to install.
 
+### The Menu Block
+
+142 bytes, built by `NativeProtocol.menuLayout` and parsed by `parseLayout` in `menus.cpp`. The Java side sends an
+empty block unless the mapping has all five functions, every offset, every subject kind and both ops.
+
+| Offset | Type | Field | Mapping key |
+|---|---|---|---|
+| 0 | `u64` | viewRebuild | `functions.minimenuViewRebuild` |
+| 8 | `u64` | run | `functions.minimenuRun` |
+| 16 | `u64` | nodeDestroy | `functions.minimenuNodeDestroy` |
+| 24 | `u64` | nodeReserve | `functions.minimenuNodeReserve` |
+| 32 | `u64` | textAssign | `functions.minimenuTextAssign` |
+| 40 | `u32` | clientMinimenu | `Client.minimenu` |
+| 44 | `u32` | rows | `Minimenu.rows` |
+| 48 | `u32` | open | `Minimenu.open` |
+| 52 | `u32` | clicked | `Minimenu.clicked` |
+| 56 | `u32` | nodeList | `containers.minimenu.node.list` |
+| 60 | `u32` | nodeIndex | `containers.minimenu.node.index` |
+| 64 | `u32` | nodeChildren | `containers.minimenu.node.children` |
+| 68 | `u32` | nodeSize | `containers.minimenu.node.size` |
+| 72 | `u32` | listEntries | `containers.minimenu.list.entries` |
+| 76 | `u32` | entrySize | `MinimenuEntry.size` |
+| 80 | `u32` | option | `MinimenuEntry.option` |
+| 84 | `u32` | target | `MinimenuEntry.target` |
+| 88 | `u32` | typeId | `MinimenuEntry.typeId` |
+| 92 | `u32` | subjectIndex | `MinimenuEntry.subjectIndex` |
+| 96 | `u32` | opIndex | `MinimenuEntry.opIndex` |
+| 100 | `u32` | level | `MinimenuEntry.level` |
+| 104 | `u32` | x | `MinimenuEntry.x` |
+| 108 | `u32` | z | `MinimenuEntry.z` |
+| 112 | `u32` | subjectType | `MinimenuEntry.subjectType` |
+| 116 | 6 × `u8` | kinds | `enums.minimenuSubject.TILE`, `NPC`, `LOC`, `OBJ`, `PLAYER`, `COMPONENT` |
+| 122 | `i32` | opExamine | `enums.minimenuOp.EXAMINE` |
+| 126 | `i32` | opTarget | `enums.minimenuOp.TARGET` |
+| 130 | `u32` | stringFlagByte | `containers.string.heapFlagByte` |
+| 134 | `u32` | stringFlagMask | `containers.string.heapFlagMask` |
+| 138 | `u32` | stringSsoCapacity | `containers.string.ssoCapacity` |
+
+The DLL installs the node destroy hook first, then the run hook, then the view rebuild hook, and only counts the
+feature live when all three are: without the first, the client could free a row of Kraken's own; without the second,
+a click on one would run its empty entry.
+
+### The Key Block
+
+8 bytes: the RVA of the game window's procedure, `functions.renderViewWndProc` (`u64`), built by
+`NativeProtocol.keyLayout`.
+
 ## Messages
 
 DLL → Java. Each is `{u32 length, body}`; the body is:
@@ -154,6 +209,9 @@ came.
 | -4 | `CALLS_DONE` | Batch id | Calls run | Calls skipped or faulted | Last call's return value | After each batch |
 | -5 | `FPS` | Frames since the last FPS | Microseconds since it | Frame cap in force | 1 if presents were counted, 0 for frame steps | About once a second |
 | -6 | `SCRIPT` | Kind: 0 root start, 1 gosub, 2 return | Script id | Frame depth (0 for a root) | 0 | Per script event asked for |
+| -7 | `MENU_CLICK` | 0 for a row of a plugin's own, 1 for a client row a rule reports | The row id, or the rule id | The parent row id of a sub row, `0xffffffff` for none | Mouse `x \| y << 32` | Per click |
+| -8 | `MENU_EXPIRED` | Rule id | 0 | 0 | 0 | When a scoped rule goes unmatched for 25 rebuilds |
+| -9 | `KEY` | Window message (`0x100` key down, `0x101` up, `0x102` char, `0x104`/`0x105` the Alt variants) | The key or character it carried | `action << 16 \| the key it became` (action 0 passed, 1 remapped, 2 blocked) | `mode before \| mode after << 8` | Per key message handled, while asked |
 
 Feature bits in STATUS:
 
@@ -163,6 +221,8 @@ Feature bits in STATUS:
 | 2 | `FEATURE_PRESENT` | `FEATURE_OVERLAY` | The present is hooked: `SURFACE` is drawn |
 | 4 | `FEATURE_FRAME_RATE` | `FEATURE_FRAME_RATE` | FPS is sent, and `FRAME_LIMIT` is honoured while the pump is hooked |
 | 8 | `FEATURE_SCRIPTS` | `FEATURE_SCRIPTS` | All four script hooks are live: `SCRIPTS` is honoured |
+| 16 | `FEATURE_MENU` | `FEATURE_MENU` | The three minimenu hooks are live: `MENU` is honoured |
+| 32 | `FEATURE_KEYS` | `FEATURE_KEYS` | The window procedure is hooked: `KEYS` is honoured |
 
 ### The SCRIPT Payload
 
@@ -205,6 +265,8 @@ older DLL.
 | 2 | `SURFACE` | The overlay surface to draw |
 | 3 | `FRAME_LIMIT` | The frame cap |
 | 4 | `SCRIPTS` | Which script events to send |
+| 5 | `MENU` | The menu rules: replace, add or remove |
+| 6 | `KEYS` | The key remapping: the table, the mode, reporting |
 
 ### CALLS
 
@@ -273,11 +335,73 @@ present that isn't hooked, stops drawing. The present thread takes the surface o
 
 Ignored until the script hooks are live. A dropped connection clears it.
 
+### MENU
+
+| Field | Type | Meaning |
+|---|---|---|
+| op | `u8` | 0 replace every rule, 1 add or replace rules by id, 2 remove rules by id |
+| count | `u16` | Rules, or ids, that follow |
+| rules or ids | | For op 2, count × `u32` id; otherwise count × rule |
+
+A rule:
+
+| Field | Type | Meaning |
+|---|---|---|
+| id | `u32` | The rule's id, which `MENU_EXPIRED` and `MENU_CLICK` name |
+| type | `u8` | 1 edit, 2 swap, 3 add |
+| flags | `u8` | 1 only while Shift is held, 2 only while it isn't, 4 scoped (expires once nothing matches it for 25 rebuilds), 8 final (the rows it matches take no swaps from later rules) |
+| match | | The rows it is about |
+| payload | | By type, below |
+
+A match:
+
+| Field | Type | Meaning |
+|---|---|---|
+| mask | `u16` | Which fields count: 1 kind, 2 type id, 4 index, 8 op, 16 tile, 32 option, 64 target, 128 match sub-menu rows instead of top rows, 256 group |
+| kind | `u8` | The subject kind (`enums.minimenuSubject`; 0 for none) |
+| typeId, index, op, group, level, x, z | 7 × `i32` | The type id, subject index, op index, component interface (`type id >> 16`), and world tile |
+| option, target | text each | Patterns |
+
+A text is `{u8 mode, u8 length, bytes}`: mode 0 none, 1 exact, 2 contains, 3 prefix, 4 suffix, 5 wildcard (`*`, `?`),
+at most 64 bytes, lower-cased and with colour tags removed, as the DLL normalises a row's text before comparing.
+
+The payloads:
+
+| Type | Fields |
+|---|---|
+| Edit | `u8` actions: 1 hide, 2 deprioritize, 4 promote (swap with the top row; a sub-menu row is copied to the top), 8 promote within the subject, 16 set option, 32 set target, 64 report clicks; then `str` option and `str` target |
+| Swap | `u8` flags: 1 same target, 2 same subject, 4 below the trigger, 8 swap with the top row; then the swapped match |
+| Add | `u8` position: 0 above the match, 1 below, 2 at the top; then a row |
+
+A `str` is `{u16 length, bytes}`, at most 256 bytes. A row is `{u32 id, str option, str target, u8 children,
+children}`, each child a row whose own children count is 0 (one level of sub-menu); at most 32 children.
+
+What the DLL does with it: a malformed command changes nothing; a replace drops every rule first; the DLL keeps at most
+1,024 rules; the rules are applied in the order they are held, at each rebuild, on the game thread; the command takes
+effect at the next rebuild. Ignored until the menu hooks are live. A dropped connection drops every rule.
+
+### KEYS
+
+| Field | Type | Meaning |
+|---|---|---|
+| op | `u8` | 0 the table, 1 the mode in force, 2 reporting |
+| body | | By op, below |
+
+| Op | Body |
+|---|---|
+| 0 table | `u8` modes (at most 8), each `{u8 flags, u16 count, count × rule}`; flags 1 blocks typed printable characters. A rule is `{u16 vk, u8 modifiers, u8 mask, u16 to, u8 next}`: the virtual-key code, the Shift (1), Ctrl (2) and Alt (4) bits that must be held among those in the mask, the key it becomes (`0xffff` drops it; itself passes it), and the mode to move to (`0xff` stays). An empty table passes every key |
+| 1 mode | `u8` mode |
+| 2 report | `u8` on |
+
+Ignored until the window procedure is hooked. A dropped connection drops the table, goes back to mode 0 and stops
+reporting.
+
 ## Ordering and Delivery
 
 * Every message takes a sequence number from one counter, including the reserved ones.
-* Raise, `SCRIPT` and `CALLS_DONE` messages are written by the game thread into the DLL's ring and sent in order by the
-  writer thread. `STATUS`, `FRAME` and `FPS` are written straight to the socket by the writer between ring drains, so
+* Raise, `SCRIPT`, `CALLS_DONE`, `MENU_CLICK`, `MENU_EXPIRED` and `KEY` messages are written by the game thread into the
+  DLL's ring and sent in order by the writer thread (`KEY` from the window's thread, which the DLL takes to be the
+  game thread). `STATUS`, `FRAME` and `FPS` are written straight to the socket by the writer between ring drains, so
   they can arrive out of sequence order with ring messages.
 * A full ring drops new messages; the gap in `seq` shows it. The Java side checks the sequence of raise and `SCRIPT`
   messages and logs gaps at FINE. Reserved messages take numbers too, so a gap there doesn't always mean a drop.
@@ -287,7 +411,7 @@ Ignored until the script hooks are live. A dropped connection clears it.
 
 ## Versioning
 
-The protocol version lives in two places: the handshake magic (`KRK5`) and `PROTOCOL_VERSION` (5), which STATUS
+The protocol version lives in two places: the handshake magic (`KRK6`) and `PROTOCOL_VERSION` (6), which STATUS
 reports and the client logs. A DLL that gets a magic it doesn't know drops the connection, and reconnects a second
 later to the same result, so a client and DLL of different versions never talk. The client always starts a fresh game and
 injects the DLL it was built with, so they only disagree when `-Dkraken.hook.dll` points at a DLL built from other
@@ -307,16 +431,19 @@ To change the format:
 | What | DLL (`protocol.h` unless noted) | Java |
 |---|---|---|
 | Port | `KRAKEN_PORT` = 42069 | `NativeEventServer.PORT` |
-| Magic | `"KRK5"` in `connection.cpp` | `NativeProtocol.MAGIC` |
+| Magic | `"KRK6"` in `connection.cpp` | `NativeProtocol.MAGIC` |
 | Capture-plan ops | `OP_RAW` … `OP_CSTR` | `NativeProtocol.OP_*` |
 | Plan length | `MAX_PLAN` = 8 | `NativeEvents` plans stay within it |
-| Reserved ids | `STATUS_EVENT_ID` … `SCRIPT_EVENT_ID` | `NativeProtocol.*_EVENT_ID` |
-| Feature bits | `FEATURE_PUMP`, `FEATURE_PRESENT`, `FEATURE_FRAME_RATE`, `FEATURE_SCRIPTS` | `FEATURE_CALLS`, `FEATURE_OVERLAY`, `FEATURE_FRAME_RATE`, `FEATURE_SCRIPTS` |
-| Command types | `CMD_CALLS` … `CMD_SCRIPTS` | `NativeProtocol.COMMAND_*` |
+| Reserved ids | `STATUS_EVENT_ID` … `KEY_EVENT_ID` | `NativeProtocol.*_EVENT_ID` |
+| Feature bits | `FEATURE_PUMP`, `FEATURE_PRESENT`, `FEATURE_FRAME_RATE`, `FEATURE_SCRIPTS`, `FEATURE_MENU`, `FEATURE_KEYS` | `FEATURE_CALLS`, `FEATURE_OVERLAY`, `FEATURE_FRAME_RATE`, `FEATURE_SCRIPTS`, `FEATURE_MENU`, `FEATURE_KEYS` |
+| Command types | `CMD_CALLS` … `CMD_KEYS` | `NativeProtocol.COMMAND_*` |
 | Argument kinds | `ARG_IMM` … `ARG_INDIRECT` | `NativeCall.Kind` ordinals |
 | Call limits | `MAX_ARGS` = 8, `SCRATCH_SIZE` = 4096 | `NativeCall.MAX_ARGS`, `NativeCall.SCRATCH_SIZE`, `NativeCall.MAX_DATA` |
 | Script capture bits | `SCRIPT_CAPTURE_PRE`, `_POST`, `_ROOTS` | `NativeProtocol.scriptCapture` |
 | Root scripts | `MAX_SCRIPT_ROOTS` = 8 | `NativeProtocol.MAX_SCRIPT_ROOTS` |
 | Value kinds | `VALUE_OTHER` … `VALUE_LONG`, `NO_KIND` = 0xff | `NativeProtocol.VALUE_*`, the `0xff` fallback in `scriptLayout` |
 | Script block order | `ScriptLayout` and `parseScriptLayout` in `scripts.cpp` | `SCRIPT_FUNCTIONS`, `SCRIPT_OFFSETS`, `SCRIPT_KINDS`, `SCRIPT_FIELDS` |
+| Menu block order | `MenuLayout` and `parseLayout` in `menus.cpp` | `MENU_FUNCTIONS`, `MENU_OFFSETS`, `MENU_KINDS`, `MENU_OPS`, `MENU_STRING` |
+| Menu rule constants | `MENU_*`, `RULE_*`, `MATCH_*`, `TEXT_*`, `EDIT_*`, `SWAP_*`, `ADD_*`, `MENU_ROW_OP`, `NO_ROW`, `MENU_GRACE`, `CLICK_*` | `NativeProtocol.MENU_*`, `RULE_*`, `MATCH_*`, `EDIT_*`, `SWAP_*`; `MenuEdits.ROW_OP`; the enums' ordinals for text modes and positions |
+| Key constants | `KEYS_*`, `KEY_MODE_BLOCK_TYPING`, `KEY_SHIFT`/`CTRL`/`ALT`, `KEY_TO_BLOCK`, `KEY_STAY`, `MAX_KEY_MODES`, `KEY_PASSED`/`REMAPPED`/`BLOCKED` | `NativeProtocol.KEYS_*`, `KeyHook.SHIFT`/`CTRL`/`ALT`/`BLOCK`/`STAY`/`MAX_MODES`, `KeyReport.Action` ordinals |
 | Surface layout | `SURFACE_MAGIC`, `SURFACE_PUBLISHED` … `SURFACE_PIXELS`, `SURFACE_MAX_SLOTS`, `PUBLISHED_NONE` | `GameSurface.MAGIC`, `OFFSET_*`, `SLOTS`, `NONE_PUBLISHED` |

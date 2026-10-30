@@ -4,48 +4,40 @@ import com.kraken.api.actor.Actor;
 import com.kraken.api.actor.NPC;
 import com.kraken.api.actor.Player;
 import com.kraken.api.coords.WorldPoint;
+import com.kraken.api.menu.MenuEdits;
 import com.kraken.api.widgets.Widget;
-import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.ToString;
 
 import java.util.EnumSet;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * One entry of the client's minimenu (the right-click menu): an option, what it targets and the action it runs. Get
- * them from {@link Client#getMenuEntries()}, or from the menu events.
+ * them from {@link Client#getMenuEntries()}, from the menu events, or make one with {@link Client#createMenuEntry}.
  *
- * <p>A snapshot of one read of the client's entry: the text, ids and parameters are as of that read. Two entries are
- * equal when the client's entries were: the same option, target, action, identifier and sub-option, and the same
- * world tile (for a tile, loc or ground item, whose parameters follow from it and the map base) or else the same
- * parameters.
+ * <p>An entry read from the client is a snapshot of one read of the client's entry: the text, ids and parameters
+ * are as of that read. Two such entries are equal when the client's entries were: the same option, target, action,
+ * identifier and sub-option, and the same world tile (for a tile, loc or ground item, whose parameters follow from
+ * it and the map base) or else the same parameters.
  * {@link #getNpc()}, {@link #getPlayer()}, {@link #getActor()}, {@link #getWidget()} and {@link #getItemId()} look
  * their object up in the game when called.
  *
- * <p>The native entry keeps what it is about (subject kind, type id, index, world tile) and which op it runs; the
- * identifier and parameters below are worked out from those, the way the action ids number them:
- * <ul>
- *   <li>NPC and player actions: the identifier is the NPC or player index; both parameters are 0.
- *   <li>Loc and ground item actions: the identifier is the loc or item id; the parameters are the subject's scene x
- *       and y (its world tile less the map base).
- *   <li>{@link MenuAction#WALK}: the parameters are the scene x and y of the tile walked to. The native entry holds
- *       the tile, not the mouse position, so these are scene coordinates.
- *   <li>Component actions: param1 is the component's packed id ({@code group << 16 | child}), param0 its dynamic child
- *       index (-1 for none); for {@link MenuAction#CC_OP} and {@link MenuAction#CC_OP_LOW_PRIORITY} the identifier is
- *       the op, 1-10. A row of the sub-menu an op opens (the op's sub-options, {@link Widget#getSubOptions}) is an
- *       entry of that op with {@link #getSubOp()} set to the sub-option, 1-based; the client lists it right after
- *       the op's own row.
- *   <li>{@link MenuAction#CANCEL} and anything {@link MenuAction#UNKNOWN}: identifier and parameters are 0.
- * </ul>
+ * <p>The setters change the menu through the client's native hook ({@link MenuEdits}). On an entry read from the
+ * client they become a rule on that row: {@link #setOption}, {@link #setTarget} and {@link #setDeprioritized} apply
+ * from the client's next rebuild of the menu (the next client cycle, while the menu is closed) for as long as the
+ * row keeps showing, and {@link #onClick} has the hook report the row's clicks. The action, identifier and parameters
+ * of such an entry are the client's and can't be set. An entry made with {@link Client#createMenuEntry} is a row of
+ * the plugin's own: every setter sets what it shows and reports, its click runs its callback and nothing in the
+ * client, and it can have a sub-menu ({@link #createSubMenu()}). Two created entries are equal only when they are the
+ * same object.
  *
- * <p>Not provided: the setters, {@code onClick}, {@code isForceLeftClick}, {@code getWorldViewId},
- * {@code isDeprioritized}, {@code isItemOp}, {@code getItemOp} and the submenu methods. A row that only groups
- * entries (a selected item's targets) reads as the group's first entry, the one the client runs when that row is
- * left-clicked.
+ * <p>Not provided: {@code isForceLeftClick}, {@code getWorldViewId}, {@code isItemOp}, {@code getItemOp}. A row that
+ * only groups entries (a selected item's targets) reads as the group's first entry, the one the client runs when
+ * that row is left-clicked.
  */
-@Getter
 @ToString(onlyExplicitlyIncluded = true)
 public final class MenuEntry {
 
@@ -60,58 +52,81 @@ public final class MenuEntry {
             MenuAction.WIDGET_TARGET_ON_WIDGET, MenuAction.WIDGET_TYPE_1, MenuAction.WIDGET_TARGET,
             MenuAction.WIDGET_CLOSE, MenuAction.WIDGET_TYPE_4, MenuAction.WIDGET_TYPE_5, MenuAction.WIDGET_CONTINUE);
 
-    @Getter(AccessLevel.NONE)
     private final Client client;
+
+    /**
+     * Whether this is a row of a plugin's own ({@link Client#createMenuEntry}) rather than one read from the client.
+     */
+    private final boolean created;
+
+    /**
+     * A created row's id, which the hook reports its clicks by; 0 for a row read from the client.
+     */
+    private final int rowId;
 
     /**
      * The option text, e.g. "Walk here", "Attack" or "Take".
      */
     @ToString.Include
-    private final String option;
+    @Getter
+    private volatile String option;
 
     /**
      * What the option acts on, with the client's colour tags (e.g. {@code <col=ffff00>Goblin<col=ff00>  (level-2)});
      * empty when it acts on nothing.
      */
     @ToString.Include
-    private final String target;
+    @Getter
+    private volatile String target;
 
     /**
      * An id for what the entry acts on: see the class description for what it is per action.
      */
     @ToString.Include
-    private final int identifier;
+    @Getter
+    private volatile int identifier;
 
     /**
      * The action the entry runs.
      */
     @ToString.Include
-    private final MenuAction type;
+    @Getter
+    private volatile MenuAction type;
 
     /**
      * The first action parameter: see the class description.
      */
     @ToString.Include
-    private final int param0;
+    @Getter
+    private volatile int param0;
 
     /**
      * The second action parameter: see the class description.
      */
     @ToString.Include
-    private final int param1;
+    @Getter
+    private volatile int param1;
 
     /**
      * The world tile of what the entry acts on, for a tile, loc or ground item; null otherwise. The native entry
      * keeps it, and the client's {@code ON_TILE_OP}, {@code ON_LOC_OP} and {@code ON_OBJ_OP} events hand it to Lua.
      */
     @ToString.Include
+    @Getter
     private final WorldPoint worldLocation;
 
     /**
      * The sub-option of a component op's sub-menu row, 1-based; 0 for every other entry.
      */
     @ToString.Include
+    @Getter
     private final int subOp;
+
+    private volatile int itemId = -1;
+    private volatile boolean deprioritized;
+    private volatile Consumer<MenuEntry> onClick;
+    private volatile Menu subMenu;
+    private final MenuEntry parentRow;
 
     /**
      * Builds an entry from its fields as the client keeps them, after the reader has worked out the action.
@@ -148,6 +163,9 @@ public final class MenuEntry {
     public MenuEntry(Client client, String option, String target, int identifier, MenuAction type, int param0,
                      int param1, WorldPoint worldLocation, int subOp) {
         this.client = client;
+        this.created = false;
+        this.rowId = 0;
+        this.parentRow = null;
         this.option = option;
         this.target = target;
         this.identifier = identifier;
@@ -158,12 +176,35 @@ public final class MenuEntry {
         this.subOp = subOp;
     }
 
+    /**
+     * Builds a row of a plugin's own, empty, of action {@link MenuAction#RUNELITE}. Internal: {@link MenuEdits}
+     * makes these for {@link Client#createMenuEntry} and for the rows its rules add.
+     *
+     * @param client    the client the lookups read through
+     * @param rowId     the row's id
+     * @param parentRow the row this one is a sub row of, or null for a top row
+     */
+    public MenuEntry(Client client, int rowId, MenuEntry parentRow) {
+        this.client = client;
+        this.created = true;
+        this.rowId = rowId;
+        this.parentRow = parentRow;
+        this.option = "";
+        this.target = "";
+        this.identifier = 0;
+        this.type = MenuAction.RUNELITE;
+        this.param0 = 0;
+        this.param1 = 0;
+        this.worldLocation = null;
+        this.subOp = 0;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
         }
-        if (!(o instanceof MenuEntry other)) {
+        if (!(o instanceof MenuEntry other) || created || other.created) {
             return false;
         }
         return identifier == other.identifier && type == other.type && subOp == other.subOp
@@ -174,9 +215,195 @@ public final class MenuEntry {
 
     @Override
     public int hashCode() {
+        if (created) {
+            return System.identityHashCode(this);
+        }
         return worldLocation != null
                 ? Objects.hash(option, target, identifier, type, subOp, worldLocation)
                 : Objects.hash(option, target, identifier, type, subOp, param0, param1);
+    }
+
+    /**
+     * Sets the option text. On a row read from the client it is written from the next menu rebuild on, for as long
+     * as the row shows.
+     *
+     * @param option the text
+     * @return this entry
+     */
+    public MenuEntry setOption(String option) {
+        Objects.requireNonNull(option, "option");
+        if (created) {
+            this.option = option;
+            edits().entryChanged(this);
+        } else {
+            edits().setOption(this, option);
+        }
+        return this;
+    }
+
+    /**
+     * Sets the target text, colour tags included. On a row read from the client it is written from the next menu
+     * rebuild on, for as long as the row shows.
+     *
+     * @param target the text
+     * @return this entry
+     */
+    public MenuEntry setTarget(String target) {
+        Objects.requireNonNull(target, "target");
+        if (created) {
+            this.target = target;
+            edits().entryChanged(this);
+        } else {
+            edits().setTarget(this, target);
+        }
+        return this;
+    }
+
+    /**
+     * Sets the identifier a created row reports.
+     *
+     * @param identifier the identifier
+     * @return this entry
+     * @throws IllegalStateException on a row read from the client, whose identifier is the client's
+     */
+    public MenuEntry setIdentifier(int identifier) {
+        requireCreated("identifier");
+        this.identifier = identifier;
+        return this;
+    }
+
+    /**
+     * Sets the action a created row reports.
+     *
+     * @param type the action
+     * @return this entry
+     * @throws IllegalStateException on a row read from the client, whose action is the client's
+     */
+    public MenuEntry setType(MenuAction type) {
+        requireCreated("type");
+        this.type = Objects.requireNonNull(type, "type");
+        return this;
+    }
+
+    /**
+     * Sets the first parameter a created row reports.
+     *
+     * @param param0 the parameter
+     * @return this entry
+     * @throws IllegalStateException on a row read from the client, whose parameters are the client's
+     */
+    public MenuEntry setParam0(int param0) {
+        requireCreated("param0");
+        this.param0 = param0;
+        return this;
+    }
+
+    /**
+     * Sets the second parameter a created row reports.
+     *
+     * @param param1 the parameter
+     * @return this entry
+     * @throws IllegalStateException on a row read from the client, whose parameters are the client's
+     */
+    public MenuEntry setParam1(int param1) {
+        requireCreated("param1");
+        this.param1 = param1;
+        return this;
+    }
+
+    /**
+     * Sets the item id a created row reports from {@link #getItemId()}.
+     *
+     * @param itemId the item id, -1 for none
+     * @return this entry
+     * @throws IllegalStateException on a row read from the client, whose item is its component's
+     */
+    public MenuEntry setItemId(int itemId) {
+        requireCreated("itemId");
+        this.itemId = itemId;
+        return this;
+    }
+
+    /**
+     * Moves a row read from the client to the bottom of the menu, above Cancel, so the row above it becomes the left
+     * click, from the next menu rebuild on and for as long as the row shows; or puts it back. On a created row it is
+     * only remembered.
+     *
+     * @param deprioritized true to move the row down
+     * @return this entry
+     */
+    public MenuEntry setDeprioritized(boolean deprioritized) {
+        if (created) {
+            this.deprioritized = deprioritized;
+        } else {
+            edits().setDeprioritized(this, deprioritized);
+        }
+        return this;
+    }
+
+    /**
+     * Whether the row is deprioritized: moved to the bottom by {@link #setDeprioritized}.
+     *
+     * @return true if it is
+     */
+    public boolean isDeprioritized() {
+        return created ? deprioritized : edits().isDeprioritized(this);
+    }
+
+    /**
+     * Sets what to do when the row is clicked, run on the client thread with this entry. A created row runs it and
+     * nothing else; on a row read from the client the hook reports the click and the client runs the row as usual.
+     *
+     * @param callback the callback, or null for none
+     * @return this entry
+     */
+    public MenuEntry onClick(Consumer<MenuEntry> callback) {
+        this.onClick = callback;
+        if (created) {
+            edits().entryChanged(this);
+        } else {
+            edits().report(this, callback);
+        }
+        return this;
+    }
+
+    /**
+     * The click callback.
+     *
+     * @return the callback set with {@link #onClick(Consumer)}, or null
+     */
+    public Consumer<MenuEntry> onClick() {
+        return onClick;
+    }
+
+    /**
+     * The sub-menu under a created row.
+     *
+     * @return the sub-menu, or null if none was created
+     */
+    public Menu getSubMenu() {
+        return subMenu;
+    }
+
+    /**
+     * Gives a created top row a sub-menu, or returns the one it has. The client shows it when the mouse rests on the
+     * row.
+     *
+     * @return the sub-menu
+     * @throws IllegalStateException on a row read from the client, or on a sub row
+     */
+    public Menu createSubMenu() {
+        requireCreated("sub-menu");
+        if (parentRow != null) {
+            throw new IllegalStateException("a sub row can't have a sub-menu of its own");
+        }
+        Menu menu = subMenu;
+        if (menu == null) {
+            menu = new Menu(this);
+            subMenu = menu;
+            edits().entryChanged(this);
+        }
+        return menu;
     }
 
     /**
@@ -221,12 +448,70 @@ public final class MenuEntry {
     }
 
     /**
-     * The item the entry's component shows, such as the item in an inventory slot, read now.
+     * The item the entry's component shows, such as the item in an inventory slot, read now; a created row's is the
+     * one set with {@link #setItemId}.
      *
      * @return the item id, or -1 if the entry isn't on a component or the component shows no item
      */
     public int getItemId() {
+        if (created) {
+            return itemId;
+        }
         Widget widget = getWidget();
         return widget == null ? -1 : widget.getItemId();
+    }
+
+    /**
+     * Whether this is a row of a plugin's own rather than one read from the client. Internal: the menu edits and
+     * the reader tell them apart with it.
+     *
+     * @return true for a row made with {@link Client#createMenuEntry} or added by a rule
+     */
+    public boolean isCreated() {
+        return created;
+    }
+
+    /**
+     * A created row's id. Internal: the hook reports clicks by it.
+     *
+     * @return the row id, or 0 for a row read from the client
+     */
+    public int getRowId() {
+        return rowId;
+    }
+
+    /**
+     * The created top row a sub row hangs under. Internal.
+     *
+     * @return the parent, or null for a top row or a row read from the client
+     */
+    public MenuEntry getParentRow() {
+        return parentRow;
+    }
+
+    /**
+     * Makes a sub row of this created row, for its sub-menu.
+     *
+     * @return the sub row
+     */
+    MenuEntry createChild() {
+        return edits().createChild(this);
+    }
+
+    /**
+     * Notes that the sub-menu changed, so the row's rule is sent again.
+     */
+    void subMenuChanged() {
+        edits().entryChanged(this);
+    }
+
+    private MenuEdits edits() {
+        return client.getMenuEdits();
+    }
+
+    private void requireCreated(String what) {
+        if (!created) {
+            throw new IllegalStateException("the " + what + " of a row read from the client is the client's own");
+        }
     }
 }

@@ -5,7 +5,15 @@ import com.kraken.api.internal.event.NativeEvent;
 import com.kraken.api.internal.event.ScriptRequest;
 import com.kraken.api.internal.event.ScriptRun;
 import com.kraken.api.internal.invoke.NativeCall;
+import com.kraken.api.internal.menu.MenuClick;
+import com.kraken.api.internal.menu.WireRule;
 import com.kraken.api.mapping.Mapping;
+import com.kraken.api.menu.MenuRule;
+import com.kraken.api.menu.ShiftState;
+import com.kraken.api.menu.TextMatch;
+import com.kraken.client.input.KeyHook;
+import com.kraken.client.input.KeyManager;
+import com.kraken.client.input.KeyReport;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 
@@ -19,22 +27,23 @@ import java.util.Map;
 import java.util.function.IntFunction;
 
 /**
- * The wire format between {@link NativeEventServer} and {@code kraken_hook.dll} (protocol v5, little-endian). Java
+ * The wire format between {@link NativeEventServer} and {@code kraken_hook.dll} (protocol v6, little-endian). Java
  * sends one handshake naming the raise functions to hook, their event ids and a capture plan per slot, then the
- * functions the drawing needs, then the script runtime's functions and layout; the DLL sends one message per raise
- * with the id, the argument registers and the captured values, one per script event it was asked for, and status
- * messages with reserved ids. After the handshake Java sends commands: batches of calls for the game thread, the
- * overlay surface to draw, the frame cap and which script events to send. Every field and op code here matches the
- * constants in the DLL's {@code src/protocol.h}; {@code docs/in-game-drawing.md} and {@code docs/event-hooks-design.md}
- * describe the format.
+ * functions the drawing needs, then the script runtime's functions and layout, the minimenu's functions and layout
+ * and the game window's procedure; the DLL sends one message per raise with the id, the argument registers and the
+ * captured values, one per script event it was asked for, one per click on a menu row of a plugin's own and per
+ * key it handled, and status messages with reserved ids. After the handshake Java sends commands: batches of calls
+ * for the game thread, the overlay surface to draw, the frame cap, which script events to send, the menu rules and
+ * the key remapping. Every field and op code here matches the constants in the DLL's {@code src/protocol.h};
+ * {@code docs/developer/native-protocol.md} describes the format.
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 final class NativeProtocol {
 
     /**
-     * Handshake magic: identifies protocol v5.
+     * Handshake magic: identifies protocol v6.
      */
-    static final byte[] MAGIC = {'K', 'R', 'K', '5'};
+    static final byte[] MAGIC = {'K', 'R', 'K', '6'};
 
     /**
      * Capture-plan ops: how the DLL reads the argument register a plan entry names.
@@ -74,6 +83,22 @@ final class NativeProtocol {
     static final int SCRIPT_EVENT_ID = -6;
 
     /**
+     * A reserved event id for a click the DLL reports: on a row of a plugin's own, which ran nothing in the client,
+     * or on a client row a rule asked about ({@link #parseMenuClick}).
+     */
+    static final int MENU_CLICK_EVENT_ID = -7;
+
+    /**
+     * A reserved event id the DLL sends when a scoped menu rule expired: the rule id in RCX.
+     */
+    static final int MENU_EXPIRED_EVENT_ID = -8;
+
+    /**
+     * A reserved event id for a key message the DLL handled ({@link #parseKey}).
+     */
+    static final int KEY_EVENT_ID = -9;
+
+    /**
      * The STATUS feature bit for the game-thread pump: the DLL runs calls.
      */
     static final long FEATURE_CALLS = 1;
@@ -95,6 +120,16 @@ final class NativeProtocol {
     static final long FEATURE_SCRIPTS = 8;
 
     /**
+     * The STATUS feature bit for the minimenu hooks: the DLL applies {@link #COMMAND_MENU} rules.
+     */
+    static final long FEATURE_MENU = 16;
+
+    /**
+     * The STATUS feature bit for the window procedure hook: the DLL applies {@link #COMMAND_KEYS} remapping.
+     */
+    static final long FEATURE_KEYS = 32;
+
+    /**
      * Command type: a batch of calls.
      */
     static final int COMMAND_CALLS = 1;
@@ -113,6 +148,134 @@ final class NativeProtocol {
      * Command type: which script events to send.
      */
     static final int COMMAND_SCRIPTS = 4;
+
+    /**
+     * Command type: the menu rules.
+     */
+    static final int COMMAND_MENU = 5;
+
+    /**
+     * Command type: the key remapping.
+     */
+    static final int COMMAND_KEYS = 6;
+
+    /**
+     * The MENU command's operations: replace every rule, add or replace rules by id, remove rules by id.
+     */
+    static final int MENU_REPLACE = 0;
+    static final int MENU_UPSERT = 1;
+    static final int MENU_REMOVE = 2;
+
+    /**
+     * The KEYS command's operations: the mode table, the mode in force, whether to report keys.
+     */
+    static final int KEYS_TABLE = 0;
+    static final int KEYS_MODE = 1;
+    static final int KEYS_REPORT = 2;
+
+    /**
+     * Menu rule types.
+     */
+    static final int RULE_EDIT = 1;
+    static final int RULE_SWAP = 2;
+    static final int RULE_ADD = 3;
+
+    /**
+     * Menu rule flags.
+     */
+    static final int RULE_SHIFT_DOWN = 1;
+    static final int RULE_SHIFT_UP = 2;
+    static final int RULE_SCOPED = 4;
+    static final int RULE_FINAL = 8;
+
+    /**
+     * Match field bits.
+     */
+    static final int MATCH_KIND = 1;
+    static final int MATCH_TYPE_ID = 2;
+    static final int MATCH_INDEX = 4;
+    static final int MATCH_OP = 8;
+    static final int MATCH_TILE = 16;
+    static final int MATCH_OPTION = 32;
+    static final int MATCH_TARGET = 64;
+    static final int MATCH_SUB_ROWS = 128;
+    static final int MATCH_GROUP = 256;
+
+    /**
+     * Text match modes, {@link TextMatch.Mode}'s ordinals plus one; 0 is no pattern.
+     */
+    static final int TEXT_ANY = 0;
+
+    /**
+     * Edit actions.
+     */
+    static final int EDIT_HIDE = 1;
+    static final int EDIT_DEPRIORITIZE = 2;
+    static final int EDIT_PROMOTE = 4;
+    static final int EDIT_PROMOTE_SUBJECT = 8;
+    static final int EDIT_SET_OPTION = 16;
+    static final int EDIT_SET_TARGET = 32;
+    static final int EDIT_REPORT = 64;
+
+    /**
+     * Swap flags.
+     */
+    static final int SWAP_SAME_TARGET = 1;
+    static final int SWAP_SAME_SUBJECT = 2;
+    static final int SWAP_BELOW = 4;
+    static final int SWAP_TO_TOP = 8;
+
+    /**
+     * The longest text a rule writes into a row.
+     */
+    static final int MAX_RULE_TEXT = 256;
+
+    /**
+     * The mode flag that drops typed characters.
+     */
+    static final int KEY_MODE_BLOCK_TYPING = 1;
+
+    /**
+     * The window messages a KEY report names.
+     */
+    static final int WM_KEYDOWN = 0x100;
+    static final int WM_KEYUP = 0x101;
+    static final int WM_CHAR = 0x102;
+    static final int WM_SYSKEYDOWN = 0x104;
+    static final int WM_SYSKEYUP = 0x105;
+
+    /**
+     * The five minimenu functions the DLL hooks or calls, in order.
+     */
+    private static final String[] MENU_FUNCTIONS = {"minimenuViewRebuild", "minimenuRun", "minimenuNodeDestroy",
+            "minimenuNodeReserve", "minimenuTextAssign"};
+
+    /**
+     * The menu block's offsets, in the order the DLL reads them: the minimenu behind the client, its rows, open view
+     * and last-run copy, the node and list layout, and the entry layout.
+     */
+    private static final String[] MENU_OFFSETS = {"Client.minimenu", "Minimenu.rows", "Minimenu.open",
+            "Minimenu.clicked", "container:minimenu.node.list", "container:minimenu.node.index",
+            "container:minimenu.node.children", "container:minimenu.node.size", "container:minimenu.list.entries",
+            "MinimenuEntry.size", "MinimenuEntry.option", "MinimenuEntry.target", "MinimenuEntry.typeId",
+            "MinimenuEntry.subjectIndex", "MinimenuEntry.opIndex", "MinimenuEntry.level", "MinimenuEntry.x",
+            "MinimenuEntry.z", "MinimenuEntry.subjectType"};
+
+    /**
+     * The subject kinds the menu block names, in order, from {@code enums.minimenuSubject}.
+     */
+    private static final String[] MENU_KINDS = {"TILE", "NPC", "LOC", "OBJ", "PLAYER", "COMPONENT"};
+
+    /**
+     * The op values the menu block names, in order, from {@code enums.minimenuOp}.
+     */
+    private static final String[] MENU_OPS = {"EXAMINE", "TARGET"};
+
+    /**
+     * The eastl string layout the menu block ends with.
+     */
+    private static final String[] MENU_STRING = {"container:string.heapFlagByte", "container:string.heapFlagMask",
+            "container:string.ssoCapacity"};
 
     /**
      * The most root scripts a script events command asks for by id; the DLL keeps as many.
@@ -198,15 +361,18 @@ final class NativeProtocol {
 
     /**
      * Builds the handshake: magic, a slot count, then each slot's rva, id configuration, argument count and plan, then
-     * the drawing functions, then a u16 length and the script block.
+     * the drawing functions, then three length-prefixed blocks (a u16 length each): the script block, the menu block
+     * and the key block.
      *
      * @param slots   the slots to install
      * @param drawing the client pointer, the pump and the present function
      * @param scripts the script block ({@link #scriptLayout}), empty for no script hooks
+     * @param menu    the menu block ({@link #menuLayout}), empty for no menu hooks
+     * @param keys    the key block ({@link #keyLayout}), empty for no key hook
      * @return the handshake bytes
      */
-    static byte[] handshake(List<Slot> slots, Drawing drawing, byte[] scripts) {
-        int size = MAGIC.length + 2 + 3 * 8 + 2 + scripts.length;
+    static byte[] handshake(List<Slot> slots, Drawing drawing, byte[] scripts, byte[] menu, byte[] keys) {
+        int size = MAGIC.length + 2 + 3 * 8 + 2 + scripts.length + 2 + menu.length + 2 + keys.length;
         for (Slot slot : slots) {
             size += 8 + 4 + 1 + 1 + 1 + slot.plan().size() * 2;
         }
@@ -229,7 +395,373 @@ final class NativeProtocol {
         buf.putLong(drawing.presentFn());
         buf.putShort((short) scripts.length);
         buf.put(scripts);
+        buf.putShort((short) menu.length);
+        buf.put(menu);
+        buf.putShort((short) keys.length);
+        buf.put(keys);
         return buf.array();
+    }
+
+    /**
+     * Builds the handshake's menu block from a mapping: the RVAs of the five minimenu functions ({@code u64} each),
+     * the offsets of {@link #MENU_OFFSETS} ({@code u32} each), the subject kinds of {@link #MENU_KINDS} ({@code u8}
+     * each), the op values of {@link #MENU_OPS} ({@code i32} each), then the eastl string layout ({@code u32} each).
+     *
+     * @param mapping the attached build's mapping
+     * @return the block, or an empty array if the mapping lacks a key it needs (no menu hooks)
+     */
+    static byte[] menuLayout(Mapping mapping) {
+        for (String function : MENU_FUNCTIONS) {
+            if (!mapping.hasFunction(function)) {
+                return new byte[0];
+            }
+        }
+        int[] offsets = new int[MENU_OFFSETS.length];
+        for (int i = 0; i < offsets.length; i++) {
+            offsets[i] = layoutValue(mapping, MENU_OFFSETS[i]);
+        }
+        int[] strings = new int[MENU_STRING.length];
+        for (int i = 0; i < strings.length; i++) {
+            strings[i] = layoutValue(mapping, MENU_STRING[i]);
+        }
+        int[] kinds = new int[MENU_KINDS.length];
+        for (int i = 0; i < kinds.length; i++) {
+            kinds[i] = mapping.enumValue("minimenuSubject", MENU_KINDS[i], -1);
+        }
+        int[] ops = new int[MENU_OPS.length];
+        for (int i = 0; i < ops.length; i++) {
+            if (mapping.enumTable("minimenuOp").get(MENU_OPS[i]) == null) {
+                return new byte[0];
+            }
+            ops[i] = mapping.enumValue("minimenuOp", MENU_OPS[i], 0);
+        }
+        if (Arrays.stream(offsets).anyMatch(v -> v < 0) || Arrays.stream(strings).anyMatch(v -> v < 0)
+                || Arrays.stream(kinds).anyMatch(v -> v < 0)) {
+            return new byte[0];
+        }
+        ByteBuffer buf = ByteBuffer.allocate(MENU_FUNCTIONS.length * 8 + offsets.length * 4 + kinds.length
+                + ops.length * 4 + strings.length * 4).order(ByteOrder.LITTLE_ENDIAN);
+        for (String function : MENU_FUNCTIONS) {
+            buf.putLong(mapping.function(function));
+        }
+        for (int offset : offsets) {
+            buf.putInt(offset);
+        }
+        for (int kind : kinds) {
+            buf.put((byte) kind);
+        }
+        for (int op : ops) {
+            buf.putInt(op);
+        }
+        for (int value : strings) {
+            buf.putInt(value);
+        }
+        return buf.array();
+    }
+
+    /**
+     * Builds the handshake's key block from a mapping: the RVA of the game window's procedure ({@code u64}).
+     *
+     * @param mapping the attached build's mapping
+     * @return the block, or an empty array if the mapping lacks the window procedure (no key hook)
+     */
+    static byte[] keyLayout(Mapping mapping) {
+        if (!mapping.hasFunction("renderViewWndProc")) {
+            return new byte[0];
+        }
+        return ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(mapping.function("renderViewWndProc"))
+                .array();
+    }
+
+    /**
+     * Frames a menu rules command: {@code {u32 len, u8 5, u8 op, u16 count, rules}}, each rule
+     * {@code {u32 id, u8 type, u8 flags, match, payload}}. A match is {@code {u16 mask, u8 kind, i32 typeId,
+     * i32 index, i32 op, i32 group, i32 level, i32 x, i32 z, text option, text target}}, a text
+     * {@code {u8 mode, u8 len, bytes}} (mode 0 for none). An edit's payload is {@code {u8 actions, str option,
+     * str target}}, a swap's {@code {u8 flags, match swapped}}, an add's {@code {u8 position, row}} with a row
+     * {@code {u32 id, str option, str target, u8 children, children}}; a str is {@code {u16 len, bytes}}.
+     *
+     * @param op    {@link #MENU_REPLACE} or {@link #MENU_UPSERT}
+     * @param rules the rules
+     * @return the framed command
+     */
+    static byte[] menuRules(int op, List<WireRule> rules) {
+        if (rules.size() > 0xffff) {
+            throw new IllegalArgumentException("at most 65535 rules a command, got " + rules.size());
+        }
+        ByteBuffer buf = ByteBuffer.allocate(4 + 4 + rules.size() * 64 + textBytes(rules))
+                .order(ByteOrder.LITTLE_ENDIAN);
+        buf.position(4);
+        buf.put((byte) COMMAND_MENU);
+        buf.put((byte) op);
+        buf.putShort((short) rules.size());
+        for (WireRule rule : rules) {
+            putRule(buf, rule);
+        }
+        return frame(buf);
+    }
+
+    /**
+     * Frames a menu removal command: {@code {u32 len, u8 5, u8 2, u16 count, count x u32 id}}.
+     *
+     * @param ids the rule ids to remove
+     * @return the framed command
+     */
+    static byte[] menuRemove(int[] ids) {
+        ByteBuffer buf = ByteBuffer.allocate(4 + 4 + ids.length * 4).order(ByteOrder.LITTLE_ENDIAN);
+        buf.position(4);
+        buf.put((byte) COMMAND_MENU);
+        buf.put((byte) MENU_REMOVE);
+        buf.putShort((short) ids.length);
+        for (int id : ids) {
+            buf.putInt(id);
+        }
+        return frame(buf);
+    }
+
+    /**
+     * Frames the key table command: {@code {u32 len, u8 6, u8 0, u8 modes, modes}}, each mode
+     * {@code {u8 flags, u16 count, count x {u16 vk, u8 modifiers, u8 mask, u16 to, u8 next}}}.
+     *
+     * @param modes the table
+     * @return the framed command
+     */
+    static byte[] keysTable(List<KeyHook.Mode> modes) {
+        int size = 4 + 3;
+        for (KeyHook.Mode mode : modes) {
+            size += 3 + mode.rules().size() * 7;
+        }
+        ByteBuffer buf = ByteBuffer.allocate(size).order(ByteOrder.LITTLE_ENDIAN);
+        buf.position(4);
+        buf.put((byte) COMMAND_KEYS);
+        buf.put((byte) KEYS_TABLE);
+        buf.put((byte) modes.size());
+        for (KeyHook.Mode mode : modes) {
+            buf.put((byte) (mode.blockTyping() ? KEY_MODE_BLOCK_TYPING : 0));
+            buf.putShort((short) mode.rules().size());
+            for (KeyHook.Rule rule : mode.rules()) {
+                buf.putShort((short) rule.vk());
+                buf.put((byte) rule.modifiers());
+                buf.put((byte) rule.modifierMask());
+                buf.putShort((short) rule.toVk());
+                buf.put((byte) rule.nextMode());
+            }
+        }
+        return frame(buf);
+    }
+
+    /**
+     * Frames the key mode command: {@code {u32 len, u8 6, u8 1, u8 mode}}.
+     *
+     * @param mode the mode in force
+     * @return the framed command
+     */
+    static byte[] keysMode(int mode) {
+        ByteBuffer buf = ByteBuffer.allocate(4 + 3).order(ByteOrder.LITTLE_ENDIAN);
+        buf.position(4);
+        buf.put((byte) COMMAND_KEYS);
+        buf.put((byte) KEYS_MODE);
+        buf.put((byte) mode);
+        return frame(buf);
+    }
+
+    /**
+     * Frames the key report command: {@code {u32 len, u8 6, u8 2, u8 on}}.
+     *
+     * @param on whether the DLL reports the keys it handles
+     * @return the framed command
+     */
+    static byte[] keysReport(boolean on) {
+        ByteBuffer buf = ByteBuffer.allocate(4 + 3).order(ByteOrder.LITTLE_ENDIAN);
+        buf.position(4);
+        buf.put((byte) COMMAND_KEYS);
+        buf.put((byte) KEYS_REPORT);
+        buf.put((byte) (on ? 1 : 0));
+        return frame(buf);
+    }
+
+    /**
+     * Parses a menu click message's registers: the kind (0 a row of a plugin's own, 1 a rule's report), the row or
+     * rule id, the parent row id (0xffffffff for none) and the mouse position ({@code x | y << 32}).
+     *
+     * @param event the message
+     * @return the click
+     */
+    static MenuClick parseMenuClick(NativeEvent event) {
+        long parent = event.reg(NativeEvent.R8);
+        long mouse = event.reg(NativeEvent.R9);
+        return new MenuClick(event.reg(NativeEvent.RCX) == 1, (int) event.reg(NativeEvent.RDX),
+                parent == 0xffffffffL ? -1 : (int) parent, (int) mouse, (int) (mouse >>> 32));
+    }
+
+    /**
+     * Parses a key message's registers: the window message, the key or character it carried, what was done
+     * ({@code action << 16 | the key it became}) and the modes ({@code before | after << 8}).
+     *
+     * @param event the message
+     * @return the report, with Java key codes
+     */
+    static KeyReport parseKey(NativeEvent event) {
+        int message = (int) event.reg(NativeEvent.RCX);
+        long key = event.reg(NativeEvent.RDX);
+        long done = event.reg(NativeEvent.R8);
+        long modes = event.reg(NativeEvent.R9);
+        KeyReport.Kind kind = switch (message) {
+            case WM_KEYDOWN, WM_SYSKEYDOWN -> KeyReport.Kind.PRESSED;
+            case WM_KEYUP, WM_SYSKEYUP -> KeyReport.Kind.RELEASED;
+            default -> KeyReport.Kind.TYPED;
+        };
+        KeyReport.Action action = switch ((int) (done >>> 16)) {
+            case 1 -> KeyReport.Action.REMAPPED;
+            case 2 -> KeyReport.Action.BLOCKED;
+            default -> KeyReport.Action.PASSED;
+        };
+        int to = (int) (done & 0xffff);
+        boolean typed = kind == KeyReport.Kind.TYPED;
+        return new KeyReport(kind, typed ? 0 : KeyManager.toJava((int) key), typed ? (char) key : 0, action,
+                action == KeyReport.Action.REMAPPED ? KeyManager.toJava(to) : 0, (int) (modes & 0xff),
+                (int) ((modes >>> 8) & 0xff));
+    }
+
+    /**
+     * How many bytes the texts of some rules take at most, for sizing a buffer.
+     *
+     * @param rules the rules
+     * @return the bytes
+     */
+    private static int textBytes(List<WireRule> rules) {
+        int bytes = 0;
+        for (WireRule rule : rules) {
+            bytes += 2 * (TextMatch.MAX_LENGTH + 2) * 2 + 2 * (MAX_RULE_TEXT * 3 + 2);
+            if (rule.row() != null) {
+                bytes += rowBytes(rule.row());
+            }
+        }
+        return bytes;
+    }
+
+    private static int rowBytes(WireRule.Row row) {
+        int bytes = 4 + 2 * (MAX_RULE_TEXT * 3 + 2) + 1;
+        for (WireRule.Row child : row.children()) {
+            bytes += rowBytes(child);
+        }
+        return bytes;
+    }
+
+    /**
+     * Writes the frame's length over its first four bytes and trims the buffer to what was written.
+     *
+     * @param buf the buffer, positioned after the body
+     * @return the framed bytes
+     */
+    private static byte[] frame(ByteBuffer buf) {
+        int end = buf.position();
+        buf.putInt(0, end - 4);
+        return Arrays.copyOf(buf.array(), end);
+    }
+
+    private static void putRule(ByteBuffer buf, WireRule rule) {
+        buf.putInt(rule.id());
+        buf.put((byte) switch (rule.type()) {
+            case EDIT -> RULE_EDIT;
+            case SWAP -> RULE_SWAP;
+            case ADD -> RULE_ADD;
+        });
+        int flags = (rule.shift() == ShiftState.HELD ? RULE_SHIFT_DOWN : 0)
+                | (rule.shift() == ShiftState.NOT_HELD ? RULE_SHIFT_UP : 0) | (rule.scoped() ? RULE_SCOPED : 0)
+                | (rule.finalRow() ? RULE_FINAL : 0);
+        buf.put((byte) flags);
+        putMatch(buf, rule.match());
+        switch (rule.type()) {
+            case EDIT -> {
+                int actions = 0;
+                for (MenuRule.Edit.Action action : rule.actions()) {
+                    actions |= switch (action) {
+                        case HIDE -> EDIT_HIDE;
+                        case DEPRIORITIZE -> EDIT_DEPRIORITIZE;
+                        case PROMOTE -> EDIT_PROMOTE;
+                        case PROMOTE_SUBJECT -> EDIT_PROMOTE_SUBJECT;
+                        case SET_OPTION -> EDIT_SET_OPTION;
+                        case SET_TARGET -> EDIT_SET_TARGET;
+                        case REPORT -> EDIT_REPORT;
+                    };
+                }
+                buf.put((byte) actions);
+                putString(buf, rule.option());
+                putString(buf, rule.target());
+            }
+            case SWAP -> {
+                int flagsSwap = (rule.sameTarget() ? SWAP_SAME_TARGET : 0) | (rule.sameSubject() ? SWAP_SAME_SUBJECT : 0)
+                        | (rule.below() ? SWAP_BELOW : 0) | (rule.toTop() ? SWAP_TO_TOP : 0);
+                buf.put((byte) flagsSwap);
+                putMatch(buf, rule.swapped());
+            }
+            case ADD -> {
+                buf.put((byte) rule.position().ordinal());
+                putRow(buf, rule.row(), true);
+            }
+        }
+    }
+
+    private static void putMatch(ByteBuffer buf, WireRule.Match match) {
+        int mask = 0;
+        for (WireRule.Match.Field field : match.mask()) {
+            mask |= switch (field) {
+                case KIND -> MATCH_KIND;
+                case TYPE_ID -> MATCH_TYPE_ID;
+                case INDEX -> MATCH_INDEX;
+                case OP -> MATCH_OP;
+                case TILE -> MATCH_TILE;
+                case OPTION -> MATCH_OPTION;
+                case TARGET -> MATCH_TARGET;
+                case GROUP -> MATCH_GROUP;
+            };
+        }
+        if (match.subRows()) {
+            mask |= MATCH_SUB_ROWS;
+        }
+        buf.putShort((short) mask);
+        buf.put((byte) match.kind());
+        buf.putInt(match.typeId());
+        buf.putInt(match.index());
+        buf.putInt(match.op());
+        buf.putInt(match.group());
+        buf.putInt(match.level());
+        buf.putInt(match.x());
+        buf.putInt(match.z());
+        putText(buf, match.option());
+        putText(buf, match.target());
+    }
+
+    private static void putText(ByteBuffer buf, TextMatch text) {
+        if (text == null) {
+            buf.put((byte) TEXT_ANY);
+            buf.put((byte) 0);
+            return;
+        }
+        byte[] bytes = text.text().getBytes(StandardCharsets.UTF_8);
+        int n = Math.min(bytes.length, TextMatch.MAX_LENGTH);
+        buf.put((byte) (text.mode().ordinal() + 1));
+        buf.put((byte) n);
+        buf.put(bytes, 0, n);
+    }
+
+    private static void putString(ByteBuffer buf, String text) {
+        byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+        int n = Math.min(bytes.length, MAX_RULE_TEXT);
+        buf.putShort((short) n);
+        buf.put(bytes, 0, n);
+    }
+
+    private static void putRow(ByteBuffer buf, WireRule.Row row, boolean children) {
+        buf.putInt(row.id());
+        putString(buf, row.option());
+        putString(buf, row.target());
+        List<WireRule.Row> subRows = children ? row.children() : List.of();
+        buf.put((byte) subRows.size());
+        for (WireRule.Row child : subRows) {
+            putRow(buf, child, false);
+        }
     }
 
     /**

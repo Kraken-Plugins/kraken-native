@@ -1,13 +1,13 @@
 // kraken_hook.dll - injected into osclient.exe. It turns the client's own event raises into push
 // events for the Kraken client, runs the client functions the Kraken client asks for on the game
-// thread, draws the Kraken client's overlay inside the game's own OpenGL frame, and reports the
-// scripts the client runs.
+// thread, draws the Kraken client's overlay inside the game's own OpenGL frame, reports the scripts
+// the client runs, edits the right-click menu by the rules the Kraken client sends, and remaps keys.
 //
 // On load it connects back to the Kraken client over a loopback socket and receives a handshake: a
 // table of raise functions to hook, each with the event id it carries (fixed, or read from an
 // argument register) and a capture plan saying which arguments to forward and how to read them,
-// then the Client* slot, the per-frame pump function, the present function and the script runtime's
-// layout. Nothing here is hard-coded per client build: every RVA, event id, capture plan, function to
+// then the Client* slot, the per-frame pump function, the present function, the script runtime's
+// layout, the minimenu's layout and the window procedure. Nothing here is hard-coded per client build: every RVA, event id, capture plan, function to
 // call and argument comes from the mapping on the Java side. See README.md, docs/event-hooks-design.md
 // and docs/in-game-drawing.md.
 //

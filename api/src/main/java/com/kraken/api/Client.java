@@ -11,6 +11,7 @@ import com.kraken.api.definition.NPCComposition;
 import com.kraken.api.definition.ObjectComposition;
 import com.kraken.api.definition.VarbitComposition;
 import com.kraken.api.highlight.Highlights;
+import com.kraken.api.menu.MenuEdits;
 import com.kraken.api.internal.reader.ActorReader;
 import com.kraken.api.internal.reader.ChatReader;
 import com.kraken.api.internal.ConfigTypes;
@@ -57,9 +58,10 @@ import java.util.function.BooleanSupplier;
  *
  * <p>Every getter follows the mapped offset chains in the live process, replaying what the client's own Lua handlers
  * read; a getter's Javadoc names the Lua function it mirrors. The API reads, so input, models and setters are not
- * exposed, and the menu is read but never changed. Two things it does change, through the client's native hook: what
- * the client highlights ({@link #getHighlights()}), and the menu actions it runs ({@link #getActions()},
- * {@link #menuAction}). Reads are tolerant: an unreadable or logged-out state gives -1, false, "", null or an empty
+ * exposed. Three things it does change, through the client's native hook: what the client highlights
+ * ({@link #getHighlights()}), the menu actions it runs ({@link #getActions()}, {@link #menuAction}), and the rows of
+ * the right-click menu ({@link #getMenuEdits()}, {@link #createMenuEntry}, {@link #setMenuEntries} and the
+ * {@link MenuEntry} setters). Reads are tolerant: an unreadable or logged-out state gives -1, false, "", null or an empty
  * list rather than an exception.
  *
  * <p>It keeps one handle per actor ({@link #npc}, {@link #player}), so asking twice for the same actor gives the same
@@ -153,6 +155,14 @@ public final class Client extends GameReader {
      */
     @Getter
     private final Highlights highlights;
+
+    /**
+     * Changes to the right-click menu, applied by the client's native hook each time the client rebuilds the menu:
+     * the rules behind {@link #createMenuEntry}, {@link #setMenuEntries} and the {@link MenuEntry} setters, and
+     * the rules plugins keep themselves.
+     */
+    @Getter
+    private final MenuEdits menuEdits;
 
     /**
      * Menu actions run without the menu, and the mouse click that goes with one. They reach the client while its
@@ -249,6 +259,7 @@ public final class Client extends GameReader {
         this.topLevelWorldView = new WorldView(this);
         this.highlights = new Highlights(mapping);
         this.actions = new Actions(this, mapping);
+        this.menuEdits = new MenuEdits(this, mapping);
 
         this.cGameState = mapping.offset("Client.gameState");
         this.cLoginToken = mapping.offset("Client.loginToken");
@@ -1008,6 +1019,35 @@ public final class Client extends GameReader {
      */
     public boolean isMenuOpen() {
         return menuReader.isOpen();
+    }
+
+    /**
+     * Adds a row of the plugin's own to the menu, next to a row of the menu as it reads now, through the client's
+     * native hook ({@link MenuEdits}). Set its option, target and callback on the entry returned; it is sent at the
+     * end of the client thread's pass and shows from the client's next rebuild of the menu on (the next client cycle,
+     * while the menu is closed), for as long as the row it sits next to shows. Clicking it runs the callback and
+     * posts a {@code MenuOptionClicked} for it, and runs nothing in the client. Call this when the row appears
+     * ({@code MenuEntryAdded}) rather than when the menu opens: an open menu isn't rebuilt, so the row would only
+     * show on the menu after it.
+     *
+     * @param idx the index of the row to put it under, in {@link #getMenuEntries()}'s order (bottom first), or -1
+     *            to put it at the top
+     * @return the new row
+     */
+    public MenuEntry createMenuEntry(int idx) {
+        return menuEdits.create(idx);
+    }
+
+    /**
+     * Makes the menu show these rows and no others, through the client's native hook, as far as rules on the rows
+     * can: a client row left out is hidden, and a client row moved to the top is swapped with the top row, each from
+     * the next rebuild on and for as long as the row shows. Other orders aren't expressed, and rows of plugins' own
+     * are managed by their own rules.
+     *
+     * @param entries the rows to show, bottom first, as {@link #getMenuEntries()} returns them
+     */
+    public void setMenuEntries(MenuEntry[] entries) {
+        menuEdits.setMenuEntries(entries);
     }
 
     /**

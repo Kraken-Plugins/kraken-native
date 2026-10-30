@@ -613,6 +613,17 @@ public final class Widget {
     }
 
     /**
+     * The widget's key listener ({@code IfType.onKey}, set by {@code cc_setonkey}): its arguments, the script id
+     * first. A component with one takes the keyboard, as the chatbox does.
+     *
+     * @return the listener's arguments, or null if the widget has no key listener or this build's mapping lacks the
+     * listener layout
+     */
+    public Object[] getOnKeyListener() {
+        return reader.listener(data, "onKey");
+    }
+
+    /**
      * The sub-options of one of the widget's actions: the rows of the sub-menu the client opens under the action's
      * row, in order ({@code IfType.subOpNames}). A menu entry of the action with a sub-option names one of these,
      * 1-based, and the client sends the op with the sub-option.

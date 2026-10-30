@@ -50,9 +50,9 @@ import java.util.stream.Collectors;
  *       enums (stored by name), {@code Color} ({@code #AARRGGBB}; a decimal ARGB integer also reads),
  *       {@code Dimension} ({@code WIDTHxHEIGHT}), {@code Point} ({@code X:Y}), {@code Rectangle}
  *       ({@code X:Y:WIDTH:HEIGHT}; the settings page has no control for it, so it suits hidden items),
- *       {@code Set} of an enum (names, comma-separated), {@link Keybind} ({@code KEYCODE:MODIFIERS}, as
- *       {@link java.awt.event.KeyEvent} codes and {@link java.awt.event.InputEvent} masks) and {@link Button} (a
- *       button on the settings page; nothing is stored).
+ *       {@code Set} of an enum (names, comma-separated), {@link Keybind} and {@link ModifierlessKeybind}
+ *       ({@code KEYCODE:MODIFIERS}, as {@link java.awt.event.KeyEvent} codes and {@link java.awt.event.InputEvent}
+ *       masks) and {@link Button} (a button on the settings page; nothing is stored).
  *   <li><b>The settings page.</b> {@link ShowIf} shows an item or section only while another item has certain
  *       values ({@link #isShown} says what the page shows), and {@link Suggestions} gives a text item a drop-down
  *       the plugin fills.
@@ -490,12 +490,15 @@ public class ConfigManager {
                 && set.getActualTypeArguments()[0] instanceof Class<?> element && element.isEnum()) {
             return enumSet(element, text);
         }
-        if (raw == Keybind.class) {
+        if (raw == Keybind.class || raw == ModifierlessKeybind.class) {
             String[] parts = text.split(":");
             if (parts.length != 2) {
                 throw new IllegalArgumentException("not KEYCODE:MODIFIERS");
             }
-            return new Keybind(Integer.parseInt(parts[0].trim()), Integer.parseInt(parts[1].trim()));
+            int keyCode = Integer.parseInt(parts[0].trim());
+            int modifiers = Integer.parseInt(parts[1].trim());
+            return raw == ModifierlessKeybind.class ? new ModifierlessKeybind(keyCode, modifiers)
+                    : new Keybind(keyCode, modifiers);
         }
         throw new IllegalArgumentException("unsupported setting type " + type.getTypeName());
     }

@@ -13,6 +13,8 @@
 #include "core/frame_reader.h"
 #include "core/process.h"
 #include "core/ring.h"
+#include "keys.h"
+#include "menus.h"
 #include "overlay/overlay.h"
 #include "overlay/surface.h"
 #include "protocol.h"
@@ -95,6 +97,12 @@ DWORD WINAPI readerThread(LPVOID) {
             case CMD_SCRIPTS:
                 scripts::setCapture(r);
                 break;
+            case CMD_MENU:
+                menus::command(r);
+                break;
+            case CMD_KEYS:
+                keys::command(r);
+                break;
             default:
                 break; // an unknown command is skipped, so a newer client can still talk to this DLL
         }
@@ -131,23 +139,47 @@ void sendStatus(uint16_t requested) {
     bool presentHooked = overlay::hooked();
     uint64_t features = (pumpHooked ? FEATURE_PUMP : 0) | (presentHooked ? FEATURE_PRESENT : 0)
                         | (pumpHooked || presentHooked ? FEATURE_FRAME_RATE : 0)
-                        | (scripts::hooked() ? FEATURE_SCRIPTS : 0);
+                        | (scripts::hooked() ? FEATURE_SCRIPTS : 0) | (menus::hooked() ? FEATURE_MENU : 0)
+                        | (keys::hooked() ? FEATURE_KEYS : 0);
     uint64_t regs[4] = {static_cast<uint64_t>(raises::installedCount()), requested, features, PROTOCOL_VERSION};
     sendDirect(STATUS_EVENT_ID, regs);
 }
 
 /**
- * Reads the handshake and installs any hooks not installed yet. The handshake is: magic "KRK5", a
+ * Reads one length-prefixed block of the handshake: a u16 length, then the block, which goes to a module's
+ * install when it isn't empty.
+ *
+ * @param install the module's install
+ * @return false if the connection closed mid-block
+ */
+bool readBlock(void (*install)(FrameReader)) {
+    uint16_t length = 0;
+    if (!recvExact(reinterpret_cast<char *>(&length), 2)) {
+        return false;
+    }
+    std::vector<uint8_t> block(length);
+    if (length > 0 && !recvExact(reinterpret_cast<char *>(block.data()), length)) {
+        return false;
+    }
+    if (length > 0) {
+        install(FrameReader{block.data(), block.size()});
+    }
+    return true;
+}
+
+/**
+ * Reads the handshake and installs any hooks not installed yet. The handshake is: magic "KRK6", a
  * u16 slot count, each slot's rva, id configuration, argument count and capture plan, then the
- * Client* slot, the pump function and the present function, then a u16 length and the script block
- * (empty for no script hooks). A slot whose rva is already hooked is left alone, so a re-handshake
- * after a reconnect only adds new ones; the pump, present and script hooks install once.
+ * Client* slot, the pump function and the present function, then three length-prefixed blocks: the
+ * script block, the menu block and the key block (each empty for no such hooks). A slot whose rva is
+ * already hooked is left alone, so a re-handshake after a reconnect only adds new ones; the pump,
+ * present, script, menu and key hooks install once.
  *
  * @return true if the handshake parsed; false if the connection closed mid-handshake
  */
 bool readHandshake() {
     char magic[4];
-    if (!recvExact(magic, 4) || std::memcmp(magic, "KRK5", 4) != 0) {
+    if (!recvExact(magic, 4) || std::memcmp(magic, "KRK6", 4) != 0) {
         return false;
     }
     uint16_t count = 0;
@@ -180,16 +212,8 @@ bool readHandshake() {
     calls::setClientGlobal(tail[0]);
     pump::install(tail[1]);
     overlay::install(tail[2]);
-    uint16_t scriptLength = 0;
-    if (!recvExact(reinterpret_cast<char *>(&scriptLength), 2)) {
+    if (!readBlock(&scripts::install) || !readBlock(&menus::install) || !readBlock(&keys::install)) {
         return false;
-    }
-    std::vector<uint8_t> block(scriptLength);
-    if (scriptLength > 0 && !recvExact(reinterpret_cast<char *>(block.data()), scriptLength)) {
-        return false;
-    }
-    if (scriptLength > 0) {
-        scripts::install(FrameReader{block.data(), block.size()});
     }
     sendStatus(count);
     return true;
@@ -330,8 +354,8 @@ bool init() {
 void run() {
     // Hooks stay installed across reconnects; a dropped socket costs the client latency, not events,
     // because the Java side keeps polling as a fallback. A dropped socket also drops the queued calls,
-    // stops the overlay, since nothing would keep it current, stops the script events and lifts the
-    // frame cap.
+    // stops the overlay, since nothing would keep it current, stops the script events, drops the menu
+    // rules and key table and lifts the frame cap.
     bool first = true;
     for (;;) {
         if (!connectToJava(first ? 50 : 10)) {
@@ -356,6 +380,8 @@ void run() {
         calls::clear();
         overlay::stopSurface();
         scripts::stopCapture();
+        menus::clear();
+        keys::clear();
         pump::liftFrameLimit();
         Sleep(1000); // the writer reconnects every second, then Java re-sends the handshake
     }

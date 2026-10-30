@@ -5,8 +5,11 @@ import com.kraken.api.internal.GameFocus;
 import com.kraken.api.internal.event.EventSource;
 import com.kraken.api.internal.event.NativeEvent;
 import com.kraken.api.internal.event.ScriptHook;
+import com.kraken.api.events.MenuOptionClicked;
 import com.kraken.api.internal.event.ScriptRun;
 import com.kraken.api.internal.invoke.NativeInvoker;
+import com.kraken.api.internal.menu.MenuClick;
+import com.kraken.api.internal.menu.MenuHook;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.api.memory.Memory;
 import com.kraken.api.memory.MemoryException;
@@ -29,7 +32,7 @@ import java.util.logging.Logger;
  * <p>{@link #start()} runs the poll loop on the {@code kraken-api-poll} thread, which acts as the client thread. Every
  * 20 ms, or as soon as the native hook pushes a raise ({@link #onNative}), it:
  * <ol>
- *   <li>runs the tasks handed to {@link #invoke(Runnable)} and friends;
+ *   <li>runs the tasks handed to {@link #invoke(Runnable)} and friends, then sends the menu edits they made;
  *   <li>synthesises the game events on {@link #eventBus()}, with {@code GameTick} after the tick's other events, then
  *       a {@code ClientTick} per client cycle: every iteration without a native hook; with one, on each iteration a
  *       raise woke, and at least every 250 ms as a safety net for ticks and dropped raises;
@@ -39,9 +42,10 @@ import java.util.logging.Logger;
  * </ol>
  * Events are only synthesised while something subscribes to them.
  *
- * <p>It reads the game and never writes to it. The client's highlights ({@link Client#getHighlights()}) and the menu
- * actions it runs ({@link Client#getActions()}) are the two things it changes, by having the client's native hook
- * call the game's own functions ({@link #setNativeInvoker}).
+ * <p>It reads the game and never writes to it. The client's highlights ({@link Client#getHighlights()}), the menu
+ * actions it runs ({@link Client#getActions()}) and the right-click menu's rows ({@link Client#getMenuEdits()}) are
+ * the three things it changes, by having the client's native hook call the game's own functions
+ * ({@link #setNativeInvoker}) or edit the menu as the game rebuilds it ({@link #setMenuHook}).
  */
 public final class GameSession implements AutoCloseable {
 
@@ -381,6 +385,45 @@ public final class GameSession implements AutoCloseable {
     }
 
     /**
+     * Hands the API a connection to a native hook that edits the menu, or takes it away. While it is set, the rules
+     * of {@link Client#getMenuEdits()} are sent to it, every rule so far at once. Internal: the client's native hook
+     * calls this as its connection comes up and drops. Safe to call from any thread.
+     *
+     * @param hook the connection, or null while there is none
+     */
+    public void setMenuHook(MenuHook hook) {
+        client.getMenuEdits().setHook(hook);
+    }
+
+    /**
+     * Delivers a click the native hook reported, on a row a plugin added or on a client row a plugin asked to hear
+     * about, to the menu edits on the client thread, which run the row's callback; a click on a plugin's row is then
+     * posted as {@link MenuOptionClicked}. Safe to call from any thread.
+     *
+     * @param click the report
+     */
+    public void onMenuClick(MenuClick click) {
+        invoke(() -> {
+            MenuEntry entry = client.getMenuEdits().clicked(click);
+            if (entry != null) {
+                eventBus.post(new MenuOptionClicked(entry));
+            }
+        });
+        wake();
+    }
+
+    /**
+     * Tells the menu edits a scoped rule of theirs expired in the hook, on the client thread. Safe to call from any
+     * thread.
+     *
+     * @param ruleId the rule's id
+     */
+    public void onMenuExpired(int ruleId) {
+        invoke(() -> client.getMenuEdits().expired(ruleId));
+        wake();
+    }
+
+    /**
      * Hands the API a connection to the native hook that runs calls on the game thread, or takes it away. While it is
      * set, {@link Client#getHighlights()} draws in the game, every highlight set so far is applied through it, and
      * {@link Client#getActions()} runs menu actions. Internal: the client's native hook calls this as its connection
@@ -449,6 +492,7 @@ public final class GameSession implements AutoCloseable {
                 break;
             }
             tasks.runPending();
+            client.getMenuEdits().flush();
             long now = System.currentTimeMillis();
             // The loop, its tasks and the frame listener run every POLL_INTERVAL_MS and on every raise. While the hook
             // is connected the events are read when a raise asked for it or the safety interval lapsed; without it
@@ -464,6 +508,7 @@ public final class GameSession implements AutoCloseable {
                 if (ticked[0]) {
                     tasks.runTickEnd();
                 }
+                client.getMenuEdits().flush();
             }
             Runnable frame = frameListener;
             if (frame != null && !step("Frame listener", frame)) {

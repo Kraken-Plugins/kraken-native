@@ -133,6 +133,7 @@ public final class GameFixture {
     public static final long IF_TYPES = 0xc30000000L;
     public static final long IF_OPEN = 0xc40000000L;
     public static final long IF_HEAP = 0xc50000000L;
+    public static final long IF_LISTENERS = 0xc70000000L;
     public static final long IF_SUB = 0xc60000000L;
     public static final long PROJECTILES = 0xb60000000L;
     public static final long GRAPHICS_OBJECTS = 0xb70000000L;
@@ -268,6 +269,12 @@ public final class GameFixture {
     private long locHeap = LOC_HEAP;
     private long tilePool = TILE_POOL;
     private long ifTypes = IF_TYPES;
+    private long ifListeners = IF_LISTENERS;
+
+    /**
+     * The script id of the chatbox root's key listener.
+     */
+    public static final int CHAT_KEY_SCRIPT = 73;
     private long ifSlots = IF_SLOTS;
     private int subNodes;
     private final Map<Integer, TreeMap<Integer, byte[]>> configFiles = new TreeMap<>();
@@ -346,20 +353,7 @@ public final class GameFixture {
         long runner = MODULE_BASE + map.global("scriptRunner");
         int size = map.offset("VarValue.size");
         for (int i = 0; i < values.length; i++) {
-            long value = runner + map.offset("ScriptRunner.objStack") + (long) i * size;
-            memory.putBytes(value, new byte[size]);
-            String kind;
-            if (values[i] instanceof String text) {
-                memory.putSsoString(value, text);
-                kind = "STRING";
-            } else if (values[i] instanceof Integer number) {
-                memory.putInt(value, number);
-                kind = "INT";
-            } else {
-                memory.putLong(value, (Long) values[i]);
-                kind = "LONG";
-            }
-            memory.putByte(value + map.offset("VarValue.type"), map.enumValue("varValueType", kind, -1));
+            putVarValue(runner + map.offset("ScriptRunner.objStack") + (long) i * size, values[i]);
         }
         memory.putInt(runner + map.offset("ScriptRunner.objStackSize"), values.length);
     }
@@ -1642,6 +1636,7 @@ public final class GameFixture {
         memory.putLong(text, IF_HEAP);
         memory.putLong(text + 8, LONG_TEXT.length());
         memory.putByte(text + map.container("string.heapFlagByte"), map.container("string.heapFlagMask"));
+        keyListener(chatRoot, CHAT_KEY_SCRIPT, "chat");
         groupSlots(162, chatRoot, all, line);
 
         // The toplevel: a root layer with two side panels where the inventory is drawn, the second hidden
@@ -1753,6 +1748,47 @@ public final class GameFixture {
             memory.putSsoString(c + map.offset("IfType." + field), "");
         }
         return c;
+    }
+
+    /**
+     * Gives a component a key listener: the arguments {@code cc_setonkey} stored, the script id first.
+     *
+     * @param component the component
+     * @param args      the arguments, each a {@code String}, an {@code Integer} or a {@code Long}
+     */
+    private void keyListener(long component, Object... args) {
+        int size = map.offset("VarValue.size");
+        long array = ifListeners;
+        ifListeners += (long) args.length * size;
+        memory.alloc(array, args.length * size);
+        for (int i = 0; i < args.length; i++) {
+            putVarValue(array + (long) i * size, args[i]);
+        }
+        long listener = component + map.offset("IfType.onKey");
+        memory.putLong(listener + map.offset("IfListener.count"), args.length);
+        memory.putLong(listener + map.offset("IfListener.args"), array);
+    }
+
+    /**
+     * Writes one VarValue.
+     *
+     * @param value where
+     * @param arg   a {@code String}, an {@code Integer} or a {@code Long}
+     */
+    private void putVarValue(long value, Object arg) {
+        memory.putBytes(value, new byte[map.offset("VarValue.size")]);
+        String kind;
+        if (arg instanceof String text) {
+            memory.putSsoString(value, text);
+            kind = "STRING";
+        } else if (arg instanceof Integer number) {
+            memory.putInt(value, number);
+            kind = "INT";
+        } else {
+            memory.putLong(value, (Long) arg);
+            kind = "LONG";
+        }
+        memory.putByte(value + map.offset("VarValue.type"), map.enumValue("varValueType", kind, -1));
     }
 
     private void ops(long component, String... names) {
@@ -2131,6 +2167,11 @@ public final class GameFixture {
     public static final int MENU_ROWS = 11;
 
     /**
+     * A spare entry slot {@link #setPluginRow} fills with a row the native hook added for a plugin.
+     */
+    public static final int MENU_PLUGIN_ROW = 11;
+
+    /**
      * The top-level rows, in order: every entry but the sub-option rows.
      */
     private static final int[] MENU_TOP_ROWS = {MENU_ATTACK, MENU_CHOP, MENU_TAKE, MENU_DROP, MENU_TRADE, MENU_EXAMINE,
@@ -2171,6 +2212,20 @@ public final class GameFixture {
         long rows = MENU + map.offset("Minimenu.rows");
         memory.putLong(rows, MENU_NODES);
         memory.putLong(rows + 8, MENU_NODES + (long) entries.length * nodeSize);
+    }
+
+    /**
+     * Fills the spare entry slot {@link #MENU_PLUGIN_ROW} as the native hook fills a row it added for a plugin: no
+     * subject, {@code MenuEdits.ROW_OP} as the op and the row id as the type id. Show it with {@link #setMenuRows}.
+     *
+     * @param rowId  the row id
+     * @param option the option text
+     * @param target the target text
+     */
+    public void setPluginRow(int rowId, String option, String target) {
+        int entrySize = map.offset("MinimenuEntry.size");
+        putMenuEntry(MENU_ENTRIES + (long) MENU_PLUGIN_ROW * entrySize,
+                new MenuSpec(option, target, null, com.kraken.api.menu.MenuEdits.ROW_OP, rowId, -1, -1, -1));
     }
 
     /**
@@ -2224,7 +2279,7 @@ public final class GameFixture {
         int nodeSize = map.container("minimenu.node.size");
         memory.alloc(MENU, 0x900);
         memory.alloc(MENU_LIST, 0x40);
-        memory.alloc(MENU_ENTRIES, MENU_ROWS * entrySize);
+        memory.alloc(MENU_ENTRIES, (MENU_ROWS + 1) * entrySize);
         memory.alloc(MENU_NODES, MENU_ROWS * nodeSize);
         memory.alloc(MENU_CHILDREN, 0x40);
         memory.alloc(MENU_SUB_CHILDREN, 0x80);

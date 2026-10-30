@@ -17,6 +17,13 @@ namespace kraken::calls {
 void setClientGlobal(uint64_t rva);
 
 /**
+ * The Client* the handshake's clientGlobal slot holds now, for modules that read the client's objects.
+ *
+ * @return the Client*, or 0 if the slot is unknown, unreadable or null
+ */
+uint64_t clientPointer();
+
+/**
  * Parses a CALLS command and queues it for the pump. A malformed frame or a full queue still
  * queues the batch, with every call counted as skipped, so CALLS_DONE answers it. Nothing is queued
  * while no pump is hooked: nothing would run it.

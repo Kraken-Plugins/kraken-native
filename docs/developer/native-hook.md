@@ -32,7 +32,7 @@ flowchart LR
     NES --> GS
 ```
 
-It has four jobs:
+It has six jobs:
 
 | Job | How | Read more |
 |---|---|---|
@@ -40,6 +40,8 @@ It has four jobs:
 | Run client functions on the game thread | A detour on the client's per-frame step runs queued call batches before each frame | [In-game drawing](in-game-drawing.md), [Menu actions](menu-actions.md) |
 | Draw overlays in the game's frame | A detour on the frame's present draws the latest overlay frame over it | [In-game drawing](in-game-drawing.md) |
 | Report scripts as they run | Detours on four script runtime functions report starts, gosubs and returns | [Events](events.md#script-events) |
+| Edit the right-click menu | Detours on the menu's rebuild, run and node destroy apply rules to the fresh rows every cycle | [Menu edits](menu-edits.md) |
+| Remap and block keys | A detour on the game window's procedure rewrites or drops key messages by a table of modes | [Key interception](key-interception.md) |
 
 Nothing in the DLL is specific to a build. Every function address, event id, capture plan and struct offset comes from
 the mapping, which the Java side sends in a handshake. A new game build needs the updater re-run, not a new DLL.
@@ -58,6 +60,8 @@ hook, is in [Using the client](../client.md#the-native-hook).
 | [`src/calls.cpp`](../../client/src/main/native/kraken_hook/src/calls.cpp) | The call queue and running calls under a guard |
 | [`src/pump.cpp`](../../client/src/main/native/kraken_hook/src/pump.cpp) | The per-frame detour: the frame cap, then the queued calls |
 | [`src/scripts.cpp`](../../client/src/main/native/kraken_hook/src/scripts.cpp) | The four script detours and SCRIPT messages |
+| [`src/menus.cpp`](../../client/src/main/native/kraken_hook/src/menus.cpp) | The menu detours, the rule engine, MENU commands, MENU_CLICK and MENU_EXPIRED |
+| [`src/keys.cpp`](../../client/src/main/native/kraken_hook/src/keys.cpp) | The window procedure detour, the key table, KEYS commands and KEY reports |
 | [`src/overlay/overlay.cpp`](../../client/src/main/native/kraken_hook/src/overlay/overlay.cpp) | The present detour: uploading and drawing the overlay |
 | [`src/overlay/surface.cpp`](../../client/src/main/native/kraken_hook/src/overlay/surface.cpp) | Opening the shared-memory surface a SURFACE command names |
 | [`src/overlay/gl.cpp`](../../client/src/main/native/kraken_hook/src/overlay/gl.cpp), [`gl_state.cpp`](../../client/src/main/native/kraken_hook/src/overlay/gl_state.cpp) | GL entry points beyond 1.1; saving and restoring the client's GL state |
@@ -390,11 +394,14 @@ The complete list of what Kraken does to the game process, for review and debugg
 | Per-frame step | Detour that may delay the frame (frame cap) and runs call batches | `functions.appUpdate` |
 | Frame present | Detour that draws the overlay with its own GL program, texture and VAO, restoring the client's GL state | `functions.present` |
 | Script runtime | Detours on the four script functions | `functions.executeScript`, `executeScriptInner`, `scriptLookup`, `scriptSwapLocals` |
+| Minimenu | Detours on the view rebuild, the run and the node destroy; after each rebuild, reorders the rows vector, frees hidden rows' children through the client's own destroy, rewrites entry texts through the client's assignment, grows the vector through its reserve and inserts nodes pointing at the DLL's own entries | `functions.minimenuViewRebuild`, `minimenuRun`, `minimenuNodeDestroy`, `minimenuNodeReserve`, `minimenuTextAssign` |
+| Window procedure | Detour that rewrites or drops `WM_KEYDOWN`, `WM_KEYUP` and `WM_CHAR` by the key table | `functions.renderViewWndProc` |
 | Calls | Calls the client's highlight functions, minimenu row bodies and packet helpers, with arguments and data from Kraken | `functions.highlight*`, `functions.menu*`, `functions.packet*` |
 | Shared memory | Maps Kraken's overlay surface and writes its `reading` word | none |
 
-Every detour forwards to the original with the arguments unchanged and returns its result. The only behaviour changes
-are the calls Kraken asks for and the frame cap.
+Every detour forwards to the original with the arguments unchanged and returns its result, except the menu run (a
+click on a row of Kraken's own returns without running anything) and the window procedure (a dropped or remapped key
+message). The other behaviour changes are the calls Kraken asks for, the menu rows the rules change and the frame cap.
 
 ## The Java Side
 
@@ -513,5 +520,8 @@ flowchart LR
   yet.
 * `raises::install` doesn't check `process::inImage` before hooking; a bad RVA fails inside MinHook and that slot stays
   uninstalled.
-* The pump, calls, overlay and script hooks have not all been checked against a running client yet; the API's trackers
-  keep their whole-read fallback, so an unconfirmed payload costs latency, not a missed event.
+* The pump, calls, overlay, script, menu and key hooks have not all been checked against a running client yet; the
+  API's trackers keep their whole-read fallback, so an unconfirmed payload costs latency, not a missed event.
+* The menu hook builds its own entries from a template read off the client's last-run copy and leaves the entry's other
+  fields zero; the window procedure's messages are pushed into the single-producer ring on the assumption that the
+  window's thread is the game thread. Both are to confirm live.

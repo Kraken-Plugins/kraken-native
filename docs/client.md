@@ -192,6 +192,8 @@ game's memory from outside, about 50 times a second. With it, Kraken can:
 * draw overlays inside the game's frame;
 * have the game draw its own highlights (model and tile outlines, through walls if you like);
 * run menu actions, the [Action Tester](plugins.md#action-tester) plugin's job;
+* change the right-click menu as the game rebuilds it, the [Menu Entry Swapper](plugins.md#menu-entry-swapper)'s job;
+* remap and block keys before the game sees them, the [Key Remapping](plugins.md#key-remapping) plugin's job;
 * report the game's scripts as they run;
 * cap the game's frame rate while Kraken isn't focused, and count its frames.
 

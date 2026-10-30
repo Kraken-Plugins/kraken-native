@@ -3,10 +3,12 @@ package com.kraken.api;
 import com.kraken.api.eventbus.EventBus;
 import com.kraken.api.events.GameStateChanged;
 import com.kraken.api.events.GameTick;
+import com.kraken.api.events.MenuOptionClicked;
 import com.kraken.api.events.ScriptPostFired;
 import com.kraken.api.internal.ScriptStack;
 import com.kraken.api.internal.event.NativeEvent;
 import com.kraken.api.internal.event.ScriptRun;
+import com.kraken.api.internal.menu.MenuClick;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
@@ -54,6 +56,26 @@ class GameSessionTest {
             session.onNative(gameTickRaise(2));
             assertInstanceOf(GameTick.class, seen.poll(5, TimeUnit.SECONDS),
                     "the next raise reads the new tick at once, inside the hooked safety interval");
+        }
+    }
+
+    @Test
+    void aClickOnAPluginsRowRunsItsCallbackAndIsPosted() throws Exception {
+        GameFixture game = new GameFixture();
+        EventBus bus = new EventBus();
+        BlockingQueue<Object> seen = new LinkedBlockingQueue<>();
+        bus.register(MenuOptionClicked.class, seen::add, 0);
+
+        try (GameSession session = new GameSession(game.memory, game.map, bus, NO_TIMER_MS)) {
+            session.start();
+            MenuEntry row = session.client().createMenuEntry(-1).setOption("Mark tile")
+                    .onClick(e -> seen.add("callback " + e.getOption()));
+            session.onMenuClick(new MenuClick(false, row.getRowId(), -1, 3, 4));
+            assertEquals("callback Mark tile", seen.poll(5, TimeUnit.SECONDS), "the callback runs first");
+            Object posted = seen.poll(5, TimeUnit.SECONDS);
+            assertInstanceOf(MenuOptionClicked.class, posted);
+            assertEquals(row, ((MenuOptionClicked) posted).getMenuEntry());
+            assertEquals("Mark tile", ((MenuOptionClicked) posted).getMenuOption());
         }
     }
 

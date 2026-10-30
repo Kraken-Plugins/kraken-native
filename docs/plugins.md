@@ -1,12 +1,12 @@
 # Plugins
 
-Kraken comes with seven plugins. They're all off until you switch them on in the **Plugins** tab, and they double as
-examples for [writing your own](writing-plugins.md). NPC Indicators, Ground Items, Ground Markers and Tile Indicators
-are ports of RuneLite's plugins of the same names, with the same settings.
+Kraken comes with nine plugins. They're all off until you switch them on in the **Plugins** tab, and they double as
+examples for [writing your own](writing-plugins.md). NPC Indicators, Ground Items, Ground Markers, Tile Indicators,
+Menu Entry Swapper and Key Remapping are ports of RuneLite's plugins of the same names, with the same settings.
 
-Open a plugin's settings with the cog next to its switch. Kraken can't add entries to the game's right-click menu yet,
-so you choose what a plugin works on in its settings, by name, id or tile. Settings that need something Kraken can't do
-yet, such as changing the right-click menu, are greyed out; hover over one to see what it needs.
+Open a plugin's settings with the cog next to its switch. Most plugins still choose what they work on in their
+settings, by name, id or tile, rather than from the right-click menu. Settings that need something Kraken can't do
+yet are greyed out; hover over one to see what it needs.
 
 Several plugins draw better with the [native hook](client.md#the-native-hook) connected. With it, the game draws
 their outlines itself, around the model, following the camera, and through walls if you ask. Without it, Kraken
@@ -104,6 +104,42 @@ RuneLite through the clipboard.
 Marks are drawn within 32 tiles of you, on your plane. RuneLite's Shift + right-click **Mark tile**, **Label** and
 **Color** options aren't available yet; labels and colours from an import are shown. Marks don't show in instances
 yet.
+
+## Menu Entry Swapper
+
+Changes which option a left click, or a Shift-click, runs: Bank instead of Talk-to on bankers, Last-destination on
+fairy rings, Withdraw-5 on bank items while Shift is held, and so on. It needs the [native hook](client.md#the-native-hook),
+which changes the menu as the game builds it, so the swapped option is the left click from the moment it shows.
+
+The settings are RuneLite's, in the same sections: **Item swaps**, **NPC swaps**, **Object swaps**, **UI swaps** and
+**Ground item swaps**. Each is a switch or a choice of which option to bring up; the Shift-click ones (bank withdraw and
+deposit, shop buy and sell, GE abort, Stairs shift-click, Shift-click Walk here) apply while Shift is held.
+
+Pick your own left-click and Shift-click options the way RuneLite does: hold Shift and right-click an item, an NPC, an
+object or a worn item, and open the **Swap left-click** or **Swap shift-click** sub-menu. Those choices are stored under
+RuneLite's keys, so a RuneLite settings export works here. Two differences: a swap to a sub-option (the options under
+an item's or object's sub-menu) isn't offered or applied, and **Shift-click Walk here** applies to every object or NPC,
+including one with a Shift-click swap of its own. The game's own Attack setting is left to the game, as in RuneLite.
+
+## Key Remapping
+
+Lets you move the camera with W, A, S and D, and press number keys for the F-keys, while the chat is locked: until you
+press Enter, letters you type go nowhere and the remapped keys do their new jobs; Enter unlocks the chat for typing,
+and Enter or Escape locks it again. It needs the [native hook](client.md#the-native-hook), which changes the keys
+before the game sees them.
+
+| Setting | Default | What it does |
+|---|---|---|
+| Remap camera | On | W, A, S and D (or the keys you set) become the arrow keys while the chat is locked |
+| Camera up, down, left, right key | W, S, A, D | The keys that stand in for the arrows |
+| Remap F-keys | Off | The number keys (or the keys you set) become F1 to F12, and the ESC key setting Escape, while the chat is locked and no dialog is taking numbers |
+| F1 to F12, ESC | 1 to 0, -, =, Esc | The keys that stand in for each |
+| Space | Space | The key that stands in for Space while a dialog is open |
+| Control | Ctrl | The key that stands in for Control |
+
+Unlike RuneLite, the chat input keeps its usual look while locked ("Press Enter to Chat..." isn't shown), and the text
+you typed stays in the input when you press Escape. The remapping also stays on while an interface's own text field has
+the keyboard, which Kraken can't yet tell apart from the chat; press Enter to type into it.
 
 ## Tile Indicators
 

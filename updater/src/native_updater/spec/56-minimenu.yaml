@@ -13,6 +13,7 @@
 fingerprints:
   MinimenuOpDispatch: { extractor: minimenu, field: MinimenuOpDispatch, cls: A }
   MinimenuRun:        { extractor: minimenu, field: MinimenuRun, cls: A }
+  MinimenuRebuild:    { extractor: minimenu, field: MinimenuRebuild, cls: A }
 
 keys:
   - key: Client.minimenu

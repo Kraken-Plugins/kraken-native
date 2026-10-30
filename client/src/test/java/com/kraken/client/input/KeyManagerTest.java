@@ -1,6 +1,7 @@
 package com.kraken.client.input;
 
 import com.kraken.client.plugins.config.Keybind;
+import com.kraken.client.plugins.config.ModifierlessKeybind;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -13,6 +14,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -107,6 +109,78 @@ class KeyManagerTest {
         assertFalse(keys.poll());
         keys.unregisterHotkeyListener(alt);
         assertTrue(keys.poll());
+    }
+
+    @Test
+    void aRemapTableBecomesWindowsRulesAndReachesTheHookOnceConnected() {
+        List<String> sent = new ArrayList<>();
+        KeyHook hook = new KeyHook() {
+            @Override
+            public void table(List<Mode> modes) {
+                sent.add("table " + modes);
+            }
+
+            @Override
+            public void mode(int mode) {
+                sent.add("mode " + mode);
+            }
+
+            @Override
+            public void report(boolean on) {
+                sent.add("report " + on);
+            }
+        };
+        List<KeyRemapMode> table = List.of(KeyRemapMode.PASS, new KeyRemapMode(true, List.of(
+                KeyRemap.of(new ModifierlessKeybind(KeyEvent.VK_W, 0), KeyEvent.VK_UP),
+                KeyRemap.of(new Keybind(KeyEvent.VK_1, InputEvent.CTRL_DOWN_MASK), KeyEvent.VK_F1),
+                KeyRemap.of(Keybind.CTRL, KeyEvent.VK_CONTROL),
+                KeyRemap.transition(KeyEvent.VK_ENTER, 2),
+                KeyRemap.block(KeyEvent.VK_ESCAPE, 1),
+                KeyRemap.of(new Keybind(KeyEvent.VK_UNDEFINED, 0), KeyEvent.VK_F2))));
+        assertFalse(keys.isRemappingAvailable());
+        keys.setRemapTable(table);
+        keys.setRemapMode(1);
+        assertEquals(List.of(), sent, "kept until a hook connects");
+
+        keys.setKeyHook(hook);
+        assertTrue(keys.isRemappingAvailable());
+        List<KeyHook.Mode> wire = KeyManager.wireTable(table);
+        assertEquals(List.of("table " + wire, "mode 1", "report false"), sent);
+        assertEquals(List.of(), wire.get(0).rules());
+        assertTrue(wire.get(1).blockTyping());
+        assertEquals(List.of(
+                new KeyHook.Rule(0x57, 0, 0, 0x26, KeyHook.STAY),
+                new KeyHook.Rule(0x31, KeyHook.CTRL, 7, 0x70, KeyHook.STAY),
+                new KeyHook.Rule(0x11, 0, 0, 0x11, KeyHook.STAY),
+                new KeyHook.Rule(0x0D, 0, 0, 0x0D, 2),
+                new KeyHook.Rule(0x1B, 0, 0, KeyHook.BLOCK, 1)), wire.get(1).rules(),
+                "a keybind with no key makes no rule");
+
+        sent.clear();
+        keys.setRemapMode(2);
+        List<KeyReport> reports = new ArrayList<>();
+        keys.addKeyReportListener(reports::add);
+        KeyReport report = new KeyReport(KeyReport.Kind.PRESSED, KeyEvent.VK_ENTER, (char) 0, KeyReport.Action.PASSED,
+                0, 1, 2);
+        keys.onKeyReport(report);
+        assertEquals(List.of(report), reports, "delivered straight when there is no client thread");
+        keys.removeKeyReportListener(reports::add);
+        assertEquals(List.of("mode 2", "report true"), sent);
+        assertThrows(IllegalArgumentException.class, () -> keys.setRemapTable(java.util.Collections.nCopies(9,
+                KeyRemapMode.PASS)));
+    }
+
+    @Test
+    void windowsKeyCodesBecomeJavaOnes() {
+        assertEquals(KeyEvent.VK_ENTER, KeyManager.toJava(0x0D));
+        assertEquals(KeyEvent.VK_COMMA, KeyManager.toJava(0xBC));
+        assertEquals(KeyEvent.VK_F13, KeyManager.toJava(0x7C));
+        assertEquals(KeyEvent.VK_W, KeyManager.toJava(0x57));
+        assertEquals(0, KeyManager.toJava(0));
+        for (int code : new int[]{KeyEvent.VK_A, KeyEvent.VK_F1, KeyEvent.VK_UP, KeyEvent.VK_ESCAPE, KeyEvent.VK_SPACE,
+                KeyEvent.VK_MINUS, KeyEvent.VK_EQUALS, KeyEvent.VK_CONTROL}) {
+            assertEquals(code, KeyManager.toJava(KeyManager.toWindows(code)), "round trip of " + code);
+        }
     }
 
     @Test

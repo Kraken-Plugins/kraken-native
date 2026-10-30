@@ -4,20 +4,30 @@ import com.kraken.api.internal.event.NativeEvent;
 import com.kraken.api.internal.event.ScriptRequest;
 import com.kraken.api.internal.event.ScriptRun;
 import com.kraken.api.internal.invoke.NativeCall;
+import com.kraken.api.internal.menu.MenuClick;
+import com.kraken.api.internal.menu.WireRule;
 import com.kraken.api.mapping.Mapping;
+import com.kraken.api.menu.MenuRule;
+import com.kraken.api.menu.ShiftState;
+import com.kraken.api.menu.TextMatch;
+import com.kraken.client.input.KeyHook;
+import com.kraken.client.input.KeyReport;
 import com.kraken.client.callback.NativeProtocol.Drawing;
 import com.kraken.client.callback.NativeProtocol.Plan;
 import com.kraken.client.callback.NativeProtocol.Slot;
 import org.junit.jupiter.api.Test;
 
+import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -41,12 +51,14 @@ class NativeProtocolTest {
                         new Plan(NativeEvent.R9, NativeProtocol.OP_I32))));
         Drawing drawing = new Drawing(0xe98c18L, 0x918950L, 0xa555c0L);
         byte[] scripts = {9, 8, 7};
-        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.handshake(slots, drawing, scripts))
+        byte[] menu = {6, 5};
+        byte[] keys = {4};
+        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.handshake(slots, drawing, scripts, menu, keys))
                 .order(ByteOrder.LITTLE_ENDIAN);
 
         byte[] magic = new byte[4];
         buf.get(magic);
-        assertArrayEquals("KRK5".getBytes(StandardCharsets.US_ASCII), magic);
+        assertArrayEquals("KRK6".getBytes(StandardCharsets.US_ASCII), magic);
         assertEquals(2, buf.getShort(), "slot count");
 
         assertEquals(0xc44d0L, buf.getLong());
@@ -73,20 +85,220 @@ class NativeProtocolTest {
         assertEquals(9, buf.get());
         assertEquals(8, buf.get());
         assertEquals(7, buf.get());
+        assertEquals(2, buf.getShort(), "the menu block's length");
+        assertEquals(6, buf.get());
+        assertEquals(5, buf.get());
+        assertEquals(1, buf.getShort(), "the key block's length");
+        assertEquals(4, buf.get());
         assertEquals(0, buf.remaining(), "no trailing bytes");
     }
 
     @Test
     void aHandshakeWithoutDrawingOrScriptsEndsInZeros() {
-        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.handshake(List.of(), Drawing.NONE, new byte[0]))
-                .order(ByteOrder.LITTLE_ENDIAN);
+        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.handshake(List.of(), Drawing.NONE, new byte[0], new byte[0],
+                new byte[0])).order(ByteOrder.LITTLE_ENDIAN);
         buf.position(4);
         assertEquals(0, buf.getShort());
         assertEquals(0, buf.getLong());
         assertEquals(0, buf.getLong());
         assertEquals(0, buf.getLong());
         assertEquals(0, buf.getShort(), "no script block");
+        assertEquals(0, buf.getShort(), "no menu block");
+        assertEquals(0, buf.getShort(), "no key block");
         assertEquals(0, buf.remaining());
+    }
+
+    @Test
+    void theMenuBlockFollowsTheMappingInTheDllsOrder() throws IOException {
+        Mapping mapping = Mapping.bundled("241.3");
+        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.menuLayout(mapping)).order(ByteOrder.LITTLE_ENDIAN);
+        for (String function : new String[]{"minimenuViewRebuild", "minimenuRun", "minimenuNodeDestroy",
+                "minimenuNodeReserve", "minimenuTextAssign"}) {
+            assertEquals(mapping.function(function), buf.getLong(), function);
+        }
+        for (String key : new String[]{"Client.minimenu", "Minimenu.rows", "Minimenu.open", "Minimenu.clicked"}) {
+            assertEquals(mapping.offset(key), buf.getInt(), key);
+        }
+        for (String key : new String[]{"minimenu.node.list", "minimenu.node.index", "minimenu.node.children",
+                "minimenu.node.size", "minimenu.list.entries"}) {
+            assertEquals(mapping.container(key), buf.getInt(), key);
+        }
+        for (String key : new String[]{"MinimenuEntry.size", "MinimenuEntry.option", "MinimenuEntry.target",
+                "MinimenuEntry.typeId", "MinimenuEntry.subjectIndex", "MinimenuEntry.opIndex", "MinimenuEntry.level",
+                "MinimenuEntry.x", "MinimenuEntry.z", "MinimenuEntry.subjectType"}) {
+            assertEquals(mapping.offset(key), buf.getInt(), key);
+        }
+        for (String kind : new String[]{"TILE", "NPC", "LOC", "OBJ", "PLAYER", "COMPONENT"}) {
+            assertEquals(mapping.enumValue("minimenuSubject", kind, -1), buf.get(), kind);
+        }
+        assertEquals(mapping.enumValue("minimenuOp", "EXAMINE", 0), buf.getInt());
+        assertEquals(mapping.enumValue("minimenuOp", "TARGET", 0), buf.getInt());
+        for (String key : new String[]{"string.heapFlagByte", "string.heapFlagMask", "string.ssoCapacity"}) {
+            assertEquals(mapping.container(key), buf.getInt(), key);
+        }
+        assertEquals(0, buf.remaining(), "142 bytes, as the DLL reads them");
+
+        ByteBuffer keys = ByteBuffer.wrap(NativeProtocol.keyLayout(mapping)).order(ByteOrder.LITTLE_ENDIAN);
+        assertEquals(mapping.function("renderViewWndProc"), keys.getLong());
+        assertEquals(0, keys.remaining());
+    }
+
+    @Test
+    void menuRulesAreFramedFieldForField() {
+        WireRule.Match trigger = new WireRule.Match(Set.of(WireRule.Match.Field.KIND, WireRule.Match.Field.OPTION), 2,
+                0, 0, 0, 0, 0, 0, 0, TextMatch.exact("Talk-to"), null, false);
+        WireRule.Match swapped = new WireRule.Match(Set.of(WireRule.Match.Field.OPTION), 0, 0, 0, 0, 0, 0, 0, 0,
+                TextMatch.contains("bank"), null, false);
+        WireRule swap = new WireRule(7, WireRule.Type.SWAP, ShiftState.HELD, false, false, trigger,
+                EnumSet.noneOf(MenuRule.Edit.Action.class), "", "", swapped, true, false, true, false, null, null);
+        WireRule.Match row = new WireRule.Match(EnumSet.of(WireRule.Match.Field.TYPE_ID, WireRule.Match.Field.INDEX,
+                WireRule.Match.Field.OP, WireRule.Match.Field.TILE, WireRule.Match.Field.GROUP), 7, 0x950000, 3, 2,
+                149, 1, 3200, 3201, null, TextMatch.wildcard("*coins"), true);
+        WireRule edit = new WireRule(8, WireRule.Type.EDIT, ShiftState.NOT_HELD, true, true, row,
+                EnumSet.of(MenuRule.Edit.Action.HIDE, MenuRule.Edit.Action.SET_TARGET, MenuRule.Edit.Action.REPORT),
+                "", "<col=ff>Coins", null, false, false, false, false, null, null);
+        WireRule add = new WireRule(9, WireRule.Type.ADD, ShiftState.ANY, true, false, trigger,
+                EnumSet.noneOf(MenuRule.Edit.Action.class), "", "", null, false, false, false, false,
+                MenuRule.Add.Position.BELOW, new WireRule.Row(20, "Swap", "T", List.of(
+                        new WireRule.Row(21, "A", "", List.of()), new WireRule.Row(22, "B", "", List.of()))));
+        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.menuRules(NativeProtocol.MENU_UPSERT, List.of(swap, edit, add)))
+                .order(ByteOrder.LITTLE_ENDIAN);
+        int length = buf.getInt();
+        assertEquals(buf.remaining(), length, "the length counts the bytes after it");
+        assertEquals(NativeProtocol.COMMAND_MENU, buf.get());
+        assertEquals(NativeProtocol.MENU_UPSERT, buf.get());
+        assertEquals(3, buf.getShort());
+
+        assertEquals(7, buf.getInt());
+        assertEquals(NativeProtocol.RULE_SWAP, buf.get());
+        assertEquals(NativeProtocol.RULE_SHIFT_DOWN, buf.get());
+        assertEquals(NativeProtocol.MATCH_KIND | NativeProtocol.MATCH_OPTION, buf.getShort());
+        assertEquals(2, buf.get(), "kind");
+        buf.position(buf.position() + 7 * 4);
+        assertEquals(TextMatch.Mode.EXACT.ordinal() + 1, buf.get());
+        assertEquals(7, buf.get());
+        byte[] text = new byte[7];
+        buf.get(text);
+        assertEquals("talk-to", new String(text, StandardCharsets.UTF_8));
+        assertEquals(NativeProtocol.TEXT_ANY, buf.get());
+        assertEquals(0, buf.get());
+        assertEquals(NativeProtocol.SWAP_SAME_TARGET | NativeProtocol.SWAP_BELOW, buf.get());
+        assertEquals(NativeProtocol.MATCH_OPTION, buf.getShort());
+        buf.position(buf.position() + 1 + 7 * 4);
+        assertEquals(TextMatch.Mode.CONTAINS.ordinal() + 1, buf.get());
+        assertEquals(4, buf.get());
+        buf.position(buf.position() + 4 + 2);
+
+        assertEquals(8, buf.getInt());
+        assertEquals(NativeProtocol.RULE_EDIT, buf.get());
+        assertEquals(NativeProtocol.RULE_SHIFT_UP | NativeProtocol.RULE_SCOPED | NativeProtocol.RULE_FINAL, buf.get());
+        assertEquals(NativeProtocol.MATCH_TYPE_ID | NativeProtocol.MATCH_INDEX | NativeProtocol.MATCH_OP
+                | NativeProtocol.MATCH_TILE | NativeProtocol.MATCH_GROUP | NativeProtocol.MATCH_SUB_ROWS, buf.getShort());
+        assertEquals(7, buf.get());
+        assertEquals(0x950000, buf.getInt());
+        assertEquals(3, buf.getInt());
+        assertEquals(2, buf.getInt());
+        assertEquals(149, buf.getInt());
+        assertEquals(1, buf.getInt());
+        assertEquals(3200, buf.getInt());
+        assertEquals(3201, buf.getInt());
+        assertEquals(NativeProtocol.TEXT_ANY, buf.get());
+        assertEquals(0, buf.get());
+        assertEquals(TextMatch.Mode.WILDCARD.ordinal() + 1, buf.get());
+        assertEquals(6, buf.get());
+        buf.position(buf.position() + 6);
+        assertEquals(NativeProtocol.EDIT_HIDE | NativeProtocol.EDIT_SET_TARGET | NativeProtocol.EDIT_REPORT, buf.get());
+        assertEquals(0, buf.getShort(), "no option text");
+        assertEquals(13, buf.getShort());
+        buf.position(buf.position() + 13);
+
+        assertEquals(9, buf.getInt());
+        assertEquals(NativeProtocol.RULE_ADD, buf.get());
+        assertEquals(NativeProtocol.RULE_SCOPED, buf.get());
+        buf.position(buf.position() + 2 + 1 + 7 * 4 + 2 + 7 + 2);
+        assertEquals(MenuRule.Add.Position.BELOW.ordinal(), buf.get());
+        assertEquals(20, buf.getInt());
+        assertEquals(4, buf.getShort());
+        buf.position(buf.position() + 4);
+        assertEquals(1, buf.getShort());
+        buf.position(buf.position() + 1);
+        assertEquals(2, buf.get(), "two sub rows");
+        assertEquals(21, buf.getInt());
+        buf.position(buf.position() + 2 + 1 + 2);
+        assertEquals(0, buf.get(), "a sub row has no sub rows");
+        assertEquals(22, buf.getInt());
+        buf.position(buf.position() + 2 + 1 + 2 + 1);
+        assertEquals(0, buf.remaining());
+
+        ByteBuffer remove = ByteBuffer.wrap(NativeProtocol.menuRemove(new int[]{7, 9})).order(ByteOrder.LITTLE_ENDIAN);
+        assertEquals(12, remove.getInt());
+        assertEquals(NativeProtocol.COMMAND_MENU, remove.get());
+        assertEquals(NativeProtocol.MENU_REMOVE, remove.get());
+        assertEquals(2, remove.getShort());
+        assertEquals(7, remove.getInt());
+        assertEquals(9, remove.getInt());
+    }
+
+    @Test
+    void keyCommandsAreFramed() {
+        List<KeyHook.Mode> modes = List.of(new KeyHook.Mode(false, List.of()),
+                new KeyHook.Mode(true, List.of(new KeyHook.Rule(0x57, 0, 0, 0x26, KeyHook.STAY),
+                        new KeyHook.Rule(0x0D, 0, 0, 0x0D, 2), new KeyHook.Rule(0x1B, KeyHook.SHIFT, 7, KeyHook.BLOCK, 0))));
+        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.keysTable(modes)).order(ByteOrder.LITTLE_ENDIAN);
+        assertEquals(3 + 3 + 3 + 3 * 7, buf.getInt());
+        assertEquals(NativeProtocol.COMMAND_KEYS, buf.get());
+        assertEquals(NativeProtocol.KEYS_TABLE, buf.get());
+        assertEquals(2, buf.get());
+        assertEquals(0, buf.get());
+        assertEquals(0, buf.getShort());
+        assertEquals(NativeProtocol.KEY_MODE_BLOCK_TYPING, buf.get());
+        assertEquals(3, buf.getShort());
+        assertEquals(0x57, buf.getShort());
+        assertEquals(0, buf.get());
+        assertEquals(0, buf.get());
+        assertEquals(0x26, buf.getShort());
+        assertEquals((byte) KeyHook.STAY, buf.get());
+        buf.position(buf.position() + 7);
+        assertEquals(0x1B, buf.getShort());
+        assertEquals(KeyHook.SHIFT, buf.get());
+        assertEquals(7, buf.get());
+        assertEquals((short) KeyHook.BLOCK, buf.getShort());
+        assertEquals(0, buf.get());
+        assertEquals(0, buf.remaining());
+
+        ByteBuffer mode = ByteBuffer.wrap(NativeProtocol.keysMode(2)).order(ByteOrder.LITTLE_ENDIAN);
+        assertEquals(3, mode.getInt());
+        assertEquals(NativeProtocol.COMMAND_KEYS, mode.get());
+        assertEquals(NativeProtocol.KEYS_MODE, mode.get());
+        assertEquals(2, mode.get());
+        ByteBuffer report = ByteBuffer.wrap(NativeProtocol.keysReport(true)).order(ByteOrder.LITTLE_ENDIAN);
+        report.position(4);
+        assertEquals(NativeProtocol.COMMAND_KEYS, report.get());
+        assertEquals(NativeProtocol.KEYS_REPORT, report.get());
+        assertEquals(1, report.get());
+    }
+
+    @Test
+    void menuClicksAndKeyReportsAreReadFromTheRegisters() {
+        NativeEvent rowClick = new NativeEvent(null, NativeProtocol.MENU_CLICK_EVENT_ID,
+                new long[]{0, 21, 20, 15L | 40L << 32}, Map.of(), 1);
+        assertEquals(new MenuClick(false, 21, 20, 15, 40), NativeProtocol.parseMenuClick(rowClick));
+        NativeEvent ruleClick = new NativeEvent(null, NativeProtocol.MENU_CLICK_EVENT_ID,
+                new long[]{1, 8, 0xffffffffL, 0}, Map.of(), 2);
+        assertEquals(new MenuClick(true, 8, -1, 0, 0), NativeProtocol.parseMenuClick(ruleClick));
+
+        NativeEvent remapped = new NativeEvent(null, NativeProtocol.KEY_EVENT_ID,
+                new long[]{NativeProtocol.WM_KEYDOWN, 0x57, 1L << 16 | 0x26, 1 | 1 << 8}, Map.of(), 3);
+        assertEquals(new KeyReport(KeyReport.Kind.PRESSED, KeyEvent.VK_W, (char) 0, KeyReport.Action.REMAPPED,
+                KeyEvent.VK_UP, 1, 1), NativeProtocol.parseKey(remapped));
+        NativeEvent typed = new NativeEvent(null, NativeProtocol.KEY_EVENT_ID,
+                new long[]{NativeProtocol.WM_CHAR, 'w', 2L << 16, 1 | 2 << 8}, Map.of(), 4);
+        assertEquals(new KeyReport(KeyReport.Kind.TYPED, 0, 'w', KeyReport.Action.BLOCKED, 0, 1, 2),
+                NativeProtocol.parseKey(typed));
+        NativeEvent released = new NativeEvent(null, NativeProtocol.KEY_EVENT_ID,
+                new long[]{NativeProtocol.WM_SYSKEYUP, 0x0D, 0, 0}, Map.of(), 5);
+        assertEquals(KeyReport.Kind.RELEASED, NativeProtocol.parseKey(released).kind());
+        assertEquals(KeyEvent.VK_ENTER, NativeProtocol.parseKey(released).keyCode());
     }
 
     @Test

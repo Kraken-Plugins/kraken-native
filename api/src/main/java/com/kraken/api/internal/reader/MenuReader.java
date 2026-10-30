@@ -7,6 +7,7 @@ import com.kraken.api.coords.WorldPoint;
 import com.kraken.api.internal.MapCoord;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.api.memory.Memory;
+import com.kraken.api.menu.MenuEdits;
 import com.kraken.api.widgets.Widget;
 
 import java.nio.ByteBuffer;
@@ -29,7 +30,9 @@ import java.util.stream.IntStream;
  * one block.
  *
  * <p>The native entry keeps its subject kind ({@code enums.minimenuSubject}), type id, index, world tile and op index;
- * {@link #entry} works the action, identifier and parameters out of them.
+ * {@link #entry} works the action, identifier and parameters out of them. A row the native hook added for a plugin
+ * (no subject, {@link MenuEdits#ROW_OP} as its op, its row id as the type id) reads as the plugin's own
+ * {@link MenuEntry}.
  *
  * <p>The keys are optional: with a mapping that lacks them the menu reads empty and closed.
  */
@@ -360,6 +363,13 @@ public final class MenuReader extends GameReader {
         }
         if (kind == kindComponent) {
             return component(option, target, op, typeId, index);
+        }
+        if (op == MenuEdits.ROW_OP) {
+            MenuEntry created = client.getMenuEdits().created(typeId);
+            if (created != null) {
+                return created;
+            }
+            return new MenuEntry(client, option, target, typeId, MenuAction.RUNELITE, 0, 0, null);
         }
         MenuAction type = "Cancel".equals(option) ? MenuAction.CANCEL : MenuAction.UNKNOWN;
         return new MenuEntry(client, option, target, 0, type, 0, 0, null);

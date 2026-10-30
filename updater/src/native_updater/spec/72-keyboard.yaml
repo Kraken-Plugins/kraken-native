@@ -1,0 +1,31 @@
+# The keyboard (docs/developer/key-interception.md): where key messages reach the client, which the hook DLL rewrites
+# or drops for key remapping, and the component listener the API reads to tell whether a component takes keys. The
+# client draws into a "JagRenderView" child window whose window procedure feeds the input device, which turns
+# WM_KEYDOWN, WM_KEYUP and WM_CHAR into the game's key events. The cs2 handler of ops 1400-1499 sets a component's
+# listeners: one slot per listener, each a count and an array of VarValue arguments (keyboard.py).
+keys:
+  - key: functions.renderViewWndProc
+    type: "LRESULT(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)"
+    priority: P1
+    doc: The "JagRenderView" window procedure. It hands key and mouse messages to the client's input device, which
+      queues them for the game thread; a message it never sees is a key the game never gets.
+    strategies:
+      - extractor: { name: render_view_wndproc, field: functions.renderViewWndProc, cls: A }
+  - key: IfType.onKey
+    type: IfListener
+    priority: P1
+    doc: The component's key listener (cc_setonkey, op 1419), run for each key while the component has it.
+    strategies:
+      - extractor: { name: component_listeners, field: IfType.onKey, cls: A }
+  - key: IfListener.count
+    type: u64
+    priority: P1
+    doc: How many arguments the listener holds, the script id first; 0 when the component has no such listener.
+    strategies:
+      - extractor: { name: component_listeners, field: IfListener.count, cls: A }
+  - key: IfListener.args
+    type: ptr
+    priority: P1
+    doc: The listener's arguments, an array of IfListener.count VarValues (VarValue.size apart).
+    strategies:
+      - extractor: { name: component_listeners, field: IfListener.args, cls: A }

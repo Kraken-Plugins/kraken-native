@@ -3,27 +3,58 @@ package com.kraken.api.events;
 import com.kraken.api.MenuAction;
 import com.kraken.api.MenuEntry;
 import com.kraken.api.widgets.Widget;
-import lombok.Value;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.ToString;
 
 /**
- * The client ran a menu entry: a left click on the game or an interface (which runs the menu's top entry), or a click
- * on a row of the open menu. A left click with nothing under the mouse runs "Cancel" or "Walk here".
+ * A menu entry ran: a left click on the game or an interface (which runs the menu's top entry), or a click on a row
+ * of the open menu. A left click with nothing under the mouse runs "Cancel" or "Walk here".
  *
- * <p>The client copies every entry it runs and counts the cycles since; the API reads the copy when the count starts
- * over or the copy changes, and right away when the native hook pushes the op event the client raises for it
- * ({@code ON_NPC_OP}, {@code ON_LOC_OP}, {@code ON_TILE_OP}, {@code ON_PLAYER_OP}, {@code ON_COMPONENT_OP}). Two runs
- * between polls post once, for the later entry, and the same entry run twice within a cycle or two can post once.
+ * <p>For the client's own rows: the client copies every entry it runs and counts the cycles since; the API reads the
+ * copy when the count starts over or the copy changes, and right away when the native hook pushes the op event the
+ * client raises for it ({@code ON_NPC_OP}, {@code ON_LOC_OP}, {@code ON_TILE_OP}, {@code ON_PLAYER_OP},
+ * {@code ON_COMPONENT_OP}). Two runs between polls post once, for the later entry, and the same entry run twice
+ * within a cycle or two can post once. Posted after the client ran the entry, so {@link #consume()} can't stop it.
  *
- * <p>Posted after the client ran the entry: the API only reads, so the click can't be consumed. Not provided:
- * {@code consume}, {@code isConsumed}, {@code isItemOp}, {@code getItemOp}, and the deprecated getters.
+ * <p>For a row a plugin added ({@code Client.createMenuEntry} or a {@code MenuRule.Add}): the native hook reports
+ * the click, which runs nothing in the client; the row's callback runs first, then this is posted with the created
+ * entry.
+ *
+ * <p>Not provided: {@code isItemOp}, {@code getItemOp}, and the deprecated getters.
  */
-@Value
+@Getter
+@ToString
+@EqualsAndHashCode
 public class MenuOptionClicked {
 
     /**
-     * The entry the client ran, as it copied it.
+     * The entry that ran: the client's copy, or the plugin's row.
      */
-    MenuEntry menuEntry;
+    private final MenuEntry menuEntry;
+
+    /**
+     * Whether a subscriber marked the click consumed.
+     */
+    private boolean consumed;
+
+    /**
+     * Posts a click.
+     *
+     * @param menuEntry the entry that ran
+     */
+    public MenuOptionClicked(MenuEntry menuEntry) {
+        this.menuEntry = menuEntry;
+    }
+
+    /**
+     * Marks the click consumed for the subscribers after this one. The client has already run its own row by the
+     * time the event is posted, and a plugin's row runs nothing in the client, so this changes what later subscribers
+     * see and nothing in the game.
+     */
+    public void consume() {
+        consumed = true;
+    }
 
     /**
      * The first action parameter.

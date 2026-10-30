@@ -69,14 +69,26 @@ lookup, called inside a run, is a gosub; the locals swap, called on a frame whos
 cleared, is a return. The DLL notes each running script's id by depth, since a return can't see the
 returning script. The detours send nothing until a `SCRIPTS` command asks.
 
-## Protocol v5 (little-endian)
+### The menu and key hooks
 
-**Handshake** (Java → DLL): magic `KRK5`, a `u16` slot count, then per slot
+The minimenu's view rebuild, run and node destroy are hooked from the first handshake whose menu block
+names them: before the rebuild the detour takes the rows of Kraken's own out, after it applies the rules
+the `MENU` command sent (swaps, hides, deprioritizes, text rewrites through the client's own assignment,
+rows of Kraken's own built in a pool of the DLL's and inserted after the client's reserve made room); a
+click on a row of Kraken's own is reported as `MENU_CLICK` and runs nothing; the node destroy leaves a
+children vector of the DLL's alone. The game window's procedure is hooked from the key block: `WM_KEYDOWN`,
+`WM_KEYUP` and `WM_CHAR` are rewritten or dropped by the mode in force of the table `KEYS` sent, and a
+rule can move the mode as its key goes down.
+
+## Protocol v6 (little-endian)
+
+**Handshake** (Java → DLL): magic `KRK6`, a `u16` slot count, then per slot
 `{u64 rva, i32 fixedId (-1 = read idArg), u8 idArg, u8 args, u8 planLen, plan[planLen]}`, where a
 plan entry is `{u8 arg, u8 op}` with ops `RAW, I32, I64, I32X2, CSTR` = 0..4; then
-`u64 clientGlobal, u64 pumpFn, u64 presentFn` (RVAs; 0 = none); then a `u16` length and the script
-block (empty for no script hooks; its 147-byte layout is `NativeProtocol.scriptLayout`'s and
-`parseScriptLayout`'s).
+`u64 clientGlobal, u64 pumpFn, u64 presentFn` (RVAs; 0 = none); then three `u16`-length-prefixed
+blocks: the script block (empty for no script hooks; its 147-byte layout is `NativeProtocol.scriptLayout`'s
+and `parseScriptLayout`'s), the menu block (142 bytes, `menuLayout`'s and `menus.cpp`'s `parseLayout`'s)
+and the key block (8 bytes, the window procedure's RVA).
 
 **Messages** (DLL → Java): a `u32` length frame, then
 `{u32 seq, i32 eventId, u64 regs[4], u8 nValues, values...}`, where a value is `{u8 arg, u8 op, payload}`.
@@ -84,14 +96,17 @@ block (empty for no script hooks; its 147-byte layout is `NativeProtocol.scriptL
 
 | id | Name | regs |
 |---|---|---|
-| -2 | STATUS | installed slots, requested slots, features (1 = pump hooked, 2 = present hooked, 4 = frame rate, 8 = script hooks), protocol version 5 |
+| -2 | STATUS | installed slots, requested slots, features (1 = pump hooked, 2 = present hooked, 4 = frame rate, 8 = script hooks, 16 = menu hooks, 32 = key hook), protocol version 6 |
 | -3 | FRAME | framebuffer width, height, GL version (`major << 16 \| minor`), surface generation drawn (0 = none) |
 | -4 | CALLS_DONE | batch id, calls run, calls faulted or skipped, last return value |
 | -5 | FPS | frames since the last FPS, microseconds since it, frame cap in force, 1 if presents were counted (0: frame steps) |
 | -6 | SCRIPT | kind (0 root start, 1 gosub, 2 return), script id, depth, 0; then the top of both stacks and, for a root run a listener started, the request ([native-protocol.md](../../../../../docs/developer/native-protocol.md#the-script-payload)) |
+| -7 | MENU_CLICK | 0 for a row of Kraken's own or 1 for a rule's report, the row or rule id, the parent row id (0xffffffff for none), mouse x \| y << 32 |
+| -8 | MENU_EXPIRED | the id of a scoped rule nothing matched for 25 rebuilds, 0, 0, 0 |
+| -9 | KEY | the window message, the key or character, action << 16 \| the key it became (0 passed, 1 remapped, 2 blocked), mode before \| mode after << 8 |
 
 STATUS, FRAME and FPS are written by the writer thread straight to the socket, so they can arrive out
-of `seq` order with ring messages; CALLS_DONE and SCRIPT go through the ring. FPS goes out about once a second
+of `seq` order with ring messages; CALLS_DONE, SCRIPT, MENU_CLICK, MENU_EXPIRED and KEY go through the ring. FPS goes out about once a second
 while the pump or present is hooked.
 
 **Commands** (Java → DLL, after the handshake): `{u32 len, u8 type, body}`, `len` counting the type
@@ -117,6 +132,17 @@ byte and the body, at most 4 MiB.
   bit 1 for scripts returning, bit 2 for root runs of the listed scripts starting (at most 8; the API
   lists the XP drop script while `FakeXpDrop` has subscribers). Ignored until the script hooks are
   live; a dropped connection clears it.
+- `5 MENU`: `u8 op` (0 replace, 1 upsert, 2 remove), `u16 count`, then rules or `u32` ids. A rule is
+  `{u32 id, u8 type (1 edit, 2 swap, 3 add), u8 flags (1 shift down, 2 shift up, 4 scoped, 8 final),
+  match, payload}`; a match `{u16 mask, u8 kind, 7 × i32 (type id, index, op, group, level, x, z), text
+  option, text target}` with a text `{u8 mode, u8 len, bytes}`; an edit's payload `{u8 actions, str option,
+  str target}`, a swap's `{u8 flags, match}`, an add's `{u8 position, row}` with a row
+  `{u32 id, str option, str target, u8 children, children}` ([native-protocol.md](../../../../../docs/developer/native-protocol.md#menu)).
+  Applied on the game thread at the next menu rebuild; ignored until the menu hooks are live; a dropped
+  connection drops every rule.
+- `6 KEYS`: `u8 op`: 0 the table (`u8 modes`, each `{u8 flags, u16 count, count × {u16 vk, u8 modifiers,
+  u8 mask, u16 to, u8 next}}`), 1 the mode (`u8`), 2 reporting (`u8`). Ignored until the window procedure
+  is hooked; a dropped connection drops the table and goes back to mode 0.
 
 The surface layout and its lock-free triple-buffer handshake are in
 [in-game-drawing.md](../../../../../docs/developer/in-game-drawing.md).
@@ -171,6 +197,8 @@ it. Everything is in namespace `kraken`, one nested namespace per module (`krake
 | `src/calls.*` | `CALLS`: the call queue, and running each call on the game thread under a guard |
 | `src/pump.*` | The pump hook: the frame cap (`FRAME_LIMIT`), then the queued calls |
 | `src/scripts.*` | The script hooks, `SCRIPTS` and the SCRIPT messages |
+| `src/menus.*` | The menu hooks, the rule engine, `MENU`, and the MENU_CLICK and MENU_EXPIRED messages |
+| `src/keys.*` | The window procedure hook, the key table, `KEYS` and the KEY messages |
 | `src/overlay/overlay.*` | The present hook: uploading and drawing the overlay frame, and what FRAME reports |
 | `src/overlay/surface.*` | `SURFACE`: opening the shared-memory surface and handing it to the present thread |
 | `src/overlay/gl.*`, `gl_state.*` | The GL constants and entry points beyond GL 1.1; saving and restoring the client's GL state |
