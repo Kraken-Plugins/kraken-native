@@ -39,6 +39,11 @@ class SpellAndPrayerEnumsTest {
     }
 
     @Test
+    void ouraniaTeleportIsALunarSpell() {
+        assertEquals(Spellbook.LUNAR, Spell.OURANIA_TELEPORT.getSpellbook(), "it sits in the lunar components");
+    }
+
+    @Test
     void spellbookIdsRoundTrip() {
         for (Spellbook book : Spellbook.values()) {
             assertEquals(book, Spellbook.of(book.getId()));

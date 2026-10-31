@@ -266,6 +266,32 @@ class BankTest {
     }
 
     @Test
+    void withdrawXStopsWaitingOnceTheBankCloses() {
+        openBank(new Slot(COINS, 100));
+        assertEquals(ActionResult.SENT, bank.withdraw(COINS, 7));
+        closeBank();
+        runTasks();
+        assertTrue(tasks.isEmpty(), "gave up with the bank");
+        game.setVarcs(Map.of(VarClientID.MESLAYERMODE, 7));
+        runTasks();
+        assertEquals(1, sent.size(), "another count prompt isn't answered with the bank's amount");
+    }
+
+    @Test
+    void theBankSlotIsReadByTheItemsPlaceInTheBankTable() {
+        openBank(new Slot(COINS, 100), new Slot(LOGS, 3));
+        assertEquals(ActionResult.SENT, bank.withdraw(LOGS, 1));
+        reference.menuAction(1, ITEMS, MenuAction.CC_OP, 1, LOGS);
+        assertEquals(expected, sent);
+
+        game.setInvSlot(95, 0, LOGS, 3);
+        game.setInvSlot(95, 1, COINS, 100);
+        assertEquals(ActionResult.SENT, bank.withdraw(LOGS, 1), "the table moved on: the widgets are searched");
+        reference.menuAction(1, ITEMS, MenuAction.CC_OP, 1, LOGS);
+        assertEquals(expected, sent);
+    }
+
+    @Test
     void withdrawXNotFoundWhileTheBankIsClosed() {
         buildBank(new Slot(COINS, 100));
         assertEquals(ActionResult.NOT_FOUND, bank.withdraw(COINS, 7));
@@ -329,6 +355,18 @@ class BankTest {
         assertEquals(ActionResult.SENT, bank.deposit(COINS, 120), "more than the slot, less than all held");
         reference.menuAction(0, SIDE_ITEMS, MenuAction.CC_OP, X, COINS);
         assertEquals(expected, sent);
+    }
+
+    @Test
+    void depositAllIsNotGuessedWhenTheInventoryTableCannotCount() {
+        openBank();
+        openSidePanel();
+        game.setInvSlot(93, 1, -1, 0);
+        game.setInvSlot(93, 3, -1, 0);
+        assertEquals(0, client.getInventory().count(COINS));
+        assertEquals(ActionResult.SENT, bank.deposit(COINS, 150));
+        reference.menuAction(0, SIDE_ITEMS, MenuAction.CC_OP, X, COINS);
+        assertEquals(expected, sent, "Deposit-X, not Deposit-All");
     }
 
     @Test

@@ -111,34 +111,11 @@ public final class Prayers {
      *         why nothing was sent, {@link ActionResult#NOT_FOUND} if the orb isn't loaded
      */
     public ActionResult setQuickPrayer(boolean active) {
-        Widget orb = quickPrayerOrb();
+        Widget orb = client.getInteractions().firstShown(ORBS);
         if (orb == null) {
             log.fine(() -> "no prayer orb is loaded for the quick prayers");
             return ActionResult.NOT_FOUND;
         }
         return quickPrayers.set(active, orb::click);
-    }
-
-    /**
-     * The prayer orb the quick prayers are switched with: the first of {@link #ORBS} that is loaded and shown, else the
-     * first that is loaded.
-     *
-     * @return the orb's widget, or null if neither orb is loaded
-     */
-    private Widget quickPrayerOrb() {
-        Widget loaded = null;
-        for (int id : ORBS) {
-            Widget orb = client.getWidget(id);
-            if (orb == null) {
-                continue;
-            }
-            if (!orb.isHidden()) {
-                return orb;
-            }
-            if (loaded == null) {
-                loaded = orb;
-            }
-        }
-        return loaded;
     }
 }

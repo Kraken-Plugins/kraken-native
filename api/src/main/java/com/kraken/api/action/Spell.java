@@ -162,7 +162,6 @@ public enum Spell {
     MONSTER_INSPECT(InterfaceID.MagicSpellbook.MONSTER_INSPECT, Spellbook.ARCEUUS),
     TRANSMUTE_UPGRADE(InterfaceID.MagicSpellbook.TRANSMUTE_UPGRADE, Spellbook.ARCEUUS),
     TRANSMUTE_DOWNGRADE(InterfaceID.MagicSpellbook.TRANSMUTE_DOWNGRADE, Spellbook.ARCEUUS),
-    OURANIA_TELEPORT(InterfaceID.MagicSpellbook.OURANIA_TELEPORT, Spellbook.ARCEUUS),
 
     BAKE_PIE(InterfaceID.MagicSpellbook.BAKE_PIE, Spellbook.LUNAR),
     CURE_PLANT(InterfaceID.MagicSpellbook.CURE_PLANT, Spellbook.LUNAR),
@@ -206,6 +205,7 @@ public enum Spell {
     SPELLBOOK_SWAP(InterfaceID.MagicSpellbook.SPELLBOOK_SWAP, Spellbook.LUNAR),
     GEOMANCY(InterfaceID.MagicSpellbook.GEOMANCY, Spellbook.LUNAR),
     SPIN_FLAX(InterfaceID.MagicSpellbook.SPIN_FLAX, Spellbook.LUNAR),
+    OURANIA_TELEPORT(InterfaceID.MagicSpellbook.OURANIA_TELEPORT, Spellbook.LUNAR),
     TELEPORT_HOME_LUNAR(InterfaceID.MagicSpellbook.TELEPORT_HOME_LUNAR, Spellbook.LUNAR),
     TELEPORT_MINIGAME_LUNAR(InterfaceID.MagicSpellbook.TELEPORT_MINIGAME_LUNAR, Spellbook.LUNAR);
 

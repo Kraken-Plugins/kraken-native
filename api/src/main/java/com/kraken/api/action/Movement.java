@@ -84,7 +84,7 @@ public final class Movement {
      *         why nothing was sent, {@link ActionResult#NOT_FOUND} if the run orb isn't loaded
      */
     public ActionResult setRunning(boolean running) {
-        Widget orb = runOrb();
+        Widget orb = client.getInteractions().firstShown(RUN_ORBS);
         if (orb == null) {
             log.fine("no run orb is loaded, so running isn't changed");
             return ActionResult.NOT_FOUND;
@@ -101,25 +101,4 @@ public final class Movement {
         return client.getLocalDestinationLocation();
     }
 
-    /**
-     * The run orb to click: the first of the run orbs that is loaded and not hidden, else the first one loaded.
-     *
-     * @return the orb's component, or null if neither run orb is loaded
-     */
-    private Widget runOrb() {
-        Widget loaded = null;
-        for (int id : RUN_ORBS) {
-            Widget orb = client.getWidget(id);
-            if (orb == null) {
-                continue;
-            }
-            if (!orb.isHidden()) {
-                return orb;
-            }
-            if (loaded == null) {
-                loaded = orb;
-            }
-        }
-        return loaded;
-    }
 }

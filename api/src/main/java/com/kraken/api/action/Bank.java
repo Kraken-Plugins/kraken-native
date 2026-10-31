@@ -4,7 +4,6 @@ import com.kraken.api.Client;
 import com.kraken.api.MenuAction;
 import com.kraken.api.gameval.InterfaceID;
 import com.kraken.api.gameval.InventoryID;
-import com.kraken.api.gameval.VarClientID;
 import com.kraken.api.internal.action.Interactions;
 import com.kraken.api.internal.action.OptionMatcher;
 import com.kraken.api.item.ItemContainer;
@@ -120,8 +119,11 @@ public final class Bank {
     public ActionResult deposit(int itemId, int amount) {
         requireAmount(amount);
         Widget slot = depositSlot(itemId);
-        return slot == null ? notFound()
-                : amountOp(slot, DEPOSIT, amount, client.getInventory().count(itemId));
+        if (slot == null) {
+            return notFound();
+        }
+        int held = client.getInventory().count(itemId);
+        return amountOp(slot, DEPOSIT, amount, held > 0 ? held : Integer.MAX_VALUE);
     }
 
     /**
@@ -196,6 +198,12 @@ public final class Bank {
         }
         Widget items = client.getWidget(InterfaceID.Bankmain.ITEMS);
         if (items != null) {
+            ItemContainer bank = bankItems();
+            int index = bank == null ? -1 : bank.find(itemId);
+            Widget likely = index < 0 ? null : items.getChild(index);
+            if (likely != null && likely.getItemId() == itemId && likely.getItemQuantity() > 0) {
+                return likely;
+            }
             for (Widget slot : items.getDynamicChildren()) {
                 if (slot.getItemId() == itemId && slot.getItemQuantity() > 0) {
                     return slot;
@@ -229,7 +237,7 @@ public final class Bank {
      * @param verb   "Withdraw" or "Deposit"
      * @param amount how many, at least 1
      * @param held   how many there are to move: the bank's stack, or every inventory slot's together, since All moves
-     *               them all
+     *               them all; {@code Integer.MAX_VALUE} when the total can't be read, so All is never guessed
      * @return the result of the op sent
      */
     private ActionResult amountOp(Widget slot, String verb, int amount, int held) {
@@ -261,12 +269,17 @@ public final class Bank {
         int deadline = client.getTickCount() + COUNT_PROMPT_TICKS;
         boolean[] waitingForClose = {promptOpen};
         client.queueTask(() -> {
+            if (!isOpen()) {
+                log.fine(() -> "the bank closed before the count prompt for " + amount + " was answered");
+                return true;
+            }
             boolean open = isCountPrompt();
             if (waitingForClose[0]) {
                 waitingForClose[0] = open;
             } else if (open) {
-                if (!client.getActions().resumeCountDialog(amount)) {
-                    log.fine(() -> "the count prompt for " + amount + " wasn't answered: dialogs or hook unavailable");
+                ActionResult answered = client.getDialogue().enterAmount(amount);
+                if (!answered.isSent()) {
+                    log.fine(() -> "the count prompt for " + amount + " wasn't answered: " + answered);
                 }
                 return true;
             }
@@ -297,7 +310,7 @@ public final class Bank {
     }
 
     private boolean isCountPrompt() {
-        return InputDialog.of(client.getVarcIntValue(VarClientID.MESLAYERMODE)) == InputDialog.COUNT;
+        return client.getDialogue().getInputDialog() == InputDialog.COUNT;
     }
 
     private static boolean offers(String[] ops, String option) {

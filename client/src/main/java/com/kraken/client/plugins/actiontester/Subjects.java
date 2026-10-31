@@ -7,8 +7,9 @@ import com.kraken.api.actor.NPC;
 import com.kraken.api.actor.Player;
 import com.kraken.api.coords.WorldPoint;
 import com.kraken.api.definition.ItemComposition;
-import com.kraken.api.definition.ObjectComposition;
 import com.kraken.api.gameval.InterfaceID;
+import com.kraken.api.internal.action.Interactions;
+import com.kraken.api.internal.action.OptionMatcher;
 import com.kraken.api.scene.Scene;
 import com.kraken.api.scene.TileItem;
 import com.kraken.api.scene.TileObject;
@@ -30,7 +31,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Predicate;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -49,11 +49,6 @@ final class Subjects {
     static final int INVENTORY = InterfaceID.Inventory.ITEMS;
 
     /**
-     * The button type of a pause ("Click here to continue") component.
-     */
-    static final int PAUSE_BUTTON = 6;
-
-    /**
      * The old-style button types a button suggestion lists: a plain button, a close button, a toggle and a set. Type 2
      * selects a target and type 6 is the pause button.
      */
@@ -63,11 +58,6 @@ final class Subjects {
      * The most entries a suggestion list holds.
      */
     private static final int MAX_SUGGESTIONS = 100;
-
-    /**
-     * The client's text markup, such as {@code <col=ffff00>}.
-     */
-    private static final Pattern TAGS = Pattern.compile("<[^>]*>");
 
     private final Client client;
 
@@ -108,7 +98,7 @@ final class Subjects {
      */
     Optional<TileObject> object(String name) {
         Scene scene = client.getScene();
-        return scene == null ? Optional.empty() : nearest(scene.getTileObjects(), name, this::objectName,
+        return scene == null ? Optional.empty() : nearest(scene.getTileObjects(), name, TileObject::getName,
                 TileObject::getWorldLocation);
     }
 
@@ -120,7 +110,7 @@ final class Subjects {
      */
     Optional<TileItem> groundItem(String name) {
         Scene scene = client.getScene();
-        return scene == null ? Optional.empty() : nearest(scene.getGroundItems(), name, this::itemName,
+        return scene == null ? Optional.empty() : nearest(scene.getGroundItems(), name, TileItem::getName,
                 item -> item.getTile().getWorldLocation());
     }
 
@@ -214,7 +204,7 @@ final class Subjects {
         }
         List<TileObject> withOptions = scene.getTileObjects().stream()
                 .filter(object -> hasAny(object.getActions())).toList();
-        return names(withOptions, this::objectName, TileObject::getWorldLocation);
+        return names(withOptions, TileObject::getName, TileObject::getWorldLocation);
     }
 
     /**
@@ -224,7 +214,7 @@ final class Subjects {
      */
     List<String> groundItemNames() {
         Scene scene = client.getScene();
-        return scene == null ? List.of() : names(scene.getGroundItems(), this::itemName,
+        return scene == null ? List.of() : names(scene.getGroundItems(), TileItem::getName,
                 item -> item.getTile().getWorldLocation());
     }
 
@@ -289,17 +279,7 @@ final class Subjects {
      * @return the button's widget, or null if none is loaded
      */
     Widget orb(int... ids) {
-        Widget loaded = null;
-        for (int id : ids) {
-            Widget widget = client.getWidget(id);
-            if (widget != null && !widget.isHidden()) {
-                return widget;
-            }
-            if (loaded == null) {
-                loaded = widget;
-            }
-        }
-        return loaded;
+        return client.getInteractions().firstShown(ids);
     }
 
     /**
@@ -314,7 +294,7 @@ final class Subjects {
         Predicate<Widget> fits = switch (test) {
             case WIDGET_OPTION -> widget -> hasAny(widget.getActions());
             case WIDGET_BUTTON -> widget -> BUTTONS.contains(widget.getEvent());
-            case PAUSE_BUTTON -> widget -> widget.getEvent() == PAUSE_BUTTON;
+            case PAUSE_BUTTON -> Interactions::isPauseButton;
             default -> null;
         };
         if (fits == null) {
@@ -378,16 +358,6 @@ final class Subjects {
         String op = trimmed.substring(0, dot).trim();
         String sub = trimmed.substring(dot + 1).trim();
         return op.isEmpty() || sub.isEmpty() ? new String[]{trimmed, null} : new String[]{op, sub};
-    }
-
-    /**
-     * A spell's component, as {@link #constantComponent} reads it for the spellbook: High Alchemy is HIGH_ALCHEMY.
-     *
-     * @param text the setting's text
-     * @return the packed component id, or -1 if the text names no spell
-     */
-    static int spellComponent(String text) {
-        return constantComponent(InterfaceID.MagicSpellbook.class, text);
     }
 
     /**
@@ -507,7 +477,7 @@ final class Subjects {
      * @return the plain text; "" for null
      */
     static String plain(String text) {
-        return text == null ? "" : TAGS.matcher(text).replaceAll("").replaceAll("\\s+", " ").trim();
+        return OptionMatcher.plain(text);
     }
 
     /**
@@ -655,14 +625,6 @@ final class Subjects {
         return text.replaceAll("[^A-Za-z0-9]", "").toLowerCase(Locale.ROOT);
     }
 
-    private String objectName(TileObject object) {
-        ObjectComposition composition = client.getObjectDefinition(object.getId());
-        return composition == null ? null : composition.getName();
-    }
-
-    private String itemName(TileItem item) {
-        return itemName(item.getId());
-    }
 
     /**
      * The name of the item with an id.
@@ -831,6 +793,6 @@ final class Subjects {
      * @return true if it is a name
      */
     private static boolean named(String name) {
-        return name != null && !name.isBlank() && !name.equalsIgnoreCase("null");
+        return OptionMatcher.isNamed(name);
     }
 }

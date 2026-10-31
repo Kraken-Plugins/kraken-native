@@ -6,9 +6,9 @@ import com.kraken.api.gameval.InterfaceID;
 import com.kraken.api.gameval.VarClientID;
 import com.kraken.api.internal.action.ActionRequest;
 import com.kraken.api.internal.action.ClickPoints;
+import com.kraken.api.internal.action.Interactions;
 import com.kraken.api.internal.action.OptionMatcher;
 import com.kraken.api.widgets.Widget;
-import com.kraken.api.widgets.WidgetConfig;
 
 import java.util.Arrays;
 import java.util.List;
@@ -34,11 +34,6 @@ public final class Dialogue {
     private static final int CHATMENU = InterfaceID.Chatmenu.OPTIONS >>> 16;
 
     /**
-     * The old-style button type of a pause ("Click here to continue") button.
-     */
-    private static final int PAUSE_BUTTON_TYPE = 6;
-
-    /**
      * The most characters a text answer can hold: the client's size byte counts them plus the terminator.
      */
     private static final int MAX_TEXT = 254;
@@ -60,7 +55,7 @@ public final class Dialogue {
      * @return true if one is
      */
     public boolean isOpen() {
-        return canContinue() || !optionRows().isEmpty() || getInputDialog() != null;
+        return getInputDialog() != null || !optionRows().isEmpty() || canContinue();
     }
 
     /**
@@ -340,10 +335,6 @@ public final class Dialogue {
      * @return true if it is a pause button that is shown
      */
     private static boolean isShowingPause(Widget widget) {
-        if (widget.isHidden()) {
-            return false;
-        }
-        int mask = widget.getClickMask();
-        return widget.getEvent() == PAUSE_BUTTON_TYPE || mask != -1 && (mask & WidgetConfig.PAUSE_BUTTON) != 0;
+        return Interactions.isPauseButton(widget) && !widget.isHidden();
     }
 }

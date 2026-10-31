@@ -687,9 +687,44 @@ public final class Interactions {
         };
     }
 
-    private boolean isPauseButton(Widget widget) {
+    /**
+     * Whether a component is a pause button ("Click here to continue"): an old-style button of type 6, or one whose
+     * click mask has the pause bit ({@link WidgetConfig#PAUSE_BUTTON}), as the client's menu tells them apart. The
+     * button type is in the snapshot, so it is tested first; the click mask takes a read.
+     *
+     * @param widget the component
+     * @return true for a pause button
+     */
+    public static boolean isPauseButton(Widget widget) {
+        if (widget.getEvent() == PAUSE_BUTTON) {
+            return true;
+        }
         int mask = widget.getClickMask();
-        return widget.getEvent() == PAUSE_BUTTON || mask != -1 && (mask & WidgetConfig.PAUSE_BUTTON) != 0;
+        return mask != -1 && (mask & WidgetConfig.PAUSE_BUTTON) != 0;
+    }
+
+    /**
+     * The first of several components that is loaded and showing, else the first that is loaded, such as a minimap
+     * orb, which has one component beside the minimap and one in the interface without it.
+     *
+     * @param componentIds the components' packed ids, the preferred first
+     * @return the widget, or null if none is loaded
+     */
+    public Widget firstShown(int... componentIds) {
+        Widget loaded = null;
+        for (int id : componentIds) {
+            Widget widget = client.getWidget(id);
+            if (widget == null) {
+                continue;
+            }
+            if (!widget.isHidden()) {
+                return widget;
+            }
+            if (loaded == null) {
+                loaded = widget;
+            }
+        }
+        return loaded;
     }
 
     /**

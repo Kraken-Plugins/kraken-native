@@ -37,8 +37,8 @@ import java.util.List;
  * repeat every so many ticks.
  *
  * <p>Each action calls the API the way a plugin would: an NPC's, object's, ground item's or component's option through
- * its {@code interact}, an inventory item used or a spell cast on a target through {@code useOn}, a spell with no target
- * through {@code click}, the run, quick-prayer and dialogue actions through their services ({@link Movement},
+ * its {@code interact}, an inventory item used or a spell cast on a target through {@code useOn}, a spell with no
+ * target through {@code click}, the run, quick-prayer and dialogue actions through their services ({@link Movement},
  * {@link Prayers}, {@link Dialogue}), and walking through {@link Movement#walk}. The services are injected, as plugins
  * inject them. Only the menu's own entries, the close button and the bare mouse click packet go through
  * {@link Actions} directly, because the API has no method for them.
@@ -188,10 +188,8 @@ public class ActionTesterPlugin extends Plugin {
                     "the close button's body isn't mapped for this build");
             case RESUME_COUNT -> report(dialogue.enterAmount(config.count()),
                     "answer the count dialog with " + config.count());
-            case RESUME_NAME -> report(dialogue.enterName(config.text()),
-                    "answer the name dialog with \"" + config.text() + "\"");
-            case RESUME_STRING -> report(dialogue.enterText(config.text()),
-                    "answer the string dialog with \"" + config.text() + "\"");
+            case RESUME_NAME -> answerText(true);
+            case RESUME_STRING -> answerText(false);
             case RESUME_OBJ -> report(dialogue.selectItem(config.itemId()),
                     "answer the item dialog with item " + config.itemId());
             case WALK -> walk();
@@ -280,7 +278,7 @@ public class ActionTesterPlugin extends Plugin {
             return false;
         }
         return report(interact(slot, config.option()), config.option() + " on " + config.item().trim(),
-                slot.getActions());
+                options(slot));
     }
 
     private boolean widgetOption() {
@@ -290,7 +288,7 @@ public class ActionTesterPlugin extends Plugin {
             return false;
         }
         return report(interact(widget, config.option()), config.option() + " on component "
-                + config.component().trim(), widget.getActions());
+                + config.component().trim(), options(widget));
     }
 
     private boolean castSpell() {
@@ -301,7 +299,7 @@ public class ActionTesterPlugin extends Plugin {
         String option = config.option();
         ActionResult result = option.isBlank() ? spell.click() : interact(spell, option);
         return report(result, (option.isBlank() ? "cast " : option + " on ") + config.spell().trim(),
-                spell.getActions());
+                options(spell));
     }
 
     private boolean prayer() {
@@ -314,7 +312,7 @@ public class ActionTesterPlugin extends Plugin {
             say("no prayer called " + config.prayer().trim() + " is in the prayer book (is it loaded?)");
             return false;
         }
-        return report(widget.click(), "toggle " + config.prayer().trim(), widget.getActions());
+        return report(widget.click(), "toggle " + config.prayer().trim(), options(widget));
     }
 
     private boolean quickPrayers() {
@@ -328,7 +326,7 @@ public class ActionTesterPlugin extends Plugin {
             say("the special attack orb isn't loaded");
             return false;
         }
-        return report(orb.click(), "click the special attack orb", orb.getActions());
+        return report(orb.click(), "click the special attack orb", options(orb));
     }
 
     private boolean toggleRun() {
@@ -342,7 +340,7 @@ public class ActionTesterPlugin extends Plugin {
         if (widget == null) {
             return false;
         }
-        return report(widget.click(), "click component " + config.component().trim(), widget.getActions());
+        return report(widget.click(), "click component " + config.component().trim(), options(widget));
     }
 
     private boolean pauseButton() {
@@ -351,7 +349,7 @@ public class ActionTesterPlugin extends Plugin {
         }
         int[] component = component();
         Widget widget = component == null ? null : loaded(component);
-        return widget != null && report(widget.click(), "click " + config.component().trim(), widget.getActions());
+        return widget != null && report(widget.click(), "click " + config.component().trim(), options(widget));
     }
 
     /**
@@ -540,6 +538,35 @@ public class ActionTesterPlugin extends Plugin {
      * @param what   the action, for the console
      * @return true if it was sent
      */
+    /**
+     * Answers a name or string dialog with the text setting, saying in the console when the text can't be sent (too
+     * long, or characters the dialog packets can't carry).
+     *
+     * @param name true for the name dialog, false for the string dialog
+     * @return true if it was sent
+     */
+    private boolean answerText(boolean name) {
+        String text = config.text();
+        String what = "answer the " + (name ? "name" : "string") + " dialog with \"" + text + "\"";
+        try {
+            return report(name ? dialogue.enterName(text) : dialogue.enterText(text), what);
+        } catch (IllegalArgumentException e) {
+            say("could not " + what + ": " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * The options a widget offers as the API matches them, for the console: its own ops, or for an item slot with
+     * none, Use followed by the item's inventory actions.
+     *
+     * @param widget the widget
+     * @return the options by op, or null if it has none
+     */
+    private String[] options(Widget widget) {
+        return client.getInteractions().actions(widget);
+    }
+
     private boolean report(ActionResult result, String what) {
         return report(result, what, null);
     }

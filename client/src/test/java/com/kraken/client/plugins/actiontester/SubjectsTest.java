@@ -69,12 +69,12 @@ class SubjectsTest {
 
     @Test
     void aSpellIsAComponentOrASpellbookConstantsName() {
-        assertEquals(InterfaceID.MagicSpellbook.HIGH_ALCHEMY, Subjects.spellComponent("High Alchemy"));
-        assertEquals(InterfaceID.MagicSpellbook.HIGH_ALCHEMY, Subjects.spellComponent(" high-alchemy "));
-        assertEquals(InterfaceID.MagicSpellbook.WIND_STRIKE, Subjects.spellComponent("wind_strike"));
-        assertEquals((218 << 16) | 47, Subjects.spellComponent("218:47"), "a component as given");
-        assertEquals(-1, Subjects.spellComponent("Moss giant"));
-        assertEquals(-1, Subjects.spellComponent(""));
+        assertEquals(InterfaceID.MagicSpellbook.HIGH_ALCHEMY, spell("High Alchemy"));
+        assertEquals(InterfaceID.MagicSpellbook.HIGH_ALCHEMY, spell(" high-alchemy "));
+        assertEquals(InterfaceID.MagicSpellbook.WIND_STRIKE, spell("wind_strike"));
+        assertEquals((218 << 16) | 47, spell("218:47"), "a component as given");
+        assertEquals(-1, spell("Moss giant"));
+        assertEquals(-1, spell(""));
     }
 
     @Test
@@ -82,7 +82,7 @@ class SubjectsTest {
         assertEquals("High Alchemy", Subjects.constantName("HIGH_ALCHEMY"));
         for (Field field : InterfaceID.MagicSpellbook.class.getFields()) {
             if (Modifier.isStatic(field.getModifiers()) && field.getType() == int.class) {
-                assertEquals(field.getInt(null), Subjects.spellComponent(Subjects.constantName(field.getName())),
+                assertEquals(field.getInt(null), spell(Subjects.constantName(field.getName())),
                         field.getName());
             }
         }
@@ -121,5 +121,15 @@ class SubjectsTest {
         assertEquals("Rune platebody", Subjects.plain("<col=ff9040>Rune platebody</col>"));
         assertEquals("", Subjects.plain(null));
         assertEquals("a b", Subjects.plain(" a <br> b "));
+    }
+
+    /**
+     * A spell's component as the spell setting reads a constant's name.
+     *
+     * @param text the setting's text
+     * @return the packed component id, or -1
+     */
+    private static int spell(String text) {
+        return Subjects.constantComponent(InterfaceID.MagicSpellbook.class, text);
     }
 }
