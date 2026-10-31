@@ -34,15 +34,15 @@ Outside the Kraken client, attach to the game yourself; see [Using the API on it
 | NPCs and players | `getNpcs()`, `getPlayers()`; by index through `getTopLevelWorldView().npcs()` and `.players()` |
 | Skills | `getRealSkillLevel(Skill)`, `getBoostedSkillLevel(Skill)`, `getSkillExperience(Skill)`, `getTotalLevel()`; `Experience` converts XP and levels |
 | Vars | `getVarpValue(int)`, `getVarbitValue(int)`, `getVarcIntValue(int)`, `getVarcStrValue(int)` |
-| Inventories | `getItemContainer(InventoryID.INV)`, `getItemContainers()` |
-| Interfaces | `getWidget(group, child)`, `getWidget(packedId)`, `getOpenWidgetGroups()`, `getTopLevelInterfaceId()` |
+| Inventories | `getItemContainer(InventoryID.INV)`, `getItemContainers()`; `EquipmentInventorySlot` names the worn slots and their components |
+| Interfaces | `getWidget(group, child)`, `getWidget(packedId)`, `getOpenWidgetGroups()`, `getTopLevelInterfaceId()`; a widget's `getClickMask()`, with the bits in `WidgetConfig` (what a spell or item selected from it can be used on, for example) |
 | Scene | `getScene()`: `getTiles()`, `getTile(plane, x, y)`, `getTileObjects()`, `getGroundItems()` |
 | Collision | `getTopLevelWorldView()`: `getCollisionFlags(WorldPoint)`, `lineOfWalk(from, to)`, `lineOfSight(from, to)` |
 | Walking and the mouse | `getLocalDestinationLocation()`, the tile you're walking to; `getTopLevelWorldView().getSelectedSceneTile()`, the tile under the mouse (the one Walk here would walk to) |
 | Camera and projection | `getCameraX()` and friends, `getCameraPitch()`, `getCameraYaw()`, `getCameraZoom()`; `Perspective` turns game positions into screen points |
-| Menu | `getMenuEntries()` (the bottom row first), `isMenuOpen()` |
+| Menu | `getMenuEntries()` (the bottom row first), `isMenuOpen()`; `getPlayerOptions()` and `getPlayerOptionsPriorities()`, the options the server set for right-clicking other players |
 | Projectiles and spot animations | `getProjectiles()`, `getGraphicsObjects()` |
-| Definitions | `getItemDefinition(id)`, `getNpcDefinition(id)`, `getObjectDefinition(id)`, `getVarbit(id)` |
+| Definitions | `getItemDefinition(id)`, `getNpcDefinition(id)`, `getObjectDefinition(id)` (`getImpostor()` for the object a loc shows as now), `getVarbit(id)` |
 | Scripts | `getIntStack()`, `getObjectStack()` and their sizes, mostly useful in a [script event](events.md#scripts) handler |
 
 A few examples:
@@ -200,6 +200,9 @@ if (actions.isAvailable() && actions.isSupported(MenuAction.NPC_FIRST_OPTION)) {
 | `useItemOn(...)`, `useItemOnItem(...)`, `castSpellOn(...)` | Use an item, or cast a spell, on something |
 | `closeInterface()`, `resumePause(componentId, slot)` | Close the open interface; "Click here to continue" |
 | `resumeCountDialog`, `resumeNameDialog`, `resumeStringDialog`, `resumeObjDialog` | Answer the game's amount, name, text and item prompts |
+
+The answers don't check that their prompt is showing. `InputDialog.of(client.getVarcIntValue(VarClientID.MESLAYERMODE))`
+says which one is: `COUNT`, `NAME`, `STRING`, `OBJ`, or null when none is.
 
 Each returns `true` if it was sent. Supported actions are NPC, object, ground item and player options; walking;
 interface options with their sub-options; using items and casting spells on things; old-style buttons; closing

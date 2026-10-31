@@ -7,6 +7,11 @@
 # component the same way; cc_settext (op 1112) assigns the popped string to IfType.text and invalidates the component
 # (extractor `cs2_set_text`, components.py). The listener slots come from the handler of ops 1400-1499 that also
 # gives IfType.onKey (extractor `component_listeners`, keyboard.py). No Lua binding touches any of this.
+#
+# A component's click mask (its events) comes from the getter cc_gettargetmask (op 1800, handler of ops 1800-1899)
+# calls with the client and the active component: the server's events for the component's slot from the hash_multimap
+# Client.ifEvents (what IF_SETEVENTS fills: component id -> slot ranges, each with events and an op mask), else the
+# component's own IfType.events (extractor `cs2_click_mask`, components.py).
 keys:
   - key: IfType.dragDeadZone
     type: i32
@@ -69,3 +74,64 @@ keys:
       - extractor: { name: cs2_components, field: ScriptRunner.dotComponent, cls: A }
     invariants:
       - equals: "ScriptRunner.activeComponent + 0x10"
+
+  - key: IfType.events
+    type: i32
+    priority: P1
+    doc: The component's own click mask, what the client uses when the server set none for its slot. Bit 0 makes it a
+      pause button (a Continue row); bits 1-10 send ops 1-10 to the server; bits 11-16 are the target mask (ground
+      items, NPCs, locs, players, -, components), and a nonzero mask gives the component the row that selects it (a
+      spell's Cast); bits 17-19 how many layers up a drag moves (0 = not draggable); bit 20 takes drops; bit 21 can be
+      the target of a selection whose mask has the component bit.
+    strategies:
+      - extractor: { name: cs2_click_mask, field: IfType.events, cls: A }
+  - key: Client.ifEvents.buckets
+    type: ptr
+    priority: P1
+    doc: "The bucket array of the server's click masks: an eastl hash_multimap from a component's packed id to the slot
+      ranges IF_SETEVENTS set on it. Bucket = id % bucket count."
+    strategies:
+      - extractor: { name: cs2_click_mask, field: Client.ifEvents.buckets, cls: A }
+  - key: Client.ifEvents.bucketCount
+    type: i32
+    priority: P1
+    doc: The bucket count of the server's click masks.
+    strategies:
+      - extractor: { name: cs2_click_mask, field: Client.ifEvents.bucketCount, cls: A }
+    invariants:
+      - equals: "Client.ifEvents.buckets + 8"
+  - key: IfEventsNode.key
+    type: i32
+    priority: P1
+    doc: The packed id of the component the node's range belongs to.
+    strategies:
+      - extractor: { name: cs2_click_mask, field: IfEventsNode.key, cls: A }
+  - key: IfEventsNode.from
+    type: i32
+    priority: P1
+    doc: The first slot of the node's range (-1 for a static component).
+    strategies:
+      - extractor: { name: cs2_click_mask, field: IfEventsNode.from, cls: A }
+  - key: IfEventsNode.to
+    type: i32
+    priority: P1
+    doc: The last slot of the node's range, inclusive.
+    strategies:
+      - extractor: { name: cs2_click_mask, field: IfEventsNode.to, cls: A }
+    invariants:
+      - equals: "IfEventsNode.from + 4"
+  - key: IfEventsNode.events
+    type: i32
+    priority: P1
+    doc: The click mask the server set for the slots of the range; the same bits as IfType.events. The op mask the
+      client sends ops by (bit n for op n + 1, up to 32 ops) follows it.
+    strategies:
+      - extractor: { name: cs2_click_mask, field: IfEventsNode.events, cls: A }
+    invariants:
+      - equals: "IfEventsNode.to + 4"
+  - key: IfEventsNode.next
+    type: ptr
+    priority: P1
+    doc: The next node in the bucket's chain; nodes with the same key sit together.
+    strategies:
+      - extractor: { name: cs2_click_mask, field: IfEventsNode.next, cls: A }

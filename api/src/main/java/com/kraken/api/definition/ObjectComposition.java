@@ -15,8 +15,8 @@ import java.util.function.IntUnaryOperator;
  * An object's (scenery's) definition: the client's loc type, config group 6, decoded by {@link ObjectDecoder} from the
  * same bytes the client decodes, including the client's post-steps. Get one from {@link Client#getObjectDefinition}.
  *
- * <p>A snapshot of the definition, which doesn't change while the client runs; only {@link #getActions()} depends on
- * live game state. An id the cache has no file for still gives a definition, with the defaults below and name "", as
+ * <p>A snapshot of the definition, which doesn't change while the client runs; only {@link #getActions()} and
+ * {@link #getImpostor()} depend on live game state. An id the cache has no file for still gives a definition, with the defaults below and name "", as
  * in the client.
  *
  * <p>An unset param reads -1 or "" (the API doesn't decode the param definitions that hold the defaults).
@@ -194,7 +194,7 @@ public final class ObjectComposition {
 
     /**
      * The varbit that picks which object this one shows as (opcodes 77/92), or -1 if none. See
-     * {@link #getImpostorIds()}.
+     * {@link #getImpostor()}.
      */
     private final int varbitId;
 
@@ -427,6 +427,29 @@ public final class ObjectComposition {
      */
     public int[] getImpostorIds() {
         return impostorIds.clone();
+    }
+
+    /**
+     * The definition this object shows as now, picked as the client picks it (0x5eaae0 in 241.3): the value of
+     * {@link #getVarbitId()}, else of {@link #getVarPlayerId()} (from the varp copy varbits read), indexes
+     * {@link #getImpostorIds()}; a value below 0, or past the second-to-last id, takes the last id. The name and the
+     * actions the client's menu shows are the shown definition's.
+     *
+     * @return the shown definition; this definition if the object doesn't transform; null if the pick is -1 (the object
+     *         shows nothing), or if this definition was decoded without a client or the shown one can't be read
+     */
+    public ObjectComposition getImpostor() {
+        if (impostorIds.length == 0) {
+            return this;
+        }
+        if (client == null) {
+            return null;
+        }
+        int value = varbitId != -1 ? client.getVarbitValue(varbitId)
+                : varPlayerId != -1 ? client.getVarpValue(varPlayerId) : -1;
+        int last = impostorIds.length - 1;
+        int shown = impostorIds[value < 0 || value >= last ? last : value];
+        return shown == -1 ? null : client.getObjectDefinition(shown);
     }
 
     /**

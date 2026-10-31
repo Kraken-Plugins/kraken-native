@@ -52,6 +52,8 @@
       "interfaces.bucketCount": "0x413cc8",
       "subInterfaces.buckets": "0x413ba0",
       "subInterfaces.bucketCount": "0x413ba8",
+      "ifEvents.buckets": "0x413d70",
+      "ifEvents.bucketCount": "0x413d78",
       "interfaceStore": "0x413bd8",
       "renderCycle": "0x4133fc",
       "mapLoader": "0x49a8",
@@ -256,6 +258,13 @@
       "group": "0x4",
       "type": "0x8"
     },
+    "IfEventsNode": {
+      "key": "0x0",
+      "from": "0x4",
+      "to": "0x8",
+      "events": "0xc",
+      "next": "0x18"
+    },
     "IfStore": {
       "groupCount": "0x6888",
       "groups": "0x6890"
@@ -347,7 +356,8 @@
       "modelSpin": "0x134",
       "orthog": "0x138",
       "linkObjType": "0xb38",
-      "linkObjCount": "0xb3c"
+      "linkObjCount": "0xb3c",
+      "events": "0x2b0"
     },
     "CollisionMapRecord": {
       "stride": "0x28",
@@ -367,7 +377,9 @@
       "rows": "0x280",
       "open": "0x7c0",
       "clicked": "0x3d8",
-      "clickCycles": "0x534"
+      "clickCycles": "0x534",
+      "playerOps": "0x898",
+      "playerOpPriorities": "0x958"
     },
     "MinimenuEntry": {
       "size": "0x150",

@@ -240,6 +240,46 @@ class WidgetTest {
     }
 
     @Test
+    void theClickMaskIsTheServersForTheSlotElseTheWidgetsOwn() {
+        Widget root = client.getWidget(INVENTORY, 0);
+        assertEquals(GameFixture.INVENTORY_SLOT_EVENTS, root.getChild(0).getClickMask(),
+                "slot 0's range, past another id in the bucket and a range without the slot");
+        assertEquals(0, root.getChild(1).getClickMask(), "slot 1 is in no range and has no events of its own");
+        assertEquals(0, root.getClickMask(), "the static root (slot -1) is in no range");
+        assertEquals(GameFixture.CHAT_TAB_EVENTS, client.getWidget(CHATBOX, 1).getClickMask(),
+                "no range for the component: its own");
+        assertTrue((client.getWidget(CHATBOX, 1).getClickMask() & WidgetConfig.PAUSE_BUTTON) != 0);
+    }
+
+    @Test
+    void theServersClickMasksAreReadWhenAsked() {
+        Widget slot = client.getWidget(INVENTORY, 0).getChild(0);
+        game.setServerEvents(new int[]{INVENTORY << 16, 0, 27, WidgetConfig.USE_GROUND_ITEM});
+        assertEquals(WidgetConfig.USE_GROUND_ITEM, slot.getClickMask());
+        game.setServerEvents(new int[]{INVENTORY << 16, -1, -1, WidgetConfig.USE_PLAYER});
+        assertEquals(WidgetConfig.USE_PLAYER, client.getWidget(INVENTORY, 0).getClickMask(), "a static range");
+        assertEquals(GameFixture.INVENTORY_ITEM_EVENTS, slot.getClickMask(), "no range for slot 0: its own");
+        game.setServerEvents();
+        assertEquals(GameFixture.INVENTORY_ITEM_EVENTS, slot.getClickMask());
+        game.memory.putInt(CLIENT + game.map.offset("Client.ifEvents.bucketCount"), 0);
+        assertEquals(GameFixture.INVENTORY_ITEM_EVENTS, slot.getClickMask(), "an empty map");
+    }
+
+    @Test
+    void theClickMaskBitsAreTheClients() {
+        assertEquals(2, WidgetConfig.transmitAction(0));
+        assertEquals(1 << 10, WidgetConfig.transmitAction(9));
+        assertEquals(WidgetConfig.transmitAction(8), WidgetConfig.SHOW_MENU_OPTION_NINE);
+        int[] targets = {WidgetConfig.USE_GROUND_ITEM, WidgetConfig.USE_NPC, WidgetConfig.USE_OBJECT,
+                WidgetConfig.USE_PLAYER, WidgetConfig.USE_WIDGET};
+        int[] selection = {0x1, 0x2, 0x4, 0x8, 0x20};
+        for (int i = 0; i < targets.length; i++) {
+            assertEquals(selection[i], targets[i] >> 11 & 0x3f, "the selection's target mask bit");
+        }
+        assertEquals(1, WidgetConfig.DRAG >> 17 & 7, "a drag depth of 1");
+    }
+
+    @Test
     void dynamicChildLinksFollowTheLayers() {
         Widget inv = client.getWidget(INVENTORY, 0);
         Widget layer = inv.getChild(1);

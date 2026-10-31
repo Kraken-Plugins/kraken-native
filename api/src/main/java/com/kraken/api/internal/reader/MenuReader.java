@@ -18,8 +18,9 @@ import java.util.stream.IntStream;
 
 /**
  * Reads the client's minimenu (the right-click menu) behind {@code Client.minimenu}: the rows of the menu it shows,
- * whether it is open, and the copy of the entry it last ran. {@link Client} uses it for {@code getMenuEntries} and
- * {@code isMenuOpen}, the event source for the menu events.
+ * whether it is open, the copy of the entry it last ran, and the options the server set for other players.
+ * {@link Client} uses it for {@code getMenuEntries}, {@code isMenuOpen} and {@code getPlayerOptions}, the event source
+ * for the menu events.
  *
  * <p>While the menu is closed the client rebuilds the rows every cycle from what the mouse is over; while it is open
  * they hold the opened menu. The rows are a vector of nodes {@code {list, index, children}}, top row first: a row's
@@ -34,7 +35,12 @@ import java.util.stream.IntStream;
  * (no subject, {@link MenuEdits#ROW_OP} as its op, its row id as the type id) reads as the plugin's own
  * {@link MenuEntry}.
  *
- * <p>The keys are optional: with a mapping that lacks them the menu reads empty and closed.
+ * <p>The player options are a table of {@value #PLAYER_OPTIONS} eastl strings in the Minimenu object
+ * ({@code Minimenu.playerOps}, op 1 first, "" for an option the server hasn't set) and a byte per option
+ * ({@code Minimenu.playerOpPriorities}) that lists the option below Walk here when set.
+ *
+ * <p>The keys are optional: with a mapping that lacks them the menu reads empty and closed, and the player options
+ * read empty.
  */
 public final class MenuReader extends GameReader {
 
@@ -58,6 +64,11 @@ public final class MenuReader extends GameReader {
      * Most sub-option rows read under one op; a sub-menu holds far fewer.
      */
     private static final int MAX_SUB_OPTIONS = 64;
+
+    /**
+     * Options the server can set for other players: op 1 to op 8.
+     */
+    public static final int PLAYER_OPTIONS = 8;
 
     private static final MenuAction[] NPC_OPS = {MenuAction.NPC_FIRST_OPTION, MenuAction.NPC_SECOND_OPTION,
             MenuAction.NPC_THIRD_OPTION, MenuAction.NPC_FOURTH_OPTION, MenuAction.NPC_FIFTH_OPTION};
@@ -85,6 +96,8 @@ public final class MenuReader extends GameReader {
     private final int mOpen;
     private final int mClicked;
     private final int mClickCycles;
+    private final int mPlayerOps;
+    private final int mPlayerOpPriorities;
 
     private final int nodeList;
     private final int nodeIndex;
@@ -127,6 +140,8 @@ public final class MenuReader extends GameReader {
         this.mOpen = optionalOffset("Minimenu.open");
         this.mClicked = optionalOffset("Minimenu.clicked");
         this.mClickCycles = optionalOffset("Minimenu.clickCycles");
+        this.mPlayerOps = optionalOffset("Minimenu.playerOps");
+        this.mPlayerOpPriorities = optionalOffset("Minimenu.playerOpPriorities");
         this.nodeList = containerOr("minimenu.node.list", -1);
         this.nodeIndex = containerOr("minimenu.node.index", -1);
         this.nodeChildren = containerOr("minimenu.node.children", -1);
@@ -275,12 +290,64 @@ public final class MenuReader extends GameReader {
     }
 
     /**
-     * The Minimenu object.
+     * The options the server set for right-clicking other players ("Trade with", "Follow", "Attack" in a PvP area),
+     * read in one block.
+     *
+     * @return {@value #PLAYER_OPTIONS} entries, index 0 being op 1, null for an option the server hasn't set; empty if
+     *         the table can't be read or the mapping lacks {@code Minimenu.playerOps}
+     */
+    public String[] playerOptions() {
+        long owner = owner();
+        int size = structs.stringSize();
+        ByteBuffer block = owner == 0 || mPlayerOps < 0 ? null : readBlock(owner + mPlayerOps, PLAYER_OPTIONS * size);
+        if (block == null) {
+            return new String[0];
+        }
+        String[] options = new String[PLAYER_OPTIONS];
+        for (int i = 0; i < PLAYER_OPTIONS; i++) {
+            String option = structs.string(block.array(), owner + mPlayerOps, i * size);
+            options[i] = option.isEmpty() ? null : option;
+        }
+        return options;
+    }
+
+    /**
+     * Which player options the client lists below Walk here: those the server sent with a priority flag of 0. The
+     * client gives "Attack" its own place whatever this says.
+     *
+     * @return {@value #PLAYER_OPTIONS} entries, index 0 being op 1, true for a low-priority option; empty if the bytes
+     *         can't be read or the mapping lacks {@code Minimenu.playerOpPriorities}
+     */
+    public boolean[] playerOptionPriorities() {
+        long owner = owner();
+        ByteBuffer block = owner == 0 || mPlayerOpPriorities < 0 ? null
+                : readBlock(owner + mPlayerOpPriorities, PLAYER_OPTIONS);
+        if (block == null) {
+            return new boolean[0];
+        }
+        boolean[] low = new boolean[PLAYER_OPTIONS];
+        for (int i = 0; i < PLAYER_OPTIONS; i++) {
+            low[i] = block.get(i) != 0;
+        }
+        return low;
+    }
+
+    /**
+     * The Minimenu object, when every key of the menu's rows is mapped.
      *
      * @return its address, or 0 if unreadable or not mapped
      */
     private long menu() {
-        if (!mapped) {
+        return mapped ? owner() : 0;
+    }
+
+    /**
+     * The Minimenu object, needing only {@code Client.minimenu}.
+     *
+     * @return its address, or 0 if unreadable or not mapped
+     */
+    private long owner() {
+        if (cMinimenu < 0) {
             return 0;
         }
         long base = clientBase();

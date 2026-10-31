@@ -25,11 +25,30 @@ set ops call the invalidate the same way after their store.
                    IfType.text first; functions.ifInvalidate: the one function the case then calls with the client
                    ([global.client]) and the resolver's return.
 
+A component's click mask (its events: which ops go to the server, what a selected spell or item can be used on, how it
+drags) is the server's for its slot when the server set one, else the component's own. The server's are a
+hash_multimap on the Client from a component's packed id to slot ranges, each with the events and the op mask the
+server set for the slots from..to (IF_SETEVENTS; a static component's slot is -1). The handler of ops 1800-1899
+(cc_gettargetmask, cc_getop, ...) dispatches through a byte table like the 1300 handler; the case of op 1800
+(cc_gettargetmask) calls one function with the client and the runner's active component and pushes bits 11-16 of what
+it returns. That getter passes the client plus the map's offset to the map's equal_range lookup, walks the nodes it
+returns comparing the component's IfType.subId with each node's slot bounds, and returns the node's events from the
+first range holding the slot, else the component's own events field.
+
+  cs2_click_mask   Client.ifEvents.buckets, Client.ifEvents.bucketCount: the map's offset (the getter's client plus
+                   offset argument to the lookup) plus the lookup's bucket array and bucket count, recognised from its
+                   division by the count; IfEventsNode.key, IfEventsNode.next: the lookup's node key and chain
+                   pointer; IfEventsNode.from, IfEventsNode.to: the two node fields the getter compares the slot with,
+                   told apart by the jump after each compare; IfEventsNode.events: the node field the getter returns;
+                   IfType.events: the component field it returns otherwise.
+
 Output keys: IfType.dragDeadZone, IfType.dragDeadTime, ScriptRunner.activeComponent, ScriptRunner.dotComponent,
-functions.stringAssign, functions.ifInvalidate.
+functions.stringAssign, functions.ifInvalidate, Client.ifEvents.buckets, Client.ifEvents.bucketCount,
+IfEventsNode.key, IfEventsNode.next, IfEventsNode.from, IfEventsNode.to, IfEventsNode.events, IfType.events.
 """
 from .analysis.provenance import Add, Arg, Bin, Const, Deref, Global, Mul, Ret
 from .scripts import _case_facts, _int_stack, _op_cases, _table_cases
+from .strategies import recognize_hash_maps
 
 OP_RANGE = 1300                  # the cs2 ops this handler runs
 DRAG = {                         # the ops that set a drag field, with their names
@@ -38,6 +57,10 @@ DRAG = {                         # the ops that set a drag field, with their nam
 }
 SET_RANGE = 1100                 # the cs2 ops of the handler that sets a component's look
 SET_TEXT = (1112, "cc_settext")
+GET_RANGE = 1800                 # the cs2 ops of the handler that reads a component's ops and events
+TARGET_MASK = (1800, "cc_gettargetmask")
+LOWER_BOUND = {"JL", "JGE"}      # after CMP slot, field: the field is the range's first slot
+UPPER_BOUND = {"JLE", "JG"}      # after CMP slot, field: the field is the range's last slot
 
 
 def cs2_components(session, p):
@@ -118,6 +141,111 @@ def cs2_set_text(session, p):
     return out
 
 
+def cs2_click_mask(session, p):
+    model = session.model
+    ptr = session.value("container.shared_ptr.ptr")
+    sub_id = session.value("IfType.subId")
+    client = Deref(Global(session.value("global.client")), 0, 8)
+    op, name = TARGET_MASK
+    handler = _byte_table_handler(model, GET_RANGE, [op])
+    if handler is None:
+        session.notes.append(f"components: no cs2 handler subtracts {GET_RANGE} and jumps through a byte table")
+        return {}
+    fn, cases, bounds = handler
+    calls = [c for c in _case_facts(session.prov.facts(fn), cases[op - GET_RANGE], bounds)["calls"]
+             if c.target is not None and c.args and c.args[0] == client]
+    getters = {model.resolve(c.target) for c in calls}
+    if len(getters) != 1:
+        session.notes.append(f"components: {name}'s case (op {op}) calls {len(getters)} functions with the client")
+        return {}
+    getter, call_rva = getters.pop(), calls[0].rva
+    facts = session.prov.facts(getter)
+    lookups = [(c, c.args[0].off) for c in facts.calls if c.target is not None and c.args
+               and isinstance(c.args[0], Add) and c.args[0].base == Arg(0) and c.args[0].off > 0]
+    if len(lookups) != 1:
+        session.notes.append(f"components: the click mask getter {getter:#x} passes the client plus an offset to "
+                             f"{len(lookups)} functions")
+        return {}
+    lookup_call, map_off = lookups[0]
+    lookup = model.resolve(lookup_call.target)
+    maps = [m for m in recognize_hash_maps(session.prov.facts(lookup), model) if m.base == Arg(0)]
+    if len(maps) != 1 or maps[0].node_key is None or maps[0].node_next is None:
+        session.notes.append(f"components: the lookup {lookup:#x} the click mask getter calls is not one hash map "
+                             f"lookup with a node key and chain")
+        return {}
+    hm = maps[0]
+    component = Deref(Arg(1), ptr, 8)
+    slot = Deref(component, sub_id, 4)
+    ranges = _slot_bounds(model, facts, slot)
+    if ranges is None:
+        session.notes.append(f"components: the click mask getter {getter:#x} doesn't compare the slot with a first "
+                             f"and a last slot of one node")
+        return {}
+    node, (lower, lower_rva), (upper, upper_rva) = ranges
+    node_events = [(r.value.off, r.rva) for r in facts.returns
+                   if isinstance(r.value, Deref) and r.value.base == node and r.value.size == 4
+                   and r.value.index is None]
+    own_events = [(r.value.off, r.rva) for r in facts.returns
+                  if isinstance(r.value, Deref) and r.value.base == component and r.value.size == 4
+                  and r.value.index is None]
+    steps = [l for l in facts.loads if l.value == Deref(node, hm.node_next, 8)]
+    if len(node_events) != 1 or len(own_events) != 1 or not steps:
+        session.notes.append(f"components: the click mask getter {getter:#x} returns {len(node_events)} node fields "
+                             f"and {len(own_events)} component fields, and steps along the chain {len(steps)} times")
+        return {}
+    (events, events_rva), = node_events
+    (own, own_rva), = own_events
+    anchor = [session.evidence(call_rva, fn, "rip")]
+    map_rva = next((a.rva for a in facts.addrs if a.value == lookup_call.args[0]), lookup_call.rva)
+    return {
+        "Client.ifEvents.buckets": (map_off + hm.buckets, [session.evidence(map_rva, getter, "imm")],
+                                    f"the click mask getter passes the client plus {map_off:#x} to the lookup, which "
+                                    f"loads the bucket array at +{hm.buckets:#x}"),
+        "Client.ifEvents.bucketCount": (map_off + hm.count, [session.evidence(hm.rva, lookup, "disp")],
+                                        f"the lookup divides the key by the count at +{hm.count:#x} of the map"),
+        "IfEventsNode.key": (hm.node_key, [session.evidence(hm.rva, lookup, "disp")],
+                             "the lookup compares the component id with the node's key"),
+        "IfEventsNode.next": (hm.node_next, [session.evidence(steps[0].rva, getter, "disp")],
+                              "the lookup and the getter follow the chain through this pointer"),
+        "IfEventsNode.from": (lower, [session.evidence(lower_rva, getter, "disp")] + anchor,
+                              f"the getter skips a node whose first slot is above the component's ({name}'s getter)"),
+        "IfEventsNode.to": (upper, [session.evidence(upper_rva, getter, "disp")] + anchor,
+                            f"the getter takes a node whose last slot is at or past the component's ({name}'s getter)"),
+        "IfEventsNode.events": (events, [session.evidence(events_rva, getter, "disp")] + anchor,
+                                "the getter returns this field of the node whose range holds the slot"),
+        "IfType.events": (own, [session.evidence(own_rva, getter, "disp")] + anchor,
+                          "the getter returns this field of the component when no node's range holds its slot"),
+    }
+
+
+def _slot_bounds(model, facts, slot):
+    """(node, (first slot offset, rva), (last slot offset, rva)) from the getter's two compares of the component's slot
+    with 4-byte fields of one node, read off the conditional jump after each; else None."""
+    lower, upper = {}, {}
+    for c in facts.cmps:
+        for a, b, flipped in ((c.a, c.b, False), (c.b, c.a, True)):
+            if a != slot or not isinstance(b, Deref) or b.size != 4 or b.index is not None \
+                    or not isinstance(b.base, Deref) or b.base.size != 8:
+                continue
+            insn = model.insn(c.rva)
+            jump = model.insn(insn.fallthrough) if insn is not None and insn.fallthrough is not None else None
+            if jump is None or not jump.is_cond_jump:
+                continue
+            first = jump.mnem in LOWER_BOUND
+            if jump.mnem not in LOWER_BOUND | UPPER_BOUND:
+                continue
+            (lower if first != flipped else upper).setdefault((b.base, b.off), c.rva)
+    nodes = {node for node, _ in lower} & {node for node, _ in upper}
+    if len(nodes) != 1:
+        return None
+    node = nodes.pop()
+    firsts = [(off, rva) for (n, off), rva in lower.items() if n == node]
+    lasts = [(off, rva) for (n, off), rva in upper.items() if n == node]
+    if len(firsts) != 1 or len(lasts) != 1 or firsts[0][0] == lasts[0][0]:
+        return None
+    return node, firsts[0], lasts[0]
+
+
 def _field_holder(value, ptr, offset):
     """The holder of a [holder + ptr]8 + offset address: a field of the component held in a shared_ptr, the holder
     being what the resolver call returned or the address it computes; else None."""
@@ -135,14 +263,20 @@ def _field_holder(value, ptr, offset):
 def _handler(model):
     """(fn, {op - 1300: case rva}, sorted case rvas) of the one function that subtracts 1300 and dispatches through a
     byte table and a case table, else None."""
-    imm = (-OP_RANGE) & 0xffffffff
-    candidates = {fn for _, fn in model.insns_with_disp(-OP_RANGE, "LEA") if fn is not None}
+    return _byte_table_handler(model, OP_RANGE, [op for op, _ in DRAG.values()])
+
+
+def _byte_table_handler(model, op_range, ops):
+    """(fn, {op - op_range: case rva}, sorted case rvas) of the one function that subtracts op_range and dispatches
+    through a byte table and a case table with a case for each of ops, else None."""
+    imm = (-op_range) & 0xffffffff
+    candidates = {fn for _, fn in model.insns_with_disp(-op_range, "LEA") if fn is not None}
     candidates |= {fn for _, fn in model.insns_with_imm(imm, "ADD") if fn is not None}
-    candidates |= {fn for _, fn in model.insns_with_imm(-OP_RANGE, "ADD") if fn is not None}
+    candidates |= {fn for _, fn in model.insns_with_imm(-op_range, "ADD") if fn is not None}
     found = []
     for fn in sorted(candidates):
         dispatch = _op_cases(model, fn)
-        if dispatch is not None and all(op - OP_RANGE in dispatch[0] for op, _ in DRAG.values()):
+        if dispatch is not None and all(op - op_range in dispatch[0] for op in ops):
             found.append((fn, *dispatch))
     return found[0] if len(found) == 1 else None
 

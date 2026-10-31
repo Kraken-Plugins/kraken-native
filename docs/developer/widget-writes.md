@@ -119,8 +119,8 @@ throws, since the API can't build a script's arguments in the game.
 
 ## Recipes
 
-[`73-components.yaml`](../../updater/src/native_updater/spec/73-components.yaml) holds the keys; two extractors find
-them:
+[`73-components.yaml`](../../updater/src/native_updater/spec/73-components.yaml) holds the keys; these extractors
+find them:
 
 * **`cs2_components`** ([`components.py`](../../updater/src/native_updater/components.py)): the handler of ops 1300 to
   1399, found by its `- 1300` and its byte table of case indices. The cases of ops 1303 and 1304 store the popped int
@@ -132,6 +132,12 @@ them:
   1199, found by its `- 1100` and its plain case table. In op 1112's case (`cc_settext`), `functions.stringAssign` is
   the one function called with the resolved component plus `IfType.text` first, and `functions.ifInvalidate` the one
   called after it with the client (`[global.client]`) and the resolver's return.
+* **`cs2_click_mask`** ([`components.py`](../../updater/src/native_updater/components.py)), for the click mask
+  `Widget.getClickMask` reads rather than a write: the handler of ops 1800 to 1828, found like the 1300 handler. Op
+  1800's case (`cc_gettargetmask`) calls the click mask getter with the client. The getter passes `client + offset` to
+  a hash map lookup, which gives `Client.ifEvents.buckets`, `bucketCount`, `IfEventsNode.key` and `next`; the jumps
+  after its compares against `IfType.subId` tell `IfEventsNode.from` from `to`; and its two returns are
+  `IfEventsNode.events` and, when no range matches, `IfType.events`.
 * **`component_listeners`** ([`keyboard.py`](../../updater/src/native_updater/keyboard.py)), which also gives
   `IfType.onKey`: case 12 of the handler of ops 1400 to 1499 (`cc_setonmouserepeat`) points its slot register at
   `IfType.onMouseRepeat`, and `functions.ifListenerClear` is the one function the slot's resize calls with the slot

@@ -1,11 +1,19 @@
 package com.kraken.api;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import com.kraken.api.coords.WorldPoint;
+import com.kraken.api.mapping.Mapping;
 import com.kraken.api.widgets.Widget;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static com.kraken.api.GameFixture.BASE_X;
 import static com.kraken.api.GameFixture.BASE_Z;
@@ -22,6 +30,7 @@ import static com.kraken.api.GameFixture.MENU_TRADE;
 import static com.kraken.api.GameFixture.MENU_USE_ON_GOBLIN;
 import static com.kraken.api.GameFixture.MENU_WALK;
 import static com.kraken.api.GameFixture.TREE_LOC;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -32,7 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The minimenu over the {@link GameFixture}: the rows' order, the action, identifier and parameters worked out of
- * each native entry, the lookups an entry makes, and the open flag.
+ * each native entry, the lookups an entry makes, the open flag, and the player options the server set.
  */
 class MenuTest {
 
@@ -182,5 +191,45 @@ class MenuTest {
         MenuEntry[] entries = client.getMenuEntries();
         assertEquals(2, entries.length);
         assertEquals("Walk here", entries[1].getOption());
+    }
+
+    @Test
+    void readsThePlayerOptionsOpOneFirstWithNullForUnset() {
+        assertArrayEquals(new String[]{null, null, "Follow", "Trade with", null, null, null, "Report"},
+                client.getPlayerOptions());
+        assertArrayEquals(new boolean[8], client.getPlayerOptionsPriorities());
+    }
+
+    @Test
+    void readsOptionsTheServerChangesAndTheirPriority() {
+        game.setPlayerOption(2, "Attack", true);
+        game.setPlayerOption(3, null, false);
+        String challenge = "<col=ff9040>Challenge</col> a long way off";
+        game.setPlayerOption(5, challenge, false);
+        String[] options = client.getPlayerOptions();
+        assertEquals("Attack", options[1]);
+        assertNull(options[2], "an option set to none reads null");
+        assertEquals(challenge, options[4], "text too long for the string's own buffer is read from the heap");
+        assertArrayEquals(new boolean[]{false, true, false, false, false, false, false, false},
+                client.getPlayerOptionsPriorities());
+    }
+
+    @Test
+    void aMappingWithoutThePlayerOptionKeysReadsNoOptions(@TempDir Path dir) throws IOException {
+        JsonObject json;
+        try (InputStreamReader in = new InputStreamReader(Mapping.class.getClassLoader()
+                .getResourceAsStream(Mapping.RESOURCE_DIR + game.map.version() + ".json"), StandardCharsets.UTF_8)) {
+            json = new Gson().fromJson(in, JsonObject.class);
+        }
+        JsonObject minimenu = json.getAsJsonObject("structs").getAsJsonObject("Minimenu");
+        minimenu.remove("playerOps");
+        minimenu.remove("playerOpPriorities");
+        Path file = dir.resolve(game.map.version() + ".json");
+        Files.writeString(file, json.toString());
+
+        Client older = new Client(game.memory, Mapping.load(file));
+        assertEquals(0, older.getPlayerOptions().length);
+        assertEquals(0, older.getPlayerOptionsPriorities().length);
+        assertEquals(MENU_ROWS, older.getMenuEntries().length, "the rest of the menu still reads");
     }
 }

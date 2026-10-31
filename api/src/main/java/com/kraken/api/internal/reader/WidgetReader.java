@@ -49,7 +49,7 @@ public final class WidgetReader extends GameReader {
             "model2Id", "modelAnim", "modelAnim2", "modelXOf", "modelYOf", "modelXAn", "modelYAn", "modelZAn",
             "modelZoom", "modelWid", "modelHei", "modelSpin", "orthog", "text", "text2", "overlayId", "baseOpName",
             "opCount", "opNames", "linkObjType", "linkObjCount", "dynCount", "dynSlots", "renderCycle", "subOpCount",
-            "subOpNames", "onKey", "onMouseRepeat", "dragDeadZone", "dragDeadTime"
+            "subOpNames", "onKey", "onMouseRepeat", "dragDeadZone", "dragDeadTime", "events"
     };
 
     /**
@@ -93,6 +93,13 @@ public final class WidgetReader extends GameReader {
     private final int subMode;
     private final int subLow;
     private final int subSpan;
+    private final int cEvents;
+    private final int cEventsCount;
+    private final int eventsKey;
+    private final int eventsFrom;
+    private final int eventsTo;
+    private final int eventsMask;
+    private final int eventsNext;
     private final int cTopLevel;
     private final int listenerCount;
     private final int listenerArgs;
@@ -148,6 +155,13 @@ public final class WidgetReader extends GameReader {
         this.subGroup = optionalOffset("SubInterfaceNode.group");
         this.subNext = optionalOffset("SubInterfaceNode.next");
         this.subMode = optionalOffset("SubInterfaceNode.type");
+        this.cEvents = optionalOffset("Client.ifEvents.buckets");
+        this.cEventsCount = optionalOffset("Client.ifEvents.bucketCount");
+        this.eventsKey = optionalOffset("IfEventsNode.key");
+        this.eventsFrom = optionalOffset("IfEventsNode.from");
+        this.eventsTo = optionalOffset("IfEventsNode.to");
+        this.eventsMask = optionalOffset("IfEventsNode.events");
+        this.eventsNext = optionalOffset("IfEventsNode.next");
         this.cTopLevel = optionalOffset("Client.topLevelInterface");
         this.listenerCount = optionalOffset("IfListener.count");
         this.listenerArgs = optionalOffset("IfListener.args");
@@ -484,6 +498,41 @@ public final class WidgetReader extends GameReader {
             at = parent;
         }
         return null;
+    }
+
+    /**
+     * A component's click mask, read now as the client's menu and {@code cc_gettargetmask} resolve it: the events the
+     * server set (IF_SETEVENTS) on a slot range of the component holding its slot, else the component's own
+     * {@code IfType.events}. The server's ranges are a hash multimap on the client from the component's packed id
+     * (bucket {@code id % bucketCount}), each node holding the first and last slot of a range and its events.
+     *
+     * @param packedId the component's packed id ({@code IfType.packedId}; a dynamic child has its static parent's)
+     * @param subId    the component's slot: its index among its static parent's dynamic children, -1 for a static
+     *                 component
+     * @param own      the component's own events, as its snapshot holds them
+     * @return the events of the first range holding the slot; {@code own} if none does, or if the server's ranges
+     *         can't be read or this build's mapping lacks them
+     */
+    public int clickMask(int packedId, int subId, int own) {
+        long client = clientBase();
+        if (client == 0 || cEvents < 0 || cEventsCount < 0 || eventsKey < 0 || eventsFrom < 0 || eventsTo < 0
+                || eventsMask < 0 || eventsNext < 0) {
+            return own;
+        }
+        long buckets = safePointer(client + cEvents);
+        long count = safeInt(client + cEventsCount, 0) & 0xffffffffL;
+        if (buckets == 0 || count == 0 || count > MAX_SLOTS) {
+            return own;
+        }
+        long node = safePointer(buckets + Integer.toUnsignedLong(packedId) % count * 8L);
+        for (int steps = 0; node != 0 && steps < MAX_CHAIN; steps++) {
+            if (safeInt(node + eventsKey, -1) == packedId && safeInt(node + eventsFrom, Integer.MAX_VALUE) <= subId
+                    && subId <= safeInt(node + eventsTo, Integer.MIN_VALUE)) {
+                return safeInt(node + eventsMask, own);
+            }
+            node = safePointer(node + eventsNext);
+        }
+        return own;
     }
 
     /**

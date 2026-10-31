@@ -422,7 +422,11 @@ records. Each one is a separate reader.
   component pointer is at `+0x8`. `getWidget(group, child)` looks up `group << 16 | child`. A static component's dynamic
   children hang off its `dynSlots`, counted by `dynCount`. The groups on screen are in the open-interface map
   (`Client.interfaces`). The groups opened inside a component are in `Client.subInterfaces`, keyed by that component's
-  id. The top-level interface id is `Client.topLevelInterface`.
+  id. The top-level interface id is `Client.topLevelInterface`. A component's click mask (`Widget.getClickMask`) is
+  the events the server set on a slot range holding its slot, else its own `IfType.events` (`+0x2B0`). The server's
+  ranges are a hash_multimap on the client, `Client.ifEvents.buckets` and `bucketCount` (bucket = packed id % count),
+  whose `IfEventsNode`s hold the packed id (`key`), the first and last slot (`from`, `to`; -1 for a static component),
+  the `events` and `next`.
 * **Inventories.** The `inventories.buckets` global points at the bucket heads, and `inventories.bucketCount` gives the
   count. Each node has the inventory id at `+0x0`, `next` at `+0x38`, the slot ids as a vector at `+0x8` and `+0x10`,
   and the counts as a vector at `+0x20` and `+0x28`. The slot count comes from the inventory's definition
@@ -430,7 +434,9 @@ records. Each one is a separate reader.
 * **Menu.** `Client.minimenu` points at a `Minimenu`. Its `rows` vector (`+0x280`) holds 0x18-byte nodes of `{list,
   index, children}`. A row's entry is `list.entries` (`+0x18`) plus `index` times `MinimenuEntry.size` (0x150). A node
   without a list is a submenu group, and it shows its first child's entry. `open` (`+0x7C0`) is the open flag,
-  `clicked` (`+0x3D8`) holds a copy of the last entry run, and `clickCycles` (`+0x534`) says when.
+  `clicked` (`+0x3D8`) holds a copy of the last entry run, and `clickCycles` (`+0x534`) says when. The options the
+  server set for other players are there too: `playerOps` (`+0x898`), eight EASTL strings with op 1 first and "" for
+  an unset option, and `playerOpPriorities` (`+0x958`), a byte each, set for an option listed below Walk here.
 * **Chat.** The `chatLines.buckets` and `chatLines.bucketCount` globals hold a hash_map from line id to `ChatLine`. The
   `chatLines.nextId` global is the next id. A `ChatLine` has its type at `+0x40`, its cycle at `+0x8`, and its name,
   text and sender as EASTL strings at `+0x48`, `+0x70` and `+0xA0`. Lines added between two reads have ids from the
@@ -599,8 +605,9 @@ flowchart LR
 * **Membership.** An item's decode depends on whether the client is on a members world, so the item cache key includes
   that as a variant bit.
 * **Live conditions.** `ItemComposition` and `ObjectComposition` resolve their conditional ground and inventory ops
-  against the client at read time (`client::getVarpValue`, `client::getVarbitValue`). The definition itself is
-  cached, the choice is not.
+  against the client at read time (`client::getVarpValue`, `client::getVarbitValue`), and
+  `ObjectComposition.getImpostor()` picks the loc a multi-loc shows as the same way. The definition itself is cached,
+  the choice is not.
 * **Varbits.** `ConfigTypes.varbitsByVarp()` decodes every varbit once and groups the ids by the varp they live in. It
   matches the client's own index, which fires the varbit events.
 * **The cache** is an LRU of 8192 entries keyed by group and id. `checkArchive()` clears it if the archive's address

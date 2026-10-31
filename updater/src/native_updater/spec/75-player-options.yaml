@@ -1,0 +1,22 @@
+# The options the server sets for right-clicking other players ("Trade with", "Follow", "Attack", ...). The minimenu
+# owner keeps them as eight eastl strings, op 1 first, and a byte per option saying it is listed below Walk here. The
+# player row builder (the caller of the adder that takes functions.menuPlayerOp's address) hands the table and each
+# option's index to a string accessor and a priority accessor; the case of cs2 op 6907 reads the same table through
+# Client.minimenu (extractor `player_ops`, playerops.py). No Lua binding touches the table.
+keys:
+  - key: Minimenu.playerOps
+    type: eastl.string[8]
+    priority: P1
+    doc: The player options, op 1 first; an option the server hasn't set (or set to "null") is an empty string. The
+      player row builder adds a row for every option that is set, with op = index + 1.
+    strategies:
+      - extractor: { name: player_ops, field: Minimenu.playerOps, cls: A }
+  - key: Minimenu.playerOpPriorities
+    type: u8[8]
+    priority: P1
+    doc: One byte per player option, op 1 first; 1 lists the option below Walk here (the server sent its priority flag
+      as 0), 0 lists it normally. The builder gives "Attack" its own priority whatever the byte says.
+    strategies:
+      - extractor: { name: player_ops, field: Minimenu.playerOpPriorities, cls: A }
+    invariants:
+      - equals: "Minimenu.playerOps + 8 * container.string.size"

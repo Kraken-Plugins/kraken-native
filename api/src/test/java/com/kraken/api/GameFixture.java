@@ -2,6 +2,7 @@ package com.kraken.api;
 
 import com.kraken.api.actor.NPC;
 import com.kraken.api.mapping.Mapping;
+import com.kraken.api.widgets.WidgetConfig;
 import com.kraken.api.widgets.WidgetType;
 
 import java.io.IOException;
@@ -40,7 +41,9 @@ import static com.kraken.api.TestSupport.seedMapping;
  *       loaded). 149 and 162 are open, chained in one bucket of the open-interface map. 149:0 is a layer with dynamic
  *       children [0] (an item slot: drag dead time 5, dead zone 8, and a mouse-repeat listener running
  *       {@link #MOUSE_REPEAT_SCRIPT}), [1] (a dynamic layer) and [2] (text inside [1]); 162:0 is a top-level layer
- *       holding 162:1 (text "All", drawn this frame, with an op) and 162:2 (hidden, its text on the heap).
+ *       holding 162:1 (text "All", drawn this frame, with an op) and 162:2 (hidden, its text on the heap). The item
+ *       slot and 162:1 have click masks of their own; the server set ones for 149:7, 149:0's slots 5-27 and its slot 0
+ *       ({@link #INVENTORY_SLOT_EVENTS}), chained in one bucket ({@link #setServerEvents} lays them out again).
  *   <li>Two graphics objects in the top-level world: a splash ({@link #SPLASH_GRAPHIC}) on tile (3, 4), playing frame
  *       3; and a cannon's smoke ({@link #SMOKE_GRAPHIC}) on tile (5, 2), raised 40 above the ground and not started.
  *   <li>Two projectiles in flight: a spell ({@link #SPELL_PROJECTILE}) from player 7 at NPC 5, placed and drawn; and
@@ -51,7 +54,8 @@ import static com.kraken.api.TestSupport.seedMapping;
  *       the Drop row's node keeps the two sub-option rows {@link #MENU_DROP_ONE} and {@link #MENU_DROP_ALL} as its
  *       children),
  *       the row of {@link #MENU_USE_ON_GOBLIN} being a submenu group holding it. The last entry run is "Cancel", 100
- *       cycles ago.
+ *       cycles ago. The player options the server set: "Follow" (op 3), "Trade with" (op 4) and "Report" (op 8), none
+ *       low priority; {@link #setPlayerOption} changes one.
  *   <li>The script runner between scripts, its int stack holding 10, 20, 30 and its object stack "Lumbridge", 7 and
  *       2^40 (a string, an int and a long), with no active or dot component; {@link #setScriptComponents} sets them.
  *   <li>The chat history: lines 0 (a game message, {@link #WELCOME}) and 1 (public chat from Zezima), the next id 2.
@@ -136,6 +140,23 @@ public final class GameFixture {
     public static final long IF_HEAP = 0xc50000000L;
     public static final long IF_LISTENERS = 0xc70000000L;
     public static final long IF_SUB = 0xc60000000L;
+    public static final long IF_EVENTS = 0xc80000000L;
+
+    /**
+     * The click mask the server set for slot 0 of the inventory's 149:0.
+     */
+    public static final int INVENTORY_SLOT_EVENTS = WidgetConfig.USE_NPC | WidgetConfig.WIDGET_USE_TARGET
+            | WidgetConfig.DRAG | WidgetConfig.transmitAction(0);
+
+    /**
+     * The inventory item's own click mask, which the server's for its slot overrides.
+     */
+    public static final int INVENTORY_ITEM_EVENTS = WidgetConfig.transmitAction(2);
+
+    /**
+     * The click mask of the chatbox's 162:1, its own: the server set none for it.
+     */
+    public static final int CHAT_TAB_EVENTS = WidgetConfig.transmitAction(0) | WidgetConfig.PAUSE_BUTTON;
     public static final long PROJECTILES = 0xb60000000L;
     public static final long GRAPHICS_OBJECTS = 0xb70000000L;
     public static final long KEYED_PROJECTILES = 0xb80000000L;
@@ -239,6 +260,9 @@ public final class GameFixture {
     private static final int SUB_BUCKETS = 7;
     private static final int SUB_NODES = 120;
     private static final int SUB_NODE_SIZE = 0x20;
+    private static final int EVENT_BUCKETS = 7;
+    private static final int EVENT_NODES = 16;
+    private static final int EVENT_NODE_SIZE = 0x20;
 
     /**
      * Spot anim ids of the two projectiles in flight: the spell (first in the list) and the arrow.
@@ -1654,6 +1678,7 @@ public final class GameFixture {
         memory.putSsoString(item + map.offset("IfType.baseOpName"), "Coins");
         memory.putInt(item + map.offset("IfType.dragDeadTime"), 5);
         memory.putInt(item + map.offset("IfType.dragDeadZone"), 8);
+        memory.putInt(item + map.offset("IfType.events"), INVENTORY_ITEM_EVENTS);
         listener(item, "onMouseRepeat", MOUSE_REPEAT_SCRIPT, -2147483645);
         inventoryItem = item;
         ops(item, "Use", "", "Drop");
@@ -1674,6 +1699,7 @@ public final class GameFixture {
         memory.putSsoString(all + map.offset("IfType.text"), "All");
         memory.putInt(all + map.offset("IfType.colour"), 0xffffff);
         memory.putInt(all + map.offset("IfType.renderCycle"), RENDER_CYCLE);
+        memory.putInt(all + map.offset("IfType.events"), CHAT_TAB_EVENTS);
         ops(all, "Switch tab");
         long line = component(chat | 2, -1, -1, chat, WidgetType.TEXT, 0, 0, 500, 14);
         memory.putByte(line + map.offset("IfType.hidden"), 1);
@@ -1714,6 +1740,40 @@ public final class GameFixture {
         memory.putInt(CLIENT + map.offset("Client.subInterfaces.bucketCount"), SUB_BUCKETS);
         setComponentTable(new int[]{top | 1, 149, 1});
         setTopLevelInterface(161);
+
+        // The server's click masks, all in bucket 4 of 7: one for 149:7, whose id shares the bucket, then 149:0's
+        // slots 5-27 and its slot 0
+        memory.alloc(IF_EVENTS, 0x100 + EVENT_NODES * EVENT_NODE_SIZE);
+        memory.putLong(CLIENT + map.offset("Client.ifEvents.buckets"), IF_EVENTS);
+        memory.putInt(CLIENT + map.offset("Client.ifEvents.bucketCount"), EVENT_BUCKETS);
+        setServerEvents(new int[]{inv | 7, -1, -1, WidgetConfig.PAUSE_BUTTON}, new int[]{inv, 5, 27, 0},
+                new int[]{inv, 0, 0, INVENTORY_SLOT_EVENTS});
+    }
+
+    /**
+     * Lays the client's map of the click masks the server set out again with these ranges, as IF_SETEVENTS leaves it:
+     * each range a node appended to its bucket's chain (bucket = component id % 7).
+     *
+     * @param ranges each {@code {component, first slot, last slot, events}}; a static component's slot is -1
+     */
+    public void setServerEvents(int[]... ranges) {
+        long[] tails = new long[EVENT_BUCKETS];
+        for (int b = 0; b < EVENT_BUCKETS; b++) {
+            memory.putLong(IF_EVENTS + b * 8L, 0);
+        }
+        for (int i = 0; i < ranges.length; i++) {
+            int[] range = ranges[i];
+            long node = IF_EVENTS + 0x100 + (long) (i % EVENT_NODES) * EVENT_NODE_SIZE;
+            memory.putInt(node + map.offset("IfEventsNode.key"), range[0]);
+            memory.putInt(node + map.offset("IfEventsNode.from"), range[1]);
+            memory.putInt(node + map.offset("IfEventsNode.to"), range[2]);
+            memory.putInt(node + map.offset("IfEventsNode.events"), range[3]);
+            memory.putLong(node + map.offset("IfEventsNode.next"), 0);
+            int bucket = Integer.remainderUnsigned(range[0], EVENT_BUCKETS);
+            memory.putLong(tails[bucket] == 0 ? IF_EVENTS + bucket * 8L : tails[bucket] + map.offset("IfEventsNode.next"),
+                    node);
+            tails[bucket] = node;
+        }
     }
 
     /**
@@ -2225,6 +2285,9 @@ public final class GameFixture {
             MENU_USE_ON_GOBLIN, MENU_WALK, MENU_CANCEL};
 
     public static final long MENU = 0xb70000000L;
+    private static final int MENU_SIZE = 0x1000;
+    private static final int PLAYER_OPTION_HEAP = 0xa00;
+    private static final int PLAYER_OPTION_HEAP_SLOT = 0x40;
     private static final long MENU_LIST = 0xb71000000L;
     private static final long MENU_ENTRIES = 0xb72000000L;
     private static final long MENU_NODES = 0xb73000000L;
@@ -2324,7 +2387,7 @@ public final class GameFixture {
     private void buildMenu() {
         int entrySize = map.offset("MinimenuEntry.size");
         int nodeSize = map.container("minimenu.node.size");
-        memory.alloc(MENU, 0x900);
+        memory.alloc(MENU, MENU_SIZE);
         memory.alloc(MENU_LIST, 0x40);
         memory.alloc(MENU_ENTRIES, (MENU_ROWS + 1) * entrySize);
         memory.alloc(MENU_NODES, MENU_ROWS * nodeSize);
@@ -2353,6 +2416,37 @@ public final class GameFixture {
         putMenuEntry(MENU + map.offset("Minimenu.clicked"), specs.get(MENU_CANCEL));
         setMenuClickCycles(100);
         setMenuOpen(false);
+        for (int op = 1; op <= 8; op++) {
+            setPlayerOption(op, null, false);
+        }
+        setPlayerOption(3, "Follow", false);
+        setPlayerOption(4, "Trade with", false);
+        setPlayerOption(8, "Report", false);
+    }
+
+    /**
+     * Sets a player option as the server's set-option packet does: an empty string for none, and the byte that lists
+     * the option below Walk here. Text that doesn't fit inline goes in the option's own heap slot.
+     *
+     * @param op          the option, 1-8
+     * @param text        the option's text, or null for none
+     * @param lowPriority whether the client lists it below Walk here
+     */
+    public void setPlayerOption(int op, String text, boolean lowPriority) {
+        long string = MENU + map.offset("Minimenu.playerOps") + (long) (op - 1) * map.container("string.size");
+        memory.putBytes(string, new byte[map.container("string.size")]);
+        String value = text == null ? "" : text;
+        if (value.length() < map.container("string.ssoCapacity")) {
+            memory.putSsoString(string, value);
+        } else {
+            long buffer = MENU + PLAYER_OPTION_HEAP + (long) (op - 1) * PLAYER_OPTION_HEAP_SLOT;
+            byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+            memory.putBytes(buffer, bytes);
+            memory.putLong(string, buffer);
+            memory.putLong(string + 8, bytes.length);
+            memory.putByte(string + map.container("string.heapFlagByte"), map.container("string.heapFlagMask"));
+        }
+        memory.putByte(MENU + map.offset("Minimenu.playerOpPriorities") + op - 1, lowPriority ? 1 : 0);
     }
 
     /**

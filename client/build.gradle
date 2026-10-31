@@ -48,8 +48,9 @@ test {
     systemProperty 'java.awt.headless', 'true'
 }
 
+
 tasks.withType(JavaExec).configureEach {
-    systemProperties = System.properties
+    systemProperties = System.properties.findAll { it.key.toString().startsWith('kraken.') }
 }
 
 // The injected native hook, kraken_hook.dll, built from C++ with CMake and bundled into the jar

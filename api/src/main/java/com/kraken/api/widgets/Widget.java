@@ -728,6 +728,20 @@ public final class Widget {
     }
 
     /**
+     * The widget's click mask, the bits {@link WidgetConfig} names: whether it is a pause button, which of its first
+     * ten ops go to the server, what a spell or item selected from it can be used on (its target mask), how it drags
+     * and whether a selection can be used on it. Read now, as the client's menu reads it: the events the server set
+     * for this widget's slot when it set any, else the widget's own ({@code IfType.events}). {@code cc_gettargetmask}
+     * pushes bits 11-16 of it.
+     *
+     * @return the click mask; the widget's own when the server's can't be read; -1 if the server set none and this
+     *         build's mapping lacks the widget's own
+     */
+    public int getClickMask() {
+        return reader.clickMask(getId(), getIndex(), i32("events"));
+    }
+
+    /**
      * The widget's x relative to its parent, as laid out.
      *
      * @return x in canvas pixels

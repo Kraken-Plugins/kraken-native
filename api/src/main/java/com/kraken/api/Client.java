@@ -1128,6 +1128,29 @@ public final class Client extends GameReader {
     }
 
     /**
+     * The options the server set for right-clicking other players, such as "Trade with" and "Follow", and "Attack" where
+     * players can fight. The client builds a player's menu rows from them in order: index 0 is op 1, the row
+     * {@code MenuAction.PLAYER_FIRST_OPTION} runs, through index 7 for {@code PLAYER_EIGHTH_OPTION}.
+     *
+     * @return eight entries, index 0 being op 1, null for an option the server hasn't set; empty if they can't be read
+     *         or the mapping lacks the player option keys
+     */
+    public String[] getPlayerOptions() {
+        return menuReader.playerOptions();
+    }
+
+    /**
+     * Which player options the client lists below Walk here, by the priority the server sent with each option. The
+     * client gives "Attack" its own place whatever this says.
+     *
+     * @return eight entries, index 0 being op 1, true for an option listed below Walk here; empty if they can't be read
+     *         or the mapping lacks the player option keys
+     */
+    public boolean[] getPlayerOptionsPriorities() {
+        return menuReader.playerOptionPriorities();
+    }
+
+    /**
      * Adds a row of the plugin's own to the menu, next to a row of the menu as it reads now, through the client's
      * native hook ({@link MenuEdits}). Set its option, target and callback on the entry returned; it is sent at the
      * end of the client thread's pass and shows from the client's next rebuild of the menu on (the next client cycle,
