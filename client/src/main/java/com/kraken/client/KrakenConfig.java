@@ -258,8 +258,8 @@ public interface KrakenConfig extends Config {
      */
     @ConfigItem(keyName = "clickPolicy", name = "Mouse click",
             description = "Whether a mouse click goes before each action plugins send. On screen: at the subject, "
-                    + "when it is on the canvas, else at the click point below. Static: always at the click point. "
-                    + "None: no click, the action alone.",
+                    + "when it is on the canvas, else at the click point below. Static point: always at the click "
+                    + "point. None: no click, the action alone.",
             position = 41, section = actions)
     default ClickPolicy clickPolicy() {
         return ClickPolicy.ON_SCREEN;

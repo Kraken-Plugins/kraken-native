@@ -10,15 +10,31 @@ public enum ClickPolicy {
     /**
      * No click packet: the row only, as {@link Actions#menuAction} sends it.
      */
-    NONE,
+    NONE("None"),
 
     /**
      * A click at the subject's point on the canvas when it is on the canvas, else at the static point, then the row.
      */
-    ON_SCREEN,
+    ON_SCREEN("On screen"),
 
     /**
      * A click at the static point, wherever the subject is, then the row.
      */
-    STATIC
+    STATIC("Static point");
+
+    private final String label;
+
+    ClickPolicy(String label) {
+        this.label = label;
+    }
+
+    /**
+     * The policy's name as a settings page shows it.
+     *
+     * @return e.g. "On screen"
+     */
+    @Override
+    public String toString() {
+        return label;
+    }
 }
