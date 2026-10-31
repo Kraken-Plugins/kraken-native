@@ -1,4 +1,4 @@
-# Hitmarks (docs/event-hooks-design.md §2.8): the hitsplats an actor shows, for HitsplatApplied. The API compares each
+# Hitmarks (docs/developer/events.md): the hitsplats an actor shows, for HitsplatApplied. The API compares each
 # loaded actor's entries on the tick's polls and right after the NPC and player update decoders run.
 #
 # The NPC and player update masks hand each hitmark to one function, (actor, type, value, delay, cycle, a count from

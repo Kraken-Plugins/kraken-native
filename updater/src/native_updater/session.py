@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from .analysis.bindings import BindingTable, BindingTableParser, parse_enum_tables
 from .analysis.provenance import Provenance
 
-# Anchor classes (design §2). Verdicts count distinct classes.
+# Anchor classes (docs/developer/updater.md, "Verdicts and Anchor Classes"). Verdicts count distinct classes.
 CLASS_OF = {
     "getter": "A", "global-load": "A", "hash-map": "A", "const": "A", "member": "A", "member-table": "A", "binding": "A",
     "enum-table": "A", "string-anchored": "B", "loader-caller": "C", "extractor": "E", "fingerprint": "E", "derive": "A",

@@ -2,7 +2,7 @@
 // the newest overlay frame from the surface and draws it over framebuffer 0 as one full-screen
 // triangle with premultiplied-alpha blending (GLSL 330 core on GL 3.3+, 150 on 3.2, 130 on 3.0 and
 // 3.1; nothing below 3.0). It saves every piece of GL state it changes and restores it after, under
-// SEH guards; a fault turns the overlay off for the session. See docs/in-game-drawing.md.
+// SEH guards; a fault turns the overlay off for the session. See docs/developer/in-game-drawing.md.
 #pragma once
 
 #include <cstdint>

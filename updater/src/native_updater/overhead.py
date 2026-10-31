@@ -1,5 +1,5 @@
 """The overhead text an actor shows and the client's count of actor steps, for OverheadTextChanged
-(docs/event-hooks-design.md §2.11).
+(docs/developer/events.md).
 
 The NPC update's say block, the player update's say and public chat blocks, and Lua's npcSay and playerSay write the
 text into an eastl string on the actor and set its timer (Actor.overheadTimer: 100 cycles for an NPC, 150 for a player,

@@ -81,6 +81,16 @@ public abstract class Actor {
     abstract long address();
 
     /**
+     * The actor's address in the game, while this handle's actor is loaded.
+     * Internal: used by the API's own packages; plugins don't need it.
+     *
+     * @return the address; 0 once the actor is gone or another actor has taken its index
+     */
+    public final long getAddress() {
+        return address();
+    }
+
+    /**
      * The actor's name as the client shows it, read from its struct.
      *
      * @param address the actor's address

@@ -1,11 +1,14 @@
 package com.kraken.client.callback;
 
+import com.kraken.api.internal.ScriptComponents;
 import com.kraken.api.internal.event.NativeEvent;
 import com.kraken.api.internal.event.ScriptRequest;
 import com.kraken.api.internal.event.ScriptRun;
 import com.kraken.api.internal.invoke.NativeCall;
 import com.kraken.api.internal.menu.MenuClick;
 import com.kraken.api.internal.menu.WireRule;
+import com.kraken.api.internal.render.WireVisibility;
+import com.kraken.api.internal.widget.ComponentOp;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.api.menu.MenuRule;
 import com.kraken.api.menu.ShiftState;
@@ -53,12 +56,14 @@ class NativeProtocolTest {
         byte[] scripts = {9, 8, 7};
         byte[] menu = {6, 5};
         byte[] keys = {4};
-        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.handshake(slots, drawing, scripts, menu, keys))
-                .order(ByteOrder.LITTLE_ENDIAN);
+        byte[] visibility = {3, 2};
+        byte[] components = {1};
+        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.handshake(slots, drawing, scripts, menu, keys, visibility,
+                components)).order(ByteOrder.LITTLE_ENDIAN);
 
         byte[] magic = new byte[4];
         buf.get(magic);
-        assertArrayEquals("KRK6".getBytes(StandardCharsets.US_ASCII), magic);
+        assertArrayEquals("KRK7".getBytes(StandardCharsets.US_ASCII), magic);
         assertEquals(2, buf.getShort(), "slot count");
 
         assertEquals(0xc44d0L, buf.getLong());
@@ -90,13 +95,18 @@ class NativeProtocolTest {
         assertEquals(5, buf.get());
         assertEquals(1, buf.getShort(), "the key block's length");
         assertEquals(4, buf.get());
+        assertEquals(2, buf.getShort(), "the visibility block's length");
+        assertEquals(3, buf.get());
+        assertEquals(2, buf.get());
+        assertEquals(1, buf.getShort(), "the component block's length");
+        assertEquals(1, buf.get());
         assertEquals(0, buf.remaining(), "no trailing bytes");
     }
 
     @Test
     void aHandshakeWithoutDrawingOrScriptsEndsInZeros() {
         ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.handshake(List.of(), Drawing.NONE, new byte[0], new byte[0],
-                new byte[0])).order(ByteOrder.LITTLE_ENDIAN);
+                new byte[0], new byte[0], new byte[0])).order(ByteOrder.LITTLE_ENDIAN);
         buf.position(4);
         assertEquals(0, buf.getShort());
         assertEquals(0, buf.getLong());
@@ -105,6 +115,8 @@ class NativeProtocolTest {
         assertEquals(0, buf.getShort(), "no script block");
         assertEquals(0, buf.getShort(), "no menu block");
         assertEquals(0, buf.getShort(), "no key block");
+        assertEquals(0, buf.getShort(), "no visibility block");
+        assertEquals(0, buf.getShort(), "no component block");
         assertEquals(0, buf.remaining());
     }
 
@@ -329,7 +341,105 @@ class NativeProtocolTest {
         for (String key : new String[]{"string.heapFlagByte", "string.heapFlagMask", "string.ssoCapacity"}) {
             assertEquals(mapping.container(key), buf.getInt(), key);
         }
-        assertEquals(0, buf.remaining(), "147 bytes, as the DLL reads them");
+        for (String key : new String[]{"ScriptRunner.activeComponent", "ScriptRunner.dotComponent"}) {
+            assertEquals(mapping.offsetOr(key, NativeProtocol.NO_OFFSET), buf.getInt(), key);
+        }
+        assertEquals(0, buf.remaining(), "155 bytes, as the DLL reads them");
+    }
+
+    @Test
+    void theVisibilityBlockFollowsTheMappingInTheDllsOrder() throws IOException {
+        Mapping mapping = Mapping.bundled("241.3");
+        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.visibilityLayout(mapping)).order(ByteOrder.LITTLE_ENDIAN);
+
+        for (String key : new String[]{"Client.topLevelWorld", "Client.worlds.map", "Client.localPlayerIndex",
+                "World.players", "World.npcs", "World.graphicsObjects", "Client.projectiles", "Client.keyedProjectiles",
+                "Actor.hidden", "Actor.render2D", "Projectile.hidden", "KeyedProjectile.hidden",
+                "GraphicsObject.hidden", "GraphicsObject.spotAnimId"}) {
+            assertEquals(mapping.offsetOr(key, NativeProtocol.NO_OFFSET), buf.getInt(), key);
+        }
+        for (String key : new String[]{"hash_map.buckets", "hash_map.bucketCount", "hash_map.node.key",
+                "hash_map.node.value", "hash_map.node.next", "list.node.next", "list.node.value"}) {
+            assertEquals(mapping.container(key), buf.getInt(), key);
+        }
+        assertEquals(0, buf.remaining(), "84 bytes, as the DLL reads them");
+    }
+
+    @Test
+    void theComponentBlockFollowsTheMappingInTheDllsOrder() throws IOException {
+        Mapping mapping = Mapping.bundled("241.3");
+        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.componentLayout(mapping)).order(ByteOrder.LITTLE_ENDIAN);
+
+        assertEquals(mapping.hasFunction("ifListenerClear") ? mapping.function("ifListenerClear") : 0, buf.getLong(),
+                "the listener clear");
+        for (String key : new String[]{"Client.interfaceStore", "IfStore.groupCount", "IfStore.groups",
+                "IfStoreGroup.stride", "IfStoreGroup.count", "IfStoreGroup.slots", "IfStoreGroup.slotStride"}) {
+            assertEquals(mapping.offset(key), buf.getInt(), key);
+        }
+        assertEquals(mapping.container("shared_ptr.ptr"), buf.getInt(), "a slot's pointer");
+        for (String key : new String[]{"IfType.dynCount", "IfType.dynSlots", "IfType.packedId", "IfType.subId"}) {
+            assertEquals(mapping.offset(key), buf.getInt(), key);
+        }
+        assertEquals(0, buf.remaining(), "56 bytes, as the DLL reads them");
+    }
+
+    @Test
+    void aMappingWithoutActorFlagsHasNoVisibilityOrComponentBlock() throws IOException {
+        Path file = Files.createTempFile("mapping", ".json");
+        try {
+            Files.writeString(file, "{\"version\": \"1.0\", \"sha256\": \"00\", \"globals\": {\"client\": \"0x10\"},"
+                    + " \"structs\": {}, \"containers\": {}, \"enums\": {}, \"functions\": {}}");
+            assertEquals(0, NativeProtocol.visibilityLayout(Mapping.load(file)).length);
+            assertEquals(0, NativeProtocol.componentLayout(Mapping.load(file)).length);
+        } finally {
+            Files.delete(file);
+        }
+    }
+
+    @Test
+    void visibilityFramesTheKindsEachActorAndTheGraphicsObjects() {
+        WireVisibility rules = new WireVisibility(WireVisibility.HIDE_PLAYERS_3D | WireVisibility.HIDE_PROJECTILES,
+                List.of(new WireVisibility.ActorRule(0x1234_5678_9abcL, 3, 1)), new int[]{1590, 1591});
+        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.visibility(rules)).order(ByteOrder.LITTLE_ENDIAN);
+
+        assertEquals(1 + 1 + 2 + 10 + 1 + 8, buf.getInt(), "the length counts the type byte and the body");
+        assertEquals(NativeProtocol.COMMAND_VISIBILITY, buf.get());
+        assertEquals(4 | 64, buf.get(), "the kinds");
+        assertEquals(1, buf.getShort(), "one actor");
+        assertEquals(0x1234_5678_9abcL, buf.getLong());
+        assertEquals(3, buf.get(), "both layers decided");
+        assertEquals(1, buf.get(), "the model hidden");
+        assertEquals(2, buf.get(), "two graphics objects");
+        assertEquals(1590, buf.getInt());
+        assertEquals(1591, buf.getInt());
+        assertEquals(0, buf.remaining());
+
+        byte[] none = NativeProtocol.visibility(WireVisibility.NONE);
+        assertArrayEquals(new byte[]{5, 0, 0, 0, (byte) NativeProtocol.COMMAND_VISIBILITY, 0, 0, 0, 0}, none,
+                "nothing hidden");
+    }
+
+    @Test
+    void componentWritesAreFramedFieldForField() {
+        List<ComponentOp> ops = List.of(
+                new ComponentOp(149 << 16, 3, ComponentOp.Op.CLEAR_LISTENER, 0x470, 0),
+                new ComponentOp(12 << 16 | 13, -1, ComponentOp.Op.SET_I32, 0x324, 30));
+        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.components(ops)).order(ByteOrder.LITTLE_ENDIAN);
+
+        assertEquals(1 + 2 + 2 * 15, buf.getInt());
+        assertEquals(NativeProtocol.COMMAND_COMPONENTS, buf.get());
+        assertEquals(2, buf.getShort());
+        assertEquals(149 << 16, buf.getInt());
+        assertEquals(3, buf.getInt(), "the dynamic child's index");
+        assertEquals(1, buf.get(), "clear a listener");
+        assertEquals(0x470, buf.getShort());
+        assertEquals(0, buf.getInt());
+        assertEquals(12 << 16 | 13, buf.getInt());
+        assertEquals(-1, buf.getInt(), "a static component");
+        assertEquals(0, buf.get(), "write an int");
+        assertEquals(0x324, buf.getShort());
+        assertEquals(30, buf.getInt());
+        assertEquals(0, buf.remaining());
     }
 
     @Test
@@ -377,6 +487,7 @@ class NativeProtocolTest {
         buf.putInt(3).putShort((short) 2);
         buf.put((byte) NativeProtocol.VALUE_STRING).putShort((short) 7).put("Draynor".getBytes(StandardCharsets.UTF_8));
         buf.put((byte) NativeProtocol.VALUE_OTHER);
+        buf.putInt(149 << 16).putInt(7).putInt(-1).putInt(-1);
         buf.put((byte) 0);
         byte[] body = java.util.Arrays.copyOf(buf.array(), buf.position());
 
@@ -388,6 +499,7 @@ class NativeProtocolTest {
         assertEquals(2, run.depth());
         assertArrayEquals(new int[]{0, 0, 0, 30, 40}, run.stack().ints(), "the captured top at the end");
         assertArrayEquals(new Object[]{null, "Draynor", null}, run.stack().objects());
+        assertEquals(new ScriptComponents(149 << 16, 7, -1, -1), run.components(), "the active component, no dot one");
         assertNull(run.request());
     }
 
@@ -396,6 +508,7 @@ class NativeProtocolTest {
         ByteBuffer buf = scriptHead(1, 0, 286, 0);
         buf.putInt(0).putShort((short) 0);
         buf.putInt(0).putShort((short) 0);
+        buf.putInt(-1).putInt(-1).putInt(-1).putInt(-1);
         buf.put((byte) 1);
         for (int field : new int[]{149 << 16, 4, -1, -1, 2, 0, 310, 220, -1, -1}) {
             buf.putInt(field);
@@ -426,6 +539,7 @@ class NativeProtocolTest {
         ByteBuffer buf = scriptHead(1, 2, 7, 0);
         buf.putInt(-5).putShort((short) 1).putInt(9);
         buf.putInt(1_000_000).putShort((short) 0);
+        buf.putInt(-1).putInt(-1).putInt(-1).putInt(-1);
         buf.put((byte) 0);
         ScriptRun run = NativeProtocol.parseScript(java.util.Arrays.copyOf(buf.array(), buf.position()));
         assertEquals(ScriptRun.Kind.POST, run.kind());

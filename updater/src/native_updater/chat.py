@@ -1,4 +1,4 @@
-"""The client's chat history, for ChatMessage (docs/event-hooks-design.md §2.8).
+"""The client's chat history, for ChatMessage (docs/developer/events.md).
 
 Every chat line goes through one function, (type, name, text, sender), the three strings as eastl strings. It finds
 the type's history buffer (a ring of 100 lines, in a global hash map keyed by type), reuses the buffer's oldest line

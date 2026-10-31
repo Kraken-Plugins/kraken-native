@@ -123,6 +123,24 @@ class ScriptEventsTest {
     }
 
     @Test
+    void theScriptWidgetsAreTheCapturedComponentsWhileTheHandlersRun() {
+        List<Widget> seen = new ArrayList<>();
+        on(ScriptPostFired.class, event -> {
+            seen.add(client.getScriptActiveWidget());
+            seen.add(client.getScriptDotWidget());
+        });
+
+        source.onScript(new ScriptRun(ScriptRun.Kind.POST, 6011, 1, ScriptStack.EMPTY, null,
+                new ScriptComponents(INVENTORY, 0, -1, -1)));
+
+        Widget active = seen.get(0);
+        assertNotNull(active, "the item slot the script drew, read again by its id");
+        assertEquals(INVENTORY, active.getId());
+        assertEquals(0, active.getIndex());
+        assertNull(seen.get(1), "no dot component");
+    }
+
+    @Test
     void aReturnPostsPostFiredWithItsReturnValues() {
         List<Object> seen = new ArrayList<>();
         on(ScriptPostFired.class, event -> {

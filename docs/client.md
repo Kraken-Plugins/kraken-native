@@ -41,6 +41,7 @@ Options Kraken doesn't recognise are reported in the console.
 |---|---|
 | `kraken.settings=<file>` | Keeps settings in this file instead of `~/.kraken-native/settings.properties`. Handy for a separate test profile |
 | `kraken.mappings=<dir>` | Reads game mappings from this folder instead of the bundled ones. See [Mapping a new game build](updater.md) |
+| `kraken.hook.dll=<path>` | Injects this `kraken_hook.dll` instead of the one built into the client |
 | `kraken.hook.projectileStep=true` | Has the native hook report every projectile's movement each frame. Off by default, as it's about 50 messages a second per projectile |
 
 Pass them to Gradle with `-D`. In PowerShell, quote each one, or PowerShell splits it at the first dot:
@@ -194,6 +195,8 @@ game's memory from outside, about 50 times a second. With it, Kraken can:
 * run menu actions, the [Action Tester](plugins.md#action-tester) plugin's job;
 * change the right-click menu as the game rebuilds it, the [Menu Entry Swapper](plugins.md#menu-entry-swapper)'s job;
 * remap and block keys before the game sees them, the [Key Remapping](plugins.md#key-remapping) plugin's job;
+* hide players, NPCs and projectiles as the game draws each frame, the [Entity Hider](plugins.md#entity-hider)'s job;
+* change how long items wait before they drag, the [Anti Drag](plugins.md#anti-drag) plugin's job;
 * report the game's scripts as they run;
 * cap the game's frame rate while Kraken isn't focused, and count its frames.
 

@@ -9,6 +9,8 @@ import com.kraken.api.internal.event.ScriptHook;
 import com.kraken.api.internal.invoke.NativeCall;
 import com.kraken.api.internal.menu.MenuHook;
 import com.kraken.api.internal.menu.WireRule;
+import com.kraken.api.internal.render.VisibilityHook;
+import com.kraken.api.internal.widget.ComponentHook;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.client.FrameRates;
 import com.kraken.client.input.KeyHook;
@@ -58,7 +60,7 @@ import java.util.logging.Level;
  * instead. If neither can be found the launch continues without the hook, and the events come from the timer poll
  * alone.
  *
- * <p>The same connection carries the drawing ({@code docs/in-game-drawing.md}). The handshake also names the
+ * <p>The same connection carries the drawing ({@code docs/developer/in-game-drawing.md}). The handshake names the
  * per-frame step the DLL runs calls in and the present it draws the overlay in. Once the DLL reports its game-thread
  * pump, the API's highlights get a {@link com.kraken.api.internal.invoke.NativeInvoker} that sends their calls here;
  * once it reports the present hook and a framebuffer, {@link GameSurface} hands it overlay frames. It also reports the
@@ -74,8 +76,13 @@ import java.util.logging.Level;
  * {@link GameSession#onMenuClick} and {@link GameSession#onMenuExpired}; once it reports the key hook, the
  * {@link KeyManager} gets a {@link KeyHook} for its remapping, and the DLL's key reports go back to it.
  *
+ * <p>It names where the entities and their visibility flags are ({@link NativeProtocol#visibilityLayout}) and the
+ * interface store's layout ({@link NativeProtocol#componentLayout}). Once the DLL reports it applies visibility rules,
+ * the API's entity visibility gets a {@link VisibilityHook} to send them through; once it reports it writes
+ * components, the widget setters' writes get a {@link ComponentHook}.
+ *
  * <p>Nothing here is hard-coded per client build: every RVA, event id and capture plan comes from the mapping and is
- * handed to the DLL in the handshake. See {@code docs/event-hooks-design.md}.
+ * handed to the DLL in the handshake. See {@code docs/developer/native-hook.md}.
  */
 @Log(topic = "kraken")
 @Singleton
@@ -201,13 +208,24 @@ public final class NativeEventServer {
             log.info("Native event hook: no window procedure in mapping " + mapping.version()
                     + "; keys can't be remapped.");
         }
+        byte[] visibility = NativeProtocol.visibilityLayout(mapping);
+        if (visibility.length == 0) {
+            log.info("Native event hook: no actor visibility flags in mapping " + mapping.version()
+                    + "; entities can't be hidden.");
+        }
+        byte[] components = NativeProtocol.componentLayout(mapping);
+        if (components.length == 0) {
+            log.info("Native event hook: no interface store layout in mapping " + mapping.version()
+                    + "; widgets can't be written.");
+        }
         if (build.slots.isEmpty() && drawing.pumpFn() == 0 && drawing.presentFn() == 0 && scripts.length == 0
                 && menu.length == 0 && keys.length == 0) {
             log.warning("Native event hook: mapping " + mapping.version()
                     + " has no hookable events or drawing functions; continuing on the timer poll.");
             return;
         }
-        byte[] handshake = NativeProtocol.handshake(build.slots, drawing, scripts, menu, keys);
+        byte[] handshake = NativeProtocol.handshake(build.slots, drawing, scripts, menu, keys, visibility,
+                components);
         ServerSocket server = null;
         try {
             server = new ServerSocket();
@@ -229,15 +247,25 @@ public final class NativeEventServer {
     }
 
     /**
-     * Finds the DLL to inject.
+     * Finds the DLL to inject: the file {@code -Dkraken.hook.dll} names, else the one bundled in the jar.
      *
      * @return the absolute path to the DLL on disk, or null if it could not be found
      */
     private Path locateDll() {
+        String override = System.getProperty(DLL_PROP);
+        if (override != null && !override.isBlank()) {
+            Path dll = Path.of(override).toAbsolutePath();
+            if (Files.isRegularFile(dll)) {
+                log.info("Native event hook: injecting " + dll + " (" + DLL_PROP + ")");
+                return dll;
+            }
+            log.warning("Native event hook: " + DLL_PROP + " names " + dll + ", which doesn't exist; using the bundled "
+                    + "DLL");
+        }
         Path extracted = extractBundledDll();
         if (extracted == null) {
-            log.warning("kraken_hook.dll was not found on the classpath "
-                    + "(build and bundle it with ./gradlew :client:buildNativeHook) Game Events will not be received.");
+            log.warning("kraken_hook.dll was not found on the classpath (build and bundle it with ./gradlew "
+                    + ":client:buildNativeHook); events come from the timer poll alone.");
         }
         return extracted;
     }
@@ -401,6 +429,8 @@ public final class NativeEventServer {
                     session.setNativeInvoker(null);
                     session.setScriptHook(null);
                     session.setMenuHook(null);
+                    session.setVisibilityHook(null);
+                    session.setComponentHook(null);
                     keyManager.setKeyHook(null);
                     surface.disconnected();
                     session.setHookConnected(false);
@@ -496,7 +526,9 @@ public final class NativeEventServer {
                         + ((features & NativeProtocol.FEATURE_FRAME_RATE) != 0) + ", scripts "
                         + ((features & NativeProtocol.FEATURE_SCRIPTS) != 0) + ", menu "
                         + ((features & NativeProtocol.FEATURE_MENU) != 0) + ", keys "
-                        + ((features & NativeProtocol.FEATURE_KEYS) != 0) + ").");
+                        + ((features & NativeProtocol.FEATURE_KEYS) != 0) + ", visibility "
+                        + ((features & NativeProtocol.FEATURE_VISIBILITY) != 0) + ", components "
+                        + ((features & NativeProtocol.FEATURE_COMPONENTS) != 0) + ").");
                 if ((features & NativeProtocol.FEATURE_CALLS) != 0) {
                     session.setNativeInvoker(batch -> sendCalls(open, batch));
                 }
@@ -508,6 +540,12 @@ public final class NativeEventServer {
                 }
                 if ((features & NativeProtocol.FEATURE_KEYS) != 0) {
                     keyManager.setKeyHook(keyHook(open));
+                }
+                if ((features & NativeProtocol.FEATURE_VISIBILITY) != 0) {
+                    session.setVisibilityHook(rules -> send(open, NativeProtocol.visibility(rules)));
+                }
+                if ((features & NativeProtocol.FEATURE_COMPONENTS) != 0) {
+                    session.setComponentHook(ops -> send(open, NativeProtocol.components(ops)));
                 }
                 if ((features & NativeProtocol.FEATURE_OVERLAY) != 0) {
                     surface.connected((generation, name) -> sendSurface(open, generation, name), pid);
@@ -562,6 +600,21 @@ public final class NativeEventServer {
         }
         synchronized (this) {
             lastSent = batch;
+        }
+    }
+
+    /**
+     * Sends one command frame on a connection.
+     *
+     * @param open  the connection
+     * @param frame the framed command
+     * @throws UncheckedIOException if the connection broke
+     */
+    private static void send(Connection open, byte[] frame) {
+        try {
+            open.send(frame);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
         }
     }
 
@@ -686,9 +739,11 @@ public final class NativeEventServer {
 
     /**
      * Waits, as Kraken exits, for the DLL to run the calls sent last: the plugins turn their highlights off as they
-     * stop, and the DLL drops calls still queued when the connection closes.
+     * stop, and the DLL drops calls still queued when the connection closes. The client runs it as an exit task, after
+     * the plugins stop and before the shutdown hooks close the game; a shutdown hook runs it too, for exits that skip
+     * the exit handler. Returns at once when no call is outstanding, and after one second at most.
      */
-    private void flushOnExit() {
+    public void flushOnExit() {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(EXIT_FLUSH_MS);
         synchronized (this) {
             while (connection != null && lastDone - lastSent < 0) {

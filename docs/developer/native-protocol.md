@@ -1,6 +1,6 @@
 # The Native Protocol
 
-The Kraken client and `kraken_hook.dll` talk over one TCP connection on the loopback interface, using protocol v6.
+The Kraken client and `kraken_hook.dll` talk over one TCP connection on the loopback interface, using protocol v7.
 This page is the byte-level reference. [The native hook](native-hook.md) explains what each side does with the
 messages.
 
@@ -18,9 +18,9 @@ sequenceDiagram
     participant J as NativeEventServer (Java)
     participant D as kraken_hook.dll
     D->>J: connect to 127.0.0.1:42069
-    J->>D: handshake (KRK6, slots, drawing RVAs, script, menu and key blocks)
+    J->>D: handshake (KRK7, slots, drawing RVAs, script, menu, key, visibility and component blocks)
     D->>D: install the hooks it names
-    D->>J: STATUS (installed, requested, features, version 6)
+    D->>J: STATUS (installed, requested, features, version 7)
     J->>D: FRAME_LIMIT (if the DLL paces frames)
     loop while connected
         D-->>J: raise messages (event id, registers, captured values)
@@ -34,10 +34,12 @@ sequenceDiagram
         D-->>J: MENU_CLICK (a row of a plugin's own), MENU_EXPIRED (a scoped rule)
         J->>D: KEYS (the remapping table, the mode, reporting)
         D-->>J: KEY (a key message handled)
+        J->>D: VISIBILITY (what to hide, applied every frame)
+        J->>D: COMPONENTS (component writes for the next frame)
         D-->>J: FPS (about once a second)
     end
     Note over J,D: socket drops
-    D->>D: drop queued calls, stop the overlay and script capture, drop the menu rules and key table, lift the frame cap
+    D->>D: drop queued calls and component writes, stop the overlay and script capture, drop the menu rules and key table, show what it hid, lift the frame cap
     D->>J: reconnect after 1 s, and the handshake starts again
 ```
 
@@ -48,7 +50,7 @@ field.
 
 | Field | Type | Meaning |
 |---|---|---|
-| magic | 4 bytes | `KRK6`. Any other value makes the DLL drop the connection |
+| magic | 4 bytes | `KRK7`. Any other value makes the DLL drop the connection |
 | slot count | `u16` | The number of raise slots that follow |
 | slots | | Each as below |
 | client global | `u64` | RVA of the global holding the `Client*`, for `CLIENT` and `INDIRECT` call arguments; 0 for none |
@@ -60,6 +62,10 @@ field.
 | menu block | bytes | See [The Menu Block](#the-menu-block) |
 | key block length | `u16` | 0 for no key hook |
 | key block | bytes | See [The Key Block](#the-key-block) |
+| visibility block length | `u16` | 0 for no entity hiding |
+| visibility block | bytes | See [The Visibility Block](#the-visibility-block) |
+| component block length | `u16` | 0 for no component writes |
+| component block | bytes | See [The Component Block](#the-component-block) |
 
 An **RVA** is an address relative to the start of the loaded `osclient.exe`; the DLL adds the module base to it.
 
@@ -92,8 +98,10 @@ id-to-name table itself.
 
 ### The Script Block
 
-147 bytes, built by `NativeProtocol.scriptLayout` and parsed by `parseScriptLayout` in `scripts.cpp`. The Java side
-sends an empty block unless the mapping has `globals.scriptRunner`, all four script functions and every offset below.
+155 bytes, built by `NativeProtocol.scriptLayout` and parsed by `parseScriptLayout` in `scripts.cpp`. The Java side
+sends an empty block unless the mapping has `globals.scriptRunner`, all four script functions and every offset below
+up to 147; the last two are `0xffffffff` when the mapping lacks them, and the SCRIPT messages then carry no
+components.
 
 | Offset | Type | Field | Mapping key |
 |---|---|---|---|
@@ -131,6 +139,8 @@ sends an empty block unless the mapping has `globals.scriptRunner`, all four scr
 | 135 | `u32` | stringFlagByte | `containers.string.heapFlagByte` |
 | 139 | `u32` | stringFlagMask | `containers.string.heapFlagMask` |
 | 143 | `u32` | stringSsoCapacity | `containers.string.ssoCapacity` |
+| 147 | `u32` | activeComponent | `ScriptRunner.activeComponent` |
+| 151 | `u32` | dotComponent | `ScriptRunner.dotComponent` |
 
 The first handshake whose block is complete fixes the layout for the life of the process; later ones only retry hooks
 that failed to install.
@@ -182,6 +192,64 @@ a click on one would run its empty entry.
 8 bytes: the RVA of the game window's procedure, `functions.renderViewWndProc` (`u64`), built by
 `NativeProtocol.keyLayout`.
 
+### The Visibility Block
+
+84 bytes of `u32` offsets, built by `NativeProtocol.visibilityLayout` and parsed by `install` in `visibility.cpp`
+([Entity visibility](entity-visibility.md)). The Java side sends an empty block unless the mapping has the starred
+keys; any other missing one is sent as `0xffffffff`, which leaves that kind of entity alone.
+
+| Offset | Field | Mapping key |
+|---|---|---|
+| 0 | topLevelWorld * | `Client.topLevelWorld` |
+| 4 | worlds | `Client.worlds.map` |
+| 8 | localPlayerIndex * | `Client.localPlayerIndex` |
+| 12 | players * | `World.players` |
+| 16 | npcs * | `World.npcs` |
+| 20 | graphicsObjects | `World.graphicsObjects` |
+| 24 | projectiles | `Client.projectiles` |
+| 28 | keyedProjectiles | `Client.keyedProjectiles` |
+| 32 | actorHidden * | `Actor.hidden` |
+| 36 | actor2D * | `Actor.render2D` |
+| 40 | projectileHidden | `Projectile.hidden` |
+| 44 | keyedHidden | `KeyedProjectile.hidden` |
+| 48 | graphicsHidden | `GraphicsObject.hidden` |
+| 52 | graphicsId | `GraphicsObject.spotAnimId` |
+| 56 | mapBuckets * | `containers.hash_map.buckets` |
+| 60 | mapBucketCount * | `containers.hash_map.bucketCount` |
+| 64 | nodeKey * | `containers.hash_map.node.key` |
+| 68 | nodeValue * | `containers.hash_map.node.value` |
+| 72 | nodeNext * | `containers.hash_map.node.next` |
+| 76 | listNext | `containers.list.node.next` |
+| 80 | listValue | `containers.list.node.value` |
+
+The first handshake with a complete block fixes the layout for the life of the process. VISIBILITY commands take
+effect while the layout is known and the pump is hooked (`FEATURE_VISIBILITY`).
+
+### The Component Block
+
+56 bytes, built by `NativeProtocol.componentLayout` and parsed by `install` in `components.cpp`
+([Widget writes](widget-writes.md)). The Java side sends an empty block unless the mapping has every offset; the
+listener clear's RVA is 0 when the mapping lacks it, and listener clears are then skipped.
+
+| Offset | Type | Field | Mapping key |
+|---|---|---|---|
+| 0 | `u64` | listenerClear | `functions.ifListenerClear` |
+| 8 | `u32` | interfaceStore | `Client.interfaceStore` |
+| 12 | `u32` | groupCount | `IfStore.groupCount` |
+| 16 | `u32` | groups | `IfStore.groups` |
+| 20 | `u32` | groupStride | `IfStoreGroup.stride` |
+| 24 | `u32` | slotCount | `IfStoreGroup.count` |
+| 28 | `u32` | slots | `IfStoreGroup.slots` |
+| 32 | `u32` | slotStride | `IfStoreGroup.slotStride` |
+| 36 | `u32` | slotObject | `containers.shared_ptr.ptr` |
+| 40 | `u32` | dynCount | `IfType.dynCount` |
+| 44 | `u32` | dynSlots | `IfType.dynSlots` |
+| 48 | `u32` | packedId | `IfType.packedId` |
+| 52 | `u32` | subId | `IfType.subId` |
+
+The first handshake with a complete block fixes the layout. COMPONENTS commands take effect while the layout is known
+and the pump is hooked (`FEATURE_COMPONENTS`).
+
 ## Messages
 
 DLL → Java. Each is `{u32 length, body}`; the body is:
@@ -204,7 +272,7 @@ came.
 
 | Id | Name | RCX | RDX | R8 | R9 | Sent |
 |---|---|---|---|---|---|---|
-| -2 | `STATUS` | Slots installed (total) | Slots requested by this handshake | Feature bits | Protocol version (5) | Once per handshake |
+| -2 | `STATUS` | Slots installed (total) | Slots requested by this handshake | Feature bits | Protocol version (7) | Once per handshake |
 | -3 | `FRAME` | Framebuffer width | Height | GL version, `major << 16 \| minor` | Surface generation drawn, 0 for none | When any of them changes |
 | -4 | `CALLS_DONE` | Batch id | Calls run | Calls skipped or faulted | Last call's return value | After each batch |
 | -5 | `FPS` | Frames since the last FPS | Microseconds since it | Frame cap in force | 1 if presents were counted, 0 for frame steps | About once a second |
@@ -223,6 +291,8 @@ Feature bits in STATUS:
 | 8 | `FEATURE_SCRIPTS` | `FEATURE_SCRIPTS` | All four script hooks are live: `SCRIPTS` is honoured |
 | 16 | `FEATURE_MENU` | `FEATURE_MENU` | The three minimenu hooks are live: `MENU` is honoured |
 | 32 | `FEATURE_KEYS` | `FEATURE_KEYS` | The window procedure is hooked: `KEYS` is honoured |
+| 64 | `FEATURE_VISIBILITY` | `FEATURE_VISIBILITY` | The pump is hooked and the visibility block was complete: `VISIBILITY` is honoured |
+| 128 | `FEATURE_COMPONENTS` | `FEATURE_COMPONENTS` | The pump is hooked and the component block was complete: `COMPONENTS` is honoured |
 
 ### The SCRIPT Payload
 
@@ -234,6 +304,8 @@ A SCRIPT message has a value count of 0, followed by:
 | ints sent | `u16` n, then n × `i32`: the top n entries, oldest first (at most 64) |
 | object stack size | `i32` |
 | objects | a value run: the top entries (at most 16) |
+| active component | `i32` packed id, `i32` index (-1, -1 for none, or when the script block named no offset) |
+| dot component | `i32` packed id, `i32` index |
 | has request | `u8`: 0, or 1 for a root run a listener started, followed by: |
 | source component | `i32` packed id, `i32` index (-1, -1 for none) |
 | target component | `i32` packed id, `i32` index |
@@ -267,6 +339,8 @@ older DLL.
 | 4 | `SCRIPTS` | Which script events to send |
 | 5 | `MENU` | The menu rules: replace, add or remove |
 | 6 | `KEYS` | The key remapping: the table, the mode, reporting |
+| 7 | `VISIBILITY` | What to hide, replacing the rules held |
+| 8 | `COMPONENTS` | A batch of component writes for the next frame |
 
 ### CALLS
 
@@ -396,6 +470,39 @@ effect at the next rebuild. Ignored until the menu hooks are live. A dropped con
 Ignored until the window procedure is hooked. A dropped connection drops the table, goes back to mode 0 and stops
 reporting.
 
+### VISIBILITY
+
+| Field | Type | Meaning |
+|---|---|---|
+| kinds | `u8` | Bits: 1 the local player's model, 2 its 2D elements, 4 other players' models, 8 their 2D elements, 16 NPCs' models, 32 their 2D elements, 64 every projectile (keyed or not) |
+| actor count | `u16` | Actors decided apart, at most 4,096; more makes the command change nothing |
+| actors | count × `{u64 address, u8 decided, u8 hidden}` | An actor by address; the layers it decides (1 the model, 2 the 2D elements) and which of those it hides |
+| graphics count | `u8` | At most 64; more makes the command change nothing |
+| graphics | count × `i32` | Spot anim ids of graphics objects to hide |
+
+The rules replace the ones held and are applied at the start of every frame, on the game thread, to every world's
+players, NPCs and graphics objects and to the projectiles; an actor's decision, where it has one, overrides its kind's.
+The DLL shows again what it hid once no rule hides it, and leaves alone what it didn't hide. A malformed command
+changes nothing; an actor address the walk doesn't meet does nothing. Ignored until `FEATURE_VISIBILITY`. A dropped
+connection empties the rules, so the next frame shows everything the DLL hid.
+
+### COMPONENTS
+
+| Field | Type | Meaning |
+|---|---|---|
+| count | `u16` | Writes that follow |
+| writes | count × `{i32 packedId, i32 subId, u8 op, u16 offset, i32 value}` | The component by id and dynamic child index (-1 for a static one), what to do, where in it, and the value |
+
+| Op | Value | What the DLL does with the component found |
+|---|---|---|
+| `SET_I32` | 0 | Writes the value as an `i32` at the offset |
+| `CLEAR_LISTENER` | 1 | Calls the listener clear on the listener slot at the offset; skipped when the block named none |
+
+Writes are queued and made in order at the start of the next frame, on the game thread, each component looked up by
+id first; a component the client doesn't hold, or whose ids differ, is skipped, and each write runs under an SEH
+guard. At most 4,096 writes wait; more are dropped. A malformed command queues nothing. Ignored until
+`FEATURE_COMPONENTS`. A dropped connection drops the writes waiting.
+
 ## Ordering and Delivery
 
 * Every message takes a sequence number from one counter, including the reserved ones.
@@ -411,7 +518,7 @@ reporting.
 
 ## Versioning
 
-The protocol version lives in two places: the handshake magic (`KRK6`) and `PROTOCOL_VERSION` (6), which STATUS
+The protocol version lives in two places: the handshake magic (`KRK7`) and `PROTOCOL_VERSION` (7), which STATUS
 reports and the client logs. A DLL that gets a magic it doesn't know drops the connection, and reconnects a second
 later to the same result, so a client and DLL of different versions never talk. The client always starts a fresh game and
 injects the DLL it was built with, so they only disagree when `-Dkraken.hook.dll` points at a DLL built from other
@@ -431,18 +538,23 @@ To change the format:
 | What | DLL (`protocol.h` unless noted) | Java |
 |---|---|---|
 | Port | `KRAKEN_PORT` = 42069 | `NativeEventServer.PORT` |
-| Magic | `"KRK6"` in `connection.cpp` | `NativeProtocol.MAGIC` |
+| Magic | `"KRK7"` in `connection.cpp` | `NativeProtocol.MAGIC` |
 | Capture-plan ops | `OP_RAW` … `OP_CSTR` | `NativeProtocol.OP_*` |
 | Plan length | `MAX_PLAN` = 8 | `NativeEvents` plans stay within it |
 | Reserved ids | `STATUS_EVENT_ID` … `KEY_EVENT_ID` | `NativeProtocol.*_EVENT_ID` |
-| Feature bits | `FEATURE_PUMP`, `FEATURE_PRESENT`, `FEATURE_FRAME_RATE`, `FEATURE_SCRIPTS`, `FEATURE_MENU`, `FEATURE_KEYS` | `FEATURE_CALLS`, `FEATURE_OVERLAY`, `FEATURE_FRAME_RATE`, `FEATURE_SCRIPTS`, `FEATURE_MENU`, `FEATURE_KEYS` |
-| Command types | `CMD_CALLS` … `CMD_KEYS` | `NativeProtocol.COMMAND_*` |
+| Feature bits | `FEATURE_PUMP`, `FEATURE_PRESENT`, `FEATURE_FRAME_RATE`, `FEATURE_SCRIPTS`, `FEATURE_MENU`, `FEATURE_KEYS`, `FEATURE_VISIBILITY`, `FEATURE_COMPONENTS` | `FEATURE_CALLS`, `FEATURE_OVERLAY`, `FEATURE_FRAME_RATE`, `FEATURE_SCRIPTS`, `FEATURE_MENU`, `FEATURE_KEYS`, `FEATURE_VISIBILITY`, `FEATURE_COMPONENTS` |
+| Command types | `CMD_CALLS` … `CMD_COMPONENTS` | `NativeProtocol.COMMAND_*` |
 | Argument kinds | `ARG_IMM` … `ARG_INDIRECT` | `NativeCall.Kind` ordinals |
 | Call limits | `MAX_ARGS` = 8, `SCRATCH_SIZE` = 4096 | `NativeCall.MAX_ARGS`, `NativeCall.SCRATCH_SIZE`, `NativeCall.MAX_DATA` |
 | Script capture bits | `SCRIPT_CAPTURE_PRE`, `_POST`, `_ROOTS` | `NativeProtocol.scriptCapture` |
 | Root scripts | `MAX_SCRIPT_ROOTS` = 8 | `NativeProtocol.MAX_SCRIPT_ROOTS` |
 | Value kinds | `VALUE_OTHER` … `VALUE_LONG`, `NO_KIND` = 0xff | `NativeProtocol.VALUE_*`, the `0xff` fallback in `scriptLayout` |
-| Script block order | `ScriptLayout` and `parseScriptLayout` in `scripts.cpp` | `SCRIPT_FUNCTIONS`, `SCRIPT_OFFSETS`, `SCRIPT_KINDS`, `SCRIPT_FIELDS` |
+| Script block order | `ScriptLayout` and `parseScriptLayout` in `scripts.cpp` | `SCRIPT_FUNCTIONS`, `SCRIPT_OFFSETS`, `SCRIPT_KINDS`, `SCRIPT_FIELDS`, `SCRIPT_COMPONENTS` |
+| Visibility block order | `Layout` and `install` in `visibility.cpp` | `VISIBILITY_OFFSETS`, `VISIBILITY_REQUIRED` |
+| Component block order | `Layout` and `install` in `components.cpp` | `COMPONENT_OFFSETS` |
+| Visibility constants | `HIDE_*`, `LAYER_*`, `MAX_VISIBILITY_OVERRIDES`, `MAX_HIDDEN_GRAPHICS` | `WireVisibility.HIDE_*`, `LAYER_*`; `EntityVisibility.MAX_ACTORS`, `MAX_GRAPHICS` |
+| Component ops | `COMPONENT_SET_I32`, `COMPONENT_CLEAR_LISTENER`, `MAX_COMPONENT_OPS` | `ComponentOp.Op` ordinals, `ComponentWrites.MAX_BATCH` |
+| Missing offset | `NONE` (`0xffffffff`) in `scripts.cpp` and `visibility.cpp` | `NativeProtocol.NO_OFFSET` |
 | Menu block order | `MenuLayout` and `parseLayout` in `menus.cpp` | `MENU_FUNCTIONS`, `MENU_OFFSETS`, `MENU_KINDS`, `MENU_OPS`, `MENU_STRING` |
 | Menu rule constants | `MENU_*`, `RULE_*`, `MATCH_*`, `TEXT_*`, `EDIT_*`, `SWAP_*`, `ADD_*`, `MENU_ROW_OP`, `NO_ROW`, `MENU_GRACE`, `CLICK_*` | `NativeProtocol.MENU_*`, `RULE_*`, `MATCH_*`, `EDIT_*`, `SWAP_*`; `MenuEdits.ROW_OP`; the enums' ordinals for text modes and positions |
 | Key constants | `KEYS_*`, `KEY_MODE_BLOCK_TYPING`, `KEY_SHIFT`/`CTRL`/`ALT`, `KEY_TO_BLOCK`, `KEY_STAY`, `MAX_KEY_MODES`, `KEY_PASSED`/`REMAPPED`/`BLOCKED` | `NativeProtocol.KEYS_*`, `KeyHook.SHIFT`/`CTRL`/`ALT`/`BLOCK`/`STAY`/`MAX_MODES`, `KeyReport.Action` ordinals |

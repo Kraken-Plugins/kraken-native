@@ -22,7 +22,7 @@ and links to the deep dives below.
 | [API internals](api.md) | The memory layer, readers and offset chains, container layouts, config decoding, identity, the poll loop and client thread, testing |
 | [Events](events.md) | How events are made: polling trackers, native raises, ordered reports, script events, the event bus |
 | [Client internals](client.md) | Startup, the Guice injectors, embedding the game window, attaching, plugins, settings, overlays, dev tools, threads |
-| [Native hook](native-hook.md) | `kraken_hook.dll`: injection, threads, the raise detours, the message ring, the pump, the present, the script, menu and key hooks, building and debugging |
+| [Native hook](native-hook.md) | `kraken_hook.dll`: injection, threads, the raise detours, the message ring, the pump, the present, the script, menu and key hooks, entity visibility and component writes, building and debugging |
 | [Native protocol](native-protocol.md) | The socket protocol between the client and the DLL, byte by byte |
 
 ## Features Across the Parts
@@ -34,6 +34,8 @@ and links to the deep dives below.
 | [Menu action walkthrough](menu-action-walkthrough.md) | One action, attacking an NPC, followed from Java to the game, for readers new to x64, DLLs and the client |
 | [Menu edits](menu-edits.md) | How the hook swaps, hides, rewrites and adds rows of the right-click menu by rules, as the game rebuilds it |
 | [Key interception](key-interception.md) | How the hook remaps and blocks keys in the game window's procedure, by a table of modes |
+| [Entity visibility](entity-visibility.md) | How the hook hides players, NPCs, projectiles and graphics objects by rules it applies every frame |
+| [Widget writes](widget-writes.md) | How the hook writes interface components' drag fields and clears listeners by id, and how scripts report the components they act on |
 | [Reverse engineering](reverse-engineering.md) | Exploring a build to find or fix a value: the primer, Lua bindings, `program.db`, provenance, `analysis.json`, the debug symbols, the probe |
 | [Plugin ports](plugin-ports.md) | Which RuneLite plugins are ported, which of their settings work, and what the client needs for the rest |
 
@@ -51,6 +53,7 @@ and links to the deep dives below.
 | Understand how a menu action reaches the game | [Menu action walkthrough](menu-action-walkthrough.md) |
 | Add a kind of menu action | [Menu actions](menu-actions.md) |
 | Change the right-click menu, or remap a key | [Menu edits](menu-edits.md), [Key interception](key-interception.md) |
+| Hide entities, or write an interface component | [Entity visibility](entity-visibility.md), [Widget writes](widget-writes.md) |
 | Work on the client UI, plugins or settings | [Client internals](client.md) |
 | Port a RuneLite plugin, or make an unsupported setting work | [Plugin ports](plugin-ports.md) |
 

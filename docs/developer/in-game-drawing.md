@@ -228,8 +228,9 @@ DLL copies it again, 16-byte aligned, when it queues the batch.
 ### Remembered State and Reconnects
 
 Each channel keeps its style and its targets whether or not the hook is connected. While the hook is down, changes update
-that state and nothing is sent. When `setInvoker` receives a connection, it sends one batch with a clear and a configure
-for each held channel, then one on call per target, so the game ends up in the state the channels describe.
+that state and nothing is sent. When `setInvoker` receives a connection, it sends one batch: a clear for each channel released
+while its own clear couldn't be sent, then a clear and a configure for each held channel and one on call per target, so
+the game ends up in the state the channels describe.
 
 ```mermaid
 sequenceDiagram
@@ -248,7 +249,8 @@ sequenceDiagram
 ```
 
 The reconnect batch clears a channel before it re-lights it. Highlights already in the game from before the drop are
-replaced, not stacked. A channel released while the hook was down doesn't get this clear, which is a gap listed below.
+replaced, not stacked. A channel released while the hook was down is remembered in `unsentClears` and cleared in the
+same batch, so the game stops showing what it lit.
 
 ### Running a Batch
 
@@ -299,9 +301,9 @@ sequenceDiagram
 
 Logged on failure: `Native event hook: N of the calls in batch B faulted or were skipped (R ran)`.
 
-On exit, `ExitHandler` stops the plugins first, so their `shutDown` releases the channels and sends the clears. Then a
-JVM shutdown hook (`flushOnExit`) waits up to one second for the last `CALLS_DONE`. The DLL drops calls still queued when
-the connection closes, so the wait lets the clears run first.
+On exit, `ExitHandler` stops the plugins first, so their `shutDown` releases the channels and sends the clears. Then its
+exit task, `flushOnExit`, waits up to one second for the last `CALLS_DONE`, before the shutdown hooks close the game.
+The DLL drops calls still queued when the connection closes, so the wait lets the clears run first.
 
 ## Overlays
 
@@ -622,7 +624,7 @@ over NPCs, can't be moved.
 
 | Condition | What happens | Log |
 |---|---|---|
-| `kraken_hook.dll` not on the classpath | No hook. No highlights. Overlays go to the window | `kraken_hook.dll was not found on the classpath (build and bundle it with ./gradlew :client:buildNativeHook) Game Events will not be received.` (WARNING) |
+| `kraken_hook.dll` not on the classpath | No hook. No highlights. Overlays go to the window | `kraken_hook.dll was not found on the classpath (build and bundle it with ./gradlew :client:buildNativeHook); events come from the timer poll alone.` (WARNING) |
 | Mapping has no `appUpdate` | No calls, so no highlights (`isAvailable` false). Plugins outline tiles in their overlays | `Native event hook: no appUpdate in mapping <version>; highlights won't show in the game.` (INFO) |
 | Mapping has no `present` | No overlay in the game. Overlays stay in the window | `Native event hook: no present in mapping <version>; overlays stay in the window over the game.` (INFO) |
 | Mapping lacks the manager, the config fields or the configure function | `Highlights` stays unavailable and sends nothing | None |
@@ -696,32 +698,25 @@ surface behaviour, pass a fake `RegionFactory` and a clock to `GameSurface`, as 
 
 Code gaps, found by reading the code against this page:
 
-1. **Channels released while the hook is down keep their lit targets.** `Highlights.release` sends the clear through
-   `send`, which does nothing without an invoker. `setInvoker` clears only the channels still held, and no later
-   `claim` clears either. The game keeps those highlights until something clears that channel number.
-2. **A batch dropped by the batch limit gets no `CALLS_DONE`.** `calls::queue` skips the push when 4096 batches are
-   already queued, and the batch isn't counted as skipped either. `calls.h` says a full queue still gets an answer. That
-   holds for the call-count limit only.
-3. **A batch that alone exceeds 4096 pending calls is refused whole.** `queue` checks the queued total plus the batch,
+1. **A batch dropped by the batch limit gets no `CALLS_DONE`.** `calls::queue` skips the push when 4096 batches are
+   already queued, and the batch isn't counted as skipped either. A batch over the call-count limit is still answered.
+2. **A batch that alone exceeds 4096 pending calls is refused whole.** `queue` checks the queued total plus the batch,
    and Java never splits a batch. `setInvoker` sends the whole reconnect as one batch, so a very large set of highlights
    is refused on reconnect. Java logs the skipped count from `CALLS_DONE`. Reaching the limit takes a very large set of
    targets.
-4. **Overlays are hidden for up to 2 s while a new surface waits.** During the grace, `isAvailable` stays true, so the
+3. **Overlays are hidden for up to 2 s while a new surface waits.** During the grace, `isAvailable` stays true, so the
    window is cleared and the surface isn't drawn yet. The overlay shows in neither place until the refusal or the first
    draw.
-5. **A refusal lasts the whole connection**, even if the framebuffer later changes size.
-6. **`Highlights.releaseAll()` has no caller.** Its Javadoc says the client calls it as it shuts down. Shutdown relies on
+4. **A refusal lasts the whole connection**, even if the framebuffer later changes size.
+5. **`Highlights.releaseAll()` has no caller.** Its Javadoc says the client calls it as it shuts down. Shutdown relies on
    the plugins releasing their channels, followed by the one-second flush.
-7. **`drawInGame` reads the canvas size on every poll.** That is about 50 reads a second, and it happens before the
+6. **`drawInGame` reads the canvas size on every poll.** That is about 50 reads a second, and it happens before the
    overlays and due checks. The window path reads only on frames that are due. The `OverlayRenderer` class comment says
    nothing is read while no overlay is added, which doesn't hold on the surface path.
-8. **Dangling references.** Source comments in `NativeEvents.java`, `NativeEventServer.java`, `NativeProtocol.java`,
-   `GameSurface.java`, `dllmain.cpp`, `overlay.h`, `surface.h`, `protocol.h`, `pump.h` and `scripts.h` point to `docs/in-game-drawing.md` or `docs/event-hooks-design.md`. Both were removed from `docs/` and are in
-   git history.
-9. **The protocol names differ.** `protocol.h` calls the bits `FEATURE_PUMP` and `FEATURE_PRESENT`. Java calls them
+7. **The protocol names differ.** `protocol.h` calls the bits `FEATURE_PUMP` and `FEATURE_PRESENT`. Java calls them
    `FEATURE_CALLS` and `FEATURE_OVERLAY`. The values match.
-10. **`OverlayRenderer`'s class comment** describes two images. That applies to the window path only. The surface path
-    composes into one image.
+8. **`OverlayRenderer`'s class comment** describes two images. That applies to the window path only. The surface path
+   composes into one image.
 
 Live checks still pending. Each of these needs a running client, and none is covered by a test:
 

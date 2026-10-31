@@ -63,7 +63,8 @@ consensus verdicts (`consensus.py`, `carry.py`) → invariants (`verify.py`) →
   the mapping section: `Struct.field` → `structs`, `global.x`, `functions.x`, `enums.x`, `container.x.y`,
   `events.ON_X` (native raise sites, `events.py`). Feature areas pair a spec file with a module, e.g. `90-draw.yaml` ↔
   `highlights.py`, `62-menu-actions.yaml` ↔ `menuops.py`, `66-scripts.yaml` ↔ `scripts.py`,
-  `61-menu-edits.yaml` ↔ `menuedits.py`, `72-keyboard.yaml` ↔ `keyboard.py`.
+  `61-menu-edits.yaml` ↔ `menuedits.py`, `72-keyboard.yaml` ↔ `keyboard.py`, `73-components.yaml` ↔ `components.py`,
+  `91-visibility.yaml` ↔ `visibility.py`.
 - The mapping holds only PROVEN/ANCHORED/INFERRED, non-`internal` keys. Evidence and every Lua binding's handler RVA go
   to `~/.kraken-native/cache/<sha256>/analysis.json`; read it when a value looks wrong.
 - Recipes: "Writing a recipe" in `updater/README.md`; explore with `bindings`, `sql` or `Provenance(model).facts(fn)`.
@@ -93,8 +94,11 @@ consensus verdicts (`consensus.py`, `carry.py`) → invariants (`verify.py`) →
 - Read-only, except two kinds of `internal.invoke.NativeCall` the hook DLL runs on the game thread: highlights
   (`com.kraken.api.highlight`, `Client.getHighlights()`; sends diffs, re-applies all on reconnect) and menu actions
   (`com.kraken.api.action.Actions`, `Client.menuAction`; calls the client's own minimenu row bodies and packet
-  helpers); and the menu rules the DLL applies as the client rebuilds the right-click menu (`com.kraken.api.menu`,
-  `Client.getMenuEdits()`, `createMenuEntry`, `setMenuEntries`, the `MenuEntry` setters; `docs/developer/menu-edits.md`).
+  helpers); the menu rules the DLL applies as the client rebuilds the right-click menu (`com.kraken.api.menu`,
+  `Client.getMenuEdits()`, `createMenuEntry`, `setMenuEntries`, the `MenuEntry` setters; `docs/developer/menu-edits.md`);
+  the visibility rules the DLL applies to every entity each frame (`com.kraken.api.render`,
+  `Client.getEntityVisibility()`; `docs/developer/entity-visibility.md`); and component writes the DLL makes after
+  looking the component up by id (the `Widget` drag and mouse-repeat setters; `docs/developer/widget-writes.md`).
   Other Lua functions that change the client (camera) are out of scope.
 - Events (`com.kraken.api.events`): `EventSource`'s trackers build them, only for subscribed events, by comparing game
   state each poll. Hook raises (`GameSession.onNative`) only make trackers run sooner; ticks always come from the
@@ -135,7 +139,7 @@ consensus verdicts (`consensus.py`, `carry.py`) → invariants (`verify.py`) →
   saves placements in group `overlays`. Worked examples: `plugins.npchighlight` (NPC Indicators), `objectmarkers`,
   `groundmarkers`, `tileindicators`, `tickcounter`, `actiontester`.
 - Ported RuneLite plugins (`npchighlight`, `grounditems`, `groundmarkers`, `tileindicators`, `menuentryswapper`,
-  `keyremapping`) keep RuneLite's config group,
+  `keyremapping`, `entityhider`, `antidrag`) keep RuneLite's config group,
   keys, names and defaults. A setting the client can't back yet stays, marked `@Unsupported("reason")` (greyed out);
   `docs/developer/plugin-ports.md` tracks the gaps and where to wire each one. Shared helpers: `util.*`
   (`WildcardMatcher`, `Text`, `QuantityFormatter`, `ColorUtil`), `game.NpcUtil`.
@@ -153,8 +157,9 @@ consensus verdicts (`consensus.py`, `carry.py`) → invariants (`verify.py`) →
 
 - `debug/`: a macOS debug build of the client (216) with symbol, string and constant dumps
   (`symbols_table_demangled.txt` is ~80 MB). Grep them for real class and member names.
-- Design docs (`updater-design`, `event-hooks-design`, `event-backlog`, `in-game-drawing`, `menu-actions`,
-  `ghidra-walkthrough`) are in git history: `git show ffc8ed8^:docs/<name>.md`.
+- How each part works: `docs/developer/` (start at `architecture.md`; `cookbook.md` has step lists for common changes).
+  User guides are in `docs/`. The older design docs (`updater-design`, `event-hooks-design`, `event-backlog`,
+  `in-game-drawing`, `menu-actions`, `ghidra-walkthrough`) are in git history: `git show ffc8ed8^:docs/<name>.md`.
 
 ## Conventions
 

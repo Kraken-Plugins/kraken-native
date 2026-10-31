@@ -36,6 +36,47 @@ class GameSessionTest {
     }
 
     @Test
+    void aStageThatThrowsALinkageErrorDoesNotStopTheLoop() throws Exception {
+        GameFixture game = new GameFixture();
+        BlockingQueue<Integer> passes = new LinkedBlockingQueue<>();
+        int[] count = {0};
+        try (GameSession session = new GameSession(game.memory, game.map, new EventBus(), 10)) {
+            session.setFrameListener(() -> {
+                passes.add(++count[0]);
+                if (count[0] == 1) {
+                    throw new NoClassDefFoundError("a class a plugin was built against");
+                }
+            });
+            session.start();
+            assertEquals(1, passes.poll(5, TimeUnit.SECONDS));
+            assertEquals(2, passes.poll(5, TimeUnit.SECONDS), "the next pass runs, as after an exception");
+        }
+    }
+
+    @Test
+    void aLoopEndedByAnErrorCanStartAgain() throws Exception {
+        GameFixture game = new GameFixture();
+        BlockingQueue<Integer> passes = new LinkedBlockingQueue<>();
+        int[] count = {0};
+        try (GameSession session = new GameSession(game.memory, game.map, new EventBus(), 10)) {
+            session.setFrameListener(() -> {
+                passes.add(++count[0]);
+                if (count[0] == 1) {
+                    throw new AssertionError("an error no stage catches");
+                }
+            });
+            session.start();
+            assertEquals(1, passes.poll(5, TimeUnit.SECONDS));
+            Integer next = null;
+            for (int tries = 0; tries < 50 && next == null; tries++) {
+                session.start();
+                next = passes.poll(100, TimeUnit.MILLISECONDS);
+            }
+            assertEquals(2, next, "the ended loop no longer counts as running, so start runs it again");
+        }
+    }
+
+    @Test
     void aRaiseWakesTheLoopAndReadsTheGameAtOnce() throws Exception {
         GameFixture game = new GameFixture();
         EventBus bus = new EventBus();

@@ -300,6 +300,25 @@ class HighlightsTest {
     }
 
     @Test
+    void aChannelReleasedWhileDisconnectedIsClearedOnConnect() {
+        HighlightChannel channel = highlights.channel(HighlightCategory.TILE);
+        channel.add(HighlightTarget.tile(new WorldPoint(1, 2, 0)));
+        highlights.setInvoker(null);
+        channel.release();
+        sent.clear();
+
+        highlights.setInvoker(sent::add);
+        NativeCall clear = calls().get(0);
+        assertEquals(fn("highlightChannelClear"), clear.rva());
+        assertEquals(List.of(Arg.client(manager()), Arg.imm(7), Arg.imm(31)), clear.args(),
+                "the client still shows what the released channel lit, so the reconnect clears it");
+
+        sent.clear();
+        highlights.setInvoker(sent::add);
+        assertTrue(sent.isEmpty(), "it is cleared once");
+    }
+
+    @Test
     void releaseAllTurnsEveryChannelOff() {
         highlights.channel(HighlightCategory.NPC);
         highlights.channel(HighlightCategory.TILE);

@@ -84,8 +84,14 @@ public class KrakenClient {
         });
 
         // Then inject the native event hook, which pushes the client's event raises so the API reads when they happen
-        // instead of on its timer poll. It installs on a thread of its own and falls back to the poll if it can't.
-        attacher.addAttachListener(session -> session.getInstance(NativeEventServer.class).install());
+        // instead of on its timer poll. It installs on a thread of its own and falls back to the poll if it can't. As
+        // Kraken closes, the hook gets to run the plugins' last calls before the game is closed.
+        ExitHandler exitHandler = injector.getInstance(ExitHandler.class);
+        attacher.addAttachListener(session -> {
+            NativeEventServer hook = session.getInstance(NativeEventServer.class);
+            exitHandler.addExitTask(hook::flushOnExit);
+            hook.install();
+        });
 
         injector.getInstance(GameLauncher.class).launch();
     }

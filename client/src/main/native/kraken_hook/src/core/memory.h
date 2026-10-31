@@ -43,4 +43,15 @@ uint64_t readU64(uint64_t address, uint64_t fallback);
  */
 bool readPointer(uint64_t address, uint64_t *out);
 
+/**
+ * Copies bytes into the game's memory, guarding the write. Game thread only: the client's own code
+ * must not be reading or writing the same object meanwhile.
+ *
+ * @param address where to write
+ * @param in      the bytes
+ * @param n       how many
+ * @return false if the address is null or the write faulted
+ */
+bool safeWrite(uint64_t address, const void *in, size_t n);
+
 } // namespace kraken::memory

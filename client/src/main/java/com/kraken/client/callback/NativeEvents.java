@@ -18,9 +18,9 @@ import java.util.Map;
  * how to read their payloads.
  *
  * <p>An empty plan means the event needs no payload: its tracker re-reads and diffs when the trigger arrives. Where a
- * payload is read, the register meanings follow the raise-site analysis in {@code docs/event-hooks-design.md} §2.3
- * and §4.2. Some are marked "to confirm" there and need a live check (§7); the trackers keep a full-read fallback for
- * those, so a wrong payload costs latency, not a missed event.
+ * payload is read, the register meanings follow the raise-site analysis in {@code docs/developer/events.md}
+ * ("Capture Plans"). Some need a live check (listed there); the trackers keep a full-read fallback for those, so a
+ * wrong payload costs latency, not a missed event.
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 final class NativeEvents {
@@ -38,7 +38,7 @@ final class NativeEvents {
      * <p>Left out on purpose:
      * <ul>
      *   <li>{@code objAdd}, {@code objDel}, {@code objCount} ({@code ItemSpawned}/{@code ItemDespawned}/
-     *       {@code ItemQuantityChanged}): design §2.5 passes their item id and count <b>on the stack</b>, which the
+     *       {@code ItemQuantityChanged}): these take their item id and count <b>on the stack</b>, which the
      *       generic four-register detour cannot forward to the original — calling it would corrupt the item add or
      *       remove. Hooking them needs a stack-preserving detour. Until then the {@code ItemTracker} reads the piles
      *       on the safety poll, its stated fallback, and its {@code objAdd}/{@code objDel}/{@code objCount} triggers

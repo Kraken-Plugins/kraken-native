@@ -783,13 +783,16 @@ flowchart TD
     GAME["Game exits<br/>JDK process reaper runs onExit"] --> EXIT
     SAVE --> EXIT["ExitHandler.exit, first call only"]
     EXIT --> WD["kraken-exit-watchdog<br/>sleeps 15 s"]
-    EXIT --> SD["kraken-shutdown<br/>stopPlugins, flush settings, System.exit 0"]
+    EXIT --> SD["kraken-shutdown<br/>stopPlugins, exit tasks, flush settings, System.exit 0"]
     WD -->|"still running after 15 s"| FORCE["System.exit 0"]
     SD --> HOOKS["JVM shutdown hooks run concurrently"]
 ```
 
 `exit` runs only once, guarded by an `AtomicBoolean`. On the first call it starts the 15 second watchdog, then starts the
-`kraken-shutdown` thread. That thread stops the plugins in reverse order, flushes the settings, and calls `System.exit(0)`.
+`kraken-shutdown` thread. That thread stops the plugins in reverse order, runs the exit tasks registered with
+`ExitHandler.addExitTask`, flushes the settings, and calls `System.exit(0)`. `KrakenClient` registers the native hook's
+`flushOnExit` as one when the API attaches: it waits up to one second for the DLL to run the last calls sent, such as
+the plugins turning their highlights off, so they run before the game is closed.
 The work runs on a thread of its own, so the `onEdt` wait for each plugin's `shutDown` doesn't run on the EDT.
 
 `ExitConfirmation` sets when the close asks. `NEVER` never asks, `LOGGED_IN` (the default) asks only while a player is
@@ -801,11 +804,11 @@ Two shutdown hooks run when `System.exit` is called.
 
 * The hook `GameLauncher` added calls `process.destroy()` on osclient. On Windows this ends the process at once, so the
   game gets no chance to run its own shutdown.
-* The hook `NativeEventServer` added (`kraken-hook-flush`) waits up to one second for the hook to run the last calls
-  sent, such as the plugins turning their highlights off. It returns once the connection closes.
+* The hook `NativeEventServer` added (`kraken-hook-flush`) runs the same flush as its exit task, for exits that don't
+  go through `ExitHandler`. After an `ExitHandler` exit there is nothing left to wait for, and it returns at once.
 
-The JDK runs shutdown hooks concurrently, in no particular order. The flush can therefore be waiting while the first hook
-ends the game, and the flush then has nothing to wait for. See [Known Gaps](#known-gaps).
+The JDK runs shutdown hooks concurrently, in no particular order, which is why the flush that matters runs as an exit
+task, before `System.exit`.
 
 ## Threads
 
@@ -820,8 +823,8 @@ ends the game, and the flush then has nothing to wait for. See [Known Gaps](#kno
 | `kraken-scheduler` | `KrakenModule` (one daemon thread) | Delayed settings saves, and background work from plugins that use the injected `ScheduledExecutorService` |
 | `osclient-output` | `GameLauncher` | Copies the game's output into the `osclient` logger |
 | `kraken-exit-watchdog` | `ExitHandler.exit` | Sleeps 15 seconds, then exits the JVM |
-| `kraken-shutdown` | `ExitHandler.exit` | Stops the plugins, flushes the settings, exits the JVM |
-| `kraken-hook-flush` | `NativeEventServer.inject` (a shutdown hook) | Waits up to one second for the DLL to run the last calls |
+| `kraken-shutdown` | `ExitHandler.exit` | Stops the plugins, runs the exit tasks, flushes the settings, exits the JVM |
+| `kraken-hook-flush` | `NativeEventServer.inject` (a shutdown hook) | The last-calls flush, for exits that skip `ExitHandler` |
 | JDK process reaper | The JDK | Completes `Process.onExit()`, so the `ExitHandler.exit` callback runs on it |
 
 Writes to the hook connection come from several threads: the server thread (the handshake and the status replies), the
@@ -914,10 +917,7 @@ place. A class in the root injector can't inject a session service, because the 
 
 | Where | What |
 |---|---|
-| [`NativeEventServer.locateDll`](../../client/src/main/java/com/kraken/client/callback/NativeEventServer.java) | `-Dkraken.hook.dll` is read into `DLL_PROP`, which nothing uses. The DLL always comes from the jar. The user docs and the hook's README say the override works |
 | `NativeEventServer.onEvent` | Its taps have no callers. Its javadoc says the Event log tool uses them, but that tool subscribes to the API bus |
-| `NativeEventServer.locateDll` | The missing-DLL warning ends with "Game Events will not be received". Events still come from the timer poll, so the warning is wrong |
-| `kraken-hook-flush` and `process::destroy` | Shutdown hooks run concurrently, so the game can be ended while the flush waits for it |
 | `ProcessAttacher.open` | An interrupted attach returns with no state change, so the state stays `ATTACHING` |
 | `GameLauncher.run` | The window wait has no timeout. A game that never shows a window keeps the splash up until the process exits |
 | `GameView.fit` | Runs on the EDT and on the launcher thread without a lock |

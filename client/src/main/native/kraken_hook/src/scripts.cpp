@@ -27,11 +27,14 @@ constexpr int MAX_STACK_OBJS = 16;
 constexpr int MAX_REQUEST_ARGS = 24;
 constexpr int MAX_SCRIPT_STRING = 256;
 
+constexpr uint32_t NONE = 0xffffffffu; // a runner offset the mapping lacks
+
 /**
  * Where the script runtime keeps what a script event reports, from the handshake: the four hooked
  * functions, the static runner and its stacks, a frame's script slot, a script's id, the VarValue
- * layout and kinds, the listener request's fields, a component's id and index, and the eastl string
- * layout. RVAs are image-relative; the rest are byte offsets.
+ * layout and kinds, the listener request's fields, a component's id and index, the eastl string
+ * layout, and the runner's active and dot components. RVAs are image-relative; the rest are byte
+ * offsets.
  */
 struct ScriptLayout {
     uint64_t executeScript = 0;      // runs a listener's request: (runner, request, maxOps, int)
@@ -68,6 +71,8 @@ struct ScriptLayout {
     uint32_t stringFlagByte = 0;     // eastl string: the heap form {char* at +0, u64 size at +8} when set
     uint32_t stringFlagMask = 0;
     uint32_t stringSsoCapacity = 0;
+    uint32_t activeComponent = NONE; // the runner's shared_ptr<IfType> that cc_* ops act on
+    uint32_t dotComponent = NONE;    // and the one .cc_* ops act on
 };
 
 /**
@@ -225,6 +230,19 @@ void appendComponent(ScriptWriter &w, uint64_t component) {
 }
 
 /**
+ * One of the runner's components: the object behind its shared pointer at an offset.
+ *
+ * @param offset the shared pointer's offset in the runner, or NONE
+ * @return the component, or 0 for none
+ */
+uint64_t runnerComponent(uint32_t offset) {
+    if (offset == NONE) {
+        return 0;
+    }
+    return readU64(process::base() + g_scripts.runner + offset + g_scripts.sharedPtr, 0);
+}
+
+/**
  * Appends the request a root run came from: a 0 byte for none, else 1, the source and target
  * components, the op, sub-op, mouse x and y, key code and key char, the base op name and the
  * listener's arguments as it holds them (the script's id first, placeholders unreplaced).
@@ -258,7 +276,7 @@ void appendRequest(ScriptWriter &w, const uint8_t *request) {
 
 /**
  * Builds a SCRIPT message and pushes it into the ring: the head (kind, id, depth), no plan values,
- * then the stacks and the request. Game thread only.
+ * then the stacks, the runner's active and dot components, and the request. Game thread only.
  *
  * @param kind    SCRIPT_PRE_ROOT, SCRIPT_PRE_GOSUB or SCRIPT_POST
  * @param id      the script's id
@@ -271,6 +289,8 @@ void sendScript(uint64_t kind, int64_t id, int depth, const uint8_t *request) {
     w.off = ring::writeHead(w.buf, SCRIPT_EVENT_ID, regs);
     w.put<uint8_t>(0);
     appendStacks(w);
+    appendComponent(w, runnerComponent(g_scripts.activeComponent));
+    appendComponent(w, runnerComponent(g_scripts.dotComponent));
     appendRequest(w, request);
     ring::push(w.buf, w.off);
 }
@@ -441,7 +461,8 @@ bool parseScriptLayout(FrameReader r, ScriptLayout &out) {
     uint8_t *kinds[] = {&out.kindInt, &out.kindString, &out.kindLong};
     uint32_t *fields[] = {&out.argCount, &out.args, &out.source, &out.target, &out.op, &out.subOp, &out.mouseX,
                           &out.mouseY, &out.keyCode, &out.keyChar, &out.opbase, &out.componentId,
-                          &out.componentIndex, &out.stringFlagByte, &out.stringFlagMask, &out.stringSsoCapacity};
+                          &out.componentIndex, &out.stringFlagByte, &out.stringFlagMask, &out.stringSsoCapacity,
+                          &out.activeComponent, &out.dotComponent};
     for (uint64_t *rva : rvas) {
         if (!r.get(*rva)) {
             return false;

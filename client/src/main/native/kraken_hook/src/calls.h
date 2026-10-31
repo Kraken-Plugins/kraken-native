@@ -1,6 +1,7 @@
 // Client function calls. The reader thread queues the batches CALLS commands send; the pump runs them
 // on the game thread at the start of the next frame, each batch with a scratch block its calls can
-// share, so a sequence of calls can build one object. Each batch is answered with CALLS_DONE.
+// share, so a sequence of calls can build one object. Each batch the queue takes is answered with
+// CALLS_DONE.
 #pragma once
 
 #include <cstdint>
@@ -24,9 +25,10 @@ void setClientGlobal(uint64_t rva);
 uint64_t clientPointer();
 
 /**
- * Parses a CALLS command and queues it for the pump. A malformed frame or a full queue still
- * queues the batch, with every call counted as skipped, so CALLS_DONE answers it. Nothing is queued
- * while no pump is hooked: nothing would run it.
+ * Parses a CALLS command and queues it for the pump. A malformed frame, or a batch that would take
+ * the queue past its call limit, is still queued with every call counted as skipped, so CALLS_DONE
+ * answers it. A batch that arrives while the queue already holds its limit of batches is dropped
+ * without an answer. Nothing is queued while no pump is hooked: nothing would run it.
  *
  * @param body the frame's body after the type byte
  */

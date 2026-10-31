@@ -21,15 +21,18 @@ import com.kraken.api.internal.reader.InventoryReader;
 import com.kraken.api.internal.MapCoord;
 import com.kraken.api.internal.reader.MenuReader;
 import com.kraken.api.internal.reader.ProjectileReader;
+import com.kraken.api.internal.ScriptComponents;
 import com.kraken.api.internal.ScriptStack;
 import com.kraken.api.internal.VarcValues;
 import com.kraken.api.internal.reader.ScriptReader;
 import com.kraken.api.internal.reader.SceneReader;
 import com.kraken.api.internal.reader.WidgetReader;
+import com.kraken.api.internal.widget.ComponentWrites;
 import com.kraken.api.item.ItemContainer;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.api.memory.Memory;
 import com.kraken.api.memory.MemoryException;
+import com.kraken.api.render.EntityVisibility;
 import com.kraken.api.scene.GraphicsObject;
 import com.kraken.api.scene.Projectile;
 import com.kraken.api.scene.Scene;
@@ -58,11 +61,12 @@ import java.util.function.BooleanSupplier;
  *
  * <p>Every getter follows the mapped offset chains in the live process, replaying what the client's own Lua handlers
  * read; a getter's Javadoc names the Lua function it mirrors. The API reads, so input, models and setters are not
- * exposed. Three things it does change, through the client's native hook: what the client highlights
- * ({@link #getHighlights()}), the menu actions it runs ({@link #getActions()}, {@link #menuAction}), and the rows of
- * the right-click menu ({@link #getMenuEdits()}, {@link #createMenuEntry}, {@link #setMenuEntries} and the
- * {@link MenuEntry} setters). Reads are tolerant: an unreadable or logged-out state gives -1, false, "", null or an empty
- * list rather than an exception.
+ * exposed. A few things it does change, through the client's native hook: what the client highlights
+ * ({@link #getHighlights()}), the menu actions it runs ({@link #getActions()}, {@link #menuAction}), the rows of the
+ * right-click menu ({@link #getMenuEdits()}, {@link #createMenuEntry}, {@link #setMenuEntries} and the
+ * {@link MenuEntry} setters), which entities it draws ({@link #getEntityVisibility()}), and a few fields of interface
+ * components (the {@link Widget} setters). Reads are tolerant: an unreadable or logged-out state gives -1, false, "",
+ * null or an empty list rather than an exception.
  *
  * <p>It keeps one handle per actor ({@link #npc}, {@link #player}), so asking twice for the same actor gives the same
  * object, and a handle's identity holds as long as the actor does. A handle is replaced when another actor takes its
@@ -133,6 +137,11 @@ public final class Client extends GameReader {
     private final ThreadLocal<ScriptStack> scriptStack = new ThreadLocal<>();
 
     /**
+     * The active and dot components a script event captured, on the thread posting it while its handlers run.
+     */
+    private final ThreadLocal<ScriptComponents> scriptComponents = new ThreadLocal<>();
+
+    /**
      * The reader the menu and the menu events read through. Internal plumbing for the API's own packages.
      */
     @Getter
@@ -170,6 +179,13 @@ public final class Client extends GameReader {
      */
     @Getter
     private final Actions actions;
+
+    /**
+     * Which players, NPCs, projectiles and graphics objects the client leaves undrawn, by plugins' rules the client's
+     * native hook applies every frame.
+     */
+    @Getter
+    private final EntityVisibility entityVisibility;
 
     /**
      * The top-level world: the main map, its actors and its sceneReader.
@@ -260,6 +276,7 @@ public final class Client extends GameReader {
         this.highlights = new Highlights(mapping);
         this.actions = new Actions(this, mapping);
         this.menuEdits = new MenuEdits(this, mapping);
+        this.entityVisibility = new EntityVisibility(this, mapping);
 
         this.cGameState = mapping.offset("Client.gameState");
         this.cLoginToken = mapping.offset("Client.loginToken");
@@ -882,6 +899,60 @@ public final class Client extends GameReader {
         } else {
             scriptStack.set(stack);
         }
+    }
+
+    /**
+     * Sets the components the script widget getters give on the calling thread, for the handlers of one script event.
+     * Internal: the event source sets it around posting a script event; plugins don't need it.
+     *
+     * @param components the components the native hook captured, or null to read the game again
+     */
+    public void setScriptComponents(ScriptComponents components) {
+        if (components == null) {
+            scriptComponents.remove();
+        } else {
+            scriptComponents.set(components);
+        }
+    }
+
+    /**
+     * The script engine's active widget: the component its {@code cc_*} ops act on (operand 0), which a script points
+     * at another with {@code cc_find} or {@code cc_create}. While a {@code ScriptPreFired} or {@code ScriptPostFired}
+     * handler runs, it is the one at that script event, as the native hook captured it, read again now by its id;
+     * otherwise it is the one now, which only means something while a script runs.
+     *
+     * @return a snapshot of the component; null if there is none, it has gone, or this build's mapping lacks it
+     */
+    public Widget getScriptActiveWidget() {
+        ScriptComponents captured = scriptComponents.get();
+        if (captured != null) {
+            return captured.activeId() == -1 ? null : widgetReader.lookup(captured.activeId(), captured.activeIndex());
+        }
+        return widgetReader.at(scripts.activeComponent());
+    }
+
+    /**
+     * The script engine's "dot" widget: the component its {@code .cc_*} ops act on (operand 1), captured or read as
+     * {@link #getScriptActiveWidget()} is.
+     *
+     * @return a snapshot of the component; null if there is none, it has gone, or this build's mapping lacks it
+     */
+    public Widget getScriptDotWidget() {
+        ScriptComponents captured = scriptComponents.get();
+        if (captured != null) {
+            return captured.dotId() == -1 ? null : widgetReader.lookup(captured.dotId(), captured.dotIndex());
+        }
+        return widgetReader.at(scripts.dotComponent());
+    }
+
+    /**
+     * The writes the {@link Widget} setters make, waiting for the client thread to send them to the native hook.
+     * Internal: used by the API's own packages; plugins write through {@link Widget}.
+     *
+     * @return the writes
+     */
+    public ComponentWrites getComponentWrites() {
+        return widgetReader.getWrites();
     }
 
     /**

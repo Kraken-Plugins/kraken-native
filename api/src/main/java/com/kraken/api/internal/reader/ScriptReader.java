@@ -7,9 +7,10 @@ import java.nio.ByteBuffer;
 
 /**
  * Reads the script engine's stacks off its static runner: the int stack and the object stack (VarValues, a variant
- * whose kind byte says whether it holds an int, a string or a long), each with its size. The stacks only hold values
- * while a script runs, so a read between scripts sees what the last one left. Every key is optional: a build whose
- * mapping lacks them reads empty stacks.
+ * whose kind byte says whether it holds an int, a string or a long), each with its size, and the two components its
+ * {@code cc_*} and {@code .cc_*} ops act on. The stacks only hold values while a script runs, so a read between
+ * scripts sees what the last one left. Every key is optional: a build whose mapping lacks them reads empty stacks and
+ * no components.
  */
 public final class ScriptReader extends GameReader {
 
@@ -28,6 +29,9 @@ public final class ScriptReader extends GameReader {
     private final int kindInt;
     private final int kindString;
     private final int kindLong;
+    private final int activeComponent;
+    private final int dotComponent;
+    private final int sharedPtr;
     private final boolean mapped;
 
     /**
@@ -48,6 +52,9 @@ public final class ScriptReader extends GameReader {
         this.kindInt = mapping.enumValue("varValueType", "INT", -1);
         this.kindString = mapping.enumValue("varValueType", "STRING", -1);
         this.kindLong = mapping.enumValue("varValueType", "LONG", -1);
+        this.activeComponent = optionalOffset("ScriptRunner.activeComponent");
+        this.dotComponent = optionalOffset("ScriptRunner.dotComponent");
+        this.sharedPtr = mapping.container("shared_ptr.ptr");
         this.mapped = runnerRva >= 0 && intStack >= 0 && intStackSize >= 0 && objStack >= 0 && objStackSize >= 0
                 && valueSize > 0 && valueType >= 0;
     }
@@ -109,6 +116,28 @@ public final class ScriptReader extends GameReader {
             }
         }
         return objects;
+    }
+
+    /**
+     * The component the engine's {@code cc_*} ops act on now ({@code ScriptRunner.activeComponent}, a shared pointer).
+     *
+     * @return its address, or 0 for none or if this build's mapping lacks it
+     */
+    public long activeComponent() {
+        return component(activeComponent);
+    }
+
+    /**
+     * The component the engine's {@code .cc_*} ops act on now ({@code ScriptRunner.dotComponent}).
+     *
+     * @return its address, or 0 for none or if this build's mapping lacks it
+     */
+    public long dotComponent() {
+        return component(dotComponent);
+    }
+
+    private long component(int offset) {
+        return runnerRva < 0 || offset < 0 ? 0 : safePointer(runner() + offset + sharedPtr);
     }
 
     private long runner() {

@@ -27,15 +27,16 @@ To turn on an unsupported setting:
 | Ground Markers | `plugins.groundmarkers` | Ported. Marking tiles from the right-click menu doesn't work; a hotkey marks the tile under the mouse instead, and marks import and export through the clipboard |
 | NPC Indicators | `plugins.npchighlight` | Ported. Menu tagging and menu colours, minimap names and the outline feather don't work; the hull is the game's model highlight |
 | Ground Items | `plugins.grounditems` | Ported. High alchemy values only; menu changes, notifications, despawn timers, ownership and lootbeams don't work |
-| Entity Hider | | Not ported: needs [writes to the game](#writing-to-the-game) |
-| Anti Drag | | Not ported: needs [writes to the game](#writing-to-the-game) |
+| Entity Hider | `plugins.entityhider` | Ported. Party members and other players' boats can't be hidden; an actor that comes into view is drawn for one frame before it is hidden |
+| Anti Drag | `plugins.antidrag` | Ported. Every setting works; Shift and Control are read once a client tick |
 | Key Remapping | `plugins.keyremapping` | Ported. Every setting works; the chat input doesn't show "Press Enter to Chat...", typed text isn't cleared on Escape, and an interface's own text field doesn't lift the remapping |
 | Menu Entry Swapper | `plugins.menuentryswapper` | Ported. Every setting works; swaps to a sub-option aren't applied or offered, and Shift-click Walk here applies to every object or NPC, including one with a Shift-click swap of its own |
 
 NPC Indicators replaces Kraken's NPC Highlight plugin, and Ground Markers replaces Tile Markers. Neither old plugin's
 settings carry over.
 
-Nothing here has been checked against a running game yet; the menu edits and key interception least of all.
+Nothing here has been checked against a running game yet; the menu edits, key interception, entity visibility and
+widget writes least of all.
 
 ## Capabilities Needed
 
@@ -79,25 +80,23 @@ build gives no string or type name to anchor on; a key Kraken itself could hear,
 
 ### Writing to the Game
 
-**Waiting:** Entity Hider (all of it), Anti Drag (all of it).
+**Built** for entities and interface components:
 
-The API is read-only except highlights and menu actions, and [`CLAUDE.md`](../../CLAUDE.md) keeps other Lua functions
-that change the client out of scope. These two plugins need that decision changed.
+* [Entity visibility](entity-visibility.md). The hook DLL holds rules the client sends and applies them to every
+  player, NPC, projectile and graphics object at the start of every frame, writing the flags Lua's
+  `Entity.render3D`/`render2D` and `ClientOp.renderProjectiles` write, and shows again exactly what it hid once no
+  rule hides it. The API has `Client.getEntityVisibility()`, with rules per plugin: kinds of actor hidden (the local
+  player, other players, NPCs; models and 2D elements apart), actors decided apart, every projectile, and graphics
+  objects by spot anim id. Entity Hider is built on it.
+* [Widget writes](widget-writes.md). The hook looks a component up by id on the game thread and writes its drag dead
+  time or dead zone, or clears its mouse-repeat listener through the client's own clear: `Widget.setDragDeadTime`,
+  `setDragDeadZone`, `setOnMouseRepeatListener` (clearing only). The script hooks report the components the engine's
+  ops act on, for `Client.getScriptActiveWidget()` and `getScriptDotWidget()` in `ScriptPreFired` and
+  `ScriptPostFired` handlers. Anti Drag is built on it.
 
-**Entity Hider.** The client's Lua API already hides actors: `osrs.Entity.render3D(bool)` (handler `0x219db0` in 241.3)
-and `render2D(bool)` (`0x219ea0`) set flags on the actor, which the mapping has for reading as `Actor.hidden` and
-`Actor.render2D`. `ClientOp.renderProjectiles(bool)` (`0x3ae120`) turns all projectiles off. A port would:
-
-* add these as `NativeCall`s the DLL runs on the game thread (or have the DLL write the two flags), as highlights do;
-* decide per player and NPC on spawn, and again when interacting, death or the settings change, and show everything
-  again on shutdown and reconnect;
-* leave out what has no backing yet: party members (no party service), boats (sub-worlds aren't read), and the Nylocas
-  death spot animations (no per-graphics-object setter is known).
-
-**Anti Drag.** Needs the drag dead time of item components (`IfType.dragDeadTime`), the client's inventory drag delay,
-clearing a component's mouse-repeat listener, and the component a script is running for
-(`Client.getScriptActiveWidget`, used in `ScriptPostFired`). None is mapped, and all but the last are writes. The
-Shift and Ctrl state it watches is available from `KeyManager`.
+**Not covered:** other fields of components (text, hidden, positions), setting a listener, the chatbox's text and
+varcs (Key Remapping's "Press Enter to Chat..."), other players' boats (a sub-world's own scene isn't drawn by the
+entity rules), and the old inventory drag delay (`setInventoryDragDelay`), which isn't mapped.
 
 ### Minimap Positions
 
@@ -246,6 +245,31 @@ the key reports.
 | "Press Enter to Chat..." in the chat input, clearing the typed text on Escape | Missing | [Writes to the game](#writing-to-the-game): the chatbox input's text and the chat input varc | `KeyRemappingPlugin.onKeyReport`, on the moves to and from typing |
 | Lifting the remapping for an interface's own text field | Missing | `Client.getFocusedInputFieldWidget` | `KeyRemappingPlugin.chatboxFocused` |
 
-### Entity Hider, Anti Drag
+### Entity Hider
 
-Not ported. Each needs [writes to the game](#writing-to-the-game) for its main job.
+The settings become a plugin's visibility rules ([`EntityHiderRules`](../../client/src/main/java/com/kraken/client/plugins/entityhider/EntityHiderRules.java)):
+each kind's default (the local player, other players, NPCs, projectiles), which the hook applies to actors the plugin
+hasn't decided yet, and a decision per player and NPC, made from the settings and what the plugin reads about it
+(friend, friends chat, clan, ignored, attacking you, another player's pet, dying, thrall, random event) when it
+spawns, changes target or form, or dies, and again at every game tick.
+
+| Setting or feature | State | Needs | Where to wire it |
+|---|---|---|---|
+| Hide others and their 2D, friends, friends chat and clan chat members, ignores, the local player and its 2D, NPCs and their 2D, others' pets, attackers, projectiles, dead NPCs (with the Nylocas death spot anims), thralls, random events | Works | | |
+| Hide party members | Unsupported | A party service | `EntityHiderPlugin.facts`: a party relation before the friend check |
+| Hide boats | Unsupported | Other players' boats: the world entities and their owners, and hiding a sub-world's scene | A rule in the hook's walk over `Client.worlds.map` |
+| An actor coming into view | Works, differently | | Drawn for one frame before the hook hides it, as the pump runs before the frame's logic |
+| A change of standing (a new attacker, a friend added) | Works, differently | | Applied on the actor's event or the next game tick, not the next frame |
+
+### Anti Drag
+
+The port keeps the original's logic: the drag dead time of the item slots in the inventory, the bank, the deposit box,
+group storage, the Chambers of Xeric storage, the seed vault and the rune pouch is set while the delay is in force and
+put back to the game's 5 otherwise; the inventory and bank slots' mouse-repeat listener is cleared as each is drawn
+(`ScriptPostFired` for `ScriptID.INVENTORY_DRAWITEM`, with `Client.getScriptActiveWidget()`).
+
+| Setting or feature | State | Needs | Where to wire it |
+|---|---|---|---|
+| Drag delay, On shift only, Disable on control pressed | Works | | |
+| Shift and Control | Works, differently | | Read with `KeyManager.isKeyPressed` once a client tick, since the game owns the keyboard; a press shorter than a tick can be missed |
+| The inventory drag delay | Missing | `Client.setInventoryDragDelay` (deprecated in the original) isn't mapped | `AntiDragPlugin.setDragDelay`; the item slots' own dead time already does the work |

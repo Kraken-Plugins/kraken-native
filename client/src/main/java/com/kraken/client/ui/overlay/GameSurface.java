@@ -17,7 +17,7 @@ import java.util.logging.Level;
  * The overlay surface the native hook draws inside the game's own frame: a file mapping holding three frames of
  * premultiplied BGRA pixels, which {@link OverlayRenderer} fills and {@code kraken_hook.dll} uploads and draws over
  * the finished frame just before it is presented. Its layout and the lock-free handover are in
- * {@code docs/in-game-drawing.md} §2.4.
+ * {@code docs/developer/in-game-drawing.md} ("The Overlay Surface").
  *
  * <p>The hook's connection sets it up: {@link #connected} once the DLL reports it hooked the present, {@link #frame}
  * each time it reports the framebuffer's size, {@link #disconnected} when it drops. {@link #publish} runs on the poll

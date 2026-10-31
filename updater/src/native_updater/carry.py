@@ -1,4 +1,4 @@
-"""Carry-forward and delta propagation (design §4.7).
+"""Carry-forward and delta propagation (docs/developer/updater.md).
 
 Given the previous build's mapping and, when cached, its program model and analysis.json (evidence instruction RVAs,
 bindings, fingerprints):

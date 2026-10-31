@@ -1,4 +1,4 @@
-# Varc events (docs/event-hooks-design.md §2.9): where scripts set varcs, for VarClientIntChanged and
+# Varc events (docs/developer/events.md): where scripts set varcs, for VarClientIntChanged and
 # VarClientStrChanged. The API compares the varc store (Client.varcs) every poll; the hook DLL's entry hooks on the two
 # setters below make it post at once, one event per set, as the client makes them.
 #

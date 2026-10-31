@@ -25,6 +25,15 @@ uint64_t readU64(uint64_t address, uint64_t fallback) {
     return safeRead(address, &value, 8) ? value : fallback;
 }
 
+bool safeWrite(uint64_t address, const void *in, size_t n) {
+    if (address < 0x10000) {
+        return false;
+    }
+    bool faulted = false;
+    GUARD_BEGIN std::memcpy(reinterpret_cast<void *>(address), in, n); GUARD_END
+    return !faulted;
+}
+
 bool readPointer(uint64_t address, uint64_t *out) {
     bool faulted = false;
     uint64_t value = 0;

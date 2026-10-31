@@ -258,8 +258,10 @@ In one place, for review:
 * **Hooks**, inside the DLL, the client's event raisers, a dozen plain functions, the per-frame step, the frame
   present and four script runtime functions. Every detour forwards to the original unchanged.
 * **Calls**, on the game thread at the start of a frame, the client's highlight functions, minimenu row bodies and
-  packet helpers. These are the only changes to game state Kraken makes, and every menu action reaches the game's
-  servers as the real click would.
+  packet helpers. Every menu action reaches the game's servers as the real click would.
+* **Writes**, on the game thread: the right-click menu's rows as the client rebuilds them, the hidden and 2D bytes of
+  the entities the visibility rules hide (and back, for those it hid), and the drag fields and mouse-repeat listeners
+  of components it looks up by id. With the calls, these are the only changes to game state Kraken makes.
 * **Delays** frames, when the unfocused frame cap is on.
 * **Draws** over the finished frame with its own GL objects, restoring the client's GL state after.
 
@@ -295,8 +297,9 @@ These hold across the codebase; changes should keep them.
   adapters; no stubs for what can't be read. Lua-only reads go on the matching class.
 * **Each getter replays a Lua handler.** The game's Lua plugin API is the reference for what a value means and where it
   lives. Javadoc names the Lua function and any deliberate divergence.
-* **Read-only, except native calls on the game thread.** Highlights and menu actions only, both run by the client's own
-  code.
+* **Read-only, except through the hook on the game thread.** Highlights and menu actions, run by the client's own
+  code; menu rules applied as the client rebuilds the menu; visibility rules applied to every entity each frame; and
+  component writes made after looking the component up by id.
 * **Raises decide when to read; counters decide ticks.** The hook never replaces a read: trackers keep their
   whole-read fallback, so a dropped or unconfirmed message costs latency, not an event.
 * **Fail soft.** A missing optional key reads empty; a missing hook falls back to polling; a faulting call is skipped

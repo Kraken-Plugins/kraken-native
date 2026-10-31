@@ -1,5 +1,5 @@
-# Drawing in the game (docs/in-game-drawing.md): the client's highlight system and the two hook sites the DLL draws
-# through.
+# Drawing in the game (docs/developer/in-game-drawing.md): the client's highlight system and the two hook sites the DLL
+# draws through.
 #
 # Highlights (ClientOp.highlight*): the manager every function works on, the native function behind each handler, the
 # loc and loc type functions only clientscript reaches (highlights.py), the channel clear, the style struct

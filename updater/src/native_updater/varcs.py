@@ -1,4 +1,4 @@
-"""Where scripts set varcs, for VarClientIntChanged and VarClientStrChanged (docs/event-hooks-design.md §2.9).
+"""Where scripts set varcs, for VarClientIntChanged and VarClientStrChanged (docs/developer/events.md).
 
 The client keeps the varcs in a store the Client points at (Client.varcs): a vector of entries sorted by id, each a
 variant value with its kind in a byte. Scripts are the only writers that set one varc: the interpreter's SET_VARC_INT

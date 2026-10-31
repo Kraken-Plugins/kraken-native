@@ -66,6 +66,8 @@ by uid, so Lua returns -1 for almost every NPC.
 | [`ItemDecoder`](../../api/src/main/java/com/kraken/api/internal/ItemDecoder.java), [`NpcDecoder`](../../api/src/main/java/com/kraken/api/internal/NpcDecoder.java), [`ObjectDecoder`](../../api/src/main/java/com/kraken/api/internal/ObjectDecoder.java) | Item, NPC and loc definitions |
 | [`EventSource`](../../api/src/main/java/com/kraken/api/internal/event/EventSource.java), [`Tracker`](../../api/src/main/java/com/kraken/api/internal/event/Tracker.java) | Turns reads into events (see [`events.md`](events.md)) |
 | [`NativeCall`](../../api/src/main/java/com/kraken/api/internal/invoke/NativeCall.java), [`NativeInvoker`](../../api/src/main/java/com/kraken/api/internal/invoke/NativeInvoker.java) | Calls the hook runs on the game thread |
+| [`EntityVisibility`](../../api/src/main/java/com/kraken/api/render/EntityVisibility.java), [`VisibilityRules`](../../api/src/main/java/com/kraken/api/render/VisibilityRules.java) | The rules the hook hides entities by (see [`entity-visibility.md`](entity-visibility.md)) |
+| [`ComponentWrites`](../../api/src/main/java/com/kraken/api/internal/widget/ComponentWrites.java) | The widget setters' writes, waiting to be sent (see [`widget-writes.md`](widget-writes.md)) |
 | [`GameFocus`](../../api/src/main/java/com/kraken/api/internal/GameFocus.java) | Whether the game's process has keyboard focus |
 | [`GameFixture`](../../api/src/test/java/com/kraken/api/GameFixture.java), [`FakeMemory`](../../api/src/test/java/com/kraken/api/FakeMemory.java) | The fake game the tests read |
 
@@ -698,6 +700,11 @@ while that connection is up. `Highlights` and `Actions` hold the invoker, and ea
 * `Actions` runs the client's own minimenu row bodies. A call made while the hook is down is dropped and returns false.
   See [`menu-actions.md`](menu-actions.md).
 
+Two other writes don't go through calls, because what they change comes and goes faster than a round trip:
+`EntityVisibility` sends rules the hook applies to every entity each frame (`GameSession.setVisibilityHook`), and
+`ComponentWrites` sends writes the hook makes after looking each component up by id (`GameSession.setComponentHook`).
+Both flush at the end of each pass of the client thread, with the menu edits.
+
 ## The Poll Loop
 
 The loop runs on `kraken-api-poll`, which is the client thread. A `TaskQueue` binds to that thread, and
@@ -773,8 +780,8 @@ touched on the poll thread.
 | An optional mapping key is missing | `-1`, `false` or the fallback, and the feature reads empty |
 | A tracker's read fails with `MemoryException` | It keeps its baseline and compares again on the next poll |
 | A tracker throws `RuntimeException` | Logged once per tracker until it succeeds again |
-| A poll stage throws `RuntimeException` | Logged as a warning; the other stages still run |
-| A poll stage throws any other `Error` | Not caught: the poll thread ends, `running` stays true, and `start()` does nothing afterwards |
+| A poll stage throws `RuntimeException` or `LinkageError` | Logged as a warning; the other stages still run |
+| A poll stage throws any other `Error` | It ends the loop and reaches the thread's uncaught-exception handler; `running` is reset, so `start()` can run the loop again |
 | The game exits | `isValid()` is false on the next iteration; the loop stops and `isAttached()` is false |
 
 The reader fallbacks (`-1` for ints, `""` for strings, `null` for blocks and vectors) are why a logged-out client reads

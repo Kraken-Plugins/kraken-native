@@ -14,6 +14,8 @@ from .hooks import obj_pile_ops, player_lifecycle
 from .minimenu import minimenu
 from .menuedits import menu_edit_points
 from .keyboard import component_listeners, render_view_wndproc
+from .components import cs2_components
+from .visibility import renderable_hidden
 from .menuops import menu_ops, walk_destination
 from .dialogs import dialog_packets
 from .scripts import script_runner
@@ -1308,7 +1310,8 @@ EXTRACTORS = {
     "obj_pile_ops": obj_pile_ops, "player_lifecycle": player_lifecycle,
     "projectiles": projectiles, "minimenu": minimenu, "menu_ops": menu_ops, "walk_destination": walk_destination,
     "menu_edit_points": menu_edit_points, "render_view_wndproc": render_view_wndproc,
-    "component_listeners": component_listeners,
+    "component_listeners": component_listeners, "cs2_components": cs2_components,
+    "renderable_hidden": renderable_hidden,
     "dialog_packets": dialog_packets,
     "script_runner": script_runner, "sub_interfaces": sub_interfaces, "chat_history": chat_history,
     "actor_hitmarks": actor_hitmarks, "varc_setters": varc_setters, "overhead_countdown": overhead_countdown,

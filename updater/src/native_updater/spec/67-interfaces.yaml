@@ -1,4 +1,4 @@
-# Interface events (docs/event-hooks-design.md §2.7): where the client opens and closes interfaces, for WidgetLoaded and
+# Interface events (docs/developer/events.md): where the client opens and closes interfaces, for WidgetLoaded and
 # WidgetClosed. The API compares the open interfaces (the top-level one and Client.subInterfaces) every poll; the hook
 # DLL's entry hooks on the two functions below make it read at once and tell it about a group closed and opened again
 # in the same component (a dialogue moving to its next line), which a comparison can't see.

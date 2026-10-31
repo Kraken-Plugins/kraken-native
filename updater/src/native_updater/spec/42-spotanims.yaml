@@ -1,4 +1,4 @@
-# Spot animations (docs/event-hooks-design.md §2.11): the graphics an actor shows (a spell's glow, a teleport...), for
+# Spot animations (docs/developer/events.md): the graphics an actor shows (a spell's glow, a teleport...), for
 # GraphicChanged. The API compares each loaded actor's spot animations on the tick's polls and right after the NPC and
 # player update decoders run, and those of the actors showing one on every poll, since they end on their own.
 #

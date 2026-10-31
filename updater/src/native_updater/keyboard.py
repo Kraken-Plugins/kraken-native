@@ -9,24 +9,35 @@ that window procedure changes what the game sees.
   render_view_wndproc   functions.renderViewWndProc: the window procedure the function registering "JagRenderView"
                         stores into the WNDCLASSEXA it hands RegisterClassExA (lpfnWndProc, 8 bytes after cbSize,
                         which is 0x50). A plain WNDPROC: (HWND, UINT, WPARAM, LPARAM) in RCX, RDX, R8, R9.
-  component_listeners   IfType.onKey and the IfListener layout: the cs2 runtime sets a component's hooks in the
-                        handler of ops 1400-1499 (cc_setonclick ... cc_setonkey), which subtracts 1400 from the op and
-                        jumps through a table of cases, each pointing RBX at one of the component's listener slots
-                        (LEA RBX,[component + slot]) before a shared tail resizes the slot's argument vector and fills
-                        it. Case 19 (cc_setonkey, op 1419) gives the key listener. A slot holds its argument count at
-                        IfListener.count (what the resize compares the new count with) and its arguments, VarValues,
-                        at IfListener.args (what the tail indexes after the resize); a slot with no arguments has no
-                        listener.
+  component_listeners   IfType.onKey, IfType.onMouseRepeat, the IfListener layout and functions.ifListenerClear: the
+                        cs2 runtime sets a component's hooks in the handler of ops 1400-1499 (cc_setonclick ...
+                        cc_setonkey), which subtracts 1400 from the op and jumps through a table of cases, each
+                        pointing RBX at one of the component's listener slots (LEA RBX,[component + slot]) before a
+                        shared tail resizes the slot's argument vector and fills it. Case 19 (cc_setonkey, op 1419)
+                        gives the key listener, case 12 (cc_setonmouserepeat, op 1412) the one run every client cycle
+                        the mouse is over the component. A slot holds its argument count at IfListener.count (what
+                        the resize compares the new count with) and its arguments, VarValues, at IfListener.args
+                        (what the tail indexes after the resize); a slot with no arguments has no listener. The
+                        resize empties a slot through functions.ifListenerClear: the one function it calls with the
+                        slot that leaves the count and the argument array 0 (itself or in the function it ends by
+                        calling), after destroying and freeing the arguments.
 
-Output keys: functions.renderViewWndProc, IfType.onKey, IfListener.count, IfListener.args.
+Output keys: functions.renderViewWndProc, IfType.onKey, IfType.onMouseRepeat, IfListener.count, IfListener.args,
+functions.ifListenerClear.
 """
+from .analysis.provenance import Add, Arg, Const, Deref, Ret
 
 CLASS_NAME = "JagRenderView"
 WNDCLASSEX_SIZE = 0x50          # sizeof(WNDCLASSEXA), stored into its cbSize
 WNDPROC_OFFSET = 8              # lpfnWndProc's offset in WNDCLASSEXA
 HOOK_RANGE = 1400               # the cs2 ops that set a component's listeners
 ON_KEY = 1419                   # cc_setonkey
+LISTENERS = {                   # the listener slots read, with the op whose case points at each
+    "IfType.onKey": (ON_KEY, "cc_setonkey"),
+    "IfType.onMouseRepeat": (1412, "cc_setonmouserepeat"),
+}
 ARGS_WINDOW = 48                # instructions after the resize searched for the argument array load
+CLEAR_DEPTH = 2                 # calls a slot's emptying is followed into, from the one the resize makes
 
 
 def render_view_wndproc(session, p):
@@ -63,18 +74,24 @@ def component_listeners(session, p):
         session.notes.append(f"keyboard: no cs2 handler subtracts {HOOK_RANGE} and jumps through a case table")
         return {}
     fn, cases = handler
-    index = ON_KEY - HOOK_RANGE
-    if index >= len(cases):
-        session.notes.append(f"keyboard: the {HOOK_RANGE} handler {fn:#x} has {len(cases)} cases, no op {ON_KEY}")
-        return {}
-    first = model.insn(cases[index])
-    if first is None or first.mnem != "LEA" or len(first.ops) != 2 or first.ops[0].kind != "reg" \
-            or first.ops[1].kind != "mem" or first.ops[1].index is not None:
-        session.notes.append(f"keyboard: op {ON_KEY}'s case doesn't start by pointing at a listener slot")
-        return {}
+    out, firsts = {}, []
+    for key, (op, name) in LISTENERS.items():
+        index = op - HOOK_RANGE
+        if index >= len(cases):
+            session.notes.append(f"keyboard: the {HOOK_RANGE} handler {fn:#x} has {len(cases)} cases, no op {op}")
+            continue
+        first = model.insn(cases[index])
+        if first is None or first.mnem != "LEA" or len(first.ops) != 2 or first.ops[0].kind != "reg" \
+                or first.ops[1].kind != "mem" or first.ops[1].index is not None:
+            session.notes.append(f"keyboard: op {op}'s case doesn't start by pointing at a listener slot")
+            continue
+        out[key] = (first.ops[1].disp, [session.evidence(first.rva, fn)],
+                    f"{name}'s case (op {op}) points its listener slot at the component plus this")
+        firsts.append(first)
+    if not firsts:
+        return out
+    first = firsts[0]
     slot_reg = first.ops[0].reg
-    out = {"IfType.onKey": (first.ops[1].disp, [session.evidence(first.rva, fn)],
-                            f"cc_setonkey's case (op {ON_KEY}) points its listener slot at the component plus this")}
     tail = _tail(model, fn, first)
     if tail is None:
         session.notes.append("keyboard: the listener cases' shared tail resizes no slot")
@@ -90,7 +107,56 @@ def component_listeners(session, p):
     if args is not None and args != count:
         out["IfListener.args"] = (args, [session.evidence(call_rva, fn, "rip")],
                                   "the VarValue array the tail fills after resizing the slot")
+        clear = _listener_clear(session, resize, count, args)
+        if clear is not None:
+            out["functions.ifListenerClear"] = clear
     return out
+
+
+def _listener_clear(session, resize, count, args):
+    """(fn, evidence, note) of the one function the slot resize calls with the slot that leaves the slot's count and
+    argument array 0, else None."""
+    found = {}
+    for call in session.prov.facts(resize).calls:
+        if call.target is None or not call.args or call.args[0] != Arg(0):
+            continue
+        target = session.model.resolve(call.target)
+        if _empties(session, target, {count, args}, CLEAR_DEPTH):
+            found.setdefault(target, call.rva)
+    if len(found) != 1:
+        session.notes.append(f"keyboard: the slot resize {resize:#x} calls {len(found)} functions that empty the slot")
+        return None
+    (fn, rva), = found.items()
+    return fn, [session.evidence(rva, resize, "rip")], "the function the slot resize calls with the slot to empty it"
+
+
+def _empties(session, fn, fields, depth):
+    """Whether fn stores 0 to each of `fields` off its first argument, itself or in the function it ends by calling
+    with that argument (followed `depth` calls deep)."""
+    facts = session.prov.facts(fn)
+    zeroed = {off for s in facts.stores if s.value == Const(0) and (off := _arg0_field(s.target)) is not None
+              and s.target.size == 8}
+    if fields <= zeroed:
+        return True
+    if depth == 0:
+        return False
+    for r in facts.returns:
+        call = next((c for c in facts.calls if c.rva == r.rva and c.target is not None), None)
+        if isinstance(r.value, Ret) and call is not None and call.args and call.args[0] == Arg(0) \
+                and _empties(session, session.model.resolve(call.target), fields, depth - 1):
+            return True
+    return False
+
+
+def _arg0_field(target):
+    """The offset of an [Arg0 + offset] or [(Arg0 + offset)] target, else None."""
+    if not isinstance(target, Deref) or target.index is not None:
+        return None
+    if target.base == Arg(0):
+        return target.off
+    if isinstance(target.base, Add) and target.base.base == Arg(0):
+        return target.base.off + target.off
+    return None
 
 
 def _hook_handler(model):

@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "calls.h"
+#include "components.h"
 #include "core/frame_reader.h"
 #include "core/process.h"
 #include "core/ring.h"
@@ -21,6 +22,7 @@
 #include "pump.h"
 #include "raises.h"
 #include "scripts.h"
+#include "visibility.h"
 
 namespace kraken::connection {
 namespace {
@@ -103,6 +105,12 @@ DWORD WINAPI readerThread(LPVOID) {
             case CMD_KEYS:
                 keys::command(r);
                 break;
+            case CMD_VISIBILITY:
+                visibility::command(r);
+                break;
+            case CMD_COMPONENTS:
+                components::queue(r);
+                break;
             default:
                 break; // an unknown command is skipped, so a newer client can still talk to this DLL
         }
@@ -140,7 +148,8 @@ void sendStatus(uint16_t requested) {
     uint64_t features = (pumpHooked ? FEATURE_PUMP : 0) | (presentHooked ? FEATURE_PRESENT : 0)
                         | (pumpHooked || presentHooked ? FEATURE_FRAME_RATE : 0)
                         | (scripts::hooked() ? FEATURE_SCRIPTS : 0) | (menus::hooked() ? FEATURE_MENU : 0)
-                        | (keys::hooked() ? FEATURE_KEYS : 0);
+                        | (keys::hooked() ? FEATURE_KEYS : 0) | (visibility::live() ? FEATURE_VISIBILITY : 0)
+                        | (components::live() ? FEATURE_COMPONENTS : 0);
     uint64_t regs[4] = {static_cast<uint64_t>(raises::installedCount()), requested, features, PROTOCOL_VERSION};
     sendDirect(STATUS_EVENT_ID, regs);
 }
@@ -168,18 +177,19 @@ bool readBlock(void (*install)(FrameReader)) {
 }
 
 /**
- * Reads the handshake and installs any hooks not installed yet. The handshake is: magic "KRK6", a
+ * Reads the handshake and installs any hooks not installed yet. The handshake is: magic "KRK7", a
  * u16 slot count, each slot's rva, id configuration, argument count and capture plan, then the
- * Client* slot, the pump function and the present function, then three length-prefixed blocks: the
- * script block, the menu block and the key block (each empty for no such hooks). A slot whose rva is
- * already hooked is left alone, so a re-handshake after a reconnect only adds new ones; the pump,
- * present, script, menu and key hooks install once.
+ * Client* slot, the pump function and the present function, then five length-prefixed blocks: the
+ * script block, the menu block, the key block, the visibility block and the component block (each
+ * empty for no such feature). A slot whose rva is already hooked is left alone, so a re-handshake
+ * after a reconnect only adds new ones; the pump, present, script, menu and key hooks install once,
+ * and the visibility and component layouts are taken once.
  *
  * @return true if the handshake parsed; false if the connection closed mid-handshake
  */
 bool readHandshake() {
     char magic[4];
-    if (!recvExact(magic, 4) || std::memcmp(magic, "KRK6", 4) != 0) {
+    if (!recvExact(magic, 4) || std::memcmp(magic, "KRK7", 4) != 0) {
         return false;
     }
     uint16_t count = 0;
@@ -212,7 +222,8 @@ bool readHandshake() {
     calls::setClientGlobal(tail[0]);
     pump::install(tail[1]);
     overlay::install(tail[2]);
-    if (!readBlock(&scripts::install) || !readBlock(&menus::install) || !readBlock(&keys::install)) {
+    if (!readBlock(&scripts::install) || !readBlock(&menus::install) || !readBlock(&keys::install)
+            || !readBlock(&visibility::install) || !readBlock(&components::install)) {
         return false;
     }
     sendStatus(count);
@@ -353,9 +364,10 @@ bool init() {
 
 void run() {
     // Hooks stay installed across reconnects; a dropped socket costs the client latency, not events,
-    // because the Java side keeps polling as a fallback. A dropped socket also drops the queued calls,
-    // stops the overlay, since nothing would keep it current, stops the script events, drops the menu
-    // rules and key table and lifts the frame cap.
+    // because the Java side keeps polling as a fallback. A dropped socket also drops the queued calls
+    // and component ops, stops the overlay, since nothing would keep it current, stops the script
+    // events, drops the menu rules and key table, shows again what the visibility rules hid and lifts
+    // the frame cap.
     bool first = true;
     for (;;) {
         if (!connectToJava(first ? 50 : 10)) {
@@ -378,6 +390,8 @@ void run() {
             g_sock = INVALID_SOCKET;
         }
         calls::clear();
+        components::clear();
+        visibility::clear();
         overlay::stopSurface();
         scripts::stopCapture();
         menus::clear();

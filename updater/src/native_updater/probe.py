@@ -1,4 +1,4 @@
-"""Live probe (design §4.8): opt-in, operator-run, read-only.
+"""Live probe (docs/developer/updater.md): opt-in, operator-run, read-only.
 
 Safety model: the process must be osclient.exe and the file's sha256 must match the mapping, reads go through a
 PssCaptureSnapshot VA clone when available (falling back to bounded ReadProcessMemory), and nothing is ever written.

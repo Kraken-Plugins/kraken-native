@@ -1,0 +1,25 @@
+# What the scene draws: every entity it draws (players, NPCs, projectiles, keyed projectiles, graphics objects) is a
+# renderable whose base constructor clears a hidden flag, and the scene's draw skips an entity with the flag set. The
+# Lua API reaches the flag on actors (Actor.hidden) and on the projectile list (Projectile.hidden); the keys here are
+# the same flag on the objects no Lua function reaches, from the constructors' chains of base constructors (extractor
+# `renderable_hidden`, visibility.py), so the hook DLL can hide them too. The anchor classes follow the constructors'
+# own (GraphicsObjectCtor is a SpotAnim loader caller, KeyedProjectileCtor comes from the keyed projectile walk).
+keys:
+  - key: GraphicsObject.hidden
+    type: u8
+    priority: P1
+    doc: Nonzero keeps the scene from drawing the graphics object; its base constructor clears it.
+    strategies:
+      - extractor: { name: renderable_hidden, ctor: "@GraphicsObjectCtor", field: GraphicsObject.hidden, cls: C }
+    invariants:
+      - equals: "Projectile.hidden"
+      - equals: "Actor.hidden"
+  - key: KeyedProjectile.hidden
+    type: u8
+    priority: P1
+    doc: Nonzero keeps the scene from drawing the keyed projectile; its base constructor clears it.
+    strategies:
+      - extractor: { name: renderable_hidden, ctor: "@KeyedProjectileCtor", field: KeyedProjectile.hidden, cls: A }
+    invariants:
+      - equals: "Projectile.hidden"
+      - equals: "Actor.hidden"

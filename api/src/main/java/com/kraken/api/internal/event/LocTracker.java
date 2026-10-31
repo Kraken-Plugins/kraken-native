@@ -115,8 +115,9 @@ final class LocTracker extends SceneTracker {
             int level = (packed >>> 28) & 0x3;
             int a = (packed >>> 14) & 0x3fff;
             int b = packed & 0x3fff;
-            // The coord packing and whether it is scene- or world-based are unconfirmed (design §7): read it as
-            // scene-relative when it lands in the scene, else as a world tile with the base subtracted.
+            // The coord packing and whether it is scene- or world-based are unconfirmed (a live check listed in
+            // docs/developer/events.md): read it as scene-relative when it lands in the scene, else as a world
+            // tile with the base subtracted.
             int x = a < size[0] && b < size[1] ? a : a - base.x();
             int z = a < size[0] && b < size[1] ? b : b - base.z();
             if (scene.inWorld(world, level, x, z)) {
@@ -160,14 +161,15 @@ final class LocTracker extends SceneTracker {
 
     /**
      * Logs, once, that loc targeting is live and on which unconfirmed assumption, so a live check can confirm or
-     * refute the coord packing (design §7). The per-tick whole-scene read is the fallback meanwhile.
+     * refute the coord packing (a live check listed in docs/developer/events.md). The per-tick whole-scene read is
+     * the fallback meanwhile.
      */
     private void logTargeting() {
         if (!targetingLogged) {
             targetingLogged = true;
             log.info("Loc hook targeting active: decoding ON_LOC_LOAD/UNLOAD coord as plane<<28|x<<14|z, scene-"
                     + "relative where in range else world-minus-base. Confirm the packing and base on a live "
-                    + "client (design §7); the per-tick whole-scene read remains the fallback.");
+                    + "client; the per-tick whole-scene read remains the fallback.");
         }
     }
 

@@ -85,9 +85,9 @@ final class ScriptEvents {
     }
 
     /**
-     * Posts the events for one report, if they have subscribers, with the client's stack getters giving the stacks the
-     * hook captured while their handlers run: the script's {@link ScriptPreFired} or {@link ScriptPostFired}, then a
-     * {@link FakeXpDrop} if it is the XP drop script starting.
+     * Posts the events for one report, if they have subscribers, with the client's stack getters and its active and
+     * dot widget getters giving what the hook captured while their handlers run: the script's {@link ScriptPreFired}
+     * or {@link ScriptPostFired}, then a {@link FakeXpDrop} if it is the XP drop script starting.
      *
      * @param run the report
      */
@@ -110,6 +110,7 @@ final class ScriptEvents {
             return;
         }
         client.setScriptStack(run.stack());
+        client.setScriptComponents(run.components());
         try {
             if (event != null) {
                 bus.post(event);
@@ -119,6 +120,7 @@ final class ScriptEvents {
             }
         } finally {
             client.setScriptStack(null);
+            client.setScriptComponents(null);
         }
     }
 

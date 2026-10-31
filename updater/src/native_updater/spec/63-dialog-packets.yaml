@@ -1,6 +1,6 @@
-# Answering the server's dialogs directly (docs/menu-actions.md §1.4): the opcodes of the packets the cs2 runtime sends
-# from its resume_countdialog, resume_namedialog, resume_stringdialog and resume_objdialog ops. The runtime's handler
-# of the 3100 range jumps through a table of cases; each case builds its packet with the packet helpers of
+# Answering the server's dialogs directly (docs/developer/menu-actions.md): the opcodes of the packets the cs2 runtime
+# sends from its resume_countdialog, resume_namedialog, resume_stringdialog and resume_objdialog ops. The runtime's
+# handler of the 3100 range jumps through a table of cases; each case builds its packet with the packet helpers of
 # 62-menu-actions.yaml (create, one writer, send, release), so the API can build the same packet from Java with a count,
 # a string or an item id (dialogs.py).
 keys:

@@ -289,6 +289,9 @@
       "subOpCount": "0x2f8",
       "subOpNames": "0x300",
       "onKey": "0x758",
+      "dragDeadZone": "0x320",
+      "dragDeadTime": "0x324",
+      "onMouseRepeat": "0x470",
       "subId": "0x8",
       "x": "0x5c",
       "y": "0x60",
@@ -409,7 +412,8 @@
       "height": "0x270",
       "startCycle": "0x260",
       "animSeqType": "0x288",
-      "animFrame": "0x296"
+      "animFrame": "0x296",
+      "hidden": "0x1c"
     },
     "KeyedProjectile": {
       "spotAnimId": "0x264",
@@ -434,7 +438,8 @@
       "fineY": "0x2e4",
       "fineZ": "0x2e8",
       "yaw": "0x318",
-      "pitch": "0x31c"
+      "pitch": "0x31c",
+      "hidden": "0x1c"
     },
     "Destination": {
       "x": "0x0",
@@ -448,7 +453,9 @@
       "intStackSize": "0xff0",
       "objStack": "0xff8",
       "objStackSize": "0xac38",
-      "frameCount": "0xcbc0"
+      "frameCount": "0xcbc0",
+      "activeComponent": "0xded8",
+      "dotComponent": "0xdee8"
     },
     "ScriptFrame": {
       "script": "0x0"
@@ -764,6 +771,7 @@
     "ifOpenSub": "0x84fe0",
     "ifCloseSub": "0x851d0",
     "renderViewWndProc": "0x6d1e00",
+    "ifListenerClear": "0x443f0",
     "highlightNpcOn": "0x1b9ef0",
     "highlightNpcOff": "0x1bbdf0",
     "highlightNpcTypeOn": "0x1ba460",

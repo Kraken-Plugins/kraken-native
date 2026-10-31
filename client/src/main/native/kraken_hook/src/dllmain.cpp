@@ -8,8 +8,8 @@
 // argument register) and a capture plan saying which arguments to forward and how to read them,
 // then the Client* slot, the per-frame pump function, the present function, the script runtime's
 // layout, the minimenu's layout and the window procedure. Nothing here is hard-coded per client build: every RVA, event id, capture plan, function to
-// call and argument comes from the mapping on the Java side. See README.md, docs/event-hooks-design.md
-// and docs/in-game-drawing.md.
+// call and argument comes from the mapping on the Java side. See README.md, docs/developer/native-hook.md
+// and docs/developer/native-protocol.md.
 //
 // Why a socket and not a JNI/JNA callback: this DLL runs inside osclient.exe, which has no JVM, so a
 // Java callback pointer means nothing in this address space. The socket is the bridge.

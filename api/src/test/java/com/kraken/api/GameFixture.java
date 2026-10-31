@@ -38,7 +38,8 @@ import static com.kraken.api.TestSupport.seedMapping;
  *       has a line of scenery across x = 4 for z = 1..6 that blocks walking and sight.
  *   <li>Interfaces: the store holds groups 149, 150 and 162, and 151 without components (as a group the client hasn't
  *       loaded). 149 and 162 are open, chained in one bucket of the open-interface map. 149:0 is a layer with dynamic
- *       children [0] (an item slot), [1] (a dynamic layer) and [2] (text inside [1]); 162:0 is a top-level layer
+ *       children [0] (an item slot: drag dead time 5, dead zone 8, and a mouse-repeat listener running
+ *       {@link #MOUSE_REPEAT_SCRIPT}), [1] (a dynamic layer) and [2] (text inside [1]); 162:0 is a top-level layer
  *       holding 162:1 (text "All", drawn this frame, with an op) and 162:2 (hidden, its text on the heap).
  *   <li>Two graphics objects in the top-level world: a splash ({@link #SPLASH_GRAPHIC}) on tile (3, 4), playing frame
  *       3; and a cannon's smoke ({@link #SMOKE_GRAPHIC}) on tile (5, 2), raised 40 above the ground and not started.
@@ -52,7 +53,7 @@ import static com.kraken.api.TestSupport.seedMapping;
  *       the row of {@link #MENU_USE_ON_GOBLIN} being a submenu group holding it. The last entry run is "Cancel", 100
  *       cycles ago.
  *   <li>The script runner between scripts, its int stack holding 10, 20, 30 and its object stack "Lumbridge", 7 and
- *       2^40 (a string, an int and a long).
+ *       2^40 (a string, an int and a long), with no active or dot component; {@link #setScriptComponents} sets them.
  *   <li>The chat history: lines 0 (a game message, {@link #WELCOME}) and 1 (public chat from Zezima), the next id 2.
  *       {@link #addChatLine} adds more, {@link #clearChat} empties it as logout does.
  *   <li>No hitsplats; {@link #setHitsplats} gives an actor some. No actor plays an animation; {@link #setAnimation}
@@ -275,7 +276,17 @@ public final class GameFixture {
      * The script id of the chatbox root's key listener.
      */
     public static final int CHAT_KEY_SCRIPT = 73;
+
+    /**
+     * The script id of the inventory item slot's mouse-repeat listener.
+     */
+    public static final int MOUSE_REPEAT_SCRIPT = 6012;
     private long ifSlots = IF_SLOTS;
+
+    /**
+     * The inventory's item slot, 149:0[0].
+     */
+    private long inventoryItem;
     private int subNodes;
     private final Map<Integer, TreeMap<Integer, byte[]>> configFiles = new TreeMap<>();
     private long archiveHeap = ARCHIVE_HEAP;
@@ -329,6 +340,28 @@ public final class GameFixture {
         memory.alloc(DESTINATION, 0x10);
         memory.putLong(CLIENT + map.offset("Client.destination"), DESTINATION);
         setDestination(0, 0);
+    }
+
+    /**
+     * The inventory's item slot, 149:0[0].
+     *
+     * @return its address
+     */
+    public long inventoryItem() {
+        return inventoryItem;
+    }
+
+    /**
+     * Points the script runner's active and dot components at components, as {@code cc_find} would.
+     *
+     * @param active the active component's address, or 0 for none
+     * @param dot    the dot component's address, or 0 for none
+     */
+    public void setScriptComponents(long active, long dot) {
+        long runner = MODULE_BASE + map.global("scriptRunner");
+        int ptr = map.container("shared_ptr.ptr");
+        memory.putLong(runner + map.offset("ScriptRunner.activeComponent") + ptr, active);
+        memory.putLong(runner + map.offset("ScriptRunner.dotComponent") + ptr, dot);
     }
 
     /**
@@ -1610,6 +1643,10 @@ public final class GameFixture {
         memory.putInt(item + map.offset("IfType.linkObjType"), 995);
         memory.putInt(item + map.offset("IfType.linkObjCount"), 1000);
         memory.putSsoString(item + map.offset("IfType.baseOpName"), "Coins");
+        memory.putInt(item + map.offset("IfType.dragDeadTime"), 5);
+        memory.putInt(item + map.offset("IfType.dragDeadZone"), 8);
+        listener(item, "onMouseRepeat", MOUSE_REPEAT_SCRIPT, -2147483645);
+        inventoryItem = item;
         ops(item, "Use", "", "Drop");
         subOps(item, 3, "One", "All");
         long layer = component(inv, 1, -1, inv, WidgetType.LAYER, 58, 8, 36, 32);
@@ -1636,7 +1673,7 @@ public final class GameFixture {
         memory.putLong(text, IF_HEAP);
         memory.putLong(text + 8, LONG_TEXT.length());
         memory.putByte(text + map.container("string.heapFlagByte"), map.container("string.heapFlagMask"));
-        keyListener(chatRoot, CHAT_KEY_SCRIPT, "chat");
+        listener(chatRoot, "onKey", CHAT_KEY_SCRIPT, "chat");
         groupSlots(162, chatRoot, all, line);
 
         // The toplevel: a root layer with two side panels where the inventory is drawn, the second hidden
@@ -1751,12 +1788,13 @@ public final class GameFixture {
     }
 
     /**
-     * Gives a component a key listener: the arguments {@code cc_setonkey} stored, the script id first.
+     * Gives a component a listener: the arguments {@code cc_setonkey} or its siblings stored, the script id first.
      *
      * @param component the component
+     * @param field     the listener's {@code IfType} field, e.g. "onKey"
      * @param args      the arguments, each a {@code String}, an {@code Integer} or a {@code Long}
      */
-    private void keyListener(long component, Object... args) {
+    private void listener(long component, String field, Object... args) {
         int size = map.offset("VarValue.size");
         long array = ifListeners;
         ifListeners += (long) args.length * size;
@@ -1764,7 +1802,7 @@ public final class GameFixture {
         for (int i = 0; i < args.length; i++) {
             putVarValue(array + (long) i * size, args[i]);
         }
-        long listener = component + map.offset("IfType.onKey");
+        long listener = component + map.offset("IfType." + field);
         memory.putLong(listener + map.offset("IfListener.count"), args.length);
         memory.putLong(listener + map.offset("IfListener.args"), array);
     }
@@ -2430,7 +2468,8 @@ public final class GameFixture {
     }
 
     private void buildScripts() {
-        memory.alloc(MODULE_BASE + map.global("scriptRunner"), map.offset("ScriptRunner.frameCount") + 8);
+        int end = Math.max(map.offset("ScriptRunner.frameCount") + 8, map.offset("ScriptRunner.dotComponent") + 16);
+        memory.alloc(MODULE_BASE + map.global("scriptRunner"), end);
         setIntStack(10, 20, 30);
         setObjectStack("Lumbridge", 7, 1L << 40);
     }

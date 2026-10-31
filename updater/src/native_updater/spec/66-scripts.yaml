@@ -1,4 +1,4 @@
-# Script events (docs/event-hooks-design.md §2.6): where the client's script runtime (cs2) starts and ends a script, so
+# Script events (docs/developer/events.md): where the client's script runtime (cs2) starts and ends a script, so
 # the hook DLL can report every root run, gosub and return with the stacks as they were at that moment.
 #
 # Every script runs on one static runner. A component's listener reaches it as a request (the listener's arguments,

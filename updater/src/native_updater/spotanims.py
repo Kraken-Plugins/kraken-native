@@ -1,4 +1,4 @@
-"""The spot animations an actor shows, for GraphicChanged (docs/event-hooks-design.md §2.11).
+"""The spot animations an actor shows, for GraphicChanged (docs/developer/events.md).
 
 The NPC and player update masks hand each spot animation of an update to one function, (actor, slot, id, height,
 delay, cycle, a loop flag), the cycle being the client cycle; the server's spot animation packets for one NPC or player

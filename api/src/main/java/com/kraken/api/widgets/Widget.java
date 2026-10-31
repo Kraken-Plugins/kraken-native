@@ -21,9 +21,13 @@ import java.util.List;
  * {@link #getCanvasLocation()}, {@link #getBounds()} and the group getters) read the game when called. A field this
  * build's mapping lacks reads -1, false or "".
  *
- * <p>Positions and sizes are in canvas pixels, the units of {@link Client#getCanvasWidth()}. The API only reads, so
- * there are no setters, listeners or script hooks. The rest of the native component's fields, which Lua's
- * {@code IfType} names, have getters too.
+ * <p>Positions and sizes are in canvas pixels, the units of {@link Client#getCanvasWidth()}. The rest of the native
+ * component's fields, which Lua's {@code IfType} names, have getters too.
+ *
+ * <p>The setters ({@link #setDragDeadTime}, {@link #setDragDeadZone}, {@link #setOnMouseRepeatListener}) change the
+ * game's component through the client's native hook, which looks the component up by id on the game thread at the
+ * start of the next frame, so a write to a component that has gone since does nothing. The snapshot shows the new
+ * value at once. A write made while the hook isn't connected is dropped.
  *
  * <p>Two widgets over the same native component are equal.
  */
@@ -621,6 +625,70 @@ public final class Widget {
      */
     public Object[] getOnKeyListener() {
         return reader.listener(data, "onKey");
+    }
+
+    /**
+     * The widget's mouse-repeat listener ({@code IfType.onMouseRepeat}, set by {@code cc_setonmouserepeat}): the
+     * script the client runs every client cycle while the mouse is over the widget, and its arguments.
+     *
+     * @return the listener's arguments, the script id first; null if the widget has none or this build's mapping
+     * lacks the listener layout
+     */
+    public Object[] getOnMouseRepeatListener() {
+        return reader.listener(data, "onMouseRepeat");
+    }
+
+    /**
+     * Clears the widget's mouse-repeat listener, so the client stops running it, as {@code cc_setonmouserepeat} with
+     * no script does. The client frees the listener's arguments itself. Only clearing is supported: the API can't
+     * build a script's arguments in the game.
+     *
+     * @param args null or no arguments, to clear the listener
+     * @throws UnsupportedOperationException if arguments are given
+     */
+    public void setOnMouseRepeatListener(Object... args) {
+        if (args != null && args.length > 0) {
+            throw new UnsupportedOperationException("only clearing a mouse-repeat listener is supported");
+        }
+        reader.clearListener(this, data, "onMouseRepeat");
+    }
+
+    /**
+     * How long the mouse must be held on the widget before a drag starts ({@code IfType.dragDeadTime}, set by
+     * {@code cc_setdragdeadtime}).
+     *
+     * @return the time in client cycles (20 ms each); -1 if this build's mapping lacks it
+     */
+    public int getDragDeadTime() {
+        return i32("dragDeadTime");
+    }
+
+    /**
+     * Sets how long the mouse must be held on the widget before a drag starts.
+     *
+     * @param deadTime the time in client cycles (20 ms each)
+     */
+    public void setDragDeadTime(int deadTime) {
+        reader.writeInt(this, data, "dragDeadTime", deadTime);
+    }
+
+    /**
+     * How far the mouse must move while held on the widget before a drag starts ({@code IfType.dragDeadZone}, set by
+     * {@code cc_setdragdeadzone}).
+     *
+     * @return the distance in pixels, along either axis; -1 if this build's mapping lacks it
+     */
+    public int getDragDeadZone() {
+        return i32("dragDeadZone");
+    }
+
+    /**
+     * Sets how far the mouse must move while held on the widget before a drag starts.
+     *
+     * @param deadZone the distance in pixels, along either axis
+     */
+    public void setDragDeadZone(int deadZone) {
+        reader.writeInt(this, data, "dragDeadZone", deadZone);
     }
 
     /**

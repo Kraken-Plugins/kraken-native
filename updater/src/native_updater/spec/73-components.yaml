@@ -1,0 +1,53 @@
+# What the hook DLL writes to components: a component's drag dead time and dead zone, its mouse-repeat listener (and
+# the function that empties a listener slot), and the two components the cs2 runtime's ops act on. The handler of ops
+# 1300-1399 resolves the component an op acts on (for a cc_ op one of the runner's two current components, picked by
+# the instruction's operand) and dispatches through a byte table of case indices; cc_setdragdeadzone (op 1303) and
+# cc_setdragdeadtime (op 1304) pop an int into the component (extractor `cs2_components`, components.py). The
+# listener slots come from the handler of ops 1400-1499 that also gives IfType.onKey (extractor
+# `component_listeners`, keyboard.py). No Lua binding touches any of this.
+keys:
+  - key: IfType.dragDeadZone
+    type: i32
+    priority: P1
+    doc: Pixels the mouse must move from where a press on the component started before the press becomes a drag.
+    strategies:
+      - extractor: { name: cs2_components, field: IfType.dragDeadZone, cls: A }
+  - key: IfType.dragDeadTime
+    type: i32
+    priority: P1
+    doc: Client cycles (20 ms each) a press on the component must be held before it can become a drag; the client
+      compares its per-cycle drag counter with it.
+    strategies:
+      - extractor: { name: cs2_components, field: IfType.dragDeadTime, cls: A }
+    invariants:
+      - equals: "IfType.dragDeadZone + 4"
+
+  - key: IfType.onMouseRepeat
+    type: IfListener
+    priority: P1
+    doc: The listener (cc_setonmouserepeat, op 1412) the client runs every client cycle the mouse is over the
+      component, while the slot holds arguments.
+    strategies:
+      - extractor: { name: component_listeners, field: IfType.onMouseRepeat, cls: A }
+  - key: functions.ifListenerClear
+    type: "void(IfListener* listener)"
+    priority: P1
+    doc: Empties a listener slot, so the client no longer runs it. Destroys the slot's VarValue arguments, frees the
+      array and sets IfListener.count and IfListener.args to 0. Call it on the game thread.
+    strategies:
+      - extractor: { name: component_listeners, field: functions.ifListenerClear, cls: A }
+
+  - key: ScriptRunner.activeComponent
+    type: jag.shared_ptr<IfType>
+    priority: P1
+    doc: The component cc_* ops act on (operand 0).
+    strategies:
+      - extractor: { name: cs2_components, field: ScriptRunner.activeComponent, cls: A }
+  - key: ScriptRunner.dotComponent
+    type: jag.shared_ptr<IfType>
+    priority: P1
+    doc: The component .cc_* ops act on (operand 1), one shared_ptr after ScriptRunner.activeComponent.
+    strategies:
+      - extractor: { name: cs2_components, field: ScriptRunner.dotComponent, cls: A }
+    invariants:
+      - equals: "ScriptRunner.activeComponent + 0x10"

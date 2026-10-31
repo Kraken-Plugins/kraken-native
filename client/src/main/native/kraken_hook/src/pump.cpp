@@ -5,9 +5,11 @@
 #include <atomic>
 
 #include "calls.h"
+#include "components.h"
 #include "core/hooks.h"
 #include "core/process.h"
 #include "protocol.h"
+#include "visibility.h"
 
 #ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
 #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
@@ -84,8 +86,9 @@ void paceFrame() {
 }
 
 /**
- * The pump detour on the client's per-frame step: holds the frame to the cap, then runs the queued
- * calls on the game thread, before the frame's logic and rendering, then forwards to the original.
+ * The pump detour on the client's per-frame step: holds the frame to the cap, then on the game thread,
+ * before the frame's logic and rendering, runs the queued calls and component ops and applies the
+ * visibility rules, then forwards to the original.
  *
  * @param self the app object
  * @param dt   the frame's float argument, passed through in XMM1
@@ -94,6 +97,8 @@ void __fastcall pumpDetour(void *self, float dt) {
     paceFrame();
     g_frameSteps.fetch_add(1, std::memory_order_relaxed);
     calls::runPending();
+    components::runPending();
+    visibility::apply();
     using Fn = void(__fastcall *)(void *, float);
     reinterpret_cast<Fn>(g_pumpTrampoline)(self, dt);
 }

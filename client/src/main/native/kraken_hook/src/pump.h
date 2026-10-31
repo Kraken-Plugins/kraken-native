@@ -1,6 +1,6 @@
 // The pump hook on the client's per-frame step (functions.appUpdate). Before the original runs it
-// holds the frame to the frame cap, if one is set, then runs the queued calls on the game thread
-// (docs/in-game-drawing.md section 2.3).
+// holds the frame to the frame cap, if one is set, then on the game thread runs the queued calls and
+// component ops and applies the visibility rules (docs/developer/native-hook.md, "The Pump Hook").
 #pragma once
 
 #include <cstdint>

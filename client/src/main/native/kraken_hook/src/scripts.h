@@ -1,8 +1,8 @@
 // The script hooks. When the handshake names the script runtime's functions and layout, four detours
 // report each script the client runs: a root run as it starts (with the listener's request, if a
 // listener ran it), each gosub as the callee is looked up, and each return, with the top of the int
-// and object stacks as they are at that moment. They only send while the Kraken client asks for them
-// (docs/event-hooks-design.md section 2.6).
+// and object stacks and the components cc_* and .cc_* ops act on as they are at that moment. They
+// only send while the Kraken client asks for them (docs/developer/events.md, "Script Events").
 #pragma once
 
 #include "core/frame_reader.h"

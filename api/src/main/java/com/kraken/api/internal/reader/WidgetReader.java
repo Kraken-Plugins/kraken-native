@@ -2,11 +2,14 @@ package com.kraken.api.internal.reader;
 
 import com.kraken.api.Point;
 import com.kraken.api.internal.OpenInterfaces;
+import com.kraken.api.internal.widget.ComponentOp;
+import com.kraken.api.internal.widget.ComponentWrites;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.api.memory.Memory;
 import com.kraken.api.widgets.Widget;
 import com.kraken.api.widgets.WidgetNode;
 import com.kraken.api.widgets.WidgetType;
+import lombok.Getter;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -27,6 +30,9 @@ import java.util.Map;
  * ({@link Coordinates}), and the groups opened inside a component in a hash map from that component's id to the group
  * and the mode it was opened with (its sub-interfaces; the layer drawer draws the group it finds there after the
  * layer's own children). The top-level interface, opened in no component, is a field of the client.
+ *
+ * <p>It also holds the writes {@link Widget}'s setters make ({@link #getWrites()}), which the native hook makes on the
+ * game thread.
  */
 public final class WidgetReader extends GameReader {
 
@@ -43,7 +49,7 @@ public final class WidgetReader extends GameReader {
             "model2Id", "modelAnim", "modelAnim2", "modelXOf", "modelYOf", "modelXAn", "modelYAn", "modelZAn",
             "modelZoom", "modelWid", "modelHei", "modelSpin", "orthog", "text", "text2", "overlayId", "baseOpName",
             "opCount", "opNames", "linkObjType", "linkObjCount", "dynCount", "dynSlots", "renderCycle", "subOpCount",
-            "subOpNames", "onKey"
+            "subOpNames", "onKey", "onMouseRepeat", "dragDeadZone", "dragDeadTime"
     };
 
     /**
@@ -98,6 +104,12 @@ public final class WidgetReader extends GameReader {
     private final int[] coordinates;
     private final boolean storeReady;
     private final boolean dynamicReady;
+
+    /**
+     * The writes the widgets' setters make, waiting for the client thread to send them.
+     */
+    @Getter
+    private final ComponentWrites writes = new ComponentWrites();
 
     /**
      * Resolves the interface keys. {@code Client} makes the one it reads widgets through.
@@ -581,6 +593,50 @@ public final class WidgetReader extends GameReader {
     }
 
     /**
+     * Queues a write of a component's int32 field for the native hook and shows the new value in the snapshot.
+     *
+     * @param widget the component
+     * @param data   its snapshot
+     * @param field  the {@code IfType} field
+     * @param value  the value
+     * @return false if this build's mapping lacks the field or no hook that writes components is connected
+     */
+    public boolean writeInt(Widget widget, byte[] data, String field, int value) {
+        int offset = field(field);
+        if (offset < 0 || !writes.add(new ComponentOp(widget.getId(), widget.getIndex(), ComponentOp.Op.SET_I32,
+                offset, value))) {
+            return false;
+        }
+        if (offset + 4 <= data.length) {
+            ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN).putInt(offset, value);
+        }
+        return true;
+    }
+
+    /**
+     * Queues the clearing of one of a component's listeners for the native hook, which clears it through the client's
+     * own function, and shows the listener as gone in the snapshot.
+     *
+     * @param widget the component
+     * @param data   its snapshot
+     * @param name   the listener field, e.g. "onMouseRepeat"
+     * @return false if this build's mapping lacks the listener or the clearing function, or no hook that writes
+     * components is connected
+     */
+    public boolean clearListener(Widget widget, byte[] data, String name) {
+        int offset = field(name);
+        if (offset < 0 || listenerCount < 0 || !mapping.hasFunction("ifListenerClear")
+                || !writes.add(new ComponentOp(widget.getId(), widget.getIndex(), ComponentOp.Op.CLEAR_LISTENER,
+                offset, 0))) {
+            return false;
+        }
+        if (offset + listenerCount + 8 <= data.length) {
+            ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN).putLong(offset + listenerCount, 0);
+        }
+        return true;
+    }
+
+    /**
      * Decodes a string field held in a snapshot.
      *
      * @param data   the snapshot
@@ -589,6 +645,16 @@ public final class WidgetReader extends GameReader {
      */
     public String string(byte[] data, int offset) {
         return offset < 0 ? "" : structs.string(data, offset);
+    }
+
+    /**
+     * Snapshots the component at an address, such as one the script engine points at.
+     *
+     * @param address the native {@code IfType}
+     * @return the snapshot, or null for a null or unreadable address
+     */
+    public Widget at(long address) {
+        return read(address, frame());
     }
 
     /**

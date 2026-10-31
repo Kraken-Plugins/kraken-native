@@ -8,10 +8,12 @@ import com.kraken.api.definition.NPCComposition;
 import com.kraken.api.definition.ObjectComposition;
 import com.kraken.api.gameval.InventoryID;
 import com.kraken.api.internal.ConfigTypes;
+import com.kraken.api.internal.ScriptComponents;
 import com.kraken.api.internal.ScriptStack;
 import com.kraken.api.internal.VarcValues;
 import com.kraken.api.item.EquipmentInventorySlot;
 import com.kraken.api.scene.WorldView;
+import com.kraken.api.widgets.Widget;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -317,6 +319,25 @@ class ClientTest {
         assertArrayEquals(new int[]{0, 5}, client.getIntStack(), "each call gives a copy");
         client.setScriptStack(null);
         assertArrayEquals(new int[]{10, 20, 30}, client.getIntStack(), "read from the game again");
+    }
+
+    @Test
+    void theScriptWidgetsAreTheRunnersComponentsOrTheCapturedOnes() {
+        assertNull(client.getScriptActiveWidget(), "between scripts, none");
+        assertNull(client.getScriptDotWidget());
+
+        game.setScriptComponents(game.inventoryItem(), 0);
+        Widget active = client.getScriptActiveWidget();
+        assertNotNull(active);
+        assertEquals(149 << 16, active.getId());
+        assertEquals(0, active.getIndex(), "the item slot the runner points at");
+        assertNull(client.getScriptDotWidget());
+
+        client.setScriptComponents(new ScriptComponents(-1, -1, 162 << 16 | 1, -1));
+        assertNull(client.getScriptActiveWidget(), "a captured event's components win");
+        assertEquals(162 << 16 | 1, client.getScriptDotWidget().getId());
+        client.setScriptComponents(null);
+        assertNotNull(client.getScriptActiveWidget(), "read from the game again");
     }
 
     @Test

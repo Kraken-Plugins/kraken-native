@@ -10,6 +10,8 @@ import com.kraken.api.internal.event.ScriptRun;
 import com.kraken.api.internal.invoke.NativeInvoker;
 import com.kraken.api.internal.menu.MenuClick;
 import com.kraken.api.internal.menu.MenuHook;
+import com.kraken.api.internal.render.VisibilityHook;
+import com.kraken.api.internal.widget.ComponentHook;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.api.memory.Memory;
 import com.kraken.api.memory.MemoryException;
@@ -32,7 +34,8 @@ import java.util.logging.Logger;
  * <p>{@link #start()} runs the poll loop on the {@code kraken-api-poll} thread, which acts as the client thread. Every
  * 20 ms, or as soon as the native hook pushes a raise ({@link #onNative}), it:
  * <ol>
- *   <li>runs the tasks handed to {@link #invoke(Runnable)} and friends, then sends the menu edits they made;
+ *   <li>runs the tasks handed to {@link #invoke(Runnable)} and friends, then sends the menu edits, visibility rules
+ *       and component writes they made;
  *   <li>synthesises the game events on {@link #eventBus()}, with {@code GameTick} after the tick's other events, then
  *       a {@code ClientTick} per client cycle: every iteration without a native hook; with one, on each iteration a
  *       raise woke, and at least every 250 ms as a safety net for ticks and dropped raises;
@@ -42,10 +45,12 @@ import java.util.logging.Logger;
  * </ol>
  * Events are only synthesised while something subscribes to them.
  *
- * <p>It reads the game and never writes to it. The client's highlights ({@link Client#getHighlights()}), the menu
- * actions it runs ({@link Client#getActions()}) and the right-click menu's rows ({@link Client#getMenuEdits()}) are
- * the three things it changes, by having the client's native hook call the game's own functions
- * ({@link #setNativeInvoker}) or edit the menu as the game rebuilds it ({@link #setMenuHook}).
+ * <p>It reads the game and doesn't write to it itself. What it changes, it has the client's native hook change on the
+ * game thread: the client's highlights ({@link Client#getHighlights()}) and the menu actions it runs
+ * ({@link Client#getActions()}) by calling the game's own functions ({@link #setNativeInvoker}), the right-click
+ * menu's rows ({@link Client#getMenuEdits()}) as the game rebuilds the menu ({@link #setMenuHook}), which entities are
+ * drawn ({@link Client#getEntityVisibility()}, {@link #setVisibilityHook}), and interface components' fields (the
+ * {@code Widget} setters, {@link #setComponentHook}).
  */
 public final class GameSession implements AutoCloseable {
 
@@ -232,9 +237,15 @@ public final class GameSession implements AutoCloseable {
         ProcessMemory memory = ProcessMemory.attach((int) pid, MODULE);
         log.info("Attached to " + MODULE + " pid " + pid + " (client " + build.version() + ", base 0x"
                 + Long.toHexString(memory.moduleBase()) + ")");
-        GameSession session = new GameSession(memory, mapping, eventBus);
-        session.client().setFocusSource(new GameFocus(pid));
-        return session;
+        try {
+            GameSession session = new GameSession(memory, mapping, eventBus);
+            session.client().setFocusSource(new GameFocus(pid));
+            return session;
+        } catch (RuntimeException e) {
+            // A mapping that lacks a required key fails here; the process handle would otherwise stay open
+            memory.close();
+            throw e;
+        }
     }
 
     /**
@@ -396,6 +407,29 @@ public final class GameSession implements AutoCloseable {
     }
 
     /**
+     * Hands the API a connection to a native hook that hides entities, or takes it away. While it is set, the rules
+     * of {@link Client#getEntityVisibility()} are sent to it, all of them at once. Internal: the client's native hook
+     * calls this as its connection comes up and drops. Safe to call from any thread.
+     *
+     * @param hook the connection, or null while there is none
+     */
+    public void setVisibilityHook(VisibilityHook hook) {
+        client.getEntityVisibility().setHook(hook);
+    }
+
+    /**
+     * Hands the API a connection to a native hook that writes interface components, or takes it away. While it is
+     * set, the writes the {@code Widget} setters make are sent to it at the end of each pass of the client thread;
+     * without it they are dropped. Internal: the client's native hook calls this as its connection comes up and
+     * drops. Safe to call from any thread.
+     *
+     * @param hook the connection, or null while there is none
+     */
+    public void setComponentHook(ComponentHook hook) {
+        client.getComponentWrites().setHook(hook);
+    }
+
+    /**
      * Delivers a click the native hook reported, on a row a plugin added or on a client row a plugin asked to hear
      * about, to the menu edits on the client thread, which run the row's callback; a click on a plugin's row is then
      * posted as {@link MenuOptionClicked}. Safe to call from any thread.
@@ -476,7 +510,19 @@ public final class GameSession implements AutoCloseable {
         thread.start();
     }
 
+    /**
+     * Runs the poll loop on the poll thread until the session closes or the game exits. An error no stage catches ends
+     * the loop too, and leaves the session able to {@link #start} again.
+     */
     private void pollLoop() {
+        try {
+            runLoop();
+        } finally {
+            running = false;
+        }
+    }
+
+    private void runLoop() {
         tasks.bind(Thread.currentThread());
         long lastRender = 0;
         long lastEventPoll = 0;
@@ -492,7 +538,7 @@ public final class GameSession implements AutoCloseable {
                 break;
             }
             tasks.runPending();
-            client.getMenuEdits().flush();
+            flushWrites();
             long now = System.currentTimeMillis();
             // The loop, its tasks and the frame listener run every POLL_INTERVAL_MS and on every raise. While the hook
             // is connected the events are read when a raise asked for it or the safety interval lapsed; without it
@@ -508,7 +554,7 @@ public final class GameSession implements AutoCloseable {
                 if (ticked[0]) {
                     tasks.runTickEnd();
                 }
-                client.getMenuEdits().flush();
+                flushWrites();
             }
             Runnable frame = frameListener;
             if (frame != null && !step("Frame listener", frame)) {
@@ -523,7 +569,15 @@ public final class GameSession implements AutoCloseable {
                 }
             }
         }
-        running = false;
+    }
+
+    /**
+     * Sends what the pass changed to the native hook: the menu edits, the visibility rules and the component writes.
+     */
+    private void flushWrites() {
+        client.getMenuEdits().flush();
+        client.getEntityVisibility().flush();
+        client.getComponentWrites().flush();
     }
 
     /**
@@ -566,7 +620,7 @@ public final class GameSession implements AutoCloseable {
         } catch (MemoryException e) {
             // Transient bad read (e.g. mid-transition). Keep going unless the process is gone.
             return memory.isValid();
-        } catch (RuntimeException e) {
+        } catch (RuntimeException | LinkageError e) {
             log.log(Level.WARNING, name + " failed", e);
             return true;
         }

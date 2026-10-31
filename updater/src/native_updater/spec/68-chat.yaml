@@ -1,4 +1,4 @@
-# Chat (docs/event-hooks-design.md §2.8): the client's chat history, for ChatMessage. The API reads the next line id
+# Chat (docs/developer/events.md): the client's chat history, for ChatMessage. The API reads the next line id
 # every poll and looks each new id up in the id-to-line map; the hook DLL's ON_CHAT_TRANSMIT raise, which the add
 # function fires right after filing a line, makes it read at once.
 #

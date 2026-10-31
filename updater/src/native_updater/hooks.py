@@ -1,5 +1,5 @@
 """Hook targets that are not Lua events: the functions that add and remove players and ground items, the packet
-decoders that apply actor updates, found from the struct fields they write (see docs/event-hooks-design.md §2.5).
+decoders that apply actor updates, found from the struct fields they write (see docs/developer/events.md).
 
   obj_pile_ops      ObjAdd / ObjDel / ObjCount: the zone-update handlers for ground items. ObjAdd is the one function
                     that allocates (operator new), stores GroundItem.id and GroundItem.count and reads Client.tickCount

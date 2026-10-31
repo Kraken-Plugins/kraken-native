@@ -32,7 +32,7 @@ flowchart LR
     NES --> GS
 ```
 
-It has six jobs:
+It has eight jobs:
 
 | Job | How | Read more |
 |---|---|---|
@@ -42,6 +42,8 @@ It has six jobs:
 | Report scripts as they run | Detours on four script runtime functions report starts, gosubs and returns | [Events](events.md#script-events) |
 | Edit the right-click menu | Detours on the menu's rebuild, run and node destroy apply rules to the fresh rows every cycle | [Menu edits](menu-edits.md) |
 | Remap and block keys | A detour on the game window's procedure rewrites or drops key messages by a table of modes | [Key interception](key-interception.md) |
+| Hide entities | The per-frame step applies visibility rules to every player, NPC, projectile and graphics object | [Entity visibility](entity-visibility.md) |
+| Write interface components | The per-frame step looks components up by id and writes a field or clears a listener | [Widget writes](widget-writes.md) |
 
 Nothing in the DLL is specific to a build. Every function address, event id, capture plan and struct offset comes from
 the mapping, which the Java side sends in a handshake. A new game build needs the updater re-run, not a new DLL.
@@ -58,16 +60,18 @@ hook, is in [Using the client](../client.md#the-native-hook).
 | [`src/connection.cpp`](../../client/src/main/native/kraken_hook/src/connection.cpp) | Connecting back, the handshake, the reader thread, the writer loop, STATUS/FRAME/FPS |
 | [`src/raises.cpp`](../../client/src/main/native/kraken_hook/src/raises.cpp) | The generic raise detours and capture plans |
 | [`src/calls.cpp`](../../client/src/main/native/kraken_hook/src/calls.cpp) | The call queue and running calls under a guard |
-| [`src/pump.cpp`](../../client/src/main/native/kraken_hook/src/pump.cpp) | The per-frame detour: the frame cap, then the queued calls |
+| [`src/pump.cpp`](../../client/src/main/native/kraken_hook/src/pump.cpp) | The per-frame detour: the frame cap, then the queued calls, component writes and visibility rules |
 | [`src/scripts.cpp`](../../client/src/main/native/kraken_hook/src/scripts.cpp) | The four script detours and SCRIPT messages |
 | [`src/menus.cpp`](../../client/src/main/native/kraken_hook/src/menus.cpp) | The menu detours, the rule engine, MENU commands, MENU_CLICK and MENU_EXPIRED |
 | [`src/keys.cpp`](../../client/src/main/native/kraken_hook/src/keys.cpp) | The window procedure detour, the key table, KEYS commands and KEY reports |
+| [`src/visibility.cpp`](../../client/src/main/native/kraken_hook/src/visibility.cpp) | VISIBILITY commands and the per-frame walk that hides and shows entities |
+| [`src/components.cpp`](../../client/src/main/native/kraken_hook/src/components.cpp) | COMPONENTS commands, the component lookup and the writes |
 | [`src/overlay/overlay.cpp`](../../client/src/main/native/kraken_hook/src/overlay/overlay.cpp) | The present detour: uploading and drawing the overlay |
 | [`src/overlay/surface.cpp`](../../client/src/main/native/kraken_hook/src/overlay/surface.cpp) | Opening the shared-memory surface a SURFACE command names |
 | [`src/overlay/gl.cpp`](../../client/src/main/native/kraken_hook/src/overlay/gl.cpp), [`gl_state.cpp`](../../client/src/main/native/kraken_hook/src/overlay/gl_state.cpp) | GL entry points beyond 1.1; saving and restoring the client's GL state |
 | [`src/core/ring.cpp`](../../client/src/main/native/kraken_hook/src/core/ring.cpp) | The lock-free message ring between the game thread and the writer thread |
 | [`src/core/hooks.cpp`](../../client/src/main/native/kraken_hook/src/core/hooks.cpp) | MinHook setup and `installOnce` |
-| [`src/core/memory.cpp`](../../client/src/main/native/kraken_hook/src/core/memory.cpp), [`guard.h`](../../client/src/main/native/kraken_hook/src/core/guard.h) | Guarded reads of game memory; the SEH guard macros |
+| [`src/core/memory.cpp`](../../client/src/main/native/kraken_hook/src/core/memory.cpp), [`guard.h`](../../client/src/main/native/kraken_hook/src/core/guard.h) | Guarded reads and writes of game memory; the SEH guard macros |
 | [`src/core/process.cpp`](../../client/src/main/native/kraken_hook/src/core/process.cpp) | `osclient.exe`'s base address and image size, the performance counter frequency |
 | [`CallbackInjector`](../../client/src/main/java/com/kraken/client/callback/CallbackInjector.java) | Java: loads the DLL into the game |
 | [`NativeEventServer`](../../client/src/main/java/com/kraken/client/callback/NativeEventServer.java) | Java: the server socket, handshake, message reader and command sender |
@@ -120,8 +124,8 @@ Step by step:
    `kraken-hook-install`.
 2. **Which DLL.** The client jar carries the DLL as the resource `native/kraken_hook.dll`, staged there by the
    `buildNativeHook` Gradle task. `LoadLibraryA` needs a file, so the server copies it to
-   `%TEMP%\kraken_hook<random>.dll`, marked for deletion on exit. `NativeEventServer` declares a `kraken.hook.dll`
-   property for a DLL on disk, but doesn't read it, so the DLL always comes from the jar.
+   `%TEMP%\kraken_hook<random>.dll`, marked for deletion on exit. `-Dkraken.hook.dll=<path>` injects a DLL on disk
+   instead; a path that doesn't exist is logged and the bundled DLL is used.
 3. **The handshake comes first.** The server builds the handshake bytes from the mapping (see
    [The Java Side](#the-java-side)), binds its server socket and starts the accept thread `kraken-hook-server` *before*
    injecting, so the DLL has something to connect to.
@@ -317,8 +321,10 @@ flowchart TB
     F -- "busy" --> H
     G --> I["per batch: zero a 4 KiB scratch block,<br/>run each call under an SEH guard"]
     I --> J["push CALLS_DONE per batch"]
-    J --> H["call the original appUpdate"]
-    E -- "no" --> H
+    J --> K["run the queued component writes"]
+    E -- "no" --> K
+    K --> L["apply the visibility rules"]
+    L --> H["call the original appUpdate"]
 ```
 
 **The frame cap.** `FRAME_LIMIT` sets frames per second (0 for none). `paceFrame` lets each frame start one interval
@@ -338,6 +344,11 @@ a pointer into the call's data or the batch's scratch block, or a pointer read f
 null, and calls the function with eight integer arguments under an SEH guard. Passing eight when the function takes
 fewer is safe in the x64 convention, where the caller owns the stack slots. After a batch, the pump pushes
 `CALLS_DONE` with the batch id, the calls run, the calls skipped or faulted, and the last return value.
+
+**Component writes and visibility.** After the calls, the pump runs the component writes `COMPONENTS` queued (taken
+with a try-lock like the calls), each component looked up by id first ([Widget writes](widget-writes.md)), then walks
+the entities and applies the visibility rules ([Entity visibility](entity-visibility.md)). With no rules and nothing
+hidden, the walk returns at once.
 
 ## The Present Hook
 
@@ -396,12 +407,15 @@ The complete list of what Kraken does to the game process, for review and debugg
 | Script runtime | Detours on the four script functions | `functions.executeScript`, `executeScriptInner`, `scriptLookup`, `scriptSwapLocals` |
 | Minimenu | Detours on the view rebuild, the run and the node destroy; after each rebuild, reorders the rows vector, frees hidden rows' children through the client's own destroy, rewrites entry texts through the client's assignment, grows the vector through its reserve and inserts nodes pointing at the DLL's own entries | `functions.minimenuViewRebuild`, `minimenuRun`, `minimenuNodeDestroy`, `minimenuNodeReserve`, `minimenuTextAssign` |
 | Window procedure | Detour that rewrites or drops `WM_KEYDOWN`, `WM_KEYUP` and `WM_CHAR` by the key table | `functions.renderViewWndProc` |
+| Entities | Each frame, sets and clears the hidden byte of players, NPCs, projectiles, keyed projectiles and graphics objects, and the 2D byte of players and NPCs, by the visibility rules; only clears what it set | `Actor.hidden`, `Actor.render2D`, `Projectile.hidden`, `KeyedProjectile.hidden`, `GraphicsObject.hidden` |
+| Components | Writes a component's drag dead time or dead zone, and clears its mouse-repeat listener through the client's own clear | `IfType.dragDeadTime`, `IfType.dragDeadZone`, `IfType.onMouseRepeat`, `functions.ifListenerClear` |
 | Calls | Calls the client's highlight functions, minimenu row bodies and packet helpers, with arguments and data from Kraken | `functions.highlight*`, `functions.menu*`, `functions.packet*` |
 | Shared memory | Maps Kraken's overlay surface and writes its `reading` word | none |
 
 Every detour forwards to the original with the arguments unchanged and returns its result, except the menu run (a
 click on a row of Kraken's own returns without running anything) and the window procedure (a dropped or remapped key
-message). The other behaviour changes are the calls Kraken asks for, the menu rows the rules change and the frame cap.
+message). The other behaviour changes are the calls Kraken asks for, the menu rows the rules change, the entities the
+visibility rules hide, the component fields Kraken writes and the frame cap.
 
 ## The Java Side
 
@@ -417,7 +431,8 @@ singleton (bound in `SessionModule`), so it exists once the API has attached and
 * Events or functions the mapping lacks are logged (`no raise site for … it falls back to the poll`) and skipped.
 
 `drawing()` adds the `Client` global, `functions.appUpdate` and `functions.present` (0 when missing), and
-`NativeProtocol.scriptLayout(mapping)` adds the script block (empty unless every key it needs is mapped).
+`NativeProtocol.scriptLayout(mapping)` adds the script block (empty unless every key it needs is mapped); the menu,
+key, visibility and component blocks follow the same way.
 
 **Serving.** `serve()` accepts one connection at a time. On each it sends the handshake, marks the session hooked
 with `GameSession.setHookConnected(true)` (reads now follow the raises, and the API's timer read becomes a 250 ms
@@ -429,6 +444,10 @@ safety net), and reads messages until the socket closes. On STATUS it switches o
 | `FEATURE_OVERLAY` (2, the present) | `GameSurface.connected(...)`: overlay frames go to shared memory |
 | `FEATURE_FRAME_RATE` (4) with `FEATURE_CALLS` | Sends the current frame cap, and every change after |
 | `FEATURE_SCRIPTS` (8) | `session.setScriptHook(...)`: the API can send `SCRIPTS` |
+| `FEATURE_MENU` (16) | `session.setMenuHook(...)`: the menu edits send `MENU` |
+| `FEATURE_KEYS` (32) | `keyManager.setKeyHook(...)`: the key remapping sends `KEYS` |
+| `FEATURE_VISIBILITY` (64) | `session.setVisibilityHook(...)`: the entity visibility sends `VISIBILITY` |
+| `FEATURE_COMPONENTS` (128) | `session.setComponentHook(...)`: the widget setters' writes send `COMPONENTS` |
 
 Raise messages go to `GameSession.onNative`, script messages to `GameSession.onScript`, FPS to `FrameRates`, FRAME to
 `GameSurface.frame`, and CALLS_DONE is logged when calls failed. `onEvent(name, consumer)` taps raw messages on the
@@ -437,13 +456,15 @@ goes back to its 20 ms poll until the DLL reconnects.
 
 **Sending.** `Connection.send` is synchronized, so whole frames from different threads (plugins' highlight calls, the
 overlay surface, the frame cap) never interleave. On exit, `flushOnExit` waits up to a second for the last call batch's
-CALLS_DONE, so highlights that plugins switched off as they stopped are cleared in the game.
+CALLS_DONE, so highlights that plugins switched off as they stopped are cleared in the game. It runs as an
+`ExitHandler` exit task, after the plugins stop and before the shutdown hooks close the game, and again as a shutdown
+hook for exits that skip `ExitHandler`.
 
 ## Failure Handling
 
 | Situation | What happens | Console |
 |---|---|---|
-| The client was built without the DLL | No injection; events come from the poll | `kraken_hook.dll was not found on the classpath (build and bundle it with ./gradlew :client:buildNativeHook) Game Events will not be received.` |
+| The client was built without the DLL | No injection; events come from the poll | `kraken_hook.dll was not found on the classpath (build and bundle it with ./gradlew :client:buildNativeHook); events come from the timer poll alone.` |
 | The DLL can't be extracted | No injection | `Native event hook: could not extract kraken_hook.dll from the classpath` |
 | The mapping names nothing to hook | No injection | `Native event hook: mapping <v> has no hookable events or drawing functions; continuing on the timer poll.` |
 | No `appUpdate` / `present` in the mapping | No calls / overlay stays in the window | `Native event hook: no appUpdate in mapping …`, `… no present in mapping …` |
@@ -485,10 +506,9 @@ flowchart LR
 
 * An MSVC build records where its `.pdb` is, so attaching Visual Studio to `osclient.exe` (Debug > Attach to Process)
   shows the DLL's own functions and lines.
-* The client injects the DLL in its jar, so a changed DLL needs a client build; `./gradlew :client:run` recompiles and
-  restages it. Gradle builds the Release DLL of the `msvc` or `mingw` workflow preset. There's no switch for injecting
-  a `msvc-debug` build: wiring the declared `kraken.hook.dll` property up in `NativeEventServer.locateDll` would give
-  one.
+* `./gradlew :client:run` recompiles and restages a changed DLL; Gradle builds the Release DLL of the `msvc` or
+  `mingw` workflow preset. To run another build, such as the `msvc-debug` preset's, point `-Dkraken.hook.dll` at it:
+  `"-Dkraken.hook.dll=client/build/native/kraken_hook/msvc/bin/Debug/kraken_hook.dll"`.
 * The DLL can't be unloaded or replaced in a running game: restart the game to load a new build of it.
 * The **Event log** dev tool shows the API's events as they're posted, so it shows whether hook-driven events arrive.
 
@@ -520,8 +540,9 @@ flowchart LR
   yet.
 * `raises::install` doesn't check `process::inImage` before hooking; a bad RVA fails inside MinHook and that slot stays
   uninstalled.
-* The pump, calls, overlay, script, menu and key hooks have not all been checked against a running client yet; the
-  API's trackers keep their whole-read fallback, so an unconfirmed payload costs latency, not a missed event.
+* The pump, calls, overlay, script, menu, key, visibility and component hooks have not all been checked against a
+  running client yet; the API's trackers keep their whole-read fallback, so an unconfirmed payload costs latency, not
+  a missed event.
 * The menu hook builds its own entries from a template read off the client's last-run copy and leaves the entry's other
   fields zero; the window procedure's messages are pushed into the single-producer ring on the assumption that the
   window's thread is the game thread. Both are to confirm live.

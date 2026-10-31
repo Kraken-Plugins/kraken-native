@@ -1,8 +1,9 @@
 # Plugins
 
-Kraken comes with nine plugins. They're all off until you switch them on in the **Plugins** tab, and they double as
-examples for [writing your own](writing-plugins.md). NPC Indicators, Ground Items, Ground Markers, Tile Indicators,
-Menu Entry Swapper and Key Remapping are ports of RuneLite's plugins of the same names, with the same settings.
+Kraken comes with eleven plugins. They're all off until you switch them on in the **Plugins** tab, and they double
+as examples for [writing your own](writing-plugins.md). NPC Indicators, Ground Items, Ground Markers, Tile Indicators,
+Menu Entry Swapper, Key Remapping, Entity Hider and Anti Drag are ports of RuneLite's plugins of the same names, with
+the same settings.
 
 Open a plugin's settings with the cog next to its switch. Most plugins still choose what they work on in their
 settings, by name, id or tile, rather than from the right-click menu. Settings that need something Kraken can't do
@@ -140,6 +141,45 @@ before the game sees them.
 Unlike RuneLite, the chat input keeps its usual look while locked ("Press Enter to Chat..." isn't shown), and the text
 you typed stays in the input when you press Escape. The remapping also stays on while an interface's own text field has
 the keyboard, which Kraken can't yet tell apart from the chat; press Enter to type into it.
+
+## Entity Hider
+
+Hides other players, NPCs, projectiles, or yourself: their models, their 2D elements (names, health bars and overhead
+text), or both. It needs the [native hook](client.md#the-native-hook), which hides them as the game draws each frame.
+
+| Setting | Default | What it does |
+|---|---|---|
+| Hide others | On | Hides other players' models |
+| Hide others' 2D | On | Hides other players' names, health bars and overhead text |
+| Hide party members | Off | Not supported yet: needs a party |
+| Hide friends | Off | Hides friends too; off keeps them |
+| Hide friends chat members, Hide clan chat members, Hide ignores | Off | The same for friends chat members, clan members and ignored players |
+| Hide local player, Hide local player 2D | Off | Hides your own model, or your own 2D elements |
+| Hide NPCs, Hide NPCs 2D | Off | Hides NPCs' models, or their 2D elements |
+| Hide boats | Off | Not supported yet: needs other players' boats |
+| Hide others' pets | Off | Hides other players' followers |
+| Hide attackers | Off | Hides the NPCs and players attacking you |
+| Hide projectiles | Off | Hides every projectile |
+| Hide dead NPCs | Off | Hides NPCs as they die, and the Nylocas' death splashes in the Theatre of Blood |
+| Hide thralls | Off | Hides thralls |
+| Hide others' random events | Off | Hides random event NPCs |
+
+A player or NPC that comes into view shows for one frame before it is hidden. Who counts as a friend, an attacker or
+a dying NPC is worked out as they appear and change, and again every game tick, rather than every frame.
+
+## Anti Drag
+
+Makes an item wait before it can be dragged, so a quick click never drags it by mistake: in the inventory, the bank,
+the deposit box, group storage, the Chambers of Xeric storage, the seed vault and the rune pouch. It needs the
+[native hook](client.md#the-native-hook), which changes the item slots in the game.
+
+| Setting | Default | What it does |
+|---|---|---|
+| Drag delay | 30 | How long to hold an item before it drags, in client ticks of 20 ms (30 is one game tick) |
+| On shift only | On | Only applies the delay while you hold Shift |
+| Disable on control pressed | Off | Lifts the delay while you hold Control (with On shift only off) |
+
+Shift and Control are checked once a client tick, so a very quick tap can be missed.
 
 ## Tile Indicators
 

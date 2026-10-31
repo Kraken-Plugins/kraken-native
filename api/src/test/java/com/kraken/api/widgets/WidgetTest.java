@@ -3,11 +3,13 @@ package com.kraken.api.widgets;
 import com.kraken.api.Client;
 import com.kraken.api.GameFixture;
 import com.kraken.api.Point;
+import com.kraken.api.internal.widget.ComponentOp;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.awt.Rectangle;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -72,6 +75,56 @@ class WidgetTest {
         assertArrayEquals(new Object[]{GameFixture.CHAT_KEY_SCRIPT, "chat"},
                 client.getWidget(CHATBOX, 0).getOnKeyListener());
         assertNull(client.getWidget(CHATBOX, 1).getOnKeyListener(), "a component without one");
+    }
+
+    @Test
+    void theDragFieldsAndTheMouseRepeatListenerRead() {
+        Widget item = client.getWidget(INVENTORY, 0).getChild(0);
+        assertEquals(5, item.getDragDeadTime());
+        assertEquals(8, item.getDragDeadZone());
+        assertArrayEquals(new Object[]{GameFixture.MOUSE_REPEAT_SCRIPT, -2147483645}, item.getOnMouseRepeatListener());
+        assertNull(client.getWidget(CHATBOX, 1).getOnMouseRepeatListener());
+    }
+
+    @Test
+    void settersQueueWritesByIdForTheHookAndShowInTheSnapshot() {
+        List<List<ComponentOp>> sent = new ArrayList<>();
+        client.getComponentWrites().setHook(sent::add);
+        Widget item = client.getWidget(INVENTORY, 0).getChild(0);
+        Widget all = client.getWidget(CHATBOX, 1);
+
+        item.setDragDeadTime(30);
+        item.setOnMouseRepeatListener((Object[]) null);
+        all.setDragDeadZone(12);
+        assertEquals(30, item.getDragDeadTime(), "the snapshot shows the write at once");
+        assertNull(item.getOnMouseRepeatListener());
+        assertEquals(5, client.getWidget(INVENTORY, 0).getChild(0).getDragDeadTime(), "the game changes only once the hook writes");
+        assertTrue(sent.isEmpty(), "nothing goes out before the pass ends");
+
+        client.getComponentWrites().flush();
+        assertEquals(List.of(List.of(
+                new ComponentOp(INVENTORY << 16, 0, ComponentOp.Op.SET_I32, game.map.offset("IfType.dragDeadTime"), 30),
+                new ComponentOp(INVENTORY << 16, 0, ComponentOp.Op.CLEAR_LISTENER,
+                        game.map.offset("IfType.onMouseRepeat"), 0),
+                new ComponentOp(CHATBOX << 16 | 1, -1, ComponentOp.Op.SET_I32, game.map.offset("IfType.dragDeadZone"),
+                        12))), sent, "one batch, in order, each component by its id and index");
+
+        client.getComponentWrites().flush();
+        assertEquals(1, sent.size(), "a write is sent once");
+    }
+
+    @Test
+    void writesWithoutAHookAreDroppedAndOnlyClearingAListenerIsSupported() {
+        Widget item = client.getWidget(INVENTORY, 0).getChild(0);
+        assertFalse(client.getComponentWrites().isAvailable());
+        item.setDragDeadTime(30);
+        assertEquals(5, item.getDragDeadTime(), "a dropped write leaves the snapshot alone");
+
+        List<List<ComponentOp>> sent = new ArrayList<>();
+        client.getComponentWrites().setHook(sent::add);
+        client.getComponentWrites().flush();
+        assertTrue(sent.isEmpty(), "what was dropped isn't sent later");
+        assertThrows(UnsupportedOperationException.class, () -> item.setOnMouseRepeatListener(6012, 1));
     }
 
     @Test

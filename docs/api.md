@@ -5,9 +5,11 @@ The API reads the game from outside its process. It finds the client's data in m
 and the rest. Its classes, method names and events follow RuneLite's API, so if you've written a RuneLite plugin, most
 of it will look familiar. Each getter reads what the game's own Lua plugin API reads.
 
-Everything is read-only, with two exceptions that go through the [native hook](client.md#the-native-hook):
+Everything is read-only, with a few exceptions that go through the [native hook](client.md#the-native-hook):
 [highlights](#highlights), which have the game outline things itself, [menu actions](#menu-actions), which run a
-menu option as a click would, and [menu edits](#menu-edits), which change the right-click menu.
+menu option as a click would, [menu edits](#menu-edits), which change the right-click menu,
+[entity visibility](#entity-visibility), which hides players, NPCs and projectiles, and [widget writes](#widget-writes),
+which change a few fields of interface components.
 
 This page is a tour. The Javadoc on each class has the details.
 
@@ -247,6 +249,41 @@ menu isn't rebuilt). `client.createMenuEntry(idx)` adds a row of your own next t
 Rules are remembered without the hook and sent when it connects; `isAvailable()` says whether they reach the game now.
 [Menu edits](developer/menu-edits.md) has the details.
 
+## Entity Visibility
+
+`client.getEntityVisibility()` hides players, NPCs, projectiles and graphics objects through the native hook, which
+applies your **rules** to every entity at the start of every frame. Take rules of your own and close them when done,
+which shows again what they hid:
+
+```java
+VisibilityRules rules = client.getEntityVisibility().createRules();
+rules.setPlayersHidden(true, true);         // other players: models and 2D elements (names, health bars, overhead text)
+rules.setNpcsHidden(false, true);           // NPCs: 2D elements only
+rules.setProjectilesHidden(true);
+rules.setHidden(friend, false, false);      // one player shown anyway, while loaded
+rules.setGraphicsObjectsHidden(Set.of(SpotanimID.TOB_NYLOCAS_DEATH_MELEE_STANDARD));
+// later
+rules.close();
+```
+
+Kinds (the local player, other players, NPCs) apply to every actor, in every world, until you decide one apart with
+`setHidden`; `reset` puts it back. An entity is hidden if any plugin's rules hide it. Changes reach the game at the end
+of the client thread's pass, and an actor that comes into view is drawn for one frame before it is hidden. Rules are
+remembered without the hook and sent when it connects. [Entity visibility](developer/entity-visibility.md) has the
+details.
+
+## Widget Writes
+
+Three `Widget` setters change the game's component: `setDragDeadTime` (how long, in client ticks, the mouse must be held
+before a drag starts), `setDragDeadZone` (how far it must move) and `setOnMouseRepeatListener((Object[]) null)`, which
+clears the component's mouse-repeat listener (setting one isn't supported). The native hook looks the component up by
+id at the start of the next frame and writes then, so a component that has gone is left alone; the snapshot shows the
+new value at once. Writes made without the hook are dropped.
+
+In a `ScriptPreFired` or `ScriptPostFired` handler, `client.getScriptActiveWidget()` is the component the script
+engine's `cc_*` ops were acting on at that moment, such as the item slot `ScriptID.INVENTORY_DRAWITEM` just drew, and
+`getScriptDotWidget()` the one its `.cc_*` ops were. [Widget writes](developer/widget-writes.md) has the details.
+
 ## Using the API on Its Own
 
 The API also works without the Kraken client, from any Java 21 program on Windows. It isn't published to a Maven
@@ -282,7 +319,8 @@ available, and other events come from reading the game every 20 ms.
 
 Some things RuneLite's API has aren't here yet, or can't be read from outside the game:
 
-* Writes to the game other than highlights, menu actions and menu edits: no camera control, no widget changes.
+* Writes to the game other than highlights, menu actions, menu edits, entity visibility and the drag and mouse-repeat
+  widget setters: no camera control, no other widget changes.
 * `ScriptCallbackEvent` and sound effect events. `MenuOptionClicked.consume()` exists but can't stop the game's own
   row, which has already run when the event is posted.
 * Sub-worlds such as boats, a world number getter, and a chat history getter (use the `ChatMessage` event).

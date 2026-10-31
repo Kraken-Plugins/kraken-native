@@ -1,4 +1,4 @@
-# Overhead text (docs/event-hooks-design.md §2.11): the line an actor says over its head, for OverheadTextChanged. The
+# Overhead text (docs/developer/events.md): the line an actor says over its head, for OverheadTextChanged. The
 # API compares each loaded actor's text and timer on the tick's polls and right after the NPC and player update
 # decoders run.
 #

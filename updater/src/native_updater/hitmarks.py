@@ -1,4 +1,4 @@
-"""The hitmarks (hitsplats) an actor shows, for HitsplatApplied (docs/event-hooks-design.md §2.8).
+"""The hitmarks (hitsplats) an actor shows, for HitsplatApplied (docs/developer/events.md).
 
 The NPC and player update decoders hand each hitmark of an update to one function, (actor, type, value, delay, cycle,
 a count from the packet), the cycle being the client cycle. The actor holds its hitmarks in an eastl::vector of

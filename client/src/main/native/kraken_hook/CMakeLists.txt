@@ -52,6 +52,10 @@ add_library(kraken_hook SHARED
     src/menus.cpp
     src/keys.h
     src/keys.cpp
+    src/visibility.h
+    src/visibility.cpp
+    src/components.h
+    src/components.cpp
     src/core/frame_reader.h
     src/core/guard.h
     src/core/hooks.h

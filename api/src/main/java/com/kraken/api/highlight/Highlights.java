@@ -67,6 +67,12 @@ public final class Highlights {
     private boolean sendFailed;
 
     /**
+     * Channels released while their clear couldn't reach the hook. The client may still show what they lit, so they
+     * are cleared when the hook next connects.
+     */
+    private final Set<ChannelKey> unsentClears = new LinkedHashSet<>();
+
+    /**
      * Resolves the highlight functions and layouts once.
      *
      * @param mapping the client build's mapping
@@ -195,6 +201,9 @@ public final class Highlights {
                 return;
             }
             List<NativeCall> calls = new ArrayList<>();
+            for (ChannelKey released : unsentClears) {
+                calls.add(clearCall(released.category(), released.channel()));
+            }
             for (HighlightChannel channel : channels.values()) {
                 // The client may still hold what this channel lit before the connection dropped
                 calls.add(clearCall(channel.getCategory(), channel.getChannel()));
@@ -203,7 +212,9 @@ public final class Highlights {
                     calls.add(onCall(target, channel.getChannel()));
                 }
             }
-            send(calls);
+            if (send(calls)) {
+                unsentClears.clear();
+            }
         }
     }
 
@@ -236,8 +247,9 @@ public final class Highlights {
     }
 
     synchronized void release(HighlightChannel channel) {
-        if (channels.remove(new ChannelKey(channel.getCategory(), channel.getChannel())) == channel) {
-            send(List.of(clearCall(channel.getCategory(), channel.getChannel())));
+        ChannelKey key = new ChannelKey(channel.getCategory(), channel.getChannel());
+        if (channels.remove(key) == channel && !send(List.of(clearCall(channel.getCategory(), channel.getChannel())))) {
+            unsentClears.add(key);
         }
     }
 
@@ -246,23 +258,29 @@ public final class Highlights {
      * logged once, and the state is applied again when the hook reconnects.
      *
      * @param calls the calls, null entries skipped
+     * @return false if the calls couldn't reach the hook: none is connected, or the connection broke
      */
-    private void send(List<NativeCall> calls) {
+    private boolean send(List<NativeCall> calls) {
         NativeInvoker target = invoker;
-        if (target == null || !mapped()) {
-            return;
+        if (target == null) {
+            return false;
+        }
+        if (!mapped()) {
+            return true;
         }
         List<NativeCall> batch = calls.stream().filter(Objects::nonNull).toList();
         if (batch.isEmpty()) {
-            return;
+            return true;
         }
         try {
             target.invoke(batch);
+            return true;
         } catch (RuntimeException e) {
             if (!sendFailed) {
                 sendFailed = true;
                 log.log(Level.WARNING, "Could not send highlights to the native hook", e);
             }
+            return false;
         }
     }
 

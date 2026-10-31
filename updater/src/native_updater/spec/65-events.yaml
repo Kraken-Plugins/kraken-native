@@ -6,7 +6,7 @@
 #   { fn: <rva>, idArg: 0, args: N }   the raiser takes the event id in RCX (N register args in all, RCX included)
 #   { fn: <rva>, id: <event id>, args: N }   the raiser is specific to this event
 # The DLL detours fn, forwards N integer register arguments and reports (id, args) to the Java side; what the
-# arguments mean per event is the Lua event contract (docs/event-hooks-design.md).
+# arguments mean per event is the Lua event contract (docs/developer/events.md).
 #
 # The functions.* hook targets after the events are for RuneLite events the client raises no Lua event for: player
 # and ground item add/remove, the actor info decoders (interacting), projectile creation and stepping (hooks.py and
@@ -224,7 +224,7 @@ keys:
     strategies:
       - extractor: { name: event_raisers, field: events.ON_ACTIVE_OFFERS_TRANSMIT, cls: A }
 
-  # Hook targets without a Lua event (post-hooks unless noted; see docs/event-hooks-design.md §2.5).
+  # Hook targets without a Lua event (post-hooks unless noted; see docs/developer/events.md).
   - key: functions.npcInfoDecode
     type: "void(NpcUpdateState*, World*, bool large, Packet*)"
     priority: P1

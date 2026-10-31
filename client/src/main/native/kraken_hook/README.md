@@ -80,15 +80,25 @@ children vector of the DLL's alone. The game window's procedure is hooked from t
 `WM_KEYUP` and `WM_CHAR` are rewritten or dropped by the mode in force of the table `KEYS` sent, and a
 rule can move the mode as its key goes down.
 
-## Protocol v6 (little-endian)
+### Entity visibility and component writes
 
-**Handshake** (Java → DLL): magic `KRK6`, a `u16` slot count, then per slot
+Two more jobs run in the pump, after the calls. From the visibility block the DLL knows where the worlds, their actors,
+the projectiles and the graphics objects are; each frame it applies the rules `VISIBILITY` sent, setting the hidden
+byte of what they hide and the 2D byte of actors, and clearing only what it set
+([entity-visibility.md](../../../../../docs/developer/entity-visibility.md)). From the component block it knows the
+interface store's layout; it looks up each component a `COMPONENTS` write names, by id, and writes the field or calls
+the client's listener clear on it ([widget-writes.md](../../../../../docs/developer/widget-writes.md)).
+
+## Protocol v7 (little-endian)
+
+**Handshake** (Java → DLL): magic `KRK7`, a `u16` slot count, then per slot
 `{u64 rva, i32 fixedId (-1 = read idArg), u8 idArg, u8 args, u8 planLen, plan[planLen]}`, where a
 plan entry is `{u8 arg, u8 op}` with ops `RAW, I32, I64, I32X2, CSTR` = 0..4; then
-`u64 clientGlobal, u64 pumpFn, u64 presentFn` (RVAs; 0 = none); then three `u16`-length-prefixed
-blocks: the script block (empty for no script hooks; its 147-byte layout is `NativeProtocol.scriptLayout`'s
-and `parseScriptLayout`'s), the menu block (142 bytes, `menuLayout`'s and `menus.cpp`'s `parseLayout`'s)
-and the key block (8 bytes, the window procedure's RVA).
+`u64 clientGlobal, u64 pumpFn, u64 presentFn` (RVAs; 0 = none); then five `u16`-length-prefixed
+blocks: the script block (empty for no script hooks; its 155-byte layout is `NativeProtocol.scriptLayout`'s
+and `parseScriptLayout`'s), the menu block (142 bytes, `menuLayout`'s and `menus.cpp`'s `parseLayout`'s),
+the key block (8 bytes, the window procedure's RVA), the visibility block (84 bytes, `visibilityLayout`'s and
+`visibility.cpp`'s) and the component block (56 bytes, `componentLayout`'s and `components.cpp`'s).
 
 **Messages** (DLL → Java): a `u32` length frame, then
 `{u32 seq, i32 eventId, u64 regs[4], u8 nValues, values...}`, where a value is `{u8 arg, u8 op, payload}`.
@@ -96,11 +106,11 @@ and the key block (8 bytes, the window procedure's RVA).
 
 | id | Name | regs |
 |---|---|---|
-| -2 | STATUS | installed slots, requested slots, features (1 = pump hooked, 2 = present hooked, 4 = frame rate, 8 = script hooks, 16 = menu hooks, 32 = key hook), protocol version 6 |
+| -2 | STATUS | installed slots, requested slots, features (1 = pump hooked, 2 = present hooked, 4 = frame rate, 8 = script hooks, 16 = menu hooks, 32 = key hook, 64 = visibility, 128 = component writes), protocol version 7 |
 | -3 | FRAME | framebuffer width, height, GL version (`major << 16 \| minor`), surface generation drawn (0 = none) |
 | -4 | CALLS_DONE | batch id, calls run, calls faulted or skipped, last return value |
 | -5 | FPS | frames since the last FPS, microseconds since it, frame cap in force, 1 if presents were counted (0: frame steps) |
-| -6 | SCRIPT | kind (0 root start, 1 gosub, 2 return), script id, depth, 0; then the top of both stacks and, for a root run a listener started, the request ([native-protocol.md](../../../../../docs/developer/native-protocol.md#the-script-payload)) |
+| -6 | SCRIPT | kind (0 root start, 1 gosub, 2 return), script id, depth, 0; then the top of both stacks, the active and dot components and, for a root run a listener started, the request ([native-protocol.md](../../../../../docs/developer/native-protocol.md#the-script-payload)) |
 | -7 | MENU_CLICK | 0 for a row of Kraken's own or 1 for a rule's report, the row or rule id, the parent row id (0xffffffff for none), mouse x \| y << 32 |
 | -8 | MENU_EXPIRED | the id of a scoped rule nothing matched for 25 rebuilds, 0, 0, 0 |
 | -9 | KEY | the window message, the key or character, action << 16 \| the key it became (0 passed, 1 remapped, 2 blocked), mode before \| mode after << 8 |
@@ -143,6 +153,11 @@ byte and the body, at most 4 MiB.
 - `6 KEYS`: `u8 op`: 0 the table (`u8 modes`, each `{u8 flags, u16 count, count × {u16 vk, u8 modifiers,
   u8 mask, u16 to, u8 next}}`), 1 the mode (`u8`), 2 reporting (`u8`). Ignored until the window procedure
   is hooked; a dropped connection drops the table and goes back to mode 0.
+- `7 VISIBILITY`: `u8 kinds`, `u16 count`, `count` × `{u64 address, u8 decided, u8 hidden}`, `u8 graphics`,
+  `graphics` × `i32` spot anim id ([native-protocol.md](../../../../../docs/developer/native-protocol.md#visibility)).
+  Replaces the rules; applied at every frame's pump; a dropped connection empties them, showing what the DLL hid.
+- `8 COMPONENTS`: `u16 count`, `count` × `{i32 packedId, i32 subId, u8 op (0 set i32, 1 clear listener), u16 offset,
+  i32 value}`. Made at the next pump, each component looked up by id first; a dropped connection drops the queue.
 
 The surface layout and its lock-free triple-buffer handshake are in
 [in-game-drawing.md](../../../../../docs/developer/in-game-drawing.md).
@@ -195,16 +210,18 @@ it. Everything is in namespace `kraken`, one nested namespace per module (`krake
 | `src/connection.*` | The socket: connecting back, the handshake, the reader thread (commands) and the writer thread (the ring, STATUS, FRAME and FPS) |
 | `src/raises.*` | The raise hooks: one generic detour per slot and the capture plans |
 | `src/calls.*` | `CALLS`: the call queue, and running each call on the game thread under a guard |
-| `src/pump.*` | The pump hook: the frame cap (`FRAME_LIMIT`), then the queued calls |
+| `src/pump.*` | The pump hook: the frame cap (`FRAME_LIMIT`), then the queued calls, component writes and visibility rules |
 | `src/scripts.*` | The script hooks, `SCRIPTS` and the SCRIPT messages |
 | `src/menus.*` | The menu hooks, the rule engine, `MENU`, and the MENU_CLICK and MENU_EXPIRED messages |
 | `src/keys.*` | The window procedure hook, the key table, `KEYS` and the KEY messages |
+| `src/visibility.*` | `VISIBILITY` and the per-frame walk that hides and shows entities |
+| `src/components.*` | `COMPONENTS`, the component lookup and the writes |
 | `src/overlay/overlay.*` | The present hook: uploading and drawing the overlay frame, and what FRAME reports |
 | `src/overlay/surface.*` | `SURFACE`: opening the shared-memory surface and handing it to the present thread |
 | `src/overlay/gl.*`, `gl_state.*` | The GL constants and entry points beyond GL 1.1; saving and restoring the client's GL state |
 | `src/core/ring.*` | The lock-free message ring between the game thread and the writer thread |
 | `src/core/hooks.*` | MinHook's setup and `installOnce` |
-| `src/core/memory.*`, `guard.h` | Guarded reads of the game's memory, and the SEH guard macros |
+| `src/core/memory.*`, `guard.h` | Guarded reads and writes of the game's memory, and the SEH guard macros |
 | `src/core/process.*` | osclient.exe's base and image size, and the performance counter's frequency |
 | `src/core/frame_reader.h` | A bounds-checked reader over a command frame |
 

@@ -1,6 +1,7 @@
 // The overlay surface: a file mapping the Kraken client fills with three frames of premultiplied BGRA
-// pixels (docs/in-game-drawing.md section 2.4). The reader thread opens the one a SURFACE command names
-// and hands it to the present thread through an atomic swap; the present thread unmaps the old one.
+// pixels (docs/developer/in-game-drawing.md, "The Overlay Surface"). The reader thread opens the one a
+// SURFACE command names and hands it to the present thread through an atomic swap; the present thread
+// unmaps the old one.
 #pragma once
 
 #include <windows.h>

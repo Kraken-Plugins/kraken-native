@@ -1,5 +1,6 @@
-# Running a menu action without the menu (docs/menu-actions.md): the functions behind the minimenu's rows, which the
-# hook DLL calls with the arguments a row would have captured, and the packet helpers the mouse click goes out through.
+# Running a menu action without the menu (docs/developer/menu-actions.md): the functions behind the minimenu's rows,
+# which the hook DLL calls with the arguments a row would have captured, and the packet helpers the mouse click goes out
+# through.
 #
 # A menu row carries a body function and a struct of captured arguments; clicking the row raises the op event and then
 # runs body(context, &captures). The builders of the NPC, loc, obj and player rows (the callers of the subject setters,

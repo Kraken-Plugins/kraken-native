@@ -1,6 +1,7 @@
-// The wire format shared with the Kraken client: protocol v6, little-endian. Every value here must match
-// NativeProtocol, NativeEventServer and GameSurface on the Java side, so change them together. README.md
-// describes the format, and docs/in-game-drawing.md section 2.4 the overlay surface.
+// The wire format shared with the Kraken client: protocol v7, little-endian. Every value here must match
+// NativeProtocol, NativeEventServer and GameSurface on the Java side, so change them together.
+// docs/developer/native-protocol.md describes the format, and docs/developer/in-game-drawing.md the
+// overlay surface.
 #pragma once
 
 #include <cstddef>
@@ -11,7 +12,7 @@ namespace kraken {
 // Must match NativeEventServer.PORT on the Java side.
 inline constexpr unsigned short KRAKEN_PORT = 42069;
 
-inline constexpr uint32_t PROTOCOL_VERSION = 6;
+inline constexpr uint32_t PROTOCOL_VERSION = 7;
 inline constexpr int MAX_PLAN = 8;  // capture-plan entries per slot
 inline constexpr int CSTR_MAX = 64; // longest NUL-terminated string captured
 
@@ -45,13 +46,17 @@ inline constexpr int32_t KEY_EVENT_ID = -9;
 // STATUS feature bits. FRAME_RATE: FPS is sent, and FRAME_LIMIT is honoured while the pump is hooked.
 // SCRIPTS: the four script hooks are live, and SCRIPTS commands are honoured. MENU: the minimenu
 // hooks are live, and MENU commands are honoured. KEYS: the window procedure is hooked, and KEYS
-// commands are honoured.
+// commands are honoured. VISIBILITY: the pump is hooked and the handshake named the entity layout, so
+// VISIBILITY commands are honoured. COMPONENTS: the pump is hooked and the handshake named the
+// interface store, so COMPONENTS commands are honoured.
 inline constexpr uint64_t FEATURE_PUMP = 1;
 inline constexpr uint64_t FEATURE_PRESENT = 2;
 inline constexpr uint64_t FEATURE_FRAME_RATE = 4;
 inline constexpr uint64_t FEATURE_SCRIPTS = 8;
 inline constexpr uint64_t FEATURE_MENU = 16;
 inline constexpr uint64_t FEATURE_KEYS = 32;
+inline constexpr uint64_t FEATURE_VISIBILITY = 64;
+inline constexpr uint64_t FEATURE_COMPONENTS = 128;
 
 // Command frames (Java -> DLL): {u32 len, u8 type, body}, len counting the type byte and the body.
 inline constexpr uint8_t CMD_CALLS = 1;
@@ -60,6 +65,8 @@ inline constexpr uint8_t CMD_FRAME_LIMIT = 3;
 inline constexpr uint8_t CMD_SCRIPTS = 4;
 inline constexpr uint8_t CMD_MENU = 5;
 inline constexpr uint8_t CMD_KEYS = 6;
+inline constexpr uint8_t CMD_VISIBILITY = 7;
+inline constexpr uint8_t CMD_COMPONENTS = 8;
 inline constexpr uint32_t MAX_FRAME_LIMIT = 1000; // a higher cap is no cap
 inline constexpr uint32_t MAX_FRAME = 4u << 20;   // bytes per command frame
 inline constexpr int MAX_ARGS = 8;                // arguments per call
@@ -170,7 +177,28 @@ inline constexpr uint64_t KEY_PASSED = 0;  // KEY report actions
 inline constexpr uint64_t KEY_REMAPPED = 1;
 inline constexpr uint64_t KEY_BLOCKED = 2;
 
-// Overlay surface layout (docs/in-game-drawing.md section 2.4).
+// VISIBILITY command: what to hide. The class bits say which kinds of entity are hidden unless an
+// override says otherwise; an override names an actor by address, which layers it decides (LAYER_*)
+// and which of those it hides. 3D is the model, 2D the actor's name, head bars and overhead text.
+inline constexpr uint8_t HIDE_LOCAL_3D = 1;
+inline constexpr uint8_t HIDE_LOCAL_2D = 2;
+inline constexpr uint8_t HIDE_PLAYERS_3D = 4;
+inline constexpr uint8_t HIDE_PLAYERS_2D = 8;
+inline constexpr uint8_t HIDE_NPCS_3D = 16;
+inline constexpr uint8_t HIDE_NPCS_2D = 32;
+inline constexpr uint8_t HIDE_PROJECTILES = 64;
+inline constexpr uint8_t LAYER_3D = 1;
+inline constexpr uint8_t LAYER_2D = 2;
+inline constexpr int MAX_VISIBILITY_OVERRIDES = 4096;
+inline constexpr int MAX_HIDDEN_GRAPHICS = 64; // graphics object spot anim ids a command can hide
+
+// COMPONENTS command ops: write an int32 field of the component, or clear one of its listeners
+// through the client's own function, which frees the listener's arguments.
+inline constexpr uint8_t COMPONENT_SET_I32 = 0;
+inline constexpr uint8_t COMPONENT_CLEAR_LISTENER = 1;
+inline constexpr int MAX_COMPONENT_OPS = 4096; // ops waiting for the pump at most
+
+// Overlay surface layout (docs/developer/in-game-drawing.md, "The Overlay Surface").
 inline constexpr uint32_t SURFACE_MAGIC = 0x31564F4B; // "KOV1"
 inline constexpr size_t SURFACE_PUBLISHED = 16;
 inline constexpr size_t SURFACE_READING = 20;

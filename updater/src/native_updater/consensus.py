@@ -1,4 +1,4 @@
-"""Grade every key from its candidates (design §4.6).
+"""Grade every key from its candidates (docs/developer/updater.md).
 
   PROVEN        >= 2 strategies of different anchor classes agree and the invariants hold
   ANCHORED      one class A/B/C strategy, invariants hold, no disagreement

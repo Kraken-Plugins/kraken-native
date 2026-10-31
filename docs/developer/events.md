@@ -528,8 +528,9 @@ mechanics are in [native-hook.md](native-hook.md).
 | `scriptLookup` | Reports a gosub as the callee is looked up (`PRE_GOSUB`) |
 | `scriptSwapLocals` | Reports a return when the popped frame is cleared (`POST`) |
 
-Each message carries the kind, script id, frame depth, the top of the int and object stacks as they were, and for a
-listener's request, the request's fields and arguments.
+Each message carries the kind, script id, frame depth, the top of the int and object stacks as they were, the
+components the engine's `cc_*` and `.cc_*` ops were acting on, and for a listener's request, the request's fields and
+arguments.
 [`ScriptRun`](../../api/src/main/java/com/kraken/api/internal/event/ScriptRun.java) holds one report.
 
 [`ScriptEvents`](../../api/src/main/java/com/kraken/api/internal/event/ScriptEvents.java) sends the DLL what to report.
@@ -547,8 +548,9 @@ Each report is posted as its own event, on the poll thread after the queued task
 - A root run of script 2091 with the skill and XP as arguments also posts `FakeXpDrop`, after its `ScriptPreFired`.
 
 While the handlers run, `Client.getIntStack()` and the other stack getters read the report's captured stacks from a
-thread-local. Outside those handlers they read the game again. The stacks are as they were at the report, not as they
-are when the handler runs.
+thread-local, and `Client.getScriptActiveWidget()` and `getScriptDotWidget()` look the captured components up again by
+id ([Widget writes](widget-writes.md#the-active-component)). Outside those handlers they read the game again. The
+stacks are as they were at the report, not as they are when the handler runs.
 
 ## Event Reference
 
@@ -682,15 +684,13 @@ WSL with `uv run python -m unittest discover -s tests -t .` (see [updater.md](up
   raises, a poll runs about once per client cycle.
 - **Diff blind spots.** A change that is undone between two reads is missed by any tracker that doesn't receive reports.
   Interfaces and varcs are covered by their reports. Other state isn't.
-- **Errors in handlers.** `EventBus.post` catches `Exception` and `LinkageError`. `EventSource.run` and
-  `GameSession`'s poll stages catch `RuntimeException` and `MemoryException`. Any other `Error` from a handler propagates
-  out of the poll and ends the `kraken-api-poll` thread. The default uncaught handler logs it, and nothing restarts the
-  thread, so no events post for the rest of the session.
+- **Errors in handlers.** `EventBus.post` catches `Exception` and `LinkageError`, and `GameSession`'s poll stages
+  catch `RuntimeException`, `LinkageError` and `MemoryException`. Any other `Error` from a handler, such as a
+  `StackOverflowError`, ends the `kraken-api-poll` thread. The uncaught-exception handler logs it and `start()` can run
+  the loop again, but nothing in the client does, so no events post for the rest of the session.
 - **Shared raise sites.** `NativeEventServer.build` merges entries that share an RVA. It keeps the first entry's id
   configuration and the longer plan, and doesn't check that the entries agree. The 241.3 mapping has no conflicting pairs,
   but a future build could hide one, and a function that shares an RVA with an event would lose its synthetic id.
-- **The DLL path override.** `NativeEventServer` declares `kraken.hook.dll`, and its Javadoc says it points at a DLL on
-  disk. The property isn't read. The DLL always comes from the jar.
 
 ### Live Checks
 

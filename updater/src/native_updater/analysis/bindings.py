@@ -1,6 +1,6 @@
 """sol2 binding tables: Lua API name -> native handler (or data-member offset), plus enum tables.
 
-Registration shapes seen in the client (docs/updater-design.md §4.3):
+Registration shapes seen in the client (docs/developer/updater.md, "Lua Bindings"):
   (a) ClientOp:    LEA name ... LEA handler ... CALL register          name first
   (b) usertypes:   LEA handler -> slot; LEA name -> slot; CALL set      handler first
   (c) factories:   LEA name ... CALL factory (body holds LEA handler)   no handler in the table itself

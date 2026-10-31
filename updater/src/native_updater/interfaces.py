@@ -1,4 +1,4 @@
-"""Where the client opens and closes interfaces, for WidgetLoaded and WidgetClosed (docs/event-hooks-design.md §2.7).
+"""Where the client opens and closes interfaces, for WidgetLoaded and WidgetClosed (docs/developer/events.md).
 
 The client keeps the groups opened inside components in a hash map on the Client (Client.subInterfaces: a component's
 packed id to a node holding the group and the modal mode the server opened it with) and the top-level interface in an

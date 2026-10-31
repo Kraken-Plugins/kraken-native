@@ -1,5 +1,6 @@
 package com.kraken.client.callback;
 
+import com.kraken.api.internal.ScriptComponents;
 import com.kraken.api.internal.ScriptStack;
 import com.kraken.api.internal.event.NativeEvent;
 import com.kraken.api.internal.event.ScriptRequest;
@@ -7,6 +8,8 @@ import com.kraken.api.internal.event.ScriptRun;
 import com.kraken.api.internal.invoke.NativeCall;
 import com.kraken.api.internal.menu.MenuClick;
 import com.kraken.api.internal.menu.WireRule;
+import com.kraken.api.internal.render.WireVisibility;
+import com.kraken.api.internal.widget.ComponentOp;
 import com.kraken.api.mapping.Mapping;
 import com.kraken.api.menu.MenuRule;
 import com.kraken.api.menu.ShiftState;
@@ -24,26 +27,28 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.IntFunction;
 
 /**
- * The wire format between {@link NativeEventServer} and {@code kraken_hook.dll} (protocol v6, little-endian). Java
+ * The wire format between {@link NativeEventServer} and {@code kraken_hook.dll} (protocol v7, little-endian). Java
  * sends one handshake naming the raise functions to hook, their event ids and a capture plan per slot, then the
- * functions the drawing needs, then the script runtime's functions and layout, the minimenu's functions and layout
- * and the game window's procedure; the DLL sends one message per raise with the id, the argument registers and the
- * captured values, one per script event it was asked for, one per click on a menu row of a plugin's own and per
- * key it handled, and status messages with reserved ids. After the handshake Java sends commands: batches of calls
- * for the game thread, the overlay surface to draw, the frame cap, which script events to send, the menu rules and
- * the key remapping. Every field and op code here matches the constants in the DLL's {@code src/protocol.h};
+ * functions the drawing needs, then the script runtime's functions and layout, the minimenu's functions and layout,
+ * the game window's procedure, where the entities and their visibility flags are, and the interface store's layout;
+ * the DLL sends one message per raise with the id, the argument registers and the captured values, one per script
+ * event it was asked for, one per click on a menu row of a plugin's own and per key it handled, and status messages
+ * with reserved ids. After the handshake Java sends commands: batches of calls for the game thread, the overlay
+ * surface to draw, the frame cap, which script events to send, the menu rules, the key remapping, the visibility rules
+ * and component writes. Every field and op code here matches the constants in the DLL's {@code src/protocol.h};
  * {@code docs/developer/native-protocol.md} describes the format.
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 final class NativeProtocol {
 
     /**
-     * Handshake magic: identifies protocol v6.
+     * Handshake magic: identifies protocol v7.
      */
-    static final byte[] MAGIC = {'K', 'R', 'K', '6'};
+    static final byte[] MAGIC = {'K', 'R', 'K', '7'};
 
     /**
      * Capture-plan ops: how the DLL reads the argument register a plan entry names.
@@ -130,6 +135,18 @@ final class NativeProtocol {
     static final long FEATURE_KEYS = 32;
 
     /**
+     * STATUS feature bit: the pump is hooked and the handshake's visibility block was complete, so visibility rules
+     * are applied.
+     */
+    static final long FEATURE_VISIBILITY = 64;
+
+    /**
+     * STATUS feature bit: the pump is hooked and the handshake's component block was complete, so component writes
+     * are made.
+     */
+    static final long FEATURE_COMPONENTS = 128;
+
+    /**
      * Command type: a batch of calls.
      */
     static final int COMMAND_CALLS = 1;
@@ -158,6 +175,21 @@ final class NativeProtocol {
      * Command type: the key remapping.
      */
     static final int COMMAND_KEYS = 6;
+
+    /**
+     * Command type: the visibility rules, replacing the ones the DLL holds.
+     */
+    static final int COMMAND_VISIBILITY = 7;
+
+    /**
+     * Command type: a batch of component writes.
+     */
+    static final int COMMAND_COMPONENTS = 8;
+
+    /**
+     * A layout offset the mapping lacks, which leaves that part off in the DLL.
+     */
+    static final int NO_OFFSET = 0xffffffff;
 
     /**
      * The MENU command's operations: replace every rule, add or replace rules by id, remove rules by id.
@@ -314,6 +346,40 @@ final class NativeProtocol {
             "container:string.heapFlagMask", "container:string.ssoCapacity"};
 
     /**
+     * The runner's two components, after the script fields; a key the mapping lacks is sent as {@link #NO_OFFSET}.
+     */
+    private static final String[] SCRIPT_COMPONENTS = {"ScriptRunner.activeComponent", "ScriptRunner.dotComponent"};
+
+    /**
+     * The mapping keys the handshake's visibility block is built from, in the order the DLL reads them: where the
+     * worlds, their actors, the projectiles and the graphics objects are, the flags that hide them, and the eastl hash
+     * map and list layouts. A key the mapping lacks is sent as {@link #NO_OFFSET}, unless it is one of
+     * {@link #VISIBILITY_REQUIRED}.
+     */
+    private static final String[] VISIBILITY_OFFSETS = {"Client.topLevelWorld", "Client.worlds.map",
+            "Client.localPlayerIndex", "World.players", "World.npcs", "World.graphicsObjects", "Client.projectiles",
+            "Client.keyedProjectiles", "Actor.hidden", "Actor.render2D", "Projectile.hidden", "KeyedProjectile.hidden",
+            "GraphicsObject.hidden", "GraphicsObject.spotAnimId", "container:hash_map.buckets",
+            "container:hash_map.bucketCount", "container:hash_map.node.key", "container:hash_map.node.value",
+            "container:hash_map.node.next", "container:list.node.next", "container:list.node.value"};
+
+    /**
+     * The visibility block's keys without which the DLL can't hide actors, so no block is sent.
+     */
+    private static final Set<String> VISIBILITY_REQUIRED = Set.of("Client.topLevelWorld", "Client.localPlayerIndex",
+            "World.players", "World.npcs", "Actor.hidden", "Actor.render2D", "container:hash_map.buckets",
+            "container:hash_map.bucketCount", "container:hash_map.node.key", "container:hash_map.node.value",
+            "container:hash_map.node.next");
+
+    /**
+     * The mapping keys the handshake's component block is built from, after the listener clear's RVA, in order: the
+     * interface store, its group entries and slots, a component's dynamic children, and its ids. All required.
+     */
+    private static final String[] COMPONENT_OFFSETS = {"Client.interfaceStore", "IfStore.groupCount", "IfStore.groups",
+            "IfStoreGroup.stride", "IfStoreGroup.count", "IfStoreGroup.slots", "IfStoreGroup.slotStride",
+            "container:shared_ptr.ptr", "IfType.dynCount", "IfType.dynSlots", "IfType.packedId", "IfType.subId"};
+
+    /**
      * The four script functions the DLL hooks, in order.
      */
     private static final String[] SCRIPT_FUNCTIONS = {"executeScript", "executeScriptInner", "scriptLookup",
@@ -361,18 +427,22 @@ final class NativeProtocol {
 
     /**
      * Builds the handshake: magic, a slot count, then each slot's rva, id configuration, argument count and plan, then
-     * the drawing functions, then three length-prefixed blocks (a u16 length each): the script block, the menu block
-     * and the key block.
+     * the drawing functions, then five length-prefixed blocks (a u16 length each): the script block, the menu block,
+     * the key block, the visibility block and the component block.
      *
-     * @param slots   the slots to install
-     * @param drawing the client pointer, the pump and the present function
-     * @param scripts the script block ({@link #scriptLayout}), empty for no script hooks
-     * @param menu    the menu block ({@link #menuLayout}), empty for no menu hooks
-     * @param keys    the key block ({@link #keyLayout}), empty for no key hook
+     * @param slots      the slots to install
+     * @param drawing    the client pointer, the pump and the present function
+     * @param scripts    the script block ({@link #scriptLayout}), empty for no script hooks
+     * @param menu       the menu block ({@link #menuLayout}), empty for no menu hooks
+     * @param keys       the key block ({@link #keyLayout}), empty for no key hook
+     * @param visibility the visibility block ({@link #visibilityLayout}), empty for no entity hiding
+     * @param components the component block ({@link #componentLayout}), empty for no component writes
      * @return the handshake bytes
      */
-    static byte[] handshake(List<Slot> slots, Drawing drawing, byte[] scripts, byte[] menu, byte[] keys) {
-        int size = MAGIC.length + 2 + 3 * 8 + 2 + scripts.length + 2 + menu.length + 2 + keys.length;
+    static byte[] handshake(List<Slot> slots, Drawing drawing, byte[] scripts, byte[] menu, byte[] keys,
+                            byte[] visibility, byte[] components) {
+        int size = MAGIC.length + 2 + 3 * 8 + 2 + scripts.length + 2 + menu.length + 2 + keys.length + 2
+                + visibility.length + 2 + components.length;
         for (Slot slot : slots) {
             size += 8 + 4 + 1 + 1 + 1 + slot.plan().size() * 2;
         }
@@ -399,6 +469,10 @@ final class NativeProtocol {
         buf.put(menu);
         buf.putShort((short) keys.length);
         buf.put(keys);
+        buf.putShort((short) visibility.length);
+        buf.put(visibility);
+        buf.putShort((short) components.length);
+        buf.put(components);
         return buf.array();
     }
 
@@ -471,6 +545,104 @@ final class NativeProtocol {
         }
         return ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(mapping.function("renderViewWndProc"))
                 .array();
+    }
+
+    /**
+     * Builds the handshake's visibility block from a mapping: the offsets of {@link #VISIBILITY_OFFSETS} ({@code u32}
+     * each), {@link #NO_OFFSET} for an optional one the mapping lacks.
+     *
+     * @param mapping the attached build's mapping
+     * @return the block, or an empty array if the mapping lacks a required key (no entity hiding)
+     */
+    static byte[] visibilityLayout(Mapping mapping) {
+        ByteBuffer buf = ByteBuffer.allocate(VISIBILITY_OFFSETS.length * 4).order(ByteOrder.LITTLE_ENDIAN);
+        for (String key : VISIBILITY_OFFSETS) {
+            int value = layoutValue(mapping, key);
+            if (value < 0 && VISIBILITY_REQUIRED.contains(key)) {
+                return new byte[0];
+            }
+            buf.putInt(value < 0 ? NO_OFFSET : value);
+        }
+        return buf.array();
+    }
+
+    /**
+     * Builds the handshake's component block from a mapping: the RVA of the client's listener clear
+     * ({@code functions.ifListenerClear}, {@code u64}, 0 if the mapping lacks it, which leaves listeners alone), then
+     * the offsets of {@link #COMPONENT_OFFSETS} ({@code u32} each).
+     *
+     * @param mapping the attached build's mapping
+     * @return the block, or an empty array if the mapping lacks an offset (no component writes)
+     */
+    static byte[] componentLayout(Mapping mapping) {
+        ByteBuffer buf = ByteBuffer.allocate(8 + COMPONENT_OFFSETS.length * 4).order(ByteOrder.LITTLE_ENDIAN);
+        buf.putLong(mapping.hasFunction("ifListenerClear") ? mapping.function("ifListenerClear") : 0);
+        for (String key : COMPONENT_OFFSETS) {
+            int value = layoutValue(mapping, key);
+            if (value < 0) {
+                return new byte[0];
+            }
+            buf.putInt(value);
+        }
+        return buf.array();
+    }
+
+    /**
+     * Frames the visibility rules command: {@code {u32 len, u8 7, u8 classes, u16 count, count x {u64 address,
+     * u8 decided, u8 hidden}, u8 graphics, graphics x i32}}. The length counts the bytes after it.
+     *
+     * @param rules the rules
+     * @return the framed command
+     */
+    static byte[] visibility(WireVisibility rules) {
+        int[] graphics = rules.graphics();
+        if (rules.actors().size() > 0xffff || graphics.length > 0xff) {
+            throw new IllegalArgumentException("too many actors or graphics objects: " + rules.actors().size() + ", "
+                    + graphics.length);
+        }
+        int body = 1 + 1 + 2 + rules.actors().size() * 10 + 1 + graphics.length * 4;
+        ByteBuffer buf = ByteBuffer.allocate(4 + body).order(ByteOrder.LITTLE_ENDIAN);
+        buf.putInt(body);
+        buf.put((byte) COMMAND_VISIBILITY);
+        buf.put((byte) rules.classes());
+        buf.putShort((short) rules.actors().size());
+        for (WireVisibility.ActorRule actor : rules.actors()) {
+            buf.putLong(actor.address());
+            buf.put((byte) actor.decided());
+            buf.put((byte) actor.hidden());
+        }
+        buf.put((byte) graphics.length);
+        for (int id : graphics) {
+            buf.putInt(id);
+        }
+        return buf.array();
+    }
+
+    /**
+     * Frames a batch of component writes: {@code {u32 len, u8 8, u16 count, count x {i32 packedId, i32 subId, u8 op,
+     * u16 offset, i32 value}}}, the op being the ordinal of the write's {@link ComponentOp.Op}. The length counts the
+     * bytes after it.
+     *
+     * @param ops the writes, in order
+     * @return the framed command
+     */
+    static byte[] components(List<ComponentOp> ops) {
+        if (ops.size() > 0xffff) {
+            throw new IllegalArgumentException("at most 65535 component writes a batch, got " + ops.size());
+        }
+        int body = 1 + 2 + ops.size() * 15;
+        ByteBuffer buf = ByteBuffer.allocate(4 + body).order(ByteOrder.LITTLE_ENDIAN);
+        buf.putInt(body);
+        buf.put((byte) COMMAND_COMPONENTS);
+        buf.putShort((short) ops.size());
+        for (ComponentOp op : ops) {
+            buf.putInt(op.packedId());
+            buf.putInt(op.subId());
+            buf.put((byte) op.op().ordinal());
+            buf.putShort((short) op.offset());
+            buf.putInt(op.value());
+        }
+        return buf.array();
     }
 
     /**
@@ -767,7 +939,8 @@ final class NativeProtocol {
     /**
      * Builds the handshake's script block from a mapping: the RVAs of the four script functions and of the runner
      * ({@code u64} each), the offsets of {@link #SCRIPT_OFFSETS} ({@code u32} each), the VarValue kinds INT, STRING
-     * and LONG ({@code u8} each), then the offsets of {@link #SCRIPT_FIELDS} ({@code u32} each).
+     * and LONG ({@code u8} each), then the offsets of {@link #SCRIPT_FIELDS} ({@code u32} each), then those of
+     * {@link #SCRIPT_COMPONENTS} ({@code u32} each, {@link #NO_OFFSET} for one the mapping lacks).
      *
      * @param mapping the attached build's mapping
      * @return the block, or an empty array if the mapping lacks a key it needs (no script hooks)
@@ -793,7 +966,8 @@ final class NativeProtocol {
             return new byte[0];
         }
         ByteBuffer buf = ByteBuffer.allocate((SCRIPT_FUNCTIONS.length + 1) * 8 + offsets.length * 4
-                + SCRIPT_KINDS.length + fields.length * 4).order(ByteOrder.LITTLE_ENDIAN);
+                + SCRIPT_KINDS.length + fields.length * 4 + SCRIPT_COMPONENTS.length * 4)
+                .order(ByteOrder.LITTLE_ENDIAN);
         for (String function : SCRIPT_FUNCTIONS) {
             buf.putLong(mapping.function(function));
         }
@@ -806,6 +980,10 @@ final class NativeProtocol {
         }
         for (int field : fields) {
             buf.putInt(field);
+        }
+        for (String key : SCRIPT_COMPONENTS) {
+            int value = layoutValue(mapping, key);
+            buf.putInt(value < 0 ? NO_OFFSET : value);
         }
         return buf.array();
     }
@@ -948,9 +1126,10 @@ final class NativeProtocol {
      * Parses a script event's body: the usual head, whose registers are {@code {kind, script id, depth, 0}} (kind 0 a
      * root script starting, 1 a gosub, 2 a return), no plan values, then the int stack's size, a u16 count and that
      * many ints from the top of the stack (oldest first), the object stack's size and a run of values from its top,
-     * then a byte saying whether a request follows: the source and target components' ids and indices, the op,
-     * sub-op, mouse x and y, key code and key char ({@code i32} each), the base op name (a u16 length and UTF-8
-     * bytes) and a run of values, the listener's arguments. A run of values is a u16 count, then each a kind byte
+     * then the engine's active and dot components (a packed id and an index each, {@code i32}s, -1 for none), then a
+     * byte saying whether a request follows: the source and target components' ids and indices, the op, sub-op,
+     * mouse x and y, key code and key char ({@code i32} each), the base op name (a u16 length and UTF-8 bytes) and a
+     * run of values, the listener's arguments. A run of values is a u16 count, then each a kind byte
      * ({@link #VALUE_INT}…) and its payload. The stacks come back as long as their sizes, the entries below the
      * captured top left 0 or null.
      *
@@ -979,6 +1158,8 @@ final class NativeProtocol {
         Object[] objects = new Object[stackLength(objectSize, topObjects.length)];
         System.arraycopy(topObjects, 0, objects, objects.length - topObjects.length, topObjects.length);
 
+        ScriptComponents components = new ScriptComponents(buf.getInt(), buf.getInt(), buf.getInt(), buf.getInt());
+
         ScriptRequest request = null;
         if (buf.get() != 0) {
             int[] fields = new int[10];
@@ -995,7 +1176,7 @@ final class NativeProtocol {
             case 1 -> ScriptRun.Kind.PRE_GOSUB;
             default -> ScriptRun.Kind.POST;
         };
-        return new ScriptRun(runKind, scriptId, depth, new ScriptStack(ints, objects), request);
+        return new ScriptRun(runKind, scriptId, depth, new ScriptStack(ints, objects), request, components);
     }
 
     /**
