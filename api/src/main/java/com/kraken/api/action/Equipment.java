@@ -1,16 +1,28 @@
 package com.kraken.api.action;
 
 import com.kraken.api.Client;
+import com.kraken.api.gameval.InventoryID;
 import com.kraken.api.item.EquipmentInventorySlot;
 import com.kraken.api.item.Item;
+import com.kraken.api.item.ItemContainer;
+import com.kraken.api.widgets.Widget;
+
+import java.util.Objects;
+import java.util.function.Function;
+import java.util.logging.Logger;
 
 /**
  * The worn items. Get it from {@code client.getEquipment()} or inject it.
  *
  * <p>The reads come from the worn-items table ({@code InventoryID.WORN}). The actions run the ops of the worn-items
- * interface's slot components ({@link EquipmentInventorySlot#getComponentId()}).
+ * interface's slot components ({@link EquipmentInventorySlot#getComponentId()}), which carry the worn item's id, so
+ * a component op names the item the slot holds.
  */
 public final class Equipment {
+
+    private static final Logger log = Logger.getLogger("kraken.api");
+
+    private static final String REMOVE = "Remove";
 
     private final Client client;
 
@@ -30,7 +42,8 @@ public final class Equipment {
      * @return true if a worn slot holds it
      */
     public boolean isEquipped(int itemId) {
-        throw new UnsupportedOperationException("not built yet");
+        ItemContainer worn = worn();
+        return worn != null && worn.contains(itemId);
     }
 
     /**
@@ -40,7 +53,8 @@ public final class Equipment {
      * @return the item, or null if the slot is empty or the worn items can't be read
      */
     public Item getItem(EquipmentInventorySlot slot) {
-        throw new UnsupportedOperationException("not built yet");
+        ItemContainer worn = worn();
+        return worn == null ? null : worn.getItem(slot.getSlotIdx());
     }
 
     /**
@@ -48,10 +62,11 @@ public final class Equipment {
      *
      * @param slot the slot
      * @return {@link ActionResult#SENT}, or why nothing was sent; {@link ActionResult#NOT_FOUND} if the slot is empty
-     *         or the worn-items interface isn't loaded
+     *         or the worn-items interface isn't loaded, {@link ActionResult#NO_SUCH_OPTION} if the worn item has no
+     *         Remove
      */
     public ActionResult remove(EquipmentInventorySlot slot) {
-        throw new UnsupportedOperationException("not built yet");
+        return withSlot(slot, component -> component.interact(REMOVE));
     }
 
     /**
@@ -60,10 +75,11 @@ public final class Equipment {
      * @param slot   the slot
      * @param option the op's text, matched loosely
      * @return {@link ActionResult#SENT}, or why nothing was sent; {@link ActionResult#NOT_FOUND} if the slot is empty
-     *         or the worn-items interface isn't loaded
+     *         or the worn-items interface isn't loaded, {@link ActionResult#NO_SUCH_OPTION} if the item has no such op
      */
     public ActionResult interact(EquipmentInventorySlot slot, String option) {
-        throw new UnsupportedOperationException("not built yet");
+        Objects.requireNonNull(option, "option");
+        return withSlot(slot, component -> component.interact(option));
     }
 
     /**
@@ -73,9 +89,36 @@ public final class Equipment {
      * @param option    the op's text, matched loosely
      * @param subOption the sub-option's text, matched loosely
      * @return {@link ActionResult#SENT}, or why nothing was sent; {@link ActionResult#NOT_FOUND} if the slot is empty
-     *         or the worn-items interface isn't loaded
+     *         or the worn-items interface isn't loaded, {@link ActionResult#NO_SUCH_OPTION} if the op or its sub-option
+     *         isn't there
      */
     public ActionResult interact(EquipmentInventorySlot slot, String option, String subOption) {
-        throw new UnsupportedOperationException("not built yet");
+        Objects.requireNonNull(option, "option");
+        Objects.requireNonNull(subOption, "subOption");
+        return withSlot(slot, component -> component.interact(option, subOption));
+    }
+
+    private ItemContainer worn() {
+        return client.getItemContainer(InventoryID.WORN);
+    }
+
+    /**
+     * Runs an action on a slot's component, if the slot holds an item and the worn-items interface is loaded.
+     *
+     * @param slot   the slot
+     * @param action the action to run on the component
+     * @return the action's result, or {@link ActionResult#NOT_FOUND} if the slot is empty or its component isn't loaded
+     */
+    private ActionResult withSlot(EquipmentInventorySlot slot, Function<Widget, ActionResult> action) {
+        if (getItem(slot) == null) {
+            log.fine(() -> slot + " holds no worn item");
+            return ActionResult.NOT_FOUND;
+        }
+        Widget component = client.getWidget(slot.getComponentId());
+        if (component == null) {
+            log.fine(() -> "the worn-items interface isn't loaded; " + slot + " can't be used");
+            return ActionResult.NOT_FOUND;
+        }
+        return action.apply(component);
     }
 }
