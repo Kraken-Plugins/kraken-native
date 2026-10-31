@@ -16,22 +16,10 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * How {@link Subjects} reads the Action Tester's settings: an op and a sub-option from an option, a component, a
- * spell or a prayer, and a menu entry by its row or its text.
+ * How {@link Subjects} reads the Action Tester's settings: a component, a spell or a prayer, an option split into its
+ * op and sub-option, and a menu entry by its row or its text.
  */
 class SubjectsTest {
-
-    @Test
-    void anOptionIsMatchedByTextOrTakenAsANumber() {
-        String[] actions = {"Talk-to", null, "Attack", "Pickpocket", null};
-        assertEquals(3, Subjects.opOf(actions, " attack ", 5));
-        assertEquals(1, Subjects.opOf(actions, "TALK-TO", 5));
-        assertEquals(4, Subjects.opOf(actions, "4", 5));
-        assertEquals(-1, Subjects.opOf(actions, "Trade", 5), "no such option");
-        assertEquals(-1, Subjects.opOf(actions, "6", 5), "past the subject's ops");
-        assertEquals(-1, Subjects.opOf(null, "Attack", 5), "no actions known");
-        assertEquals(2, Subjects.opOf(null, "2", 8), "a number needs no actions");
-    }
 
     @Test
     void aComponentIsGroupChildAndAnOptionalSlot() {
@@ -70,7 +58,13 @@ class SubjectsTest {
         assertArrayEquals(new String[]{"Attack", null}, Subjects.splitOption("Attack"));
         assertArrayEquals(new String[]{"Drop.", null}, Subjects.splitOption("Drop."), "nothing after the dot");
         assertArrayEquals(new String[]{".All", null}, Subjects.splitOption(".All"), "nothing before the dot");
-        assertEquals(2, Subjects.opOf(new String[]{"One", "All"}, "all", 2), "a sub-option matches like an op");
+    }
+
+    @Test
+    void aNumberSettingIsTakenAsAnOpAndAnythingElseIsText() {
+        assertEquals(4, Subjects.number(" 4 "));
+        assertEquals(-1, Subjects.number("Attack"));
+        assertEquals(-1, Subjects.number(""));
     }
 
     @Test
@@ -104,16 +98,6 @@ class SubjectsTest {
                 "a prayer's shown name needs the game");
         assertTrue(Subjects.isPrayer("PRAYER30"));
         assertFalse(Subjects.isPrayer("FILTERBUTTON"));
-    }
-
-    @Test
-    void componentOpsAreRunAsTheMenuRunsThem() {
-        assertEquals(MenuAction.CC_OP, Subjects.componentAction(1));
-        assertEquals(MenuAction.CC_OP, Subjects.componentAction(5));
-        assertEquals(MenuAction.CC_OP_LOW_PRIORITY, Subjects.componentAction(6));
-        assertEquals(2, Subjects.firstOp(new String[]{null, "Toggle Run", "Settings"}));
-        assertEquals(-1, Subjects.firstOp(new String[]{null, ""}));
-        assertEquals(-1, Subjects.firstOp(null));
     }
 
     @Test

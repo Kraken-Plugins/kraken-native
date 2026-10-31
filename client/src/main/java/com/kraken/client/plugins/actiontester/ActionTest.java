@@ -104,7 +104,7 @@ public enum ActionTest {
     PRAYER_TOGGLE("Prayer: toggle a prayer"),
 
     /**
-     * Turns the quick-prayers on or off with the prayer orb by the minimap.
+     * Turns the quick-prayers on or off through the prayers service, from the state it reads.
      */
     QUICK_PRAYERS("Prayer: toggle quick-prayers"),
 
@@ -119,8 +119,8 @@ public enum ActionTest {
     WIDGET_OPTION("Widget: option"),
 
     /**
-     * Clicks an old-style button given as group:child: a plain button, a toggle, a set or a close button, by the
-     * component's button type.
+     * Clicks a component given as group:child, as {@code Widget.click} does: its first named option, else its pause
+     * button, else its old-style button's action.
      */
     WIDGET_BUTTON("Widget: old-style button"),
 
@@ -165,7 +165,7 @@ public enum ActionTest {
     WALK_TO("Walk: to a world tile"),
 
     /**
-     * Turns running on or off with the run orb by the minimap.
+     * Turns running on or off through the movement service, from the state it reads.
      */
     TOGGLE_RUN("Walk: toggle run"),
 

@@ -197,9 +197,9 @@ public interface ActionTesterConfig extends Config {
     @Suggestions
     @ConfigItem(keyName = "option", name = "Option",
             description = "The option to run, by its text (e.g. Attack, Take, Eat) or its number, 1-based. A "
-                    + "player's option is its number. A sub-option goes after a dot, by text or number: Drop.All "
-                    + "or 3.2. For a spell, empty runs its first option (Cast). The list holds the subject's "
-                    + "options.", position = 11)
+                    + "player's option is its number. A sub-option goes after a dot, with both parts by text or both "
+                    + "by number: Drop.All or 3.2. For a spell, empty runs its first option (Cast). The list holds "
+                    + "the subject's options.", position = 11)
     default String option() {
         return "";
     }
@@ -301,21 +301,6 @@ public interface ActionTesterConfig extends Config {
             position = 19)
     default boolean rightClick() {
         return false;
-    }
-
-    /**
-     * Whether to send the mouse click packet before an action, as a real click does, when the subject is on screen.
-     *
-     * @return true to send a click at the subject's position first
-     */
-    @ShowIf(key = "test", values = {"NPC_OPTION", "PLAYER_OPTION", "OBJECT_OPTION", "GROUND_ITEM_OPTION",
-            "INVENTORY_OPTION", "WIDGET_OPTION", "WIDGET_BUTTON", "CAST_SPELL", "PRAYER_TOGGLE", "QUICK_PRAYERS",
-            "SPECIAL_ATTACK", "WALK", "WALK_TO", "TOGGLE_RUN"})
-    @ConfigItem(keyName = "mouseClick", name = "Send mouse click",
-            description = "Send the mouse click packet at the subject's position before the action, as a real click "
-                    + "does, when the subject is on screen.", position = 20)
-    default boolean mouseClick() {
-        return true;
     }
 
     /**

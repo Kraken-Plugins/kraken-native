@@ -1,17 +1,20 @@
 package com.kraken.client;
 
+import com.kraken.api.action.ClickPolicy;
 import com.kraken.client.plugins.config.Alpha;
 import com.kraken.client.plugins.config.Config;
 import com.kraken.client.plugins.config.ConfigGroup;
 import com.kraken.client.plugins.config.ConfigItem;
 import com.kraken.client.plugins.config.ConfigSection;
 import com.kraken.client.plugins.config.Range;
+import com.kraken.client.plugins.config.ShowIf;
 import com.kraken.client.plugins.config.Units;
 import com.kraken.client.ui.overlay.OverlayFont;
 import com.kraken.client.ui.overlay.components.ComponentConstants;
 
 import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.Point;
 import java.awt.Rectangle;
 
 /**
@@ -43,6 +46,12 @@ public interface KrakenConfig extends Config {
      */
     @ConfigSection(name = "Overlays", description = "Plugin overlays drawn over the game", position = 30)
     String overlays = "overlays";
+
+    /**
+     * The section for the actions plugins send to the game.
+     */
+    @ConfigSection(name = "Actions", description = "How plugins' actions reach the game", position = 40)
+    String actions = "actions";
 
     /**
      * The game's size in screen pixels, which the window is fitted to.
@@ -240,6 +249,36 @@ public interface KrakenConfig extends Config {
             description = "The colour behind overlay panels.", position = 35, section = overlays)
     default Color overlayBackground() {
         return ComponentConstants.STANDARD_BACKGROUND_COLOR;
+    }
+
+    /**
+     * Whether a mouse click goes before each action a plugin sends, and where it lands.
+     *
+     * @return the click policy: {@link ClickPolicy#ON_SCREEN} by default
+     */
+    @ConfigItem(keyName = "clickPolicy", name = "Mouse click",
+            description = "Whether a mouse click goes before each action plugins send. On screen: at the subject, "
+                    + "when it is on the canvas, else at the click point below. Static: always at the click point. "
+                    + "None: no click, the action alone.",
+            position = 41, section = actions)
+    default ClickPolicy clickPolicy() {
+        return ClickPolicy.ON_SCREEN;
+    }
+
+    /**
+     * The canvas point the mouse click lands on when the policy is static, or when it is on screen and the subject
+     * isn't on the canvas.
+     *
+     * @return the point, in canvas pixels; (0, 0) by default
+     */
+    @ShowIf(key = "clickPolicy", values = {"ON_SCREEN", "STATIC"})
+    @ConfigItem(keyName = "staticClickPoint", name = "Click point",
+            description = "The canvas point the mouse click lands on when it doesn't land on the subject: always, "
+                    + "for a static click; for an on screen click, when the subject is off the canvas. Canvas "
+                    + "pixels, x then y.",
+            position = 42, section = actions)
+    default Point staticClickPoint() {
+        return new Point(0, 0);
     }
 
     /**

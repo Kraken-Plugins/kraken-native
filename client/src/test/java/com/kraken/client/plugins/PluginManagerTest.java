@@ -9,8 +9,7 @@ import com.kraken.api.Client;
 import com.kraken.api.GameSession;
 import com.kraken.api.eventbus.EventBus;
 import com.kraken.api.eventbus.Subscribe;
-import com.kraken.api.mapping.Mapping;
-import com.kraken.api.memory.Memory;
+import com.kraken.client.AttachedGame;
 import com.kraken.client.KrakenConfig;
 import com.kraken.client.SessionModule;
 import com.kraken.client.events.PluginChanged;
@@ -25,12 +24,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
@@ -98,33 +95,7 @@ class PluginManagerTest {
      * @return a {@link GameSession} over that memory, posting on {@link #bus}
      */
     private GameSession attachedSession() {
-        Memory zeros = new Memory() {
-            @Override
-            public byte[] read(long address, int length) {
-                return new byte[length];
-            }
-
-            @Override
-            public long moduleBase() {
-                return 0;
-            }
-
-            @Override
-            public long moduleSize() {
-                return 0;
-            }
-
-            @Override
-            public boolean isValid() {
-                return true;
-            }
-        };
-        try {
-            return new GameSession(zeros, Objects.requireNonNull(Mapping.bundled("241.3"), "bundled 241.3 mapping"),
-                    bus);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        return AttachedGame.session(bus);
     }
 
     private Plugin plugin(Class<? extends Plugin> type) {

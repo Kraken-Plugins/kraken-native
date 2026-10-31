@@ -1,14 +1,12 @@
 package com.kraken.client.plugins.actiontester;
 
 import com.kraken.api.Client;
-import com.kraken.api.MenuAction;
 import com.kraken.api.MenuEntry;
 import com.kraken.api.actor.Actor;
 import com.kraken.api.actor.NPC;
 import com.kraken.api.actor.Player;
 import com.kraken.api.coords.WorldPoint;
 import com.kraken.api.definition.ItemComposition;
-import com.kraken.api.definition.NPCComposition;
 import com.kraken.api.definition.ObjectComposition;
 import com.kraken.api.gameval.InterfaceID;
 import com.kraken.api.scene.Scene;
@@ -39,13 +37,14 @@ import java.util.stream.IntStream;
 /**
  * What the Action Tester's settings name, found among what the client has loaded, and the lists its settings page
  * suggests: the names of what is loaded, a subject's options, the components an action fits, the spellbook's spells,
- * the prayer book's prayers and the menu's entries. Names match whatever their case; of several things with a name,
- * the nearest to the player is used. Client thread only.
+ * the prayer book's prayers and the menu's entries. It also reads the settings' text: a component, a spell, a prayer,
+ * an option with its sub-option, a menu entry. Names match whatever their case; of several things with a name, the
+ * nearest to the player is used. Matching an option to an op is the API's job, not this class's. Client thread only.
  */
 final class Subjects {
 
     /**
-     * The inventory component the item actions look in.
+     * The inventory component the inventory's items are shown in.
      */
     static final int INVENTORY = InterfaceID.Inventory.ITEMS;
 
@@ -55,17 +54,10 @@ final class Subjects {
     static final int PAUSE_BUTTON = 6;
 
     /**
-     * The actions of the old-style button types the button action clicks: a plain button, a close button, a toggle
-     * and a set. Type 2 selects a target (the Use actions) and type 6 is the pause button (its own action).
+     * The old-style button types a button suggestion lists: a plain button, a close button, a toggle and a set. Type 2
+     * selects a target and type 6 is the pause button.
      */
-    static final Map<Integer, MenuAction> BUTTONS = Map.of(1, MenuAction.WIDGET_TYPE_1,
-            3, MenuAction.WIDGET_CLOSE, 4, MenuAction.WIDGET_TYPE_4, 5, MenuAction.WIDGET_TYPE_5);
-
-    /**
-     * The highest component op the menu runs as {@link MenuAction#CC_OP}; higher ones are
-     * {@link MenuAction#CC_OP_LOW_PRIORITY}.
-     */
-    private static final int HIGH_PRIORITY_OPS = 5;
+    private static final Set<Integer> BUTTONS = Set.of(1, 3, 4, 5);
 
     /**
      * The most entries a suggestion list holds.
@@ -133,21 +125,6 @@ final class Subjects {
     }
 
     /**
-     * The first inventory slot holding an item with a name.
-     *
-     * @param name the item's name
-     * @return the slot's widget, if the item is there
-     */
-    Optional<Widget> inventorySlot(String name) {
-        String wanted = name.trim();
-        if (wanted.isEmpty()) {
-            return Optional.empty();
-        }
-        return inventorySlots().stream().filter(slot -> wanted.equalsIgnoreCase(itemName(slot.getItemId())))
-                .findFirst();
-    }
-
-    /**
      * The widget of a component given as {packed id, slot}.
      *
      * @param component the component, as {@link #parseComponent} reads it
@@ -159,16 +136,6 @@ final class Subjects {
             widget = widget.getChild(component[1]);
         }
         return widget;
-    }
-
-    /**
-     * The first pause button showing among the open interfaces.
-     *
-     * @return the button's widget, or null if none shows
-     */
-    Widget firstPauseButton() {
-        List<Widget> found = shownComponents(widget -> widget.getEvent() == PAUSE_BUTTON, 1);
-        return found.isEmpty() ? null : found.get(0);
     }
 
     /**
@@ -214,76 +181,6 @@ final class Subjects {
     }
 
     /**
-     * An NPC's options, from its composition (as transformed, when it is).
-     *
-     * @param npc the NPC
-     * @return the options by op, 1-based in the array's order; null if unknown
-     */
-    String[] npcActions(NPC npc) {
-        NPCComposition composition = npc.getTransformedComposition();
-        if (composition == null) {
-            composition = npc.getComposition();
-        }
-        return composition == null ? null : composition.getActions();
-    }
-
-    /**
-     * An object's options, from its composition.
-     *
-     * @param object the object
-     * @return the options by op, 1-based in the array's order; null if unknown
-     */
-    String[] objectActions(TileObject object) {
-        ObjectComposition composition = client.getObjectDefinition(object.getId());
-        return composition == null ? null : composition.getActions();
-    }
-
-    /**
-     * A ground item's options: the item's ground actions (Take is the third).
-     *
-     * @param item the ground item
-     * @return the options by op, 1-based in the array's order; null if the item isn't known
-     */
-    String[] groundActions(TileItem item) {
-        ItemComposition composition = client.getItemDefinition(item.getId());
-        return composition == null ? null : composition.getGroundActions();
-    }
-
-    /**
-     * An inventory slot's options: the slot's own ops when it has them, else Use followed by the item's inventory
-     * actions.
-     *
-     * @param slot the slot's widget
-     * @return the options by op, 1-based in the array's order; null if unknown
-     */
-    String[] itemActions(Widget slot) {
-        String[] own = slot.getActions();
-        if (own != null) {
-            return own;
-        }
-        ItemComposition composition = client.getItemDefinition(slot.getItemId());
-        String[] inventory = composition == null ? null : composition.getInventoryActions();
-        if (inventory == null) {
-            return null;
-        }
-        String[] ops = new String[inventory.length + 1];
-        ops[0] = "Use";
-        System.arraycopy(inventory, 0, ops, 1, inventory.length);
-        return ops;
-    }
-
-    /**
-     * The name of the item with an id.
-     *
-     * @param itemId the item's id
-     * @return its name, or null if it isn't known
-     */
-    String itemName(int itemId) {
-        ItemComposition composition = client.getItemDefinition(itemId);
-        return composition == null ? null : composition.getName();
-    }
-
-    /**
      * The names of the NPCs loaded now, nearest first.
      *
      * @return the names, each once
@@ -316,7 +213,7 @@ final class Subjects {
             return List.of();
         }
         List<TileObject> withOptions = scene.getTileObjects().stream()
-                .filter(object -> hasAny(objectActions(object))).toList();
+                .filter(object -> hasAny(object.getActions())).toList();
         return names(withOptions, this::objectName, TileObject::getWorldLocation);
     }
 
@@ -387,8 +284,8 @@ final class Subjects {
      * A minimap orb's button: the first of its components (the orbs have one interface beside the minimap and one
      * without it) that is loaded and showing, else the first loaded.
      *
-     * @param ids the button's components, e.g. {@link InterfaceID.Orbs#RUNBUTTON} and
-     *            {@link InterfaceID.OrbsNomap#RUNBUTTON}
+     * @param ids the button's components, e.g. {@link InterfaceID.Orbs#SPECBUTTON} and
+     *            {@link InterfaceID.OrbsNomap#SPECBUTTON}
      * @return the button's widget, or null if none is loaded
      */
     Widget orb(int... ids) {
@@ -416,7 +313,7 @@ final class Subjects {
     List<String> components(ActionTest test) {
         Predicate<Widget> fits = switch (test) {
             case WIDGET_OPTION -> widget -> hasAny(widget.getActions());
-            case WIDGET_BUTTON -> widget -> BUTTONS.containsKey(widget.getEvent());
+            case WIDGET_BUTTON -> widget -> BUTTONS.contains(widget.getEvent());
             case PAUSE_BUTTON -> widget -> widget.getEvent() == PAUSE_BUTTON;
             default -> null;
         };
@@ -437,7 +334,9 @@ final class Subjects {
     }
 
     /**
-     * The options of the subject an option action would act on now, with each op's sub-options after a dot.
+     * The options of the subject an option action would act on now, with each op's sub-options after a dot. They
+     * are the API's options for the subject: an NPC's, an object's or a ground item's actions, a component's options
+     * as {@code Interactions.actions} lists them.
      *
      * @param test   the action
      * @param config the settings that name the subject
@@ -445,65 +344,22 @@ final class Subjects {
      */
     List<String> options(ActionTest test, ActionTesterConfig config) {
         return switch (test) {
-            case NPC_OPTION -> npc(config.npc()).map(npc -> listed(npcActions(npc))).orElse(List.of());
+            case NPC_OPTION -> npc(config.npc()).map(npc -> listed(npc.getActions())).orElse(List.of());
             case PLAYER_OPTION -> IntStream.rangeClosed(1, 8).mapToObj(String::valueOf).toList();
-            case OBJECT_OPTION -> object(config.object()).map(o -> listed(objectActions(o))).orElse(List.of());
-            case GROUND_ITEM_OPTION -> groundItem(config.groundItem()).map(i -> listed(groundActions(i)))
+            case OBJECT_OPTION -> object(config.object()).map(o -> listed(o.getActions())).orElse(List.of());
+            case GROUND_ITEM_OPTION -> groundItem(config.groundItem()).map(i -> listed(i.getActions()))
                     .orElse(List.of());
-            case INVENTORY_OPTION -> inventorySlot(config.item()).map(slot -> withSubOptions(slot, itemActions(slot)))
-                    .orElse(List.of());
+            case INVENTORY_OPTION -> component(client.getInventory().getSlot(config.item()));
             case WIDGET_OPTION -> {
                 int[] component = component(config.component());
-                Widget widget = component == null ? null : widget(component);
-                yield widget == null ? List.of() : withSubOptions(widget, widget.getActions());
+                yield component == null ? List.of() : component(widget(component));
             }
             case CAST_SPELL -> {
                 int spell = spell(config.spell());
-                Widget widget = spell < 0 ? null : client.getWidget(spell);
-                yield widget == null ? List.of() : withSubOptions(widget, widget.getActions());
+                yield spell < 0 ? List.of() : component(client.getWidget(spell));
             }
             default -> List.of();
         };
-    }
-
-    /**
-     * Which op an option is: its number if it is one, else its 1-based place among the actions, matched by text.
-     *
-     * @param actions the subject's actions by op (1-based in the array's order), null entries for none
-     * @param option  the option's text or number
-     * @param max     the most ops the subject has
-     * @return the op, 1-based, or -1 for no such option
-     */
-    static int opOf(String[] actions, String option, int max) {
-        String wanted = option.trim();
-        int number = number(wanted);
-        if (number >= 1 && number <= max) {
-            return number;
-        }
-        if (actions == null) {
-            return -1;
-        }
-        for (int i = 0; i < actions.length && i < max; i++) {
-            if (actions[i] != null && actions[i].equalsIgnoreCase(wanted)) {
-                return i + 1;
-            }
-        }
-        return -1;
-    }
-
-    /**
-     * A subject's first option.
-     *
-     * @param actions the subject's actions by op, null entries for none
-     * @return the first op that has a name, 1-based; -1 if none has
-     */
-    static int firstOp(String[] actions) {
-        for (int i = 0; actions != null && i < actions.length; i++) {
-            if (named(actions[i])) {
-                return i + 1;
-            }
-        }
-        return -1;
     }
 
     /**
@@ -522,17 +378,6 @@ final class Subjects {
         String op = trimmed.substring(0, dot).trim();
         String sub = trimmed.substring(dot + 1).trim();
         return op.isEmpty() || sub.isEmpty() ? new String[]{trimmed, null} : new String[]{op, sub};
-    }
-
-    /**
-     * The component of an op, as the menu runs it: {@link MenuAction#CC_OP} for ops 1-5,
-     * {@link MenuAction#CC_OP_LOW_PRIORITY} for the rest.
-     *
-     * @param op the op, 1-based
-     * @return the action
-     */
-    static MenuAction componentAction(int op) {
-        return op <= HIGH_PRIORITY_OPS ? MenuAction.CC_OP : MenuAction.CC_OP_LOW_PRIORITY;
     }
 
     /**
@@ -819,6 +664,17 @@ final class Subjects {
         return itemName(item.getId());
     }
 
+    /**
+     * The name of the item with an id.
+     *
+     * @param itemId the item's id
+     * @return its name, or null if it isn't known
+     */
+    private String itemName(int itemId) {
+        ItemComposition composition = client.getItemDefinition(itemId);
+        return composition == null ? null : composition.getName();
+    }
+
     private List<Widget> inventorySlots() {
         Widget inventory = client.getWidget(INVENTORY);
         Widget[] slots = inventory == null ? null : inventory.getDynamicChildren();
@@ -863,6 +719,19 @@ final class Subjects {
             }
         }
         return found;
+    }
+
+    /**
+     * The options of a component, as the API lists them, each followed by its sub-options after a dot.
+     *
+     * @param widget the component; null for none, which lists nothing
+     * @return e.g. {@code Drop, Drop.One, Drop.All}; empty for a component with no options
+     */
+    private List<String> component(Widget widget) {
+        if (widget == null) {
+            return List.of();
+        }
+        return withSubOptions(widget, client.getInteractions().actions(widget));
     }
 
     /**
