@@ -3,6 +3,7 @@ package com.kraken.api.scene;
 import com.kraken.api.Client;
 import com.kraken.api.Perspective;
 import com.kraken.api.Point;
+import com.kraken.api.action.ActionResult;
 import com.kraken.api.coords.LocalPoint;
 import com.kraken.api.coords.WorldPoint;
 import com.kraken.api.internal.Loc;
@@ -145,6 +146,52 @@ public abstract sealed class TileObject permits WallObject, DecorativeObject, Ga
      */
     public int getId() {
         return loc.id();
+    }
+
+    /**
+     * The object's name as the menu shows it: its impostor's ({@code ObjectComposition.getImpostor()}), picked by its
+     * varbit or varp.
+     *
+     * @return the name; null if the object shows as nothing or its definition can't be read
+     */
+    public String getName() {
+        return client.getInteractions().name(this);
+    }
+
+    /**
+     * The options the object's menu offers, which {@link #interact(String)} matches against: its impostor's actions,
+     * with conditional actions resolved against the current vars.
+     *
+     * @return the options by op, index 0 being op 1, null entries for empty slots; null if the object shows as nothing
+     *         or its definition can't be read
+     */
+    public String[] getActions() {
+        return client.getInteractions().actions(this);
+    }
+
+    /**
+     * Runs one of the object's options, as clicking it in the menu does: the row names the object's own id and the
+     * tile it was placed on, on its own plane. The option is matched loosely: markup and case are ignored, and
+     * spaces, {@code -} and {@code _} count as the same, so "chop-down" matches "Chop down".
+     *
+     * @param option the option's text, such as "Chop down"
+     * @return {@link ActionResult#SENT}, or why nothing was sent: {@link ActionResult#GONE} once its tile no longer
+     *         holds it or it shows as nothing, {@link ActionResult#NO_SUCH_OPTION} if it has no such option
+     * @throws NullPointerException if the option is null
+     */
+    public ActionResult interact(String option) {
+        return client.getInteractions().interact(this, option);
+    }
+
+    /**
+     * Runs one of the object's options by its number, as the menu numbers them.
+     *
+     * @param op the op, 1-5: index + 1 in {@link #getActions()}
+     * @return {@link ActionResult#SENT}, or why nothing was sent; {@link ActionResult#NO_SUCH_OPTION} for a number
+     *         out of range or an empty slot
+     */
+    public ActionResult interact(int op) {
+        return client.getInteractions().interact(this, op);
     }
 
     /**

@@ -1,6 +1,7 @@
 package com.kraken.api.actor;
 
 import com.kraken.api.Client;
+import com.kraken.api.action.ActionResult;
 import com.kraken.api.definition.NPCComposition;
 
 /**
@@ -109,6 +110,42 @@ public final class NPC extends Actor {
         int live = address == 0 ? transformedId : actors.npcShownTypeId(address);
         transformedId = live;
         return live < 0 ? null : client.getNpcDefinition(live);
+    }
+
+    /**
+     * The options the NPC's menu offers, which {@link #interact(String)} matches against: its shown (transformed)
+     * type's actions, else its base type's, with conditional actions resolved against the current vars.
+     *
+     * @return the options by op, index 0 being op 1, null entries for empty slots; null if its type can't be read or
+     *         it shows as nothing
+     */
+    public String[] getActions() {
+        return client.getInteractions().actions(this);
+    }
+
+    /**
+     * Runs one of the NPC's options, as clicking it in the menu does: the client sends the op packet and walks to
+     * the NPC. The option is matched loosely: markup and case are ignored, and spaces, {@code -} and {@code _} count
+     * as the same, so "talk to" matches "Talk-to".
+     *
+     * @param option the option's text, such as "Attack"
+     * @return {@link ActionResult#SENT}, or why nothing was sent: {@link ActionResult#GONE} once the NPC is gone or
+     *         shows as nothing, {@link ActionResult#NO_SUCH_OPTION} if it has no such option
+     * @throws NullPointerException if the option is null
+     */
+    public ActionResult interact(String option) {
+        return client.getInteractions().interact(this, option);
+    }
+
+    /**
+     * Runs one of the NPC's options by its number, as the menu numbers them.
+     *
+     * @param op the op, 1-5: index + 1 in {@link #getActions()}
+     * @return {@link ActionResult#SENT}, or why nothing was sent; {@link ActionResult#NO_SUCH_OPTION} for a number
+     *         out of range or an empty slot
+     */
+    public ActionResult interact(int op) {
+        return client.getInteractions().interact(this, op);
     }
 
     /**

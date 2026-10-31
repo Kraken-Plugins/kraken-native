@@ -149,6 +149,7 @@ public final class GameSession implements AutoCloseable {
         this.eventBus = eventBus;
         this.pollIntervalMs = pollIntervalMs;
         this.client = new Client(memory, mapping);
+        this.client.setTaskQueue(tasks::invoke);
         this.source = new EventSource(client, eventBus);
     }
 

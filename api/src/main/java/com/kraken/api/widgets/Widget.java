@@ -2,7 +2,13 @@ package com.kraken.api.widgets;
 
 import com.kraken.api.Client;
 import com.kraken.api.Point;
+import com.kraken.api.action.ActionResult;
+import com.kraken.api.actor.NPC;
+import com.kraken.api.actor.Player;
+import com.kraken.api.internal.action.Interactions;
 import com.kraken.api.internal.reader.WidgetReader;
+import com.kraken.api.scene.TileItem;
+import com.kraken.api.scene.TileObject;
 import lombok.Getter;
 
 import java.awt.Rectangle;
@@ -10,6 +16,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * An interface component. Get one from {@link Client#getWidget(int)}. A static widget is designed in the cache and has
@@ -637,6 +644,132 @@ public final class Widget {
             actions[i] = op == null || op.isEmpty() ? null : op;
         }
         return actions;
+    }
+
+    /**
+     * Runs one of the widget's options, as clicking it in the menu does. An item slot with no ops of its own offers
+     * Use followed by the item's inventory actions. The option is matched loosely: markup and case are ignored, and
+     * spaces, {@code -} and {@code _} count as the same, so "withdraw 10" matches "Withdraw-10".
+     *
+     * @param option the option's text, such as "Withdraw-10"
+     * @return {@link ActionResult#SENT}, or why nothing was sent: {@link ActionResult#GONE} once the widget isn't
+     *         loaded or its slot holds another item, {@link ActionResult#NO_SUCH_OPTION} if it has no such option
+     * @throws NullPointerException if the option is null
+     */
+    public ActionResult interact(String option) {
+        return interactions().interact(this, option, null);
+    }
+
+    /**
+     * Runs one of the widget's options with one of the option's sub-options, the rows of the sub-menu the client
+     * opens under the option ({@link #getSubOptions}). Both are matched as {@link #interact(String)} matches.
+     *
+     * @param option    the option's text, such as "Drop"
+     * @param subOption the sub-option's text, such as "All"
+     * @return {@link ActionResult#SENT}, or why nothing was sent; {@link ActionResult#NO_SUCH_OPTION} if the option or
+     *         its sub-option isn't there
+     * @throws NullPointerException if the option or sub-option is null
+     */
+    public ActionResult interact(String option, String subOption) {
+        Objects.requireNonNull(subOption, "subOption");
+        return interactions().interact(this, option, subOption);
+    }
+
+    /**
+     * Runs one of the widget's options by its number, as the menu numbers them.
+     *
+     * @param op the op, 1-10
+     * @return {@link ActionResult#SENT}, or why nothing was sent; {@link ActionResult#NO_SUCH_OPTION} for a number
+     *         out of range or an empty slot
+     */
+    public ActionResult interact(int op) {
+        return interactions().interact(this, op, 0);
+    }
+
+    /**
+     * Runs one of the widget's options by its number with one of its sub-options.
+     *
+     * @param op    the op, 1-10
+     * @param subOp the sub-option, 1-based as {@link #getSubOptions} lists them
+     * @return {@link ActionResult#SENT}, or why nothing was sent; {@link ActionResult#NO_SUCH_OPTION} if the op or the
+     *         sub-option isn't there
+     */
+    public ActionResult interact(int op, int subOp) {
+        return interactions().interact(this, op, subOp);
+    }
+
+    /**
+     * Clicks the widget: runs the first of these it has: its first named option, its pause button ("Click here to
+     * continue") or its old-style button's action (by {@link #getEvent()}: a plain, close, toggle or set button).
+     *
+     * @return {@link ActionResult#SENT}, or why nothing was sent; {@link ActionResult#NO_SUCH_OPTION} if it has none
+     *         of them
+     */
+    public ActionResult click() {
+        return interactions().click(this);
+    }
+
+    /**
+     * Uses the widget's item or spell on an NPC, as Use (or a spell's Cast) and a click on the NPC do: the widget is
+     * selected with its slot and item and the NPC's targeted row runs, in one batch. A spellbook component is a
+     * static widget with no item, so it selects with -1 for both, as the spellbook does.
+     *
+     * @param target the NPC
+     * @return {@link ActionResult#SENT}, or why nothing was sent; {@link ActionResult#NO_SUCH_OPTION} if the widget's
+     *         target mask ({@link #getClickMask()}, {@link WidgetConfig#USE_NPC}) leaves out NPCs
+     */
+    public ActionResult useOn(NPC target) {
+        return interactions().useOn(this, target);
+    }
+
+    /**
+     * Uses the widget's item or spell on a player; see {@link #useOn(NPC)}.
+     *
+     * @param target the player
+     * @return {@link ActionResult#SENT}, or why nothing was sent; {@link ActionResult#NO_SUCH_OPTION} if the widget's
+     *         target mask leaves out players ({@link WidgetConfig#USE_PLAYER})
+     */
+    public ActionResult useOn(Player target) {
+        return interactions().useOn(this, target);
+    }
+
+    /**
+     * Uses the widget's item or spell on an object, at the tile it was placed on; see {@link #useOn(NPC)}.
+     *
+     * @param target the object
+     * @return {@link ActionResult#SENT}, or why nothing was sent; {@link ActionResult#NO_SUCH_OPTION} if the widget's
+     *         target mask leaves out objects ({@link WidgetConfig#USE_OBJECT})
+     */
+    public ActionResult useOn(TileObject target) {
+        return interactions().useOn(this, target);
+    }
+
+    /**
+     * Uses the widget's item or spell on an item on the ground; see {@link #useOn(NPC)}.
+     *
+     * @param target the ground item
+     * @return {@link ActionResult#SENT}, or why nothing was sent; {@link ActionResult#NO_SUCH_OPTION} if the widget's
+     *         target mask leaves out ground items ({@link WidgetConfig#USE_GROUND_ITEM})
+     */
+    public ActionResult useOn(TileItem target) {
+        return interactions().useOn(this, target);
+    }
+
+    /**
+     * Uses the widget's item or spell on another widget, such as one item on another, or High Alchemy on an inventory
+     * item; see {@link #useOn(NPC)}.
+     *
+     * @param target the widget to use it on
+     * @return {@link ActionResult#SENT}, or why nothing was sent; {@link ActionResult#NO_SUCH_OPTION} if this widget's
+     *         target mask leaves out widgets ({@link WidgetConfig#USE_WIDGET}) or the target doesn't take a selection
+     *         ({@link WidgetConfig#WIDGET_USE_TARGET})
+     */
+    public ActionResult useOn(Widget target) {
+        return interactions().useOn(this, target);
+    }
+
+    private Interactions interactions() {
+        return reader.getClient().getInteractions();
     }
 
     /**

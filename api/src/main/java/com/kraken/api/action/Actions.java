@@ -3,8 +3,10 @@ package com.kraken.api.action;
 import com.kraken.api.Client;
 import com.kraken.api.MenuAction;
 import com.kraken.api.MenuEntry;
+import com.kraken.api.Point;
 import com.kraken.api.coords.WorldPoint;
 import com.kraken.api.internal.MapCoord;
+import com.kraken.api.internal.action.ActionRequest;
 import com.kraken.api.internal.invoke.NativeCall;
 import com.kraken.api.internal.invoke.NativeInvoker;
 import com.kraken.api.mapping.Mapping;
@@ -544,6 +546,74 @@ public final class Actions {
      */
     public synchronized boolean resumePause(int componentId, int slot) {
         return send(actionCall(slot, componentId, MenuAction.WIDGET_CONTINUE, 0, -1, 0, null));
+    }
+
+    /**
+     * Runs one row from its arguments, with the mouse click packet first when the request names a click point.
+     * Internal: the interaction methods ({@code npc.interact}, {@code widget.click} and the rest) send through it.
+     *
+     * @param request the row, with a world tile for a loc, ground item or walk row
+     * @return {@link ActionResult#SENT}; {@link ActionResult#UNSUPPORTED} if this build's mapping lacks the row's body
+     * or the row's arguments can't be sent; {@link ActionResult#NOT_CONNECTED} if the hook isn't connected
+     */
+    public synchronized ActionResult run(ActionRequest request) {
+        if (!isSupported(request.action())) {
+            return ActionResult.UNSUPPORTED;
+        }
+        if (invoker == null) {
+            return ActionResult.NOT_CONNECTED;
+        }
+        NativeCall call = requestCall(request, request.action());
+        if (call == null) {
+            return ActionResult.UNSUPPORTED;
+        }
+        List<NativeCall> batch = new ArrayList<>(clickCalls(request));
+        batch.add(call);
+        return send(batch) ? ActionResult.SENT : ActionResult.NOT_CONNECTED;
+    }
+
+    /**
+     * Selects a component's item or spell and uses it on a target in one batch, as a click on the source's Use or Cast
+     * and one on the target do: each with its mouse click packet first when its request names a click point.
+     * Internal: {@code Widget.useOn} sends through it.
+     *
+     * @param source the selecting row: {@link MenuAction#WIDGET_TARGET} with the source's slot, packed id and item
+     * @param target the target's row, targeted ({@code WIDGET_TARGET_ON_*}) or plain; only its subject matters
+     * @return {@link ActionResult#SENT}; {@link ActionResult#UNSUPPORTED} if this build's mapping lacks either body or
+     * the target can't be targeted; {@link ActionResult#NOT_CONNECTED} if the hook isn't connected
+     * @throws IllegalArgumentException if the source isn't a {@link MenuAction#WIDGET_TARGET} row
+     */
+    public synchronized ActionResult useOn(ActionRequest source, ActionRequest target) {
+        if (source.action() != MenuAction.WIDGET_TARGET) {
+            throw new IllegalArgumentException("the source must select: " + source.action());
+        }
+        MenuAction targeted = targeted(target.action());
+        if (targeted == null || !isSupported(MenuAction.WIDGET_TARGET) || !isSupported(targeted)) {
+            return ActionResult.UNSUPPORTED;
+        }
+        if (invoker == null) {
+            return ActionResult.NOT_CONNECTED;
+        }
+        NativeCall select = requestCall(source, MenuAction.WIDGET_TARGET);
+        NativeCall use = requestCall(target, targeted);
+        if (select == null || use == null) {
+            return ActionResult.UNSUPPORTED;
+        }
+        List<NativeCall> batch = new ArrayList<>(clickCalls(source));
+        batch.add(select);
+        batch.addAll(clickCalls(target));
+        batch.add(use);
+        return send(batch) ? ActionResult.SENT : ActionResult.NOT_CONNECTED;
+    }
+
+    private NativeCall requestCall(ActionRequest request, MenuAction action) {
+        return actionCall(request.param0(), request.param1(), action, request.identifier(), request.itemId(),
+                request.subOp(), request.tile());
+    }
+
+    private List<NativeCall> clickCalls(ActionRequest request) {
+        Point click = request.click();
+        return click == null ? List.of() : mouseClickCalls(click.getX(), click.getY(), false);
     }
 
     private boolean clickAndRun(int canvasX, int canvasY, NativeCall action) {

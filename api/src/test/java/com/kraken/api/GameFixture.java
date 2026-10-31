@@ -249,7 +249,7 @@ public final class GameFixture {
     /**
      * Interfaces: groups in the store, the frame counter components are stamped with when drawn, and 162:2's text.
      */
-    public static final int IF_GROUP_COUNT = 200;
+    public static final int IF_GROUP_COUNT = 1000;
     public static final int RENDER_CYCLE = 500;
     public static final String LONG_TEXT = "A line of chat long enough for the heap";
 
@@ -258,6 +258,9 @@ public final class GameFixture {
      * them.
      */
     private static final int SUB_BUCKETS = 7;
+    private static final int OPEN_BUCKETS = 13;
+    private static final int OPEN_NODE_SIZE = 0x40;
+    private static final int IF_OPEN_SIZE = 0x2000;
     private static final int SUB_NODES = 120;
     private static final int SUB_NODE_SIZE = 0x20;
     private static final int EVENT_BUCKETS = 7;
@@ -306,6 +309,12 @@ public final class GameFixture {
      */
     public static final int MOUSE_REPEAT_SCRIPT = 6012;
     private long ifSlots = IF_SLOTS;
+
+    /**
+     * Nodes of the open-interface map in use: the chatbox's, the inventory's and the toplevel's, then those
+     * {@link #openGroup(int, int, int)} adds.
+     */
+    private int openNodes = 3;
 
     /**
      * The inventory's item slot, 149:0[0].
@@ -1666,7 +1675,7 @@ public final class GameFixture {
         memory.putLong(IF_STORE + map.offset("IfStore.groupCount"), IF_GROUP_COUNT);
         memory.putLong(IF_STORE + map.offset("IfStore.groups"), IF_GROUPS);
         memory.alloc(IF_GROUPS, IF_GROUP_COUNT * map.offset("IfStoreGroup.stride"));
-        memory.alloc(IF_SLOTS, 0x1000);
+        memory.alloc(IF_SLOTS, 0x100000);
         memory.alloc(IF_HEAP, 0x100);
         memory.putInt(CLIENT + map.offset("Client.renderCycle"), RENDER_CYCLE);
 
@@ -1720,8 +1729,8 @@ public final class GameFixture {
         groupSlots(161, topRoot, panel, otherPanel);
 
         // The inventory and chatbox chain in bucket 6 of 13 (149 % 13 == 162 % 13), the toplevel is alone in bucket 5
-        int buckets = 13;
-        memory.alloc(IF_OPEN, 0x200);
+        int buckets = OPEN_BUCKETS;
+        memory.alloc(IF_OPEN, IF_OPEN_SIZE);
         memory.putLong(CLIENT + map.offset("Client.interfaces.buckets"), IF_OPEN);
         memory.putInt(CLIENT + map.offset("Client.interfaces.bucketCount"), buckets);
         long first = IF_OPEN + 0x100;
@@ -1817,6 +1826,110 @@ public final class GameFixture {
      */
     public void loadGroup(int group) {
         groupSlots(group, component(group << 16, -1, -1, -1, WidgetType.LAYER, 0, 0, 10, 10));
+    }
+
+    /**
+     * Adds a component to the interface store's heap, as {@link #setGroup} and {@link #setDynamicChildren} then link
+     * it: empty strings, never drawn, no item, ops or dynamic children. Set other fields with {@link #memory} at
+     * {@code map.offset("IfType.<field>")}.
+     *
+     * @param packedId   {@code group << 16 | component} (a dynamic component's static root's)
+     * @param subId      -1 for a static component, else the dynamic child's index
+     * @param layerSubId the sub id of a dynamic component's direct parent, -1 for its root
+     * @param layerId    the parent's packed id, -1 for a group's top-level component
+     * @param type       the {@code WidgetType} value
+     * @param x          x relative to the parent
+     * @param y          y relative to the parent
+     * @param w          the width
+     * @param h          the height
+     * @return the component's address
+     */
+    public long addComponent(int packedId, int subId, int layerSubId, int layerId, int type, int x, int y, int w,
+                             int h) {
+        return component(packedId, subId, layerSubId, layerId, type, x, y, w, h);
+    }
+
+    /**
+     * Gives a component its ops ({@code IfType.opNames}); "" for an empty slot.
+     *
+     * @param component the component's address
+     * @param names     the op names, op 1 first
+     */
+    public void setOps(long component, String... names) {
+        ops(component, names);
+    }
+
+    /**
+     * Gives one of a component's ops a sub-menu.
+     *
+     * @param component the component's address
+     * @param op        the op, 1-based
+     * @param names     the sub-option names
+     */
+    public void setSubOps(long component, int op, String... names) {
+        subOps(component, op, names);
+    }
+
+    /**
+     * Puts a group's static components in the interface store, component 0 first, as the client loads a group.
+     *
+     * @param group      the group, below {@link #IF_GROUP_COUNT}
+     * @param components the components' addresses, in component order
+     */
+    public void setGroup(int group, long... components) {
+        groupSlots(group, components);
+    }
+
+    /**
+     * Gives a static component its dynamic children, by sub id (null slots for gaps aren't supported).
+     *
+     * @param root     the static component's address
+     * @param children the children's addresses, sub id 0 first
+     */
+    public void setDynamicChildren(long root, long... children) {
+        dynamicSlots(root, children);
+    }
+
+    /**
+     * Opens a group on screen, as the client adds it to its open-interface map: a node appended to its bucket's chain,
+     * drawn at an offset. The group's components still have to be put in the store ({@link #setGroup}), and a group
+     * opened in a component needs its component table entry ({@link #setComponentTable}).
+     *
+     * @param group the group
+     * @param offX  where the group is drawn, x
+     * @param offY  where the group is drawn, y
+     */
+    public void openGroup(int group, int offX, int offY) {
+        long node = IF_OPEN + 0x100 + (long) openNodes++ * OPEN_NODE_SIZE;
+        if (node + OPEN_NODE_SIZE > IF_OPEN + IF_OPEN_SIZE) {
+            throw new IllegalStateException("no room for another open group");
+        }
+        openGroup(node, group, 0, offX, offY, 0, 0);
+        int next = map.offset("IfGroupNode.next");
+        long link = IF_OPEN + (long) Integer.remainderUnsigned(group, OPEN_BUCKETS) * 8;
+        while (memory.readLong(link) != 0) {
+            link = memory.readLong(link) + next;
+        }
+        memory.putLong(link, node);
+    }
+
+    /**
+     * Takes a group off the screen, as the client removes it from its open-interface map.
+     *
+     * @param group the group
+     */
+    public void closeGroup(int group) {
+        int key = map.offset("IfGroupNode.key");
+        int next = map.offset("IfGroupNode.next");
+        long link = IF_OPEN + (long) Integer.remainderUnsigned(group, OPEN_BUCKETS) * 8;
+        while (memory.readLong(link) != 0) {
+            long node = memory.readLong(link);
+            if (memory.readInt(node + key) == group) {
+                memory.putLong(link, memory.readLong(node + next));
+                return;
+            }
+            link = node + next;
+        }
     }
 
     /**

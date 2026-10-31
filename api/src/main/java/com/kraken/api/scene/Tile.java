@@ -85,6 +85,15 @@ public final class Tile {
     }
 
     /**
+     * The client the tile reads through, for its items' interaction methods.
+     *
+     * @return the client
+     */
+    Client client() {
+        return client;
+    }
+
+    /**
      * The tile's world location.
      *
      * @return the world tile: the scene tile plus the map base the handle was made with

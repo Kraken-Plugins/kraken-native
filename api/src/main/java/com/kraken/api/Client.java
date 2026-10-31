@@ -1,6 +1,13 @@
 package com.kraken.api;
 
 import com.kraken.api.action.Actions;
+import com.kraken.api.action.Bank;
+import com.kraken.api.action.Dialogue;
+import com.kraken.api.action.Equipment;
+import com.kraken.api.action.Inventory;
+import com.kraken.api.action.Magic;
+import com.kraken.api.action.Movement;
+import com.kraken.api.action.Prayers;
 import com.kraken.api.actor.Actor;
 import com.kraken.api.actor.NPC;
 import com.kraken.api.actor.Player;
@@ -25,6 +32,7 @@ import com.kraken.api.internal.reader.ProjectileReader;
 import com.kraken.api.internal.ScriptComponents;
 import com.kraken.api.internal.ScriptStack;
 import com.kraken.api.internal.VarcValues;
+import com.kraken.api.internal.action.Interactions;
 import com.kraken.api.internal.reader.ScriptReader;
 import com.kraken.api.internal.reader.SceneReader;
 import com.kraken.api.internal.reader.WidgetReader;
@@ -56,6 +64,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 /**
  * The game client: the root of the API. Get it from {@code GameSession.client()}.
@@ -190,6 +199,62 @@ public final class Client extends GameReader {
     private final EntityVisibility entityVisibility;
 
     /**
+     * The rules behind the interaction methods ({@code npc.interact}, {@code widget.useOn} and the rest), and the
+     * mouse click policy they follow. Internal plumbing for the API's own packages; plugins set the click policy here.
+     */
+    @Getter
+    private final Interactions interactions;
+
+    /**
+     * Walking and running.
+     */
+    @Getter
+    private final Movement movement;
+
+    /**
+     * The chatbox dialogues: continuing, choosing an option, answering an input.
+     */
+    @Getter
+    private final Dialogue dialogue;
+
+    /**
+     * The inventory: what it holds, and acting on its items.
+     */
+    @Getter
+    private final Inventory inventory;
+
+    /**
+     * Casting spells from the spellbook shown.
+     */
+    @Getter
+    private final Magic magic;
+
+    /**
+     * Turning prayers and quick prayers on and off.
+     */
+    @Getter
+    private final Prayers prayers;
+
+    /**
+     * The bank: withdrawing, depositing, closing.
+     */
+    @Getter
+    private final Bank bank;
+
+    /**
+     * The worn items: what is worn, and acting on them.
+     */
+    @Getter
+    private final Equipment equipment;
+
+    /**
+     * Where follow-up tasks of two-step actions go (the count prompt of a bank Withdraw-X): the session's client
+     * thread once {@code GameSession} sets it, otherwise dropped.
+     */
+    private volatile Consumer<BooleanSupplier> taskQueue = task -> {
+    };
+
+    /**
      * The top-level world: the main map, its actors and its sceneReader.
      */
     @Getter
@@ -271,7 +336,7 @@ public final class Client extends GameReader {
         this.inventories = new InventoryReader(memory, mapping, configTypes);
         this.projectileReader = new ProjectileReader(memory, mapping, this);
         this.graphicsObjectReader = new GraphicsObjectReader(memory, mapping, this, sceneReader);
-        this.widgetReader = new WidgetReader(memory, mapping);
+        this.widgetReader = new WidgetReader(memory, mapping, this);
         this.scripts = new ScriptReader(memory, mapping);
         this.menuReader = new MenuReader(memory, mapping, this);
         this.chatReader = new ChatReader(memory, mapping);
@@ -280,6 +345,14 @@ public final class Client extends GameReader {
         this.actions = new Actions(this, mapping);
         this.menuEdits = new MenuEdits(this, mapping);
         this.entityVisibility = new EntityVisibility(this, mapping);
+        this.interactions = new Interactions(this);
+        this.movement = new Movement(this);
+        this.dialogue = new Dialogue(this);
+        this.inventory = new Inventory(this);
+        this.magic = new Magic(this);
+        this.prayers = new Prayers(this);
+        this.bank = new Bank(this);
+        this.equipment = new Equipment(this);
 
         this.cGameState = mapping.offset("Client.gameState");
         this.cLoginToken = mapping.offset("Client.loginToken");
@@ -413,6 +486,26 @@ public final class Client extends GameReader {
      */
     public void setFocusSource(BooleanSupplier focus) {
         this.focus = focus;
+    }
+
+    /**
+     * Sets where follow-up tasks of two-step actions run.
+     * Internal: {@code GameSession} sets its client thread; tests set their own.
+     *
+     * @param queue takes a task to run on the client thread, again at each poll while it returns false
+     */
+    public void setTaskQueue(Consumer<BooleanSupplier> queue) {
+        this.taskQueue = queue;
+    }
+
+    /**
+     * Queues a follow-up task on the client thread, as {@code GameSession.invoke(BooleanSupplier)} does.
+     * Internal: the services queue the second step of a two-step action here.
+     *
+     * @param task the task; false asks to run it again at the next poll
+     */
+    public void queueTask(BooleanSupplier task) {
+        taskQueue.accept(task);
     }
 
     /**

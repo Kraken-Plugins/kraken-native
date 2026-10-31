@@ -1,5 +1,6 @@
 package com.kraken.api.internal.reader;
 
+import com.kraken.api.Client;
 import com.kraken.api.Point;
 import com.kraken.api.internal.OpenInterfaces;
 import com.kraken.api.internal.widget.ComponentOp;
@@ -119,13 +120,21 @@ public final class WidgetReader extends GameReader {
     private final ComponentWrites writes = new ComponentWrites();
 
     /**
+     * The client the widgets belong to, which their interaction methods act through.
+     */
+    @Getter
+    private final Client client;
+
+    /**
      * Resolves the interface keys. {@code Client} makes the one it reads widgets through.
      *
      * @param memory  the client process's memory
      * @param mapping the client build's mapping
+     * @param client  the client the widgets belong to
      */
-    public WidgetReader(Memory memory, Mapping mapping) {
+    public WidgetReader(Memory memory, Mapping mapping, Client client) {
         super(memory, mapping);
+        this.client = client;
         int end = 0;
         for (String name : FIELDS) {
             int off = optionalOffset("IfType." + name);

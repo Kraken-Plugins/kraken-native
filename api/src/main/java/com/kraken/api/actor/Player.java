@@ -1,6 +1,7 @@
 package com.kraken.api.actor;
 
 import com.kraken.api.Client;
+import com.kraken.api.action.ActionResult;
 
 /**
  * A player. {@link Client} hands out one handle per player, so identity equality is player equality; see {@link Actor}
@@ -60,6 +61,41 @@ public final class Player extends Actor {
      */
     public int getId() {
         return index;
+    }
+
+    /**
+     * The options the player's menu offers, which {@link #interact(String)} matches against: the ones the server set
+     * ({@link Client#getPlayerOptions()}), the same for every player.
+     *
+     * @return the options by op, index 0 being op 1, null for an option the server hasn't set; null if they can't be
+     *         read
+     */
+    public String[] getActions() {
+        return client.getInteractions().actions(this);
+    }
+
+    /**
+     * Runs one of the server's player options on this player, as clicking it in the menu does. The option is
+     * matched loosely: markup and case are ignored, and spaces, {@code -} and {@code _} count as the same.
+     *
+     * @param option the option's text, such as "Trade with"
+     * @return {@link ActionResult#SENT}, or why nothing was sent: {@link ActionResult#GONE} once the player is gone,
+     *         {@link ActionResult#NO_SUCH_OPTION} if the server set no such option
+     * @throws NullPointerException if the option is null
+     */
+    public ActionResult interact(String option) {
+        return client.getInteractions().interact(this, option);
+    }
+
+    /**
+     * Runs one of the server's player options on this player by its number.
+     *
+     * @param op the op, 1-8: index + 1 in {@link #getActions()}
+     * @return {@link ActionResult#SENT}, or why nothing was sent; {@link ActionResult#NO_SUCH_OPTION} for a number
+     *         out of range or an option the server hasn't set
+     */
+    public ActionResult interact(int op) {
+        return client.getInteractions().interact(this, op);
     }
 
     /**
