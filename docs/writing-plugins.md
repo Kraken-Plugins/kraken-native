@@ -295,7 +295,8 @@ despawns for the old one.
 ## Overlays
 
 Extend `Overlay` and override `render(Graphics2D)`, or extend `OverlayPanel` for a panel of lines. Coordinates are game
-canvas pixels. `render` runs on the client thread, at the overlay frame rate set in Settings. Overlays are not added
+canvas pixels. `render` runs on the client thread, once per game frame while the native hook draws overlays in the
+game (up to the overlay frame rate set in Settings), or at that rate otherwise. Overlays are not added
 for you: inject yours into the plugin, add it with `overlayManager.add(overlay)` in `startUp` and remove it with
 `overlayManager.remove(overlay)` in `shutDown`.
 

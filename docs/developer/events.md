@@ -265,8 +265,10 @@ u32 seq | i32 id | u64 RCX | u64 RDX | u64 R8 | u64 R9 | u8 n | n x (u8 arg, u8 
 ```
 
 Ids below zero are reserved. `-2` is status, `-3` a framebuffer, `-4` a batch of calls done, `-5` a frame rate
-sample, and `-6` a script event. A script event has its own layout, parsed by `NativeProtocol.parseScript`. The
-sequence number climbs by one for each message, so a gap in the sequence is a dropped message. The server logs a gap at
+sample, `-6` a script event, and `-10` a frame the game presented while the overlay is drawn; the full list is in
+[Native protocol](native-protocol.md#reserved-ids). A script event has its own layout, parsed by
+`NativeProtocol.parseScript`. The sequence number climbs by one for each message that goes through the DLL's ring, so a
+gap in the sequence is a dropped message; the messages the DLL's writer sends itself carry 0. The server logs a gap at
 `FINE`.
 
 `NativeProtocol.parse` turns a body into a

@@ -34,7 +34,7 @@ void install(uint64_t rva);
 bool hooked();
 
 /**
- * How many presents the hook has seen, for FPS.
+ * How many presents the hook has seen, for FPS and PRESENT.
  *
  * @return the presents so far
  */

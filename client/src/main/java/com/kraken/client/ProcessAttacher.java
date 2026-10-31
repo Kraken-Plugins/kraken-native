@@ -189,8 +189,9 @@ public final class ProcessAttacher {
     }
 
     /**
-     * Runs a listener on the API poll thread at the end of every poll (about every 20 ms) once attached, after the
-     * poll's events and tasks and before the poll listeners. The plugin overlay renderer draws its frames from here.
+     * Runs a listener on the API poll thread at the end of every poll (about every 20 ms, and on each
+     * {@link GameSession#requestFrame}) once attached, after the poll's events and tasks and before the poll listeners.
+     * The plugin overlay renderer draws its frames from here.
      * The listener should catch its own errors: one that throws is logged on every poll.
      *
      * @param listener takes the attached API

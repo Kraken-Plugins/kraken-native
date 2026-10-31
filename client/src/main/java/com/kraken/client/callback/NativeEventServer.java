@@ -64,8 +64,9 @@ import java.util.logging.Level;
  * <p>The same connection carries the drawing ({@code docs/developer/in-game-drawing.md}). The handshake names the
  * per-frame step the DLL runs calls in and the present it draws the overlay in. Once the DLL reports its game-thread
  * pump, the API's highlights get a {@link com.kraken.api.internal.invoke.NativeInvoker} that sends their calls here;
- * once it reports the present hook and a framebuffer, {@link GameSurface} hands it overlay frames. It also reports the
- * game's frame rate to {@link FrameRates}, and is told the frame cap to hold the game to from there.
+ * once it reports the present hook and a framebuffer, {@link GameSurface} hands it overlay frames, and the presents it
+ * reports while it draws them go to {@link GameSurface#presented}, which paces the overlay to the game's frames. It
+ * also reports the game's frame rate to {@link FrameRates}, and is told the frame cap to hold the game to from there.
  *
  * <p>The handshake also names the script runtime ({@link NativeProtocol#scriptLayout}). Once the DLL reports its script
  * hooks, the API gets a {@link ScriptHook} that tells the DLL which script events to send, and each script event the
@@ -526,7 +527,7 @@ public final class NativeEventServer {
             in.readFully(body);
             int id = NativeProtocol.eventId(body);
             if (id < 0 && !ringReserved(id)) {
-                // Status messages skip the DLL's ring, so their sequence numbers interleave with the raises'
+                // Status messages skip the DLL's ring and take no sequence number, so only ring messages are checked
                 status(NativeProtocol.parse(body, idToName::get), open);
                 continue;
             }
@@ -575,7 +576,8 @@ public final class NativeEventServer {
 
     /**
      * Acts on one of the DLL's status messages: the hooks and features after the handshake, the framebuffer for the
-     * overlay, the result of a batch of calls, and the game's frame rate.
+     * overlay, each frame the game presents while the overlay is drawn, the result of a batch of calls, and the game's
+     * frame rate.
      *
      * @param event the status message
      * @param open  the connection it came on
@@ -624,6 +626,7 @@ public final class NativeEventServer {
                     sendFrameLimit(frameRates.getFrameLimit());
                 }
             }
+            case NativeProtocol.PRESENT_EVENT_ID -> surface.presented(event.reg(NativeEvent.RCX));
             case NativeProtocol.FPS_EVENT_ID -> frameRates.gameFrames(event.reg(NativeEvent.RCX),
                     event.reg(NativeEvent.RDX));
             case NativeProtocol.FRAME_EVENT_ID -> {

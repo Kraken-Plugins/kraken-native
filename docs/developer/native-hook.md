@@ -57,7 +57,7 @@ hook, is in [Using the client](../client.md#the-native-hook).
 |---|---|
 | [`src/dllmain.cpp`](../../client/src/main/native/kraken_hook/src/dllmain.cpp) | `DllMain`: refuses a second load, starts the init thread |
 | [`src/protocol.h`](../../client/src/main/native/kraken_hook/src/protocol.h) | Every constant the Java side must match |
-| [`src/connection.cpp`](../../client/src/main/native/kraken_hook/src/connection.cpp) | Connecting back, the handshake, the reader thread, the writer loop, STATUS/FRAME/FPS |
+| [`src/connection.cpp`](../../client/src/main/native/kraken_hook/src/connection.cpp) | Connecting back, the handshake, the reader thread, the writer loop, STATUS/FRAME/FPS/PRESENT |
 | [`src/raises.cpp`](../../client/src/main/native/kraken_hook/src/raises.cpp) | The generic raise detours and capture plans |
 | [`src/calls.cpp`](../../client/src/main/native/kraken_hook/src/calls.cpp) | The call queue and running calls under a guard |
 | [`src/pump.cpp`](../../client/src/main/native/kraken_hook/src/pump.cpp) | The per-frame detour: the frame cap, then the queued calls, component writes and visibility rules |
@@ -194,11 +194,12 @@ flowchart TB
 | Thread | Runs | Rules |
 |---|---|---|
 | Game thread | Every detour: raises, scripts, the pump and the present | Never blocks on Kraken: pushes into the ring, takes the call queue with a try-lock |
-| Writer thread | `connection::run`: connect, handshake, drain the ring, send STATUS/FRAME/FPS | The only thread that writes to the socket |
+| Writer thread | `connection::run`: connect, handshake, drain the ring, send STATUS/FRAME/FPS/PRESENT | The only thread that writes to the socket |
 | Reader thread | `readerThread`: reads command frames and hands them on | Queues calls, hands over surfaces, sets the frame cap and script filter |
 
 The ring has one producer (the game thread) and one consumer (the writer). The present detour runs on the game thread
-too, which is why it never touches the ring itself: it publishes FRAME values in atomics and wakes the writer.
+too, which is why it never touches the ring itself: it publishes FRAME values and the present count in atomics and
+wakes the writer.
 
 ### The Connection
 
@@ -217,8 +218,10 @@ stateDiagram-v2
 
 * The writer reads the handshake itself, installing each hook as it parses it, then sends STATUS. A slot whose RVA is
   already hooked is skipped, so the handshake the Java side re-sends on every reconnect only adds what's new.
-* It then starts a reader thread for the connection and loops: send everything queued in the ring, send FRAME if the
-  framebuffer, GL version or drawn surface changed, send FPS if a second has passed, then wait up to a second for more.
+* The socket has Nagle's algorithm off (`TCP_NODELAY`), so each message goes out as it is sent.
+* It then starts a reader thread for the connection and loops: send PRESENT if the game presented while a surface is
+  drawn, send everything queued in the ring, send FRAME if the framebuffer, GL version or drawn surface changed, send
+  FPS if a second has passed, then wait up to a second for more.
 * When the socket drops, the hooks stay installed for the life of the process. What depended on Kraken being there is
   undone: queued calls are dropped, the overlay stops (nothing would keep it current), script capture stops and the
   frame cap is lifted.
@@ -296,8 +299,9 @@ g_ring: 4 MiB, positions only grow and are taken modulo the size
 * A record is the wire framing itself, `{u32 length, body}`, so the writer sends records as they are.
 * A record that doesn't fit before the end of the buffer starts at the beginning, behind a `RING_PAD` (`0xffffffff`)
   length that tells the writer to skip to the start.
-* A full ring drops the new message. Every message takes a sequence number in `ring::writeHead` first, so the Java
-  side sees the drop as a gap in `seq`.
+* A full ring drops the new message. Every ring message takes a sequence number in `ring::writeHead` first, so the
+  Java side sees the drop as a gap in `seq`. The writer's own messages (STATUS, FRAME, FPS, PRESENT) carry 0 and take
+  none.
 * The game thread only signals the writer's event when the writer has said it is about to wait
   (`g_writerWaiting`), so a burst of messages costs no system call each. Both sides use sequentially consistent atomics
   for that flag and the tail, so a message is never left unsent while the writer sleeps; the writer also wakes every
@@ -363,12 +367,14 @@ hidden, the walk returns at once.
    3.1.
 4. Publish the framebuffer size, GL version and the surface generation drawn, and wake the writer if they changed, so
    it sends FRAME.
+5. While a surface is drawn, wake the writer so it sends PRESENT. Java then draws the overlay's next frame while the
+   game waits on the swap, so the overlay is redrawn once per game frame.
 
 Saving, drawing and restoring each run under an SEH guard. A fault turns the overlay off for the rest of the session,
 since a half-restored GL state would be worse than no overlay. The surface's memory layout and its triple-buffer
 handshake are in [In-game drawing](in-game-drawing.md).
 
-The present detour also counts presents for the FPS message. While it isn't hooked, the pump's frame steps are counted
+The present detour also counts presents for the FPS and PRESENT messages. While it isn't hooked, the pump's frame steps are counted
 instead.
 
 ## The Script Hooks
@@ -450,7 +456,8 @@ safety net), and reads messages until the socket closes. On STATUS it switches o
 | `FEATURE_COMPONENTS` (128) | `session.setComponentHook(...)`: the widget setters' writes send `COMPONENTS` |
 
 Raise messages go to `GameSession.onNative`, script messages to `GameSession.onScript`, FPS to `FrameRates`, FRAME to
-`GameSurface.frame`, and CALLS_DONE is logged when calls failed. `onEvent(name, consumer)` taps raw messages on the
+`GameSurface.frame`, PRESENT to `GameSurface.presented` (which wakes the client thread to draw the overlay's next
+frame), and CALLS_DONE is logged when calls failed. `onEvent(name, consumer)` taps raw messages on the
 reader thread for diagnostics; nothing calls it yet. When the connection ends, everything above is switched off again and the API
 goes back to its 20 ms poll until the DLL reconnects.
 

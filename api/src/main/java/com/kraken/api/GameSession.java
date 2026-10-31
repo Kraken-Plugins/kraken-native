@@ -32,7 +32,8 @@ import java.util.logging.Logger;
  * the client's own Lua handlers read.
  *
  * <p>{@link #start()} runs the poll loop on the {@code kraken-api-poll} thread, which acts as the client thread. Every
- * 20 ms, or as soon as the native hook pushes a raise ({@link #onNative}), it:
+ * 20 ms, or as soon as the native hook pushes a raise ({@link #onNative}) or the client asks for a frame
+ * ({@link #requestFrame}), it:
  * <ol>
  *   <li>runs the tasks handed to {@link #invoke(Runnable)} and friends, then sends the menu edits, visibility rules
  *       and component writes they made;
@@ -111,9 +112,9 @@ public final class GameSession implements AutoCloseable {
     private volatile Runnable pollListener;
 
     /**
-     * A callback run on the poll thread at the end of every loop iteration (every 20 ms, and after each native raise),
-     * after the tick-end tasks and before the poll listener. The client renders plugin overlays from it, deciding
-     * itself whether a frame is due.
+     * A callback run on the poll thread at the end of every loop iteration (every 20 ms, after each native raise and on
+     * each {@link #requestFrame}), after the tick-end tasks and before the poll listener. The client renders plugin
+     * overlays from it, deciding itself whether a frame is due.
      */
     @Setter
     private volatile Runnable frameListener;
@@ -371,6 +372,15 @@ public final class GameSession implements AutoCloseable {
     }
 
     /**
+     * Wakes the poll loop so its next iteration, and with it the {@linkplain #setFrameListener frame listener}, runs
+     * now rather than after the loop's wait. Asks for no event read. The client calls it as the game presents a frame,
+     * so overlays are drawn once per game frame instead of on the loop's timer. Safe to call from any thread.
+     */
+    public void requestFrame() {
+        wake();
+    }
+
+    /**
      * Delivers a script event the native hook reported (a script starting or returning, with the stacks it captured)
      * to the event source on the client thread, which posts {@code ScriptPreFired} or {@code ScriptPostFired} for it at
      * once. Wakes the poll loop to run it, without asking for an event read. Safe to call from any thread.
@@ -512,12 +522,17 @@ public final class GameSession implements AutoCloseable {
 
     /**
      * Runs the poll loop on the poll thread until the session closes or the game exits. An error no stage catches ends
-     * the loop too, and leaves the session able to {@link #start} again.
+     * the loop too, and leaves the session able to {@link #start} again. While it runs, the process holds a 1 ms
+     * Windows timer, so the loop's 20 ms wait lasts 20 ms.
      */
     private void pollLoop() {
+        boolean fineTimer = TimerResolution.raise();
         try {
             runLoop();
         } finally {
+            if (fineTimer) {
+                TimerResolution.restore();
+            }
             running = false;
         }
     }
@@ -540,9 +555,9 @@ public final class GameSession implements AutoCloseable {
             tasks.runPending();
             flushWrites();
             long now = System.currentTimeMillis();
-            // The loop, its tasks and the frame listener run every POLL_INTERVAL_MS and on every raise. While the hook
-            // is connected the events are read when a raise asked for it or the safety interval lapsed; without it
-            // (interval 0), every iteration.
+            // The loop, its tasks and the frame listener run every POLL_INTERVAL_MS, on every raise and on every frame
+            // request. While the hook is connected the events are read when a raise asked for it or the safety
+            // interval lapsed; without it (interval 0), every iteration.
             long safetyInterval = hookConnected ? HOOKED_EVENT_POLL_MS : 0;
             if (eventPollRequested || now - lastEventPoll >= safetyInterval) {
                 eventPollRequested = false;

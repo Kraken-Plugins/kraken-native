@@ -158,6 +158,22 @@ class GameSurfaceTest {
     }
 
     @Test
+    void aPresentIsRecordedAndHeardUntilTheConnectionDrops() {
+        List<Long> heard = new ArrayList<>();
+        surface.setPresentListener(() -> heard.add(surface.getPresents()));
+        connect(4, 3);
+        assertEquals(0, surface.getPresents(), "none reported yet");
+        surface.presented(41);
+        surface.presented(43);
+        assertEquals(List.of(41L, 43L), heard, "the listener runs after the count is recorded");
+        surface.disconnected();
+        assertEquals(0, surface.getPresents(), "the count belongs to the connection");
+        surface.presented(50);
+        connect(4, 3);
+        assertEquals(0, surface.getPresents(), "a new connection starts with none");
+    }
+
+    @Test
     void freeSlotSkipsPublishedAndReading() {
         assertEquals(0, GameSurface.freeSlot(GameSurface.NONE_PUBLISHED, -1));
         assertEquals(1, GameSurface.freeSlot(0, -1));

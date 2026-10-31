@@ -101,6 +101,28 @@ class GameSessionTest {
     }
 
     @Test
+    void aFrameRequestRunsTheFrameListenerWithoutAnEventRead() throws Exception {
+        GameFixture game = new GameFixture();
+        EventBus bus = new EventBus();
+        BlockingQueue<Object> seen = new LinkedBlockingQueue<>();
+        bus.register(GameStateChanged.class, seen::add, 0);
+
+        try (GameSession session = new GameSession(game.memory, game.map, bus, NO_TIMER_MS)) {
+            session.setHookConnected(true);
+            session.start();
+            session.onNative(gameTickRaise(1));
+            assertInstanceOf(GameStateChanged.class, seen.poll(5, TimeUnit.SECONDS), "the first read");
+
+            session.setFrameListener(() -> seen.add("frame"));
+            game.setGameState(25);
+            session.requestFrame();
+            assertEquals("frame", seen.poll(5, TimeUnit.SECONDS), "the request woke the loop at once");
+            assertNull(seen.poll(100, TimeUnit.MILLISECONDS),
+                    "the request doesn't read the game, so the state change waits for the safety interval");
+        }
+    }
+
+    @Test
     void aClickOnAPluginsRowRunsItsCallbackAndIsPosted() throws Exception {
         GameFixture game = new GameFixture();
         EventBus bus = new EventBus();

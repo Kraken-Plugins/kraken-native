@@ -6,6 +6,8 @@ import com.sun.jna.Pointer;
 import com.sun.jna.platform.win32.Kernel32;
 import com.sun.jna.platform.win32.WinBase;
 import com.sun.jna.platform.win32.WinNT;
+import lombok.Getter;
+import lombok.Setter;
 import lombok.extern.java.Log;
 
 import java.lang.invoke.VarHandle;
@@ -20,9 +22,9 @@ import java.util.logging.Level;
  * {@code docs/developer/in-game-drawing.md} ("The Overlay Surface").
  *
  * <p>The hook's connection sets it up: {@link #connected} once the DLL reports it hooked the present, {@link #frame}
- * each time it reports the framebuffer's size, {@link #disconnected} when it drops. {@link #publish} runs on the poll
- * thread. The surface follows the framebuffer: a new size makes a new mapping (a new generation), which the DLL is told
- * to switch to.
+ * each time it reports the framebuffer's size, {@link #presented} as the game presents a frame while the DLL draws the
+ * surface, {@link #disconnected} when it drops. {@link #publish} runs on the poll thread. The surface follows the
+ * framebuffer: a new size makes a new mapping (a new generation), which the DLL is told to switch to.
  */
 @Log(topic = "kraken")
 @Singleton
@@ -134,10 +136,49 @@ public final class GameSurface {
 
     private Link link;
     private long pid;
+    /**
+     * -- GETTER --
+     *  The game's framebuffer width, which a frame should match.
+     *
+     * @return the width in device pixels, 0 before the DLL reports one
+     */
+    @Getter
     private volatile int frameWidth;
+    /**
+     * -- GETTER --
+     *  The game's framebuffer height.
+     *
+     * @return the height in device pixels, 0 before the DLL reports one
+     */
+    @Getter
     private volatile int frameHeight;
     private volatile int glVersion;
+    /**
+     * -- GETTER --
+     *  The surface generation the DLL last said it draws.
+     *
+     * @return the generation, 0 for none
+     */
+    @Getter
     private volatile int drawnGeneration;
+    /**
+     * -- GETTER --
+     *  The game's present count as the DLL last reported it on this connection. It reports only while it draws the
+     *  surface, so a count that moved means the game showed a frame with the overlay in it.
+     *
+     * @return the presents so far, 0 until the DLL reports one
+     */
+    @Getter
+    private volatile long presents;
+    /**
+     * -- SETTER --
+     *  Sets what runs each time the DLL reports a present: on the hook's reader thread, so it should only hand work
+     *  to another thread.
+     *
+     * @param listener the listener, or null for none
+     */
+    @Setter
+    private volatile Runnable presentListener;
 
     private Region region;
     private int width;
@@ -187,30 +228,16 @@ public final class GameSurface {
     }
 
     /**
-     * The game's framebuffer width, which a frame should match.
+     * The DLL's report that the game presented a frame while it drew the surface. Called on the hook's reader thread.
      *
-     * @return the width in device pixels, 0 before the DLL reports one
+     * @param count the presents the game has made so far
      */
-    public int getFrameWidth() {
-        return frameWidth;
-    }
-
-    /**
-     * The game's framebuffer height.
-     *
-     * @return the height in device pixels, 0 before the DLL reports one
-     */
-    public int getFrameHeight() {
-        return frameHeight;
-    }
-
-    /**
-     * The surface generation the DLL last said it draws.
-     *
-     * @return the generation, 0 for none
-     */
-    public int getDrawnGeneration() {
-        return drawnGeneration;
+    public void presented(long count) {
+        presents = count;
+        Runnable listener = presentListener;
+        if (listener != null) {
+            listener.run();
+        }
     }
 
     /**
@@ -223,6 +250,7 @@ public final class GameSurface {
         this.link = link;
         this.pid = pid;
         refused = false;
+        presents = 0;
         closeRegion();
     }
 
@@ -249,6 +277,7 @@ public final class GameSurface {
         frameWidth = 0;
         frameHeight = 0;
         drawnGeneration = 0;
+        presents = 0;
         closeRegion();
     }
 
@@ -267,8 +296,8 @@ public final class GameSurface {
         if (!isAvailable() || width < 1 || height < 1 || pixels.length < width * height) {
             return false;
         }
-        top = Math.max(0, Math.min(top, height));
-        bottom = Math.max(top, Math.min(bottom, height));
+        top = Math.clamp(top, 0, height);
+        bottom = Math.clamp(bottom, top, height);
         try {
             if (region == null || width != this.width || height != this.height) {
                 open(width, height);

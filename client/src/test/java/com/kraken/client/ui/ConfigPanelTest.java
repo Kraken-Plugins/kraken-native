@@ -423,7 +423,7 @@ class ConfigPanelTest {
             }
             assertFalse(all.contains("Window bounds"), "hidden items stay off the page: " + all);
             List<JSpinner> spinners = find(page, JSpinner.class);
-            assertEquals(List.of(765, 503, 20, 30, 12), spinners.stream().map(JSpinner::getValue).toList(),
+            assertEquals(List.of(765, 503, 20, 240, 12), spinners.stream().map(JSpinner::getValue).toList(),
                     "game width and height, unfocused frame rate, overlay frame rate, font size");
             assertEquals(240, ((SpinnerNumberModel) spinners.get(0).getModel()).getMinimum(),
                     "the game size's @Range bounds each side");

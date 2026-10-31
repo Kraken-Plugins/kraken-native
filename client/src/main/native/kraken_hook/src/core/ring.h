@@ -25,15 +25,17 @@ using SendFn = bool (*)(const char *data, int len);
 bool init();
 
 /**
- * Writes the fixed message head (sequence, id, four registers) into a body. Every message takes the
- * next sequence number, whether it goes through the ring or straight to the socket.
+ * Writes the fixed message head (sequence, id, four registers) into a body. A message for the ring
+ * takes the next sequence number, so a gap in the numbers Java sees is always a dropped message; one
+ * the writer thread sends straight to the socket carries 0 and takes none.
  *
- * @param body where to write; at least 40 bytes
- * @param id   the event or reserved id
- * @param regs the four register values
+ * @param body      where to write; at least 40 bytes
+ * @param id        the event or reserved id
+ * @param regs      the four register values
+ * @param sequenced false for a message that goes straight to the socket
  * @return the offset just past the head
  */
-int writeHead(uint8_t *body, int32_t id, const uint64_t regs[4]);
+int writeHead(uint8_t *body, int32_t id, const uint64_t regs[4], bool sequenced = true);
 
 /**
  * Pushes one finished message body into the ring as a {u32 length, body} record. Only the game

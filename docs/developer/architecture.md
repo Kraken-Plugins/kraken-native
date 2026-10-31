@@ -222,7 +222,7 @@ Overlays are Java2D, drawn on the client thread, then shown either inside the ga
 
 ```mermaid
 flowchart LR
-    A["Overlay.render(g)"] --> B["OverlayRenderer<br/>client thread, at the overlay frame rate"]
+    A["Overlay.render(g)"] --> B["OverlayRenderer<br/>client thread, once per game frame"]
     B --> C["OverlayCompositor: one image"]
     C --> D{"hook drawing?"}
     D -- "yes" --> E["GameSurface: shared memory"]

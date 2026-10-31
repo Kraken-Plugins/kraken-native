@@ -678,7 +678,7 @@ The overlay framework lets plugins draw over the game. Its base class is
 | Class | Role |
 |---|---|
 | `OverlayManager` | The list of overlays being drawn. Plugins `add` and `remove` theirs. Keeps each overlay's saved placement |
-| `OverlayRenderer` | Draws the list at the overlay frame rate, and hands each frame to a drawing target. It runs on the poll thread |
+| `OverlayRenderer` | Draws the list once per game frame (or at the overlay frame rate in the window), and hands each frame to a drawing target. It runs on the poll thread |
 | `OverlayCompositor` | Lays out one frame into a `Graphics2D`: layers, anchors, dynamic overlays, the editing outlines |
 | `OverlayEditor` | Alt-drag moving and resizing. Runs on the EDT |
 | `GameOverlay` | A transparent, click-through window over the game area. The window target |
@@ -698,9 +698,11 @@ flowchart TD
     E -->|no| I["Nothing is read or drawn"]
 ```
 
-`FrameSchedule` decides when a frame is due. The rate is `overlayFrameRate`, which is capped at 50. The schedule steps by
-one interval per frame, so 30 frames a second on a 20 ms poll averages 30 and doesn't drop to 25. A frame due after a
-pause starts the schedule again, so frames don't bunch up.
+In the game, a frame is due for each frame the game presents: the hook reports each one (`PRESENT`), and
+`GameSurface.presented` wakes the poll loop through `GameSession.requestFrame`, so the overlay moves with the scene.
+`FrameSchedule` caps that at `overlayFrameRate` (240 by default, at most 240), and is the whole schedule for the window,
+at most 50 a second there. The schedule steps by one interval per frame, so 30 frames a second on a 20 ms poll
+averages 30 and doesn't drop to 25. A frame due after a pause starts the schedule again, so frames don't bunch up.
 
 Overlays draw in the client's canvas pixels. The graphics are scaled from canvas pixels to the target's size. The
 target's image is in device pixels, so text stays sharp on a scaled display.

@@ -5,7 +5,8 @@ This page is the byte-level reference. [The native hook](native-hook.md) explain
 messages.
 
 * **Transport.** The client listens on `127.0.0.1:42069`; the DLL connects. One connection at a time. If it drops, the
-  DLL reconnects every second and the client sends the handshake again.
+  DLL reconnects every second and the client sends the handshake again. Both ends turn Nagle's algorithm off
+  (`TCP_NODELAY`), so a small message goes out at once instead of waiting for the last one's acknowledgement.
 * **Byte order.** Little-endian throughout. `u8`/`u16`/`u32`/`u64` are unsigned, `i32`/`i64` signed.
 * **Framing.** After the handshake, everything is length-framed: a `u32` length, then that many bytes.
 * **Shared memory.** Overlay pixels don't go over the socket. A `SURFACE` command names a file mapping both processes
@@ -28,6 +29,7 @@ sequenceDiagram
         D-->>J: CALLS_DONE (run, skipped, last return)
         J->>D: SURFACE (generation, mapping name)
         D-->>J: FRAME (framebuffer size, GL version, generation drawn)
+        D-->>J: PRESENT (each game frame while the surface is drawn)
         J->>D: SCRIPTS (which script events to send)
         D-->>J: SCRIPT (kind, id, depth, stacks, request)
         J->>D: MENU (rules to apply at each menu rebuild)
@@ -278,7 +280,7 @@ came.
 
 | Id | Name | RCX | RDX | R8 | R9 | Sent |
 |---|---|---|---|---|---|---|
-| -2 | `STATUS` | Slots installed (total) | Slots requested by this handshake | Feature bits | Protocol version (7) | Once per handshake |
+| -2 | `STATUS` | Slots installed (total) | Slots requested by this handshake | Feature bits | Protocol version (8) | Once per handshake |
 | -3 | `FRAME` | Framebuffer width | Height | GL version, `major << 16 \| minor` | Surface generation drawn, 0 for none | When any of them changes |
 | -4 | `CALLS_DONE` | Batch id | Calls run | Calls skipped or faulted | Last call's return value | After each batch |
 | -5 | `FPS` | Frames since the last FPS | Microseconds since it | Frame cap in force | 1 if presents were counted, 0 for frame steps | About once a second |
@@ -286,6 +288,7 @@ came.
 | -7 | `MENU_CLICK` | 0 for a row of a plugin's own, 1 for a client row a rule reports | The row id, or the rule id | The parent row id of a sub row, `0xffffffff` for none | Mouse `x \| y << 32` | Per click |
 | -8 | `MENU_EXPIRED` | Rule id | 0 | 0 | 0 | When a scoped rule goes unmatched for 25 rebuilds |
 | -9 | `KEY` | Window message (`0x100` key down, `0x101` up, `0x102` char, `0x104`/`0x105` the Alt variants) | The key or character it carried | `action << 16 \| the key it became` (action 0 passed, 1 remapped, 2 blocked) | `mode before \| mode after << 8` | Per key message handled, while asked |
+| -10 | `PRESENT` | Presents so far | 0 | 0 | 0 | When the game presented a frame since the last one, while the overlay draws a surface (generation drawn not 0). Presents close together can come as one |
 
 Feature bits in STATUS:
 
@@ -512,13 +515,15 @@ guard. At most 4,096 writes wait; more are dropped. A malformed command queues n
 
 ## Ordering and Delivery
 
-* Every message takes a sequence number from one counter, including the reserved ones.
+* Every ring message takes a sequence number from one counter. The writer's own messages (`STATUS`, `FRAME`, `FPS`,
+  `PRESENT`) carry 0 and take none.
 * Raise, `SCRIPT`, `CALLS_DONE`, `MENU_CLICK`, `MENU_EXPIRED` and `KEY` messages are written by the game thread into the
   DLL's ring and sent in order by the writer thread (`KEY` from the window's thread, which the DLL takes to be the
-  game thread). `STATUS`, `FRAME` and `FPS` are written straight to the socket by the writer between ring drains, so
-  they can arrive out of sequence order with ring messages.
-* A full ring drops new messages; the gap in `seq` shows it. The Java side checks the sequence of raise and `SCRIPT`
-  messages and logs gaps at FINE. Reserved messages take numbers too, so a gap there doesn't always mean a drop.
+  game thread). `STATUS`, `FRAME`, `FPS` and `PRESENT` are written straight to the socket by the writer between ring
+  drains, so they can arrive out of order with ring messages. `PRESENT` goes out before the ring is drained, since
+  the overlay's next frame waits on it.
+* A full ring drops new messages; the gap in `seq` shows it. The Java side checks the sequence of the ring's messages
+  and logs gaps at FINE.
 * The API never depends on a message arriving: a raise only makes a tracker read sooner, and the trackers' own reads
   catch what a dropped message would have said (see [Events](events.md)).
 * Java writes each command as one synchronized write, so frames from different threads never interleave.
@@ -548,7 +553,7 @@ To change the format:
 | Magic | `"KRK8"` in `connection.cpp` | `NativeProtocol.MAGIC` |
 | Capture-plan ops | `OP_RAW` … `OP_CSTR` | `NativeProtocol.OP_*` |
 | Plan length | `MAX_PLAN` = 8 | `NativeEvents` plans stay within it |
-| Reserved ids | `STATUS_EVENT_ID` … `KEY_EVENT_ID` | `NativeProtocol.*_EVENT_ID` |
+| Reserved ids | `STATUS_EVENT_ID` … `PRESENT_EVENT_ID` | `NativeProtocol.*_EVENT_ID` |
 | Feature bits | `FEATURE_PUMP`, `FEATURE_PRESENT`, `FEATURE_FRAME_RATE`, `FEATURE_SCRIPTS`, `FEATURE_MENU`, `FEATURE_KEYS`, `FEATURE_VISIBILITY`, `FEATURE_COMPONENTS` | `FEATURE_CALLS`, `FEATURE_OVERLAY`, `FEATURE_FRAME_RATE`, `FEATURE_SCRIPTS`, `FEATURE_MENU`, `FEATURE_KEYS`, `FEATURE_VISIBILITY`, `FEATURE_COMPONENTS` |
 | Command types | `CMD_CALLS` … `CMD_COMPONENTS` | `NativeProtocol.COMMAND_*` |
 | Argument kinds | `ARG_IMM` … `ARG_INDIRECT` | `NativeCall.Kind` ordinals |

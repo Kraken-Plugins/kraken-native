@@ -34,6 +34,9 @@ inline constexpr uint8_t OP_CSTR = 4;  // NUL-terminated bytes at [register], at
 // for a top row or a rule), mouse x | mouse y << 32}. MENU_EXPIRED: regs = {rule id, 0, 0, 0}.
 // KEY: regs = {message, the key or character it carried, what was done (KEY_*) << 16 | the key it
 // became, mode before | mode after << 8}.
+// PRESENT: regs = {presents so far, 0, 0, 0}; sent when the game presented a frame since the last
+// PRESENT, while the overlay draws a surface, so Java draws the overlay's next frame.
+// STATUS, FRAME, FPS and PRESENT go straight from the writer thread and carry sequence number 0.
 inline constexpr int32_t STATUS_EVENT_ID = -2;
 inline constexpr int32_t FRAME_EVENT_ID = -3;
 inline constexpr int32_t CALLS_DONE_EVENT_ID = -4;
@@ -42,6 +45,7 @@ inline constexpr int32_t SCRIPT_EVENT_ID = -6;
 inline constexpr int32_t MENU_CLICK_EVENT_ID = -7;
 inline constexpr int32_t MENU_EXPIRED_EVENT_ID = -8;
 inline constexpr int32_t KEY_EVENT_ID = -9;
+inline constexpr int32_t PRESENT_EVENT_ID = -10;
 
 // STATUS feature bits. FRAME_RATE: FPS is sent, and FRAME_LIMIT is honoured while the pump is hooked.
 // SCRIPTS: the four script hooks are live, and SCRIPTS commands are honoured. MENU: the minimenu

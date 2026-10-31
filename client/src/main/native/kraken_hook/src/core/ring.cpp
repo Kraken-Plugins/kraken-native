@@ -28,8 +28,8 @@ bool init() {
     return g_dataEvent != nullptr;
 }
 
-int writeHead(uint8_t *body, int32_t id, const uint64_t regs[4]) {
-    uint32_t seq = g_seq.fetch_add(1, std::memory_order_relaxed);
+int writeHead(uint8_t *body, int32_t id, const uint64_t regs[4], bool sequenced) {
+    uint32_t seq = sequenced ? g_seq.fetch_add(1, std::memory_order_relaxed) : 0;
     int off = 0;
     std::memcpy(body + off, &seq, 4); off += 4;
     std::memcpy(body + off, &id, 4); off += 4;

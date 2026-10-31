@@ -105,6 +105,12 @@ final class NativeProtocol {
     static final int KEY_EVENT_ID = -9;
 
     /**
+     * A reserved event id the DLL sends as the game presents a frame while it draws the overlay surface: the presents
+     * so far in RCX. Presents close together may come as one.
+     */
+    static final int PRESENT_EVENT_ID = -10;
+
+    /**
      * The STATUS feature bit for the game-thread pump: the DLL runs calls.
      */
     static final long FEATURE_CALLS = 1;

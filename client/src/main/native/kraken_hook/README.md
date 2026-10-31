@@ -103,7 +103,8 @@ the key block (8 bytes, the window procedure's RVA), the visibility block (84 by
 
 **Messages** (DLL → Java): a `u32` length frame, then
 `{u32 seq, i32 eventId, u64 regs[4], u8 nValues, values...}`, where a value is `{u8 arg, u8 op, payload}`.
-`seq` climbs by one per message, so the Kraken client sees a ring-buffer drop as a gap. Reserved ids:
+`seq` climbs by one per ring message, so the Kraken client sees a ring-buffer drop as a gap; the writer's own
+messages carry 0. Reserved ids:
 
 | id | Name | regs |
 |---|---|---|
@@ -115,9 +116,10 @@ the key block (8 bytes, the window procedure's RVA), the visibility block (84 by
 | -7 | MENU_CLICK | 0 for a row of Kraken's own or 1 for a rule's report, the row or rule id, the parent row id (0xffffffff for none), mouse x \| y << 32 |
 | -8 | MENU_EXPIRED | the id of a scoped rule nothing matched for 25 rebuilds, 0, 0, 0 |
 | -9 | KEY | the window message, the key or character, action << 16 \| the key it became (0 passed, 1 remapped, 2 blocked), mode before \| mode after << 8 |
+| -10 | PRESENT | presents so far, 0, 0, 0; sent as the game presents a frame while the overlay draws a surface |
 
-STATUS, FRAME and FPS are written by the writer thread straight to the socket, so they can arrive out
-of `seq` order with ring messages; CALLS_DONE, SCRIPT, MENU_CLICK, MENU_EXPIRED and KEY go through the ring. FPS goes out about once a second
+STATUS, FRAME, FPS and PRESENT are written by the writer thread straight to the socket, with `seq` 0, so they can
+arrive out of order with ring messages; CALLS_DONE, SCRIPT, MENU_CLICK, MENU_EXPIRED and KEY go through the ring. FPS goes out about once a second
 while the pump or present is hooked.
 
 **Commands** (Java → DLL, after the handshake): `{u32 len, u8 type, body}`, `len` counting the type

@@ -170,18 +170,20 @@ public interface KrakenConfig extends Config {
     }
 
     /**
-     * How many overlay frames to draw a second.
+     * The most overlay frames to draw a second. Inside the game, overlays are redrawn with each frame the game draws,
+     * up to this; in the window over the game, at this rate, up to 50.
      *
      * @return the frame rate
      */
-    @Range(min = 1, max = 50)
+    @Range(min = 1, max = 240)
     @Units(Units.FPS)
     @ConfigItem(keyName = "overlayFrameRate", name = "Frame rate",
-            description = "How often plugin overlays are redrawn. Every frame reads the game, so a higher rate costs "
-                    + "more. The API polls about 50 times a second, which caps it.",
+            description = "The most times a second plugin overlays are redrawn. Inside the game they're redrawn with "
+                    + "each frame the game draws, up to this; below the game's frame rate, they lag behind the scene. "
+                    + "Every frame reads the game, so a higher rate costs more. Without the native hook, at most 50.",
             position = 31, section = overlays)
     default int overlayFrameRate() {
-        return 30;
+        return 240;
     }
 
     /**

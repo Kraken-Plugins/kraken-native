@@ -34,6 +34,44 @@ class OverlayRendererTest {
     }
 
     @Test
+    void aRowIsBlankOnlyIfEveryPixelIs() {
+        int width = 70;
+        int height = 4;
+        int[] pixels = new int[width * height];
+        pixels[width + width - 1] = 1;
+        pixels[2 * width] = 0x80000000;
+        assertEquals(1, OverlayRenderer.firstRow(pixels, width, height), "the last pixel of a wide row counts");
+        assertEquals(2, OverlayRenderer.lastRow(pixels, width, 1, height), "so does the first");
+    }
+
+    @Test
+    void framesFollowAGameFasterThanAPollButNotPastTheCap() {
+        long cap = 1_000_000_000L / OverlayRenderer.MAX_FRAME_RATE;
+        assertEquals(144, framesDue(new OverlayRenderer.FrameSchedule(), cap, 144),
+                "one frame per game frame at 144, under the cap");
+        int frames = framesDue(new OverlayRenderer.FrameSchedule(), cap, 400);
+        assertTrue(Math.abs(frames - OverlayRenderer.MAX_FRAME_RATE) <= 1, "held to the cap at 400: " + frames);
+    }
+
+    /**
+     * Asks a schedule once per game frame for one second of a game running at a steady rate.
+     *
+     * @param schedule the schedule
+     * @param interval the schedule's interval in nanoseconds
+     * @param fps      the game's frame rate
+     * @return how many of the game's frames got an overlay frame
+     */
+    private static int framesDue(OverlayRenderer.FrameSchedule schedule, long interval, int fps) {
+        int frames = 0;
+        for (int frame = 0; frame < fps; frame++) {
+            if (schedule.due(frame * 1_000_000_000L / fps, interval, frame == 0)) {
+                frames++;
+            }
+        }
+        return frames;
+    }
+
+    @Test
     void askingOftenDoesNotPushTheScheduleAhead() {
         OverlayRenderer.FrameSchedule schedule = new OverlayRenderer.FrameSchedule();
         long interval = 33_333_333L;

@@ -24,14 +24,16 @@ import javax.swing.*;
  * {@link GameOverlay} window, alongside the dev tools' overlays.
  *
  * <ul>
- *   <li><b>On the client thread.</b> At the end of each API poll, if overlays are added and a frame is due (the
- *       {@linkplain KrakenConfig#overlayFrameRate frame rate}, 30 a second by default), the poll thread clears an
- *       image, draws every overlay into it ({@link OverlayCompositor}) and hands it to the EDT. Overlays'
- *       {@code render} thus runs where game events and {@code ClientThread} tasks do, and memory reads stay off the
- *       EDT.
- *   <li><b>Two images.</b> The EDT paints the last finished frame while the next one is drawn into the other, so it
- *       never shows a half-drawn frame. Each image is locked while it's drawn or painted, for the rare frame where the
- *       EDT is still painting an image when its turn to be drawn into comes round.
+ *   <li><b>On the client thread.</b> At the end of each API poll, if overlays are added and a frame is due, the poll
+ *       thread clears an image and draws every overlay into it ({@link OverlayCompositor}). Overlays' {@code render}
+ *       thus runs where game events and {@code ClientThread} tasks do, and memory reads stay off the EDT.
+ *   <li><b>When a frame is due.</b> For the game, once per game frame: the DLL reports each frame the game presents
+ *       ({@link GameSurface#presented}), which wakes the poll loop at once, so the overlay moves with the scene rather
+ *       than on a timer of its own. The {@linkplain KrakenConfig#overlayFrameRate frame rate} caps it. For the window,
+ *       which nothing paces, at the frame rate, at most {@value #WINDOW_MAX_FRAME_RATE} a second (one a poll).
+ *   <li><b>Two images for the window.</b> The EDT paints the last finished frame while the next one is drawn into the
+ *       other, so it never shows a half-drawn frame. Each image is locked while it's drawn or painted, for the rare
+ *       frame where the EDT is still painting an image when its turn to be drawn into comes round.
  *   <li><b>Canvas pixels.</b> The image is sized in device pixels, so text stays sharp on scaled displays, and the
  *       graphics handed to overlays is scaled so they draw in the client's canvas pixels, where {@code Perspective}
  *       results land.
@@ -51,9 +53,15 @@ import javax.swing.*;
 public final class OverlayRenderer {
 
     /**
-     * The fastest frame rate: the API polls about every 20 ms, and a frame is drawn at the end of a poll.
+     * The fastest frame rate for the game, whatever the settings file holds.
      */
-    private static final int MAX_FRAME_RATE = 50;
+    static final int MAX_FRAME_RATE = 240;
+
+    /**
+     * The fastest frame rate for the window: the API polls about every 20 ms, and a frame is drawn at the end of a
+     * poll.
+     */
+    static final int WINDOW_MAX_FRAME_RATE = 50;
 
     /**
      * The bounds on the overlay font size, whatever the settings file holds.
@@ -65,6 +73,7 @@ public final class OverlayRenderer {
     private final GameOverlay window;
     private final GameSurface surface;
     private final OverlayEditor editor;
+    private final ProcessAttacher attacher;
     private final KrakenConfig config;
     private final FrameRates frameRates;
     private final OverlayCompositor compositor;
@@ -91,6 +100,11 @@ public final class OverlayRenderer {
      */
     private boolean gameShowing;
 
+    /**
+     * The game's present count when the last frame for the game was drawn. Poll thread only.
+     */
+    private long drawnPresents;
+
     @Inject
     OverlayRenderer(OverlayManager manager, GameOverlay window, GameSurface surface, OverlayEditor editor,
                     ProcessAttacher attacher, KrakenConfig config, FrameRates frameRates) {
@@ -98,6 +112,7 @@ public final class OverlayRenderer {
         this.window = window;
         this.surface = surface;
         this.editor = editor;
+        this.attacher = attacher;
         this.config = config;
         this.frameRates = frameRates;
         Font font = UIManager.getFont("Label.font");
@@ -122,6 +137,18 @@ public final class OverlayRenderer {
             }
         });
         attacher.addFrameListener(this::frame);
+        surface.setPresentListener(this::presented);
+    }
+
+    /**
+     * Wakes the client thread to draw the next frame for the game as the game presents one, unless there is nothing to
+     * draw. Hook's reader thread.
+     */
+    private void presented() {
+        GameSession session = attacher.attached();
+        if (session != null && !manager.isEmpty()) {
+            session.requestFrame();
+        }
     }
 
     /**
@@ -155,7 +182,7 @@ public final class OverlayRenderer {
             editor.nothingDrawn();
             return;
         }
-        if (!due(front == null)) {
+        if (!due(front == null, WINDOW_MAX_FRAME_RATE)) {
             return;
         }
         int canvasWidth = session.client().getCanvasWidth();
@@ -223,37 +250,57 @@ public final class OverlayRenderer {
      * Whether a frame is due at the {@linkplain KrakenConfig#overlayFrameRate frame rate}, moving the schedule on if so.
      *
      * @param restart true when no frame is on screen yet, so one is due at once and the schedule starts over
+     * @param maxRate the fastest rate the target takes, whatever the settings ask
      * @return true to draw a frame now
      */
-    private boolean due(boolean restart) {
-        long interval = 1_000_000_000L / Math.max(1, Math.min(MAX_FRAME_RATE, config.overlayFrameRate()));
+    private boolean due(boolean restart, int maxRate) {
+        long interval = 1_000_000_000L / Math.max(1, Math.min(maxRate, config.overlayFrameRate()));
         return schedule.due(System.nanoTime(), interval, restart);
     }
 
     /**
+     * Whether a frame for the game is due, moving the schedule on if so. Once the DLL reports the game's presents, one
+     * is due for each game frame presented since the last one drawn, at most at the frame rate. The game takes only
+     * the newest frame at each present, so drawing more often would waste frames, and drawing on a timer instead would
+     * leave some game frames showing an older one. Until the DLL reports a present, one is due at the frame rate.
+     *
+     * @param fresh true for a new image, which is drawn at once
+     * @return true to draw a frame now
+     */
+    private boolean gameFrameDue(boolean fresh) {
+        long presents = surface.getPresents();
+        if (!fresh && presents != 0 && presents == drawnPresents) {
+            return false;
+        }
+        if (!due(fresh, MAX_FRAME_RATE)) {
+            return false;
+        }
+        drawnPresents = presents;
+        return true;
+    }
+
+    /**
      * Draws a frame for the game if one is due, at the framebuffer's size, and hands it to the {@link GameSurface}. With
-     * no overlays, hands over one empty frame to clear the last, then nothing.
+     * no overlays, hands over one empty frame to clear the last, then reads and draws nothing.
      *
      * @param session  the attached API
      * @param overlays the overlays, in drawing order
      */
     private void drawInGame(GameSession session, List<Overlay> overlays) {
-        int width = surface.getFrameWidth();
-        int height = surface.getFrameHeight();
-        int canvasWidth = session.client().getCanvasWidth();
-        int canvasHeight = session.client().getCanvasHeight();
-        if (overlays.isEmpty() || canvasWidth < 1 || canvasHeight < 1) {
-            editor.nothingDrawn();
-            if (gameShowing && gameImage != null) {
-                clearRows(gameImage, gameTop, gameBottom);
-                gameTop = 0;
-                gameBottom = 0;
-                gameShowing = !surface.publish(pixels(gameImage), gameImage.getWidth(), gameImage.getHeight(), 0, 0);
-            }
+        if (overlays.isEmpty()) {
+            clearGame();
             return;
         }
+        int canvasWidth = session.client().getCanvasWidth();
+        int canvasHeight = session.client().getCanvasHeight();
+        if (canvasWidth < 1 || canvasHeight < 1) {
+            clearGame();
+            return;
+        }
+        int width = surface.getFrameWidth();
+        int height = surface.getFrameHeight();
         boolean fresh = gameImage == null || gameImage.getWidth() != width || gameImage.getHeight() != height;
-        if (!due(fresh)) {
+        if (!gameFrameDue(fresh)) {
             return;
         }
         if (fresh) {
@@ -283,6 +330,19 @@ public final class OverlayRenderer {
             // The surface went away mid-frame: clear the whole image, since the rows drawn weren't recorded
             gameTop = 0;
             gameBottom = height;
+        }
+    }
+
+    /**
+     * Hands the game one empty frame to clear the last frame's pixels, if it still shows them. Poll thread.
+     */
+    private void clearGame() {
+        editor.nothingDrawn();
+        if (gameShowing && gameImage != null) {
+            clearRows(gameImage, gameTop, gameBottom);
+            gameTop = 0;
+            gameBottom = 0;
+            gameShowing = !surface.publish(pixels(gameImage), gameImage.getWidth(), gameImage.getHeight(), 0, 0);
         }
     }
 
@@ -319,8 +379,9 @@ public final class OverlayRenderer {
      * @return the row, or {@code height} if there is none
      */
     static int firstRow(int[] pixels, int width, int height) {
+        int[] zeros = new int[width];
         for (int row = 0; row < height; row++) {
-            if (!blank(pixels, row * width, width)) {
+            if (!blank(pixels, row * width, zeros)) {
                 return row;
             }
         }
@@ -337,21 +398,26 @@ public final class OverlayRenderer {
      * @return the row
      */
     static int lastRow(int[] pixels, int width, int top, int height) {
+        int[] zeros = new int[width];
         for (int row = height - 1; row > top; row--) {
-            if (!blank(pixels, row * width, width)) {
+            if (!blank(pixels, row * width, zeros)) {
                 return row;
             }
         }
         return top;
     }
 
-    private static boolean blank(int[] pixels, int start, int length) {
-        for (int i = start, end = start + length; i < end; i++) {
-            if (pixels[i] != 0) {
-                return false;
-            }
-        }
-        return true;
+    /**
+     * Whether a row is fully transparent. It is compared with a row of zeros by {@link Arrays#mismatch}, which the JDK
+     * runs several pixels at a time, since the empty rows of a sparse overlay are most of the frame.
+     *
+     * @param pixels the pixels
+     * @param start  the row's first pixel
+     * @param zeros  a row of zeros, as long as the row
+     * @return true if every pixel is 0
+     */
+    private static boolean blank(int[] pixels, int start, int[] zeros) {
+        return Arrays.mismatch(pixels, start, start + zeros.length, zeros, 0, zeros.length) < 0;
     }
 
     /**

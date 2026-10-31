@@ -14,8 +14,8 @@ import java.util.function.Predicate;
 
 /**
  * The overlays being drawn. Plugins add theirs in {@code startUp} and remove them in {@code shutDown}; the client draws
- * every added overlay at the overlay frame rate while the game is attached, and draws nothing (and reads nothing) while
- * none is added.
+ * every added overlay while the game is attached (with each game frame inside the game, up to the overlay frame rate),
+ * and draws nothing (and reads nothing) while none is added.
  *
  * <p>It also keeps where the user put each overlay ({@link OverlayEditor}): its preferred location and size are saved
  * in settings group {@value #CONFIG_GROUP}, under the overlay's {@linkplain Overlay#getName() name}, and set again
@@ -147,6 +147,15 @@ public class OverlayManager {
      */
     public boolean anyMatch(Predicate<Overlay> filter) {
         return overlays.stream().anyMatch(filter);
+    }
+
+    /**
+     * Whether no overlay is being drawn. Cheaper than {@link #getOverlays()}, which sorts a copy.
+     *
+     * @return true while none is added
+     */
+    public boolean isEmpty() {
+        return overlays.isEmpty();
     }
 
     /**

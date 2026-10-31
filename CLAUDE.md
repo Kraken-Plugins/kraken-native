@@ -106,7 +106,8 @@ consensus verdicts (`consensus.py`, `carry.py`) → invariants (`verify.py`) →
   game's counters. Where a diff can miss changes (interfaces, varcs), trackers also apply the hook's ordered reports.
   `ScriptPreFired`/`ScriptPostFired` come straight from hook reports (`GameSession.onScript`), with the stacks readable
   via `Client.getIntStack()` and friends during the handler. The bus also matches supertypes and interfaces.
-- The `kraken-api-poll` thread is the client thread: every 20 ms or on a raise it runs `invoke*` tasks, events
+- The `kraken-api-poll` thread is the client thread: every 20 ms (it holds a 1 ms Windows timer), on a raise, or on
+  `GameSession.requestFrame` (each game frame while overlays draw in the game) it runs `invoke*` tasks, events
   (`GameTick` after the tick's other events, `ClientTick` per cycle), `invokeAtTickEnd` tasks, the frame listener
   (overlays), then the 150 ms poll listener.
 - Adding a Lua read: take the handler RVA from `analysis.json`, map each constant it uses to a mapping key (adding a

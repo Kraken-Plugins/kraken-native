@@ -217,7 +217,7 @@ Changes apply at once and are saved. **Reset** at the bottom puts every setting 
 
 | Setting | Default | What it does |
 |---|---|---|
-| Frame rate | 30 fps | How often plugin overlays are redrawn, up to 50. Each frame reads the game, so higher costs more |
+| Frame rate | 240 fps | The most times a second plugin overlays are redrawn. With the native hook they're redrawn with every frame the game draws, up to this; set it below the game's frame rate and they lag behind the scene. Without the hook, at most 50. Each frame reads the game, so higher costs more |
 | Font | Regular | The font overlay panels use: **Regular**, **Bold** or **Monospaced** |
 | Font size | 12 px | The size of overlay text |
 | Panel background | Translucent dark brown | The colour behind overlay panels |
@@ -257,7 +257,8 @@ can't be moved.
 With **Show FPS** on, a small panel at the top of the game shows two rates:
 
 * **Game**: the frames the game draws each second, counted by the native hook. It shows `–` without the hook.
-* **Overlays**: the overlay frames Kraken draws each second, up to the **Frame rate** in the Overlays settings.
+* **Overlays**: the overlay frames Kraken draws each second. With the native hook this matches **Game**, up to the
+  **Frame rate** in the Overlays settings.
 
 ## The Native Hook
 

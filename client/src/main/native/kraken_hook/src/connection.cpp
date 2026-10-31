@@ -121,19 +121,20 @@ DWORD WINAPI readerThread(LPVOID) {
 }
 
 /**
- * Sends a reserved message straight to the socket. Writer thread only, like every socket write.
+ * Sends a reserved message straight to the socket, its length and body in one send, with sequence
+ * number 0. Writer thread only, like every socket write.
  *
  * @param id   the reserved id
  * @param regs the four register values
  * @return false if the send failed
  */
 bool sendDirect(int32_t id, const uint64_t regs[4]) {
-    uint8_t body[48];
-    int off = ring::writeHead(body, id, regs);
-    body[off++] = 0;
-    uint32_t len = static_cast<uint32_t>(off);
-    return sendExact(reinterpret_cast<const char *>(&len), 4)
-           && sendExact(reinterpret_cast<const char *>(body), off);
+    uint8_t message[52];
+    int off = 4 + ring::writeHead(message + 4, id, regs, false);
+    message[off++] = 0;
+    uint32_t len = static_cast<uint32_t>(off - 4);
+    std::memcpy(message, &len, 4);
+    return sendExact(reinterpret_cast<const char *>(message), off);
 }
 
 /**
@@ -306,16 +307,39 @@ bool sendFpsIfDue(FpsState &last) {
 }
 
 /**
- * Drains the ring to the socket, and sends FRAME when the present thread's values change and FPS once
- * a second, until a send fails or the reader thread sees the socket close.
+ * Sends PRESENT if the game presented a frame since the last one sent and the overlay draws a surface,
+ * so Java draws the overlay's next frame as each game frame goes out. Presents made while no surface is
+ * drawn are skipped, not sent later.
+ *
+ * @param last the present count last seen, updated each call
+ * @return false if the send failed
+ */
+bool sendPresentIfNew(uint64_t &last) {
+    uint64_t presents = overlay::presents();
+    if (presents == last) {
+        return true;
+    }
+    last = presents;
+    if (overlay::frameInfo().generation == 0) {
+        return true;
+    }
+    uint64_t regs[4] = {presents, 0, 0, 0};
+    return sendDirect(PRESENT_EVENT_ID, regs);
+}
+
+/**
+ * Drains the ring to the socket, and sends PRESENT as the game presents while the overlay draws a
+ * surface, FRAME when the present thread's values change and FPS once a second, until a send fails or
+ * the reader thread sees the socket close.
  *
  * @return false when the connection should be re-established
  */
 bool drainRing() {
     FrameState last;
     FpsState fps;
+    uint64_t presents = overlay::presents();
     for (;;) {
-        if (!ring::sendQueued(sendExact)) {
+        if (!sendPresentIfNew(presents) || !ring::sendQueued(sendExact)) {
             return false;
         }
         if (!sendFrameIfChanged(last) || !sendFpsIfDue(fps)) {
@@ -329,8 +353,9 @@ bool drainRing() {
 }
 
 /**
- * Opens the loopback socket back to the Kraken client. Java may still be binding when we load, so
- * this retries briefly rather than failing on the first refused connection.
+ * Opens the loopback socket back to the Kraken client, with Nagle's algorithm off so each message goes
+ * out as it is sent rather than waiting for the last one's acknowledgement. Java may still be binding
+ * when we load, so this retries briefly rather than failing on the first refused connection.
  *
  * @param attempts how many times to retry, 100 ms apart
  * @return true once connected
@@ -340,6 +365,8 @@ bool connectToJava(int attempts) {
     if (g_sock == INVALID_SOCKET) {
         return false;
     }
+    BOOL noDelay = TRUE;
+    setsockopt(g_sock, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char *>(&noDelay), sizeof(noDelay));
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = htons(KRAKEN_PORT);

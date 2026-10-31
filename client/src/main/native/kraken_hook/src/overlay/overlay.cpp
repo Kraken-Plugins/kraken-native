@@ -492,13 +492,18 @@ void overlayFrame() {
 }
 
 /**
- * The present detour: draws the overlay over the finished frame, then presents it.
+ * The present detour: draws the overlay over the finished frame, then presents it. While a surface is
+ * drawn, it wakes the writer thread before presenting, so the writer sends PRESENT and Java starts the
+ * overlay's next frame while the game waits on the swap.
  *
  * @param self the client's GL context object
  */
 void __fastcall presentDetour(void *self) {
     g_presents.fetch_add(1, std::memory_order_relaxed);
     overlayFrame();
+    if (g_drawnGeneration.load(std::memory_order_relaxed) != 0) {
+        ring::wakeWriter();
+    }
     using Fn = void(__fastcall *)(void *);
     reinterpret_cast<Fn>(g_presentTrampoline)(self);
 }
