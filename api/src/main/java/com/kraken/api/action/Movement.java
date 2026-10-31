@@ -3,6 +3,13 @@ package com.kraken.api.action;
 import com.kraken.api.Client;
 import com.kraken.api.coords.LocalPoint;
 import com.kraken.api.coords.WorldPoint;
+import com.kraken.api.gameval.InterfaceID;
+import com.kraken.api.gameval.VarPlayerID;
+import com.kraken.api.internal.action.Toggle;
+import com.kraken.api.scene.WorldView;
+import com.kraken.api.widgets.Widget;
+
+import java.util.logging.Logger;
 
 /**
  * Walking and running. Get it from {@code client.getMovement()} or inject it.
@@ -12,7 +19,15 @@ import com.kraken.api.coords.WorldPoint;
  */
 public final class Movement {
 
+    private static final Logger log = Logger.getLogger("kraken.api");
+
+    /**
+     * The run orbs, the one with the minimap first, then the one without.
+     */
+    private static final int[] RUN_ORBS = {InterfaceID.Orbs.RUNBUTTON, InterfaceID.OrbsNomap.RUNBUTTON};
+
     private final Client client;
+    private final Toggle runToggle;
 
     /**
      * Creates the service. {@code Client} makes the one plugins use.
@@ -21,6 +36,7 @@ public final class Movement {
      */
     public Movement(Client client) {
         this.client = client;
+        this.runToggle = new Toggle(client, () -> client.getVarpValue(VarPlayerID.OPTION_RUN), value -> value == 1);
     }
 
     /**
@@ -31,7 +47,7 @@ public final class Movement {
      *         outside the loaded scene
      */
     public ActionResult walk(WorldPoint tile) {
-        throw new UnsupportedOperationException("not built yet");
+        return client.getInteractions().walk(tile);
     }
 
     /**
@@ -42,7 +58,12 @@ public final class Movement {
      *         the loaded scene
      */
     public ActionResult walk(LocalPoint point) {
-        throw new UnsupportedOperationException("not built yet");
+        WorldView top = client.getTopLevelWorldView();
+        if (point.getWorldView() != top.getId()) {
+            log.fine(() -> "the local point " + point + " is not in the top-level world");
+            return ActionResult.OUT_OF_SCENE;
+        }
+        return walk(WorldPoint.fromLocal(top, point.getX(), point.getY(), top.getPlane()));
     }
 
     /**
@@ -52,7 +73,7 @@ public final class Movement {
      * @return true when running
      */
     public boolean isRunning() {
-        throw new UnsupportedOperationException("not built yet");
+        return runToggle.isOn();
     }
 
     /**
@@ -63,7 +84,12 @@ public final class Movement {
      *         why nothing was sent, {@link ActionResult#NOT_FOUND} if the run orb isn't loaded
      */
     public ActionResult setRunning(boolean running) {
-        throw new UnsupportedOperationException("not built yet");
+        Widget orb = runOrb();
+        if (orb == null) {
+            log.fine("no run orb is loaded, so running isn't changed");
+            return ActionResult.NOT_FOUND;
+        }
+        return runToggle.set(running, orb::click);
     }
 
     /**
@@ -72,6 +98,28 @@ public final class Movement {
      * @return the destination tile's centre, or null when there is none
      */
     public LocalPoint getDestination() {
-        throw new UnsupportedOperationException("not built yet");
+        return client.getLocalDestinationLocation();
+    }
+
+    /**
+     * The run orb to click: the first of the run orbs that is loaded and not hidden, else the first one loaded.
+     *
+     * @return the orb's component, or null if neither run orb is loaded
+     */
+    private Widget runOrb() {
+        Widget loaded = null;
+        for (int id : RUN_ORBS) {
+            Widget orb = client.getWidget(id);
+            if (orb == null) {
+                continue;
+            }
+            if (!orb.isHidden()) {
+                return orb;
+            }
+            if (loaded == null) {
+                loaded = orb;
+            }
+        }
+        return loaded;
     }
 }

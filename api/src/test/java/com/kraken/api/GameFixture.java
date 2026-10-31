@@ -203,7 +203,7 @@ public final class GameFixture {
      */
     private static final long ARCHIVE_HEAP = 0xa10000000L;
 
-    public static final int VARP_COUNT = 64;
+    public static final int VARP_COUNT = 256;
     public static final int SCENE_SIZE = 8;
     public static final int CYCLE = 150;
     /**
