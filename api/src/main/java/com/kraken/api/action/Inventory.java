@@ -3,10 +3,21 @@ package com.kraken.api.action;
 import com.kraken.api.Client;
 import com.kraken.api.actor.NPC;
 import com.kraken.api.actor.Player;
+import com.kraken.api.definition.ItemComposition;
+import com.kraken.api.gameval.InterfaceID;
+import com.kraken.api.gameval.InventoryID;
+import com.kraken.api.internal.action.Interactions;
+import com.kraken.api.internal.action.OptionMatcher;
 import com.kraken.api.item.Item;
+import com.kraken.api.item.ItemContainer;
 import com.kraken.api.scene.TileItem;
 import com.kraken.api.scene.TileObject;
 import com.kraken.api.widgets.Widget;
+
+import java.util.Objects;
+import java.util.function.Function;
+import java.util.function.Predicate;
+import java.util.logging.Logger;
 
 /**
  * The inventory. Get it from {@code client.getInventory()} or inject it.
@@ -17,6 +28,20 @@ import com.kraken.api.widgets.Widget;
  * {@code inventory.interact(ItemID.COINS, "Deposit-All")} works while the bank is open.
  */
 public final class Inventory {
+
+    private static final Logger log = Logger.getLogger("kraken.api");
+
+    /**
+     * The inventory panels the actions go through, the first one showing winning: the bank's side panel, a shop's,
+     * the deposit box's and the side panel's.
+     */
+    private static final int[] PANELS = {InterfaceID.Bankside.ITEMS, InterfaceID.Shopside.ITEMS,
+            InterfaceID.BankDepositbox.INVENTORY, InterfaceID.Inventory.ITEMS};
+
+    /**
+     * The ops that put an item on, in the order {@link #wieldOrWear} tries them.
+     */
+    private static final String[] EQUIP_OPS = {"Wield", "Wear", "Equip"};
 
     private final Client client;
 
@@ -36,7 +61,8 @@ public final class Inventory {
      * @return true if a slot holds it
      */
     public boolean contains(int itemId) {
-        throw new UnsupportedOperationException("not built yet");
+        ItemContainer items = container();
+        return items != null && items.contains(itemId);
     }
 
     /**
@@ -46,25 +72,28 @@ public final class Inventory {
      * @return the total quantity; 0 if none
      */
     public int count(int itemId) {
-        throw new UnsupportedOperationException("not built yet");
+        ItemContainer items = container();
+        return items == null ? 0 : items.count(itemId);
     }
 
     /**
      * Whether every slot of the inventory holds an item.
      *
-     * @return true if it is full
+     * @return true if it is full; false if it can't be read
      */
     public boolean isFull() {
-        throw new UnsupportedOperationException("not built yet");
+        ItemContainer items = container();
+        return items != null && items.count() >= items.size();
     }
 
     /**
      * Whether no slot of the inventory holds an item.
      *
-     * @return true if it is empty
+     * @return true if it is empty; false if it can't be read
      */
     public boolean isEmpty() {
-        throw new UnsupportedOperationException("not built yet");
+        ItemContainer items = container();
+        return items != null && items.count() == 0;
     }
 
     /**
@@ -73,7 +102,8 @@ public final class Inventory {
      * @return the items, empty slots as id -1; empty if the inventory can't be read
      */
     public Item[] getItems() {
-        throw new UnsupportedOperationException("not built yet");
+        ItemContainer items = container();
+        return items == null ? new Item[0] : items.getItems();
     }
 
     /**
@@ -83,7 +113,7 @@ public final class Inventory {
      * @return the slot's widget, or null if no slot holds it or no inventory panel is loaded
      */
     public Widget getSlot(int itemId) {
-        throw new UnsupportedOperationException("not built yet");
+        return slot(slot -> slot.getItemId() == itemId);
     }
 
     /**
@@ -94,7 +124,14 @@ public final class Inventory {
      * @return the slot's widget, or null if no slot holds such an item or no inventory panel is loaded
      */
     public Widget getSlot(String name) {
-        throw new UnsupportedOperationException("not built yet");
+        String wanted = OptionMatcher.plain(Objects.requireNonNull(name, "name"));
+        if (wanted.isEmpty()) {
+            return null;
+        }
+        return slot(slot -> {
+            ItemComposition type = client.getItemDefinition(slot.getItemId());
+            return type != null && OptionMatcher.plain(type.getName()).equalsIgnoreCase(wanted);
+        });
     }
 
     /**
@@ -105,18 +142,22 @@ public final class Inventory {
      * @return {@link ActionResult#SENT}, or why nothing was sent; {@link ActionResult#NOT_FOUND} if no slot holds it
      */
     public ActionResult interact(int itemId, String option) {
-        throw new UnsupportedOperationException("not built yet");
+        Objects.requireNonNull(option, "option");
+        return withSlot(itemId, slot -> slot.interact(option));
     }
 
     /**
-     * Uses one item on another, both in the inventory.
+     * Uses one item on another, both in the inventory. Using an item on itself takes two slots holding it.
      *
      * @param itemId   the item to use
      * @param onItemId the item to use it on
      * @return {@link ActionResult#SENT}, or why nothing was sent; {@link ActionResult#NOT_FOUND} if either isn't held
      */
     public ActionResult use(int itemId, int onItemId) {
-        throw new UnsupportedOperationException("not built yet");
+        return withSlot(itemId, source -> {
+            Widget target = slot(slot -> slot.getItemId() == onItemId && slot.getIndex() != source.getIndex());
+            return target == null ? notFound(onItemId) : source.useOn(target);
+        });
     }
 
     /**
@@ -127,7 +168,7 @@ public final class Inventory {
      * @return {@link ActionResult#SENT}, or why nothing was sent; {@link ActionResult#NOT_FOUND} if the item isn't held
      */
     public ActionResult use(int itemId, NPC target) {
-        throw new UnsupportedOperationException("not built yet");
+        return withSlot(itemId, slot -> slot.useOn(target));
     }
 
     /**
@@ -138,7 +179,7 @@ public final class Inventory {
      * @return {@link ActionResult#SENT}, or why nothing was sent; {@link ActionResult#NOT_FOUND} if the item isn't held
      */
     public ActionResult use(int itemId, Player target) {
-        throw new UnsupportedOperationException("not built yet");
+        return withSlot(itemId, slot -> slot.useOn(target));
     }
 
     /**
@@ -149,7 +190,7 @@ public final class Inventory {
      * @return {@link ActionResult#SENT}, or why nothing was sent; {@link ActionResult#NOT_FOUND} if the item isn't held
      */
     public ActionResult use(int itemId, TileObject target) {
-        throw new UnsupportedOperationException("not built yet");
+        return withSlot(itemId, slot -> slot.useOn(target));
     }
 
     /**
@@ -160,7 +201,7 @@ public final class Inventory {
      * @return {@link ActionResult#SENT}, or why nothing was sent; {@link ActionResult#NOT_FOUND} if the item isn't held
      */
     public ActionResult use(int itemId, TileItem target) {
-        throw new UnsupportedOperationException("not built yet");
+        return withSlot(itemId, slot -> slot.useOn(target));
     }
 
     /**
@@ -170,7 +211,7 @@ public final class Inventory {
      * @return {@link ActionResult#SENT}, or why nothing was sent
      */
     public ActionResult drop(int itemId) {
-        throw new UnsupportedOperationException("not built yet");
+        return interact(itemId, "Drop");
     }
 
     /**
@@ -181,7 +222,7 @@ public final class Inventory {
      *         no Wield option
      */
     public ActionResult wield(int itemId) {
-        throw new UnsupportedOperationException("not built yet");
+        return interact(itemId, "Wield");
     }
 
     /**
@@ -192,7 +233,7 @@ public final class Inventory {
      *         no Wear option
      */
     public ActionResult wear(int itemId) {
-        throw new UnsupportedOperationException("not built yet");
+        return interact(itemId, "Wear");
     }
 
     /**
@@ -203,6 +244,65 @@ public final class Inventory {
      *         of them
      */
     public ActionResult wieldOrWear(int itemId) {
-        throw new UnsupportedOperationException("not built yet");
+        return withSlot(itemId, slot -> {
+            String[] options = client.getInteractions().actions(slot);
+            for (String op : EQUIP_OPS) {
+                if (OptionMatcher.match(options, op, Interactions.COMPONENT_OPS) > 0) {
+                    return slot.interact(op);
+                }
+            }
+            log.fine(() -> "item " + itemId + " has no Wield, Wear or Equip option; it has "
+                    + OptionMatcher.describe(options));
+            return ActionResult.NO_SUCH_OPTION;
+        });
+    }
+
+    private ItemContainer container() {
+        return client.getItemContainer(InventoryID.INV);
+    }
+
+    private ActionResult withSlot(int itemId, Function<Widget, ActionResult> action) {
+        Widget slot = getSlot(itemId);
+        return slot == null ? notFound(itemId) : action.apply(slot);
+    }
+
+    private static ActionResult notFound(int itemId) {
+        log.fine(() -> "no inventory slot shown holds item " + itemId);
+        return ActionResult.NOT_FOUND;
+    }
+
+    /**
+     * The first slot of the panel shown that passes a test.
+     *
+     * @param wanted the test
+     * @return the slot's widget, or null if none passes or no panel is loaded
+     */
+    private Widget slot(Predicate<Widget> wanted) {
+        Widget panel = panel();
+        if (panel == null) {
+            return null;
+        }
+        for (Widget slot : panel.getDynamicChildren()) {
+            if (slot.getItemId() >= 0 && wanted.test(slot)) {
+                return slot;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The inventory panel the actions go through: the first of {@link #PANELS} that is showing, else the side panel's
+     * while it is loaded behind another tab.
+     *
+     * @return the panel's widget, or null if none is loaded
+     */
+    private Widget panel() {
+        for (int id : PANELS) {
+            Widget panel = client.getWidget(id);
+            if (panel != null && !panel.isHidden()) {
+                return panel;
+            }
+        }
+        return client.getWidget(InterfaceID.Inventory.ITEMS);
     }
 }
