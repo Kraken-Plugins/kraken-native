@@ -61,12 +61,13 @@ public final class Prayers {
      * @param prayer the prayer
      * @param active true to turn it on
      * @return {@link ActionResult#SENT}, also when it is already in the state asked for (nothing is sent then); or why
-     *         nothing was sent, {@link ActionResult#NOT_FOUND} if the prayer book isn't loaded or isn't shown
+     *         nothing was sent, {@link ActionResult#NOT_FOUND} if the prayer book isn't loaded. It needn't be the
+     *         side tab shown: the client keeps it loaded behind the others.
      */
     public ActionResult setActive(Prayer prayer, boolean active) {
         Widget widget = client.getWidget(prayer.getComponentId());
-        if (widget == null || widget.isHidden()) {
-            log.fine(() -> prayer + " isn't shown: the prayer book isn't loaded or open");
+        if (widget == null) {
+            log.fine(() -> prayer + " can't be switched: the prayer book isn't loaded");
             return ActionResult.NOT_FOUND;
         }
         return toggles.get(prayer).set(active, widget::click);

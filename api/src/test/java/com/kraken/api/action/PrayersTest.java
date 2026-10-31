@@ -143,10 +143,11 @@ class PrayersTest {
     }
 
     @Test
-    void aPrayerNeedsItsBookLoadedAndShown() throws IOException {
+    void aPrayerNeedsItsBookLoadedButNotShown() throws IOException {
         game.closeGroup(PRAYER_BOOK);
-        assertEquals(ActionResult.NOT_FOUND, prayers.setActive(Prayer.THICK_SKIN, true));
-        assertTrue(sent.isEmpty());
+        assertEquals(ActionResult.SENT, prayers.setActive(Prayer.THICK_SKIN, true),
+                "behind another side tab, the book is still loaded");
+        assertEquals(1, sent.size());
 
         GameFixture fresh = new GameFixture();
         Client bare = new Client(fresh.memory, fresh.map);
