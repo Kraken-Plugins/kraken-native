@@ -5,7 +5,6 @@ import com.google.inject.Singleton;
 import com.google.inject.name.Named;
 import com.kraken.api.Client;
 import com.kraken.api.GameSession;
-import com.kraken.client.ui.HomePanel;
 import com.sun.jna.platform.win32.WinDef.HWND;
 import lombok.AllArgsConstructor;
 import lombok.extern.java.Log;
@@ -14,9 +13,6 @@ import java.awt.Dimension;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
-import java.nio.file.Files;
-import java.security.MessageDigest;
-import java.util.HexFormat;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -32,7 +28,6 @@ public final class GameLauncher {
     @Named("exe")
     private final File exe;
     private final GameView view;
-    private final HomePanel home;
     private final ProcessAttacher attacher;
     private final ExitHandler exitHandler;
 
@@ -49,9 +44,7 @@ public final class GameLauncher {
     }
 
     private void run() throws Exception {
-        String build = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(exe.toPath())), 0, 8);
-        home.set("Build", build);
-        log.info("Launching " + exe + " (build " + build + ")");
+        log.info("Launching " + exe);
 
         Process process = new ProcessBuilder(exe.getPath()).directory(exe.getParentFile()).redirectErrorStream(true).start();
         Runtime.getRuntime().addShutdownHook(new Thread(process::destroy));
@@ -60,7 +53,6 @@ public final class GameLauncher {
         Thread output = new Thread(() -> new BufferedReader(new InputStreamReader(process.getInputStream())).lines().forEach(clientLog::info), "osclient-output");
         output.setDaemon(true);
         output.start();
-        home.set("PID", String.valueOf(process.pid()));
         log.info("osclient started (pid " + process.pid() + "), waiting for its window");
 
         HWND hwnd;

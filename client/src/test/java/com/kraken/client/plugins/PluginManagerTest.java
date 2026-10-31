@@ -18,6 +18,7 @@ import com.kraken.client.plugins.config.Config;
 import com.kraken.client.plugins.config.ConfigGroup;
 import com.kraken.client.plugins.config.ConfigItem;
 import com.kraken.client.plugins.config.ConfigManager;
+import com.kraken.client.worldhopper.WorldHopperConfig;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -82,6 +83,8 @@ class PluginManagerTest {
             binder.bind(EventBus.class).toInstance(bus);
             binder.bind(ConfigManager.class).toInstance(config);
             binder.bind(KrakenConfig.class).toInstance(config.getConfig(KrakenConfig.class));
+            binder.bind(WorldHopperConfig.class).toInstance(config.getConfig(WorldHopperConfig.class));
+            binder.bind(ScheduledExecutorService.class).toInstance(scheduler);
         });
         parent = root.createChildInjector(new SessionModule(attachedSession(), 0));
         return new PluginManager(bus, config, Runnable::run, developerMode);

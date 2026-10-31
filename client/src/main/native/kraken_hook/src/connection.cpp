@@ -177,7 +177,7 @@ bool readBlock(void (*install)(FrameReader)) {
 }
 
 /**
- * Reads the handshake and installs any hooks not installed yet. The handshake is: magic "KRK7", a
+ * Reads the handshake and installs any hooks not installed yet. The handshake is: magic "KRK8", a
  * u16 slot count, each slot's rva, id configuration, argument count and capture plan, then the
  * Client* slot, the pump function and the present function, then five length-prefixed blocks: the
  * script block, the menu block, the key block, the visibility block and the component block (each
@@ -189,7 +189,7 @@ bool readBlock(void (*install)(FrameReader)) {
  */
 bool readHandshake() {
     char magic[4];
-    if (!recvExact(magic, 4) || std::memcmp(magic, "KRK7", 4) != 0) {
+    if (!recvExact(magic, 4) || std::memcmp(magic, "KRK8", 4) != 0) {
         return false;
     }
     uint16_t count = 0;

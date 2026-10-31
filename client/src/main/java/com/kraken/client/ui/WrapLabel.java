@@ -21,9 +21,18 @@ public final class WrapLabel extends JLabel {
         this(text, SwingConstants.LEFT);
     }
 
-    /** Plain text, aligned {@link SwingConstants#LEFT} or {@link SwingConstants#CENTER}. */
+    /**
+     * Plain text, aligned {@link SwingConstants#LEFT}, {@link SwingConstants#CENTER} or {@link SwingConstants#RIGHT}.
+     *
+     * @param text      the text
+     * @param alignment the alignment; anything else is left
+     */
     public WrapLabel(String text, int alignment) {
-        this.align = alignment == SwingConstants.CENTER ? "center" : "left";
+        this.align = switch (alignment) {
+            case SwingConstants.CENTER -> "center";
+            case SwingConstants.RIGHT -> "right";
+            default -> "left";
+        };
         setHorizontalAlignment(alignment);
         setPlainText(text);
     }

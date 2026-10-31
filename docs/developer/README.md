@@ -35,7 +35,7 @@ and links to the deep dives below.
 | [Menu edits](menu-edits.md) | How the hook swaps, hides, rewrites and adds rows of the right-click menu by rules, as the game rebuilds it |
 | [Key interception](key-interception.md) | How the hook remaps and blocks keys in the game window's procedure, by a table of modes |
 | [Entity visibility](entity-visibility.md) | How the hook hides players, NPCs, projectiles and graphics objects by rules it applies every frame |
-| [Widget writes](widget-writes.md) | How the hook writes interface components' drag fields and clears listeners by id, and how scripts report the components they act on |
+| [Widget writes](widget-writes.md) | How the hook writes interface components' drag fields, clears listeners and sets texts by id, and how scripts report the components they act on |
 | [Reverse engineering](reverse-engineering.md) | Exploring a build to find or fix a value: the primer, Lua bindings, `program.db`, provenance, `analysis.json`, the debug symbols, the probe |
 | [Plugin ports](plugin-ports.md) | Which RuneLite plugins are ported, which of their settings work, and what the client needs for the rest |
 

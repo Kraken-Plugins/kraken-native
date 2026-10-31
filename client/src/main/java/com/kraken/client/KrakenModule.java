@@ -6,6 +6,7 @@ import com.google.inject.Singleton;
 import com.google.inject.name.Names;
 import com.kraken.api.eventbus.EventBus;
 import com.kraken.client.plugins.config.ConfigManager;
+import com.kraken.client.worldhopper.WorldHopperConfig;
 import lombok.AllArgsConstructor;
 
 import java.io.File;
@@ -51,6 +52,18 @@ public final class KrakenModule extends AbstractModule {
     @Singleton
     KrakenConfig provideKrakenConfig(ConfigManager configManager) {
         return configManager.getConfig(KrakenConfig.class);
+    }
+
+    /**
+     * The World Hopper's settings, which its page and the session's hopper share.
+     *
+     * @param configManager the settings store
+     * @return the settings
+     */
+    @Provides
+    @Singleton
+    WorldHopperConfig provideWorldHopperConfig(ConfigManager configManager) {
+        return configManager.getConfig(WorldHopperConfig.class);
     }
 
     /**

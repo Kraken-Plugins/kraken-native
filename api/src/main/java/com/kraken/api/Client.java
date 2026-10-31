@@ -10,6 +10,7 @@ import com.kraken.api.definition.ItemComposition;
 import com.kraken.api.definition.NPCComposition;
 import com.kraken.api.definition.ObjectComposition;
 import com.kraken.api.definition.VarbitComposition;
+import com.kraken.api.gameval.InterfaceID;
 import com.kraken.api.highlight.Highlights;
 import com.kraken.api.menu.MenuEdits;
 import com.kraken.api.internal.reader.ActorReader;
@@ -62,7 +63,8 @@ import java.util.function.BooleanSupplier;
  * <p>Every getter follows the mapped offset chains in the live process, replaying what the client's own Lua handlers
  * read; a getter's Javadoc names the Lua function it mirrors. The API reads, so input, models and setters are not
  * exposed. A few things it does change, through the client's native hook: what the client highlights
- * ({@link #getHighlights()}), the menu actions it runs ({@link #getActions()}, {@link #menuAction}), the rows of the
+ * ({@link #getHighlights()}), the menu actions it runs ({@link #getActions()}, {@link #menuAction}, and the world hops
+ * {@link #openWorldHopper} and {@link #hopToWorld} make of them), the rows of the
  * right-click menu ({@link #getMenuEdits()}, {@link #createMenuEntry}, {@link #setMenuEntries} and the
  * {@link MenuEntry} setters), which entities it draws ({@link #getEntityVisibility()}), and a few fields of interface
  * components (the {@link Widget} setters). Reads are tolerant: an unreadable or logged-out state gives -1, false, "",
@@ -201,6 +203,7 @@ public final class Client extends GameReader {
     private final int cTick;
     private final int gameStateLoggedIn;
     private final int cWorldFlags;
+    private final int cCurrentWorld;
     private final long cycleRva;
     private final int cActorSteps;
     private final int cDestination;
@@ -283,6 +286,7 @@ public final class Client extends GameReader {
         this.cTick = mapping.offset("Client.tickCount");
         this.gameStateLoggedIn = mapping.enumValue("gameState", "LOGGED_IN", LOGGED_IN);
         this.cWorldFlags = optionalOffset("Client.worldFlags");
+        this.cCurrentWorld = optionalOffset("Client.currentWorld");
         this.cycleRva = optionalGlobal("cycle");
         this.cActorSteps = optionalOffset("Client.actorSteps");
         this.cDestination = optionalOffset("Client.destination");
@@ -418,6 +422,37 @@ public final class Client extends GameReader {
      */
     public EnumSet<WorldType> getWorldType() {
         return WorldType.fromMask(worldFlags());
+    }
+
+    /**
+     * The world the client is on: the number the cs2 command {@code map_world} gives scripts, e.g. 302. No Lua
+     * function reads it.
+     *
+     * @return the world's number, or -1 if it can't be read or this build's mapping lacks it
+     */
+    public int getWorld() {
+        long client = clientBase();
+        return client == 0 || cCurrentWorld < 0 ? -1 : safeInt(client + cCurrentWorld, -1);
+    }
+
+    /**
+     * Opens the world switcher as its button on the logout panel does: a component op the server answers by opening
+     * the switcher in the panel's place, from the next tick or so. The switcher has to be open for
+     * {@link #hopToWorld} to work.
+     */
+    public void openWorldHopper() {
+        actions.menuAction(-1, InterfaceID.Logout.WORLD_SWITCHER, MenuAction.CC_OP, 1);
+    }
+
+    /**
+     * Hops to a world as clicking its row in the open world switcher does: the "Switch" op on the switcher's row of
+     * buttons, with the world's number as the slot. The server makes the hop, so it can still refuse it (during
+     * combat, say), and the client sends nothing unless the world switcher is open ({@link #openWorldHopper}).
+     *
+     * @param world the world; only its id is used
+     */
+    public void hopToWorld(World world) {
+        actions.menuAction(world.getId(), InterfaceID.Worldswitcher.BUTTONS, MenuAction.CC_OP, 1);
     }
 
     /**

@@ -62,6 +62,7 @@
       "connection": "0x31a0",
       "pluginGate": "0x418690",
       "topLevelInterface": "0x413bc8",
+      "currentWorld": "0x32b4",
       "highlightManager": "0x89680"
     },
     "Varcs": {
@@ -772,6 +773,8 @@
     "ifCloseSub": "0x851d0",
     "renderViewWndProc": "0x6d1e00",
     "ifListenerClear": "0x443f0",
+    "stringAssign": "0x4b840",
+    "ifInvalidate": "0x7c170",
     "highlightNpcOn": "0x1b9ef0",
     "highlightNpcOff": "0x1bbdf0",
     "highlightNpcTypeOn": "0x1ba460",

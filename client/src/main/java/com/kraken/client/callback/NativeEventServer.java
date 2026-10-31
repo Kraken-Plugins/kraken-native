@@ -16,6 +16,7 @@ import com.kraken.client.FrameRates;
 import com.kraken.client.input.KeyHook;
 import com.kraken.client.input.KeyManager;
 import com.kraken.client.ui.overlay.GameSurface;
+import lombok.Getter;
 import lombok.extern.java.Log;
 
 import java.io.DataInputStream;
@@ -89,6 +90,50 @@ import java.util.logging.Level;
 public final class NativeEventServer {
 
     /**
+     * Where the hook has got to.
+     */
+    public enum Status {
+
+        /**
+         * {@link #install} hasn't been called yet.
+         */
+        NOT_INSTALLED,
+
+        /**
+         * Injecting the DLL, or waiting for it to connect.
+         */
+        INJECTING,
+
+        /**
+         * The DLL is connected.
+         */
+        CONNECTED,
+
+        /**
+         * The DLL dropped its connection. It tries again every second, and the events come from the timer poll
+         * meanwhile.
+         */
+        DISCONNECTED,
+
+        /**
+         * The DLL couldn't be found or injected, or the mapping gives it nothing to hook: the events come from the
+         * timer poll alone. The console says why.
+         */
+        UNAVAILABLE
+    }
+
+    /**
+     * What the connected DLL reported installing after the handshake.
+     *
+     * @param installed the hooks it installed
+     * @param requested the hooks the handshake asked for
+     * @param protocol  the protocol version it speaks
+     * @param features  what it does besides reporting events, by name ({@link NativeProtocol#featureNames})
+     */
+    public record Report(long installed, long requested, long protocol, List<String> features) {
+    }
+
+    /**
      * Loopback port the injected DLL connects back on; must match {@code KRAKEN_PORT} in the DLL's src/protocol.h.
      */
     static final int PORT = 42069;
@@ -127,6 +172,18 @@ public final class NativeEventServer {
      * The connection whose DLL paces frames, which the frame cap goes to; null while there is none.
      */
     private volatile Connection pacing;
+
+    /**
+     * Where the hook has got to.
+     */
+    @Getter
+    private volatile Status status = Status.NOT_INSTALLED;
+
+    /**
+     * What the connected DLL reported installing; null until it reports, and while it isn't connected.
+     */
+    @Getter
+    private volatile Report report;
 
     /**
      * Creates the server for the attached game.
@@ -177,6 +234,7 @@ public final class NativeEventServer {
      */
     public void install() {
         if (armed.compareAndSet(false, true)) {
+            status = Status.INJECTING;
             Thread thread = new Thread(this::inject, "kraken-hook-install");
             thread.setDaemon(true);
             thread.start();
@@ -189,6 +247,7 @@ public final class NativeEventServer {
     private void inject() {
         Path dll = locateDll();
         if (dll == null) {
+            status = Status.UNAVAILABLE;
             return;
         }
         Build build = build();
@@ -222,6 +281,7 @@ public final class NativeEventServer {
                 && menu.length == 0 && keys.length == 0) {
             log.warning("Native event hook: mapping " + mapping.version()
                     + " has no hookable events or drawing functions; continuing on the timer poll.");
+            status = Status.UNAVAILABLE;
             return;
         }
         byte[] handshake = NativeProtocol.handshake(build.slots, drawing, scripts, menu, keys, visibility,
@@ -243,6 +303,7 @@ public final class NativeEventServer {
         } catch (IOException | RuntimeException e) {
             log.log(Level.WARNING, "Could not install the native event hook", e);
             closeQuietly(server);
+            status = Status.UNAVAILABLE;
         }
     }
 
@@ -412,6 +473,7 @@ public final class NativeEventServer {
                     Connection open = new Connection(socket.getOutputStream());
                     open.send(handshake);
                     connection = open;
+                    status = Status.CONNECTED;
                     session.setHookConnected(true);
                     log.info("Native event hook connected from " + socket.getRemoteSocketAddress());
                     read(new DataInputStream(in), idToName, open);
@@ -434,6 +496,8 @@ public final class NativeEventServer {
                     keyManager.setKeyHook(null);
                     surface.disconnected();
                     session.setHookConnected(false);
+                    report = null;
+                    status = Status.DISCONNECTED;
                     synchronized (this) {
                         notifyAll();
                     }
@@ -441,6 +505,7 @@ public final class NativeEventServer {
             }
         } catch (IOException e) {
             log.log(Level.WARNING, "Native event hook server error", e);
+            status = Status.UNAVAILABLE;
         }
     }
 
@@ -519,6 +584,8 @@ public final class NativeEventServer {
         switch (event.id()) {
             case NativeProtocol.STATUS_EVENT_ID -> {
                 long features = event.reg(NativeEvent.R8);
+                report = new Report(event.reg(NativeEvent.RCX), event.reg(NativeEvent.RDX), event.reg(NativeEvent.R9),
+                        NativeProtocol.featureNames(features));
                 log.info("Native event hook installed " + event.reg(NativeEvent.RCX) + " of "
                         + event.reg(NativeEvent.RDX) + " requested hooks (protocol " + event.reg(NativeEvent.R9)
                         + ", calls " + ((features & NativeProtocol.FEATURE_CALLS) != 0) + ", overlay "

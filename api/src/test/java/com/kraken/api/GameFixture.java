@@ -448,6 +448,15 @@ public final class GameFixture {
     }
 
     /**
+     * Sets the number of the world the client is on.
+     *
+     * @param world the world's number
+     */
+    public void setCurrentWorld(int world) {
+        memory.putInt(CLIENT + map.offset("Client.currentWorld"), world);
+    }
+
+    /**
      * Sets a slot of an existing inventory (93, 94 or 95), growing its vectors to cover it like the client does.
      *
      * @param inv   the inventory id (93, 94 or 95)

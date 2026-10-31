@@ -9,6 +9,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -83,5 +84,39 @@ class GroundMarkerPluginTest {
                 (west + 1) << 8 | south + 1}, GroundMarkerPlugin.regions(baseX, baseY, 104, 104));
         assertEquals(new WorldPoint(3200, 3200, 0).getRegionID(), (west + 1) << 8 | south + 1);
         assertArrayEquals(new int[0], GroundMarkerPlugin.regions(-1, -1, 104, 104), "an unread scene");
+    }
+
+    @Test
+    void aTileIsFoundWhateverTheColourAndLabel() {
+        GroundMarkerPoint mark = new GroundMarkerPoint(LUMBRIDGE, 5, 6, 0, Color.RED, "a");
+        GroundMarkerPoint tile = new GroundMarkerPoint(LUMBRIDGE, 5, 6, 0, null, null);
+        assertSame(mark, GroundMarkerPlugin.find(List.of(mark), tile));
+        assertNull(GroundMarkerPlugin.find(List.of(mark), new GroundMarkerPoint(LUMBRIDGE, 5, 6, 1, null, null)),
+                "another plane");
+    }
+
+    @Test
+    void replacingAMarkKeepsItsPlace() {
+        GroundMarkerPoint first = new GroundMarkerPoint(LUMBRIDGE, 1, 1, 0, Color.RED, null);
+        GroundMarkerPoint second = new GroundMarkerPoint(LUMBRIDGE, 2, 2, 0, Color.RED, null);
+        GroundMarkerPoint relabelled = new GroundMarkerPoint(LUMBRIDGE, 1, 1, 0, Color.BLUE, "here");
+        List<GroundMarkerPoint> replaced = GroundMarkerPlugin.replace(List.of(first, second), relabelled);
+        assertEquals(List.of(first, second), replaced);
+        assertEquals("here", replaced.get(0).getLabel());
+        assertEquals(Color.BLUE, replaced.get(0).getColor());
+        GroundMarkerPoint elsewhere = new GroundMarkerPoint(LUMBRIDGE, 9, 9, 0, Color.BLUE, null);
+        assertEquals(List.of(first, second), GroundMarkerPlugin.replace(List.of(first, second), elsewhere),
+                "an unmarked tile isn't marked by a replace");
+    }
+
+    @Test
+    void recolouringARegionKeepsItsLabels() {
+        GroundMarkerPoint labelled = new GroundMarkerPoint(LUMBRIDGE, 1, 1, 0, Color.RED, "a");
+        GroundMarkerPoint plain = new GroundMarkerPoint(LUMBRIDGE, 2, 2, 0, null, null);
+        List<GroundMarkerPoint> recoloured = GroundMarkerPlugin.recolorAll(List.of(labelled, plain), Color.YELLOW);
+        assertEquals(Color.YELLOW, recoloured.get(0).getColor());
+        assertEquals("a", recoloured.get(0).getLabel());
+        assertEquals(Color.YELLOW, recoloured.get(1).getColor());
+        assertNull(recoloured.get(1).getLabel());
     }
 }

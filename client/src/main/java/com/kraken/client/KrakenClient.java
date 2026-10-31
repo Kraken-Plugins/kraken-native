@@ -9,6 +9,7 @@ import com.kraken.client.ui.KrakenFrame;
 import com.kraken.client.ui.Theme;
 import com.kraken.client.ui.overlay.FpsOverlay;
 import com.kraken.client.ui.overlay.OverlayRenderer;
+import com.kraken.client.worldhopper.WorldHopper;
 import lombok.extern.java.Log;
 
 import java.io.File;
@@ -92,6 +93,9 @@ public class KrakenClient {
             exitHandler.addExitTask(hook::flushOnExit);
             hook.install();
         });
+
+        // The World Hopper's keys and hops work once the API attaches; its page is in the sidebar from launch
+        attacher.addAttachListener(session -> session.getInstance(WorldHopper.class).start());
 
         injector.getInstance(GameLauncher.class).launch();
     }

@@ -1,10 +1,12 @@
 # What the hook DLL writes to components: a component's drag dead time and dead zone, its mouse-repeat listener (and
-# the function that empties a listener slot), and the two components the cs2 runtime's ops act on. The handler of ops
-# 1300-1399 resolves the component an op acts on (for a cc_ op one of the runner's two current components, picked by
-# the instruction's operand) and dispatches through a byte table of case indices; cc_setdragdeadzone (op 1303) and
-# cc_setdragdeadtime (op 1304) pop an int into the component (extractor `cs2_components`, components.py). The
-# listener slots come from the handler of ops 1400-1499 that also gives IfType.onKey (extractor
-# `component_listeners`, keyboard.py). No Lua binding touches any of this.
+# the function that empties a listener slot), its text (and the functions that assign it and tell the client it
+# changed), and the two components the cs2 runtime's ops act on. The handler of ops 1300-1399 resolves the component
+# an op acts on (for a cc_ op one of the runner's two current components, picked by the instruction's operand) and
+# dispatches through a byte table of case indices; cc_setdragdeadzone (op 1303) and cc_setdragdeadtime (op 1304) pop
+# an int into the component (extractor `cs2_components`, components.py). The handler of ops 1100-1199 resolves its
+# component the same way; cc_settext (op 1112) assigns the popped string to IfType.text and invalidates the component
+# (extractor `cs2_set_text`, components.py). The listener slots come from the handler of ops 1400-1499 that also
+# gives IfType.onKey (extractor `component_listeners`, keyboard.py). No Lua binding touches any of this.
 keys:
   - key: IfType.dragDeadZone
     type: i32
@@ -36,6 +38,22 @@ keys:
       array and sets IfListener.count and IfListener.args to 0. Call it on the game thread.
     strategies:
       - extractor: { name: component_listeners, field: functions.ifListenerClear, cls: A }
+
+  - key: functions.stringAssign
+    type: "eastl::string* (eastl::string* dst, const char* first, const char* last)"
+    priority: P1
+    doc: Replaces a string's text with the bytes from first to last, growing it with the client's allocator when they
+      don't fit. cc_settext (op 1112) assigns a component's new IfType.text with it. Call it on the game thread.
+    strategies:
+      - extractor: { name: cs2_set_text, field: functions.stringAssign, cls: A }
+  - key: functions.ifInvalidate
+    type: "void(Client* client, const jag::shared_ptr<IfType>* component)"
+    priority: P1
+    doc: Tells the client a component changed. Flags the component's draw root for redrawing when the component was
+      drawn this cycle and notifies the component's subscribers (osrs.IfType.subscribe). The cs2 ops that set a
+      component's text or look call it after the change. Call it on the game thread.
+    strategies:
+      - extractor: { name: cs2_set_text, field: functions.ifInvalidate, cls: A }
 
   - key: ScriptRunner.activeComponent
     type: jag.shared_ptr<IfType>

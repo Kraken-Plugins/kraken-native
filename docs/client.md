@@ -75,12 +75,13 @@ If there's no mapping for your game version, the game still runs inside Kraken, 
 
 ## The Sidebar
 
-The strip on the right has four tabs:
+The strip on the right has five tabs:
 
 | Tab | What it holds |
 |---|---|
-| **Kraken** | The game's process ID, build, size and frame rates, and whether Kraken is attached |
+| **Kraken** | Versions, what the game is doing, whether Kraken and its native hook are working, and links for help |
 | **Plugins** | Every plugin, with a switch and a settings page for each |
+| **World Hopper** | Every game world, to search, filter, sort and hop to |
 | **Dev Tools** | Tools that show what Kraken reads from the game. See [Dev tools](dev-tools.md) |
 | **Settings** | Kraken's own settings |
 
@@ -90,16 +91,51 @@ turn off **Grow window for panels** to change that. Kraken reopens the panel you
 
 ### Kraken
 
+The status line under the title reads **Attached · client 241.3** once everything works. If it turns red, it says why;
+see [Troubleshooting](troubleshooting.md). Under it are four cards. A row shows `–` until Kraken knows its value, and
+some rows say more when you hover over them.
+
+**Kraken**
+
 | Row | What it shows |
 |---|---|
-| **PID** | The game's process ID |
-| **Build** | The first 16 characters of the game binary's SHA-256, which tell builds with the same version apart |
-| **Game size** | The game area's size in pixels |
-| **Game FPS** | The game's frame rate, and the cap while one applies. Needs the native hook |
+| **Version** | Kraken's version |
+| **Commit** | The commit Kraken was built from |
+| **Java** | The Java version Kraken runs on. Hover for the vendor |
+| **Plugins** | How many of the plugins on the Plugins tab are running, and how many failed to start |
 | **Overlay FPS** | How many overlay frames Kraken draws a second, or `idle` while there's nothing to draw |
 
-The status line underneath reads **Attached · client 241.3** once everything works. If it turns red, it says why;
-see [Troubleshooting](troubleshooting.md).
+**Game client**
+
+| Row | What it shows |
+|---|---|
+| **Version** | The game binary's version, such as `241.3`. The first number is the game's revision |
+| **Build** | The first 16 characters of the game binary's SHA-256, which tell builds with the same version apart. Hover for all of it |
+| **PID** | The game's process ID |
+| **Size** | The game area's size in pixels |
+| **FPS** | The game's frame rate, and the cap while one applies. Needs the native hook |
+
+**Game**, read while the Kraken tab is open
+
+| Row | What it shows |
+|---|---|
+| **State** | What the game is doing, such as `Login screen`, `Loading` or `Logged in` |
+| **Player** | Your character's name while you're logged in |
+| **World** | The world you're on |
+| **World type** | `Members` or `Free-to-play`, then anything else about the world, such as `PvP` or `High risk` |
+| **Jagex account** | The character named by the `JX_` variables Kraken passes to the game, or `not set`. See [Logging in with a Jagex account](jagex-accounts.md) |
+
+**API**
+
+| Row | What it shows |
+|---|---|
+| **Mapping** | `Bundled` for the mapping that comes with Kraken, or `Custom` for one from `kraken.mappings`. Hover for the folder |
+| **Native hook** | `Injecting…`, `Connected`, `Reconnecting…` after the game dropped it, or `Not loaded`, when the console says why. See [The native hook](#the-native-hook) |
+| **Hooks** | How many of the hooks Kraken asked for the native hook installed. Hover for its protocol version |
+| **Features** | What the native hook does besides reporting events: `calls` (highlights and menu actions), `overlay`, `frame rate`, `scripts`, `menu`, `keys`, `visibility` and `components` (widget writes) |
+
+Under the cards are links to report an issue or make a suggestion on GitHub, to the website, to these guides, and to
+the folder Kraken keeps its settings in.
 
 ### Plugins
 
@@ -112,6 +148,45 @@ Type in the search box to filter by name, description or tag. Each row has:
 
 Hover over a plugin's name to read its description. Plugins only appear once Kraken has attached to the game. The
 built-in plugins are described in [Plugins](plugins.md).
+
+### World Hopper
+
+The World Hopper tab, the globe, lists every world from the same world list the game's world switcher uses. It's
+part of Kraken, not a plugin, so there's nothing to switch on.
+
+* **Your world** is at the top, in green, with its activity. The world's row in the list is green too.
+* **Click a world** to hop to it. Kraken opens the game's world switcher if it isn't open, waits for it, and clicks the
+  world's row for you; the line at the bottom says how it's going. The game decides whether you can hop, so it can
+  refuse, for example while you're in combat.
+* **The arrows** next to your world quick-hop to the previous or next world of the same kind, as the keys below do.
+* **Search** by world number, activity ("Blast Furnace", "skill total") or region name.
+* **Filter** by region and by kind of world: free, members, normal, skill total, PvP, high risk, Deadman, seasonal,
+  quest speedrunning, Fresh Start, PvP Arena, Last Man Standing, Bounty Hunter or beta.
+* **Sort** by clicking a column's header: world, players, region (**Loc**) or activity. Click it again to reverse
+  the order.
+
+World numbers are gold for members worlds and grey for free ones. Activities are red on dangerous worlds (PvP, high
+risk, Deadman), and other colours on seasonal, beta, PvP Arena, quest speedrunning and Fresh Start worlds. The list
+is fetched when Kraken attaches, every ten minutes after that, and when you open the tab if it's more than a minute
+old; the refresh button fetches it at once. Player counts are as of the last fetch. Your filters and sort are
+remembered for the next launch.
+
+Hopping needs you to be logged in and the [native hook](#the-native-hook) to be connected. Hopping from the login
+screen isn't supported.
+
+The cog opens the World Hopper's settings:
+
+| Setting | Default | What it does |
+|---|---|---|
+| Quick-hop previous | Ctrl+Shift+Left | Hops to the previous world of the same kind |
+| Quick-hop next | Ctrl+Shift+Right | Hops to the next world of the same kind |
+| Quick-hop out of dangerous worlds | On | From a PvP or high-risk world, quick-hops go to a safe world instead of another dangerous one |
+| Quick-hop regions | Any | Only quick-hop to worlds in these regions |
+
+A quick-hop goes to the next world by number, wrapping around, that is the same kind as yours: members or free, and
+the same special kind, if any. It skips full and offline worlds, and total level worlds you can't join yet (a free
+total level world counts only your free skills). Bounty Hunter and Last Man Standing worlds count as normal worlds.
+The game sees the keys too, so Ctrl+Shift+Left and Right also turn the camera.
 
 ### Settings
 
@@ -161,7 +236,7 @@ It keeps the last 5,000 lines. Kraken doesn't write a log file.
 
 ## Overlays
 
-Plugins draw overlays over the game: panels of text, like the tick counter, and outlines on things in the scene.
+Plugins draw overlays over the game: panels of text, like the FPS readout, and outlines on things in the scene.
 
 While the native hook is connected, overlays are drawn inside the game's own frame, so they're part of the game's
 picture, in recordings of the game window too. Without the hook, Kraken draws them in a transparent window laid over

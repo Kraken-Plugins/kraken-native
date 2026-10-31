@@ -8,9 +8,18 @@ import com.google.inject.Inject;
 import com.google.inject.Provides;
 import com.kraken.api.Client;
 import com.kraken.api.GameState;
+import com.kraken.api.MenuAction;
+import com.kraken.api.MenuEntry;
 import com.kraken.api.coords.WorldPoint;
 import com.kraken.api.eventbus.Subscribe;
 import com.kraken.api.events.GameStateChanged;
+import com.kraken.api.events.MenuEntryAdded;
+import com.kraken.api.events.MenuEntryRemoved;
+import com.kraken.api.menu.MenuEdits;
+import com.kraken.api.menu.MenuMatch;
+import com.kraken.api.menu.MenuRow;
+import com.kraken.api.menu.MenuRule;
+import com.kraken.api.menu.ShiftState;
 import com.kraken.api.scene.Tile;
 import com.kraken.api.scene.WorldView;
 import com.kraken.client.callback.ClientThread;
@@ -21,6 +30,8 @@ import com.kraken.client.input.KeyManager;
 import com.kraken.client.plugins.Plugin;
 import com.kraken.client.plugins.PluginDescriptor;
 import com.kraken.client.plugins.config.ConfigManager;
+import com.kraken.client.plugins.config.Keybind;
+import com.kraken.client.ui.Prompts;
 import com.kraken.client.ui.overlay.OverlayManager;
 import lombok.extern.java.Log;
 
@@ -29,6 +40,7 @@ import java.awt.Toolkit;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.UnsupportedFlavorException;
+import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
@@ -37,23 +49,30 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import javax.swing.SwingUtilities;
 
 /**
- * Marks tiles. Marked tiles are saved per region in the plugin's settings group, so they come back whenever their
- * region is loaded, and move between clients as JSON through the clipboard (Import, Export and Clear on the settings
- * page). The mark hotkey marks or unmarks the tile under the mouse.
+ * Marks tiles. Shift + right-click a tile to Mark or Unmark it, and to Label a marked tile or change its colour; the
+ * mark hotkey marks or unmarks the tile under the mouse. Marked tiles are saved per region in the plugin's settings
+ * group, so they come back whenever their region is loaded, and move between clients as JSON through the clipboard
+ * (Import, Export and Clear on the settings page).
  *
  * <p>{@link #points}, the marks of the loaded area, is rebuilt on the client thread when the plugin starts, when a
  * map finishes loading and when the saved marks change, and swapped whole so the overlay reads it without locking.
  * Instanced areas aren't translated to their template regions, so marks saved for a region don't show in an
  * instance built from it.
+ *
+ * <p>The menu rows ({@link GroundMarkerMenu}) are rules the native hook applies as the client rebuilds the menu
+ * ({@link MenuEdits}): made for a Walk here row when it appears while Shift is held, or when Shift goes down over it,
+ * shown only while Shift is held, and made again whenever the marks change so they say what the tile is now. The
+ * label and the picked colour are asked for in dialogs ({@link Prompts}), as the chatbox isn't written to.
  */
 @Log(topic = "kraken")
 @PluginDescriptor(
         name = "Ground Markers",
-        description = "Mark tiles with a hotkey, and import and export marked tiles",
+        description = "Enable marking of tiles using the Shift key",
         tags = {"overlay", "tiles"},
         enabledByDefault = false
 )
@@ -89,10 +108,18 @@ public class GroundMarkerPlugin extends Plugin {
     @Inject
     private KeyManager keyManager;
 
+    @Inject
+    private Prompts prompts;
+
     /**
      * The marks of the loaded area, swapped whole on the client thread.
      */
     private volatile List<ColorTileMarker> points = List.of();
+
+    /**
+     * The ids of the rules adding the menu rows next to each Walk here row, by the row's identity. Client thread only.
+     */
+    private final Map<MenuMatch, List<Integer>> menuRows = new LinkedHashMap<>();
 
     /**
      * Marks or unmarks the tile under the mouse when the mark hotkey goes down.
@@ -101,6 +128,16 @@ public class GroundMarkerPlugin extends Plugin {
         @Override
         public void hotkeyPressed() {
             markHoveredTile();
+        }
+    };
+
+    /**
+     * Makes the menu rows for the tile under the mouse when Shift goes down after the mouse got there.
+     */
+    private final HotkeyListener shiftListener = new HotkeyListener(() -> Keybind.SHIFT) {
+        @Override
+        public void hotkeyPressed() {
+            offerMenuRows();
         }
     };
 
@@ -113,14 +150,17 @@ public class GroundMarkerPlugin extends Plugin {
     protected void startUp() {
         overlayManager.add(overlay);
         keyManager.registerHotkeyListener(markListener);
+        keyManager.registerHotkeyListener(shiftListener);
         clientThread.invoke(this::loadPoints);
     }
 
     @Override
     protected void shutDown() {
+        keyManager.unregisterHotkeyListener(shiftListener);
         keyManager.unregisterHotkeyListener(markListener);
         overlayManager.remove(overlay);
         points = List.of();
+        clientThread.invoke(this::removeMenuRows);
     }
 
     /**
@@ -161,6 +201,23 @@ public class GroundMarkerPlugin extends Plugin {
         }
     }
 
+    @Subscribe
+    public void onMenuEntryAdded(MenuEntryAdded event) {
+        offerMenuRows(event.getMenuEntry());
+    }
+
+    @Subscribe
+    public void onMenuEntryRemoved(MenuEntryRemoved event) {
+        MenuEntry entry = event.getMenuEntry();
+        if (entry.isCreated()) {
+            return;
+        }
+        List<Integer> ids = menuRows.remove(MenuMatch.of(entry));
+        if (ids != null) {
+            client.getMenuEdits().removeAll(ids);
+        }
+    }
+
     /**
      * The saved marks of one region.
      *
@@ -198,21 +255,23 @@ public class GroundMarkerPlugin extends Plugin {
     }
 
     /**
-     * Rebuilds the marks of the loaded area from the saved ones. Client thread only.
+     * Rebuilds the marks of the loaded area from the saved ones, then the menu rows shown now. Client thread only.
      */
     private void loadPoints() {
         if (client.getGameState() != GameState.LOGGED_IN) {
             points = List.of();
-            return;
-        }
-        List<ColorTileMarker> loaded = new ArrayList<>();
-        for (int regionId : mapRegions(client.getTopLevelWorldView())) {
-            for (GroundMarkerPoint point : getPoints(regionId)) {
-                loaded.add(new ColorTileMarker(WorldPoint.fromRegion(point.getRegionId(), point.getRegionX(),
-                        point.getRegionY(), point.getZ()), point.getColor(), point.getLabel()));
+        } else {
+            List<ColorTileMarker> loaded = new ArrayList<>();
+            for (int regionId : mapRegions(client.getTopLevelWorldView())) {
+                for (GroundMarkerPoint point : getPoints(regionId)) {
+                    loaded.add(new ColorTileMarker(WorldPoint.fromRegion(point.getRegionId(), point.getRegionX(),
+                            point.getRegionY(), point.getZ()), point.getColor(), point.getLabel()));
+                }
             }
+            points = List.copyOf(loaded);
         }
-        points = List.copyOf(loaded);
+        removeMenuRows();
+        offerMenuRows();
     }
 
     /**
@@ -220,15 +279,163 @@ public class GroundMarkerPlugin extends Plugin {
      */
     private void markHoveredTile() {
         Tile tile = client.getTopLevelWorldView().getSelectedSceneTile();
-        if (tile == null) {
-            return;
+        if (tile != null) {
+            markTile(tile.getWorldLocation());
         }
-        WorldPoint worldPoint = tile.getWorldLocation();
+    }
+
+    /**
+     * Marks a tile in the tile colour, or unmarks it if it is marked. Client thread only.
+     *
+     * @param worldPoint the tile
+     */
+    private void markTile(WorldPoint worldPoint) {
         int regionId = worldPoint.getRegionID();
         GroundMarkerPoint point = new GroundMarkerPoint(regionId, worldPoint.getRegionX(), worldPoint.getRegionY(),
                 worldPoint.getPlane(), config.markerColor(), null);
         savePoints(regionId, toggle(getPoints(regionId), point));
         loadPoints();
+    }
+
+    /**
+     * Asks for a mark's label and writes it; an empty label takes it off.
+     *
+     * @param mark the mark
+     */
+    private void labelTile(GroundMarkerPoint mark) {
+        prompts.textInput("Tile label", mark.getLabel(), input -> clientThread.invoke(() -> {
+            String label = input.isEmpty() ? null : input;
+            updateMark(new GroundMarkerPoint(mark.getRegionId(), mark.getRegionX(), mark.getRegionY(), mark.getZ(),
+                    currentColor(mark), label));
+        }));
+    }
+
+    /**
+     * Asks for a mark's colour and writes it.
+     *
+     * @param mark the mark
+     */
+    private void pickTileColor(GroundMarkerPoint mark) {
+        Color initial = mark.getColor() != null ? mark.getColor() : config.markerColor();
+        prompts.pickColor("Tile marker color", initial, color -> clientThread.invoke(() -> colorTile(mark, color)));
+    }
+
+    /**
+     * Gives a mark a colour, keeping its label as it is now. Client thread only.
+     *
+     * @param mark  the mark
+     * @param color the colour
+     */
+    private void colorTile(GroundMarkerPoint mark, Color color) {
+        updateMark(new GroundMarkerPoint(mark.getRegionId(), mark.getRegionX(), mark.getRegionY(), mark.getZ(),
+                color, currentLabel(mark)));
+    }
+
+    /**
+     * Asks whether to give every mark of a region the tile colour, and does.
+     *
+     * @param regionId the region
+     * @param count    how many marks it has, for the question
+     */
+    private void resetTileColors(int regionId, int count) {
+        prompts.confirm("Are you sure you want to reset the color of " + count + " tiles?",
+                () -> clientThread.invoke(() -> {
+                    savePoints(regionId, recolorAll(getPoints(regionId), config.markerColor()));
+                    loadPoints();
+                }));
+    }
+
+    /**
+     * Saves a mark over the one on its tile, if the tile is still marked. Client thread only.
+     *
+     * @param mark the new mark
+     */
+    private void updateMark(GroundMarkerPoint mark) {
+        Collection<GroundMarkerPoint> regionPoints = getPoints(mark.getRegionId());
+        if (regionPoints.contains(mark)) {
+            savePoints(mark.getRegionId(), replace(regionPoints, mark));
+            loadPoints();
+        }
+    }
+
+    /**
+     * The colour a mark's tile is saved with now, which a dialog left open may have changed.
+     *
+     * @param mark the mark as it was when its rows were made
+     * @return the saved colour, or the mark's if the tile isn't marked any more
+     */
+    private Color currentColor(GroundMarkerPoint mark) {
+        GroundMarkerPoint saved = find(getPoints(mark.getRegionId()), mark);
+        return saved != null ? saved.getColor() : mark.getColor();
+    }
+
+    /**
+     * The label a mark's tile is saved with now, which a dialog left open may have changed.
+     *
+     * @param mark the mark as it was when its rows were made
+     * @return the saved label, or the mark's if the tile isn't marked any more
+     */
+    private String currentLabel(GroundMarkerPoint mark) {
+        GroundMarkerPoint saved = find(getPoints(mark.getRegionId()), mark);
+        return saved != null ? saved.getLabel() : mark.getLabel();
+    }
+
+    /**
+     * Makes the menu rows for every Walk here row the menu shows now. Client thread only.
+     */
+    private void offerMenuRows() {
+        for (MenuEntry entry : client.getMenuEntries()) {
+            offerMenuRows(entry);
+        }
+    }
+
+    /**
+     * Makes the menu rows for a Walk here row while Shift is held, once per row and tile. They go right below it, so
+     * Walk here stays the left click.
+     *
+     * @param entry a row of the menu
+     */
+    private void offerMenuRows(MenuEntry entry) {
+        WorldPoint tile = entry.getWorldLocation();
+        if (entry.isCreated() || entry.getType() != MenuAction.WALK || tile == null
+                || !keyManager.isKeyPressed(KeyEvent.VK_SHIFT)) {
+            return;
+        }
+        MenuMatch anchor = MenuMatch.of(entry);
+        if (menuRows.containsKey(anchor)) {
+            return;
+        }
+        int regionId = tile.getRegionID();
+        Collection<GroundMarkerPoint> regionPoints = getPoints(regionId);
+        GroundMarkerPoint mark = find(regionPoints, new GroundMarkerPoint(regionId, tile.getRegionX(),
+                tile.getRegionY(), tile.getPlane(), null, null));
+        List<Color> colors = points.stream().map(ColorTileMarker::getColor).filter(Objects::nonNull).distinct()
+                .toList();
+        GroundMarkerMenu.Actions actions = new GroundMarkerMenu.Actions(
+                () -> markTile(tile),
+                () -> labelTile(mark),
+                color -> colorTile(mark, color),
+                () -> pickTileColor(mark),
+                () -> resetTileColors(regionId, regionPoints.size()));
+        // Each row goes right below Walk here, so the bottom one is added first
+        List<MenuRow> rows = GroundMarkerMenu.rows(mark, regionPoints.size(), colors, actions).reversed();
+        MenuEdits edits = client.getMenuEdits();
+        List<Integer> ids = new ArrayList<>();
+        for (MenuRow row : rows) {
+            ids.add(edits.add(new MenuRule.Add(anchor, ShiftState.HELD, true, MenuRule.Add.Position.BELOW, row)));
+        }
+        menuRows.put(anchor, ids);
+    }
+
+    /**
+     * Takes every menu row out. Client thread only.
+     */
+    private void removeMenuRows() {
+        MenuEdits edits = client.getMenuEdits();
+        for (List<Integer> ids : menuRows.values()) {
+            edits.removeAll(ids);
+        }
+        menuRows.clear();
     }
 
     /**
@@ -326,6 +533,45 @@ public class GroundMarkerPlugin extends Plugin {
             out.add(point);
         }
         return out;
+    }
+
+    /**
+     * The mark on a tile.
+     *
+     * @param existing the region's marks
+     * @param tile     a mark on the tile; its colour and label don't matter
+     * @return the tile's mark, or null if it isn't marked
+     */
+    static GroundMarkerPoint find(Collection<GroundMarkerPoint> existing, GroundMarkerPoint tile) {
+        for (GroundMarkerPoint point : existing) {
+            if (point.equals(tile)) {
+                return point;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * A region's marks with the mark on one tile replaced, in its place.
+     *
+     * @param existing the region's marks
+     * @param point    the new mark for its tile
+     * @return the new marks; the same marks if the tile isn't marked
+     */
+    static List<GroundMarkerPoint> replace(Collection<GroundMarkerPoint> existing, GroundMarkerPoint point) {
+        return existing.stream().map(p -> p.equals(point) ? point : p).toList();
+    }
+
+    /**
+     * A region's marks all in one colour, keeping their labels.
+     *
+     * @param existing the region's marks
+     * @param color    the colour
+     * @return the new marks
+     */
+    static List<GroundMarkerPoint> recolorAll(Collection<GroundMarkerPoint> existing, Color color) {
+        return existing.stream().map(p -> new GroundMarkerPoint(p.getRegionId(), p.getRegionX(), p.getRegionY(),
+                p.getZ(), color, p.getLabel())).toList();
     }
 
     /**

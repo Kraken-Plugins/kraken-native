@@ -29,7 +29,7 @@ built alongside them, for example in a Gradle project of its own inside this bui
 ## A First Plugin
 
 The Tick Counter plugin (`plugins/tickcounter`) is the smallest complete example. It counts game ticks, shows the count
-in a panel and logs it. It has three parts.
+on the chatbox's Report button in place of the word "Report", and logs it. It has two parts.
 
 ### Settings
 
@@ -40,16 +40,10 @@ An interface extending `Config`, with a `@ConfigGroup` naming where its values a
 @ConfigGroup("tickcounter")
 public interface TickCounterConfig extends Config {
 
-    @ConfigItem(keyName = "showOverlay", name = "Show panel", description = "Show the count in a panel over the game",
-            position = 0)
-    default boolean showOverlay() {
-        return true;
-    }
-
     @Range(max = 60)
     @Units(Units.MINUTES)
     @ConfigItem(keyName = "logInterval", name = "Log every",
-            description = "How often to log the count to the console. 0 never logs it.", position = 1)
+            description = "How often to log the count to the console. 0 never logs it.", position = 0)
     default int logInterval() {
         return 1;
     }
@@ -62,14 +56,15 @@ public interface TickCounterConfig extends Config {
 @Log(topic = "kraken")
 @PluginDescriptor(
         name = "Tick Counter",
-        description = "Counts game ticks while you're logged in, shows the count over the game and logs it to the "
-                + "console",
-        tags = {"tick", "timer", "example"},
+        description = "Counts game ticks while you're logged in and shows the count on the Report button",
+        tags = {"tick", "timer", "report", "example"},
         enabledByDefault = false
 )
 public class TickCounterPlugin extends Plugin {
 
     private static final int TICKS_PER_MINUTE = 100;
+
+    static final String REPORT = "Report";
 
     @Inject
     private Client client;
@@ -80,13 +75,6 @@ public class TickCounterPlugin extends Plugin {
     @Inject
     private TickCounterConfig config;
 
-    @Inject
-    private OverlayManager overlayManager;
-
-    @Inject
-    private TickCounterOverlay overlay;
-
-    @Getter(AccessLevel.PACKAGE)
     private int ticks;
 
     @Provides
@@ -96,13 +84,12 @@ public class TickCounterPlugin extends Plugin {
 
     @Override
     protected void startUp() {
-        overlayManager.add(overlay);
         clientThread.invoke(() -> ticks = 0);
     }
 
     @Override
     protected void shutDown() {
-        overlayManager.remove(overlay);
+        clientThread.invoke(() -> setReportText(REPORT));
     }
 
     @Subscribe
@@ -115,9 +102,17 @@ public class TickCounterPlugin extends Plugin {
     @Subscribe
     public void onGameTick(GameTick event) {
         ticks++;
+        setReportText(String.valueOf(ticks));
         int every = config.logInterval() * TICKS_PER_MINUTE;
         if (every > 0 && ticks % every == 0) {
             log.info("Tick counter: " + ticks + " ticks");
+        }
+    }
+
+    private void setReportText(String text) {
+        Widget report = client.getWidget(InterfaceID.Chatbox.REPORTABUSE_TEXT1);
+        if (report != null) {
+            report.setText(text);
         }
     }
 }
@@ -125,43 +120,13 @@ public class TickCounterPlugin extends Plugin {
 
 * The `@Provides` method is what lets you `@Inject` the config. Without it the plugin fails to load.
 * `startUp` and `shutDown` run on the Swing thread. The event handlers run on the client thread, so the plugin resets
-  the count through `clientThread.invoke` to keep `ticks` on one thread.
+  the count and puts the button's text back through `clientThread.invoke`, which keeps `ticks` and the widget writes on
+  one thread.
 * Kraken registers the `@Subscribe` methods after `startUp` returns, and unregisters them before `shutDown`.
-* Overlays are not added for you: add them in `startUp` and remove them in `shutDown`.
-
-### The Overlay
-
-An `OverlayPanel` is a panel of lines that the user can move and resize. Fill `panelComponent` each frame and return
-`super.render(graphics)`; return `null` to draw nothing.
-
-```java
-class TickCounterOverlay extends OverlayPanel {
-
-    private final TickCounterPlugin plugin;
-    private final TickCounterConfig config;
-    private final Client client;
-
-    @Inject
-    TickCounterOverlay(TickCounterPlugin plugin, TickCounterConfig config, Client client) {
-        super(plugin);
-        this.plugin = plugin;
-        this.config = config;
-        this.client = client;
-        setPosition(OverlayPosition.TOP_LEFT);
-    }
-
-    @Override
-    public Dimension render(Graphics2D graphics) {
-        if (!config.showOverlay() || !client.isLoggedIn()) {
-            return null;
-        }
-        panelComponent.getChildren().add(TitleComponent.builder().text("Tick counter").color(Theme.ACCENT).build());
-        panelComponent.getChildren().add(LineComponent.builder()
-                .left("Ticks:").right(String.valueOf(plugin.getTicks())).build());
-        return super.render(graphics);
-    }
-}
-```
+* `Widget.setText` changes the game's own interface through the [native hook](client.md#the-native-hook), from the
+  next frame. The game keeps the text until its own scripts or a reload of the chatbox set it again, so the plugin sets
+  it every tick and puts "Report" back when it stops. [Widget writes](api.md#widget-writes) lists the other setters.
+* A plugin that draws its own panel or outlines adds [overlays](#overlays) in `startUp` and removes them in `shutDown`.
 
 ### Running It
 
@@ -330,7 +295,39 @@ despawns for the old one.
 ## Overlays
 
 Extend `Overlay` and override `render(Graphics2D)`, or extend `OverlayPanel` for a panel of lines. Coordinates are game
-canvas pixels. `render` runs on the client thread, at the overlay frame rate set in Settings.
+canvas pixels. `render` runs on the client thread, at the overlay frame rate set in Settings. Overlays are not added
+for you: inject yours into the plugin, add it with `overlayManager.add(overlay)` in `startUp` and remove it with
+`overlayManager.remove(overlay)` in `shutDown`.
+
+An `OverlayPanel` is a panel of lines that the user can move and resize. Fill `panelComponent` each frame and return
+`super.render(graphics)`; return `null` to draw nothing. A panel showing a plugin's count:
+
+```java
+class CountOverlay extends OverlayPanel {
+
+    private final CountPlugin plugin;
+    private final Client client;
+
+    @Inject
+    CountOverlay(CountPlugin plugin, Client client) {
+        super(plugin);
+        this.plugin = plugin;
+        this.client = client;
+        setPosition(OverlayPosition.TOP_LEFT);
+    }
+
+    @Override
+    public Dimension render(Graphics2D graphics) {
+        if (!client.isLoggedIn()) {
+            return null;
+        }
+        panelComponent.getChildren().add(TitleComponent.builder().text("Count").color(Theme.ACCENT).build());
+        panelComponent.getChildren().add(LineComponent.builder()
+                .left("Ticks:").right(String.valueOf(plugin.getTicks())).build());
+        return super.render(graphics);
+    }
+}
+```
 
 | Setting | Values |
 |---|---|

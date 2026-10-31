@@ -113,6 +113,13 @@ class ClientTest {
     }
 
     @Test
+    void theWorldIsTheCurrentWorldNumber() {
+        assertEquals(0, client.getWorld(), "nothing set in the fixture");
+        game.setCurrentWorld(330);
+        assertEquals(330, client.getWorld());
+    }
+
+    @Test
     void decodesProfileTypeFromTheWorldFlags() {
         assertEquals(ProfileType.STANDARD, client.getProfileType());
         game.setWorldFlags(1 << 16);

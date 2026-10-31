@@ -114,6 +114,31 @@ class WidgetTest {
     }
 
     @Test
+    void setTextQueuesTheTextByIdForTheHookAndShowsInTheSnapshot() {
+        List<List<ComponentOp>> sent = new ArrayList<>();
+        client.getComponentWrites().setHook(sent::add);
+        Widget all = client.getWidget(CHATBOX, 1);
+
+        assertEquals(all, all.setText("1234"));
+        assertEquals("1234", all.getText(), "the snapshot shows the text at once");
+        assertEquals("All", client.getWidget(CHATBOX, 1).getText(), "the game changes only once the hook writes");
+        client.getComponentWrites().flush();
+        assertEquals(List.of(List.of(new ComponentOp(CHATBOX << 16 | 1, -1, ComponentOp.Op.SET_TEXT,
+                game.map.offset("IfType.text"), 0, "1234"))), sent);
+
+        all.setText(null);
+        assertEquals("", all.getText(), "null sets no text");
+        assertThrows(IllegalArgumentException.class, () -> all.setText("x".repeat(ComponentOp.MAX_TEXT + 1)));
+    }
+
+    @Test
+    void aTextWriteWithoutAHookIsDropped() {
+        Widget all = client.getWidget(CHATBOX, 1);
+        all.setText("1234");
+        assertEquals("All", all.getText(), "a dropped write leaves the snapshot alone");
+    }
+
+    @Test
     void writesWithoutAHookAreDroppedAndOnlyClearingAListenerIsSupported() {
         Widget item = client.getWidget(INVENTORY, 0).getChild(0);
         assertFalse(client.getComponentWrites().isAvailable());

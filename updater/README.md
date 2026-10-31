@@ -122,6 +122,7 @@ reads it for carry-forward. Repair bundles (`repair/<key>.md`) go in the same fo
 | `src/native_updater/hooks.py` | Hook targets without a Lua event: the ground item add/delete/count handlers, player add/remove and the player info decoder, from the fields they write |
 | `src/native_updater/minimenu.py` | The minimenu (right-click menu): its rows, open flag, last-run entry and the entry layout, from the op dispatch that raises the six `ON_*_OP` events, the function that runs an entry, and the `ON_MINIMENU_REBUILD` raiser |
 | `src/native_updater/highlights.py` | The highlight system beyond its Lua handlers (`spec/90-draw.yaml`): the loc, loc type and channel clear functions from the clientscript op dispatcher's jump table (checked against the functions the Lua handlers call), and the `HighlightConfig` layout from its sol2 registration |
+| `src/native_updater/worlds.py` | The current world id (`Client.currentWorld`, `spec/74-worlds.yaml`): the cs2 3300 handler's map_world case, checked against its worldflags case's `Client.worldFlags` |
 | `src/native_updater/spec/*.yaml` | The contract: tables, fingerprints, one entry per key (strategies, invariants, live check) |
 | `src/native_updater/consensus.py`, `verify.py` | Verdicts (PROVEN/ANCHORED/INFERRED/NEEDS_REVIEW/FAILED); type, relational and uniqueness checks |
 | `src/native_updater/carry.py` | Carry-forward (function matching + re-extraction), delta propagation, repair bundles |

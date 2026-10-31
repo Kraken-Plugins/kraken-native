@@ -5,9 +5,10 @@ as examples for [writing your own](writing-plugins.md). NPC Indicators, Ground I
 Menu Entry Swapper, Key Remapping, Entity Hider and Anti Drag are ports of RuneLite's plugins of the same names, with
 the same settings.
 
-Open a plugin's settings with the cog next to its switch. Most plugins still choose what they work on in their
-settings, by name, id or tile, rather than from the right-click menu. Settings that need something Kraken can't do
-yet are greyed out; hover over one to see what it needs.
+Open a plugin's settings with the cog next to its switch. NPC Indicators, Ground Markers and Menu Entry Swapper also
+add options to the right-click menu while you hold Shift; most others choose what they work on in their settings, by
+name, id or tile. Settings that need something Kraken can't do yet are greyed out; hover over one to see what it
+needs.
 
 Several plugins draw better with the [native hook](client.md#the-native-hook) connected. With it, the game draws
 their outlines itself, around the model, following the camera, and through walls if you ask. Without it, Kraken
@@ -15,12 +16,13 @@ outlines tiles in its overlay instead.
 
 ## Tick Counter
 
-Counts game ticks while you're logged in, shows the count in a panel in the top-left corner, and logs it to the console
-now and then. The count starts again when you log out or hop worlds.
+Counts game ticks while you're logged in, shows the count on the chatbox's Report button in place of the word "Report",
+and logs it to the console now and then. The count starts again when you log out or hop worlds, and the button says
+"Report" again when you switch the plugin off. It needs the [native hook](client.md#the-native-hook) to change the
+button.
 
 | Setting | Default | What it does |
 |---|---|---|
-| Show panel | On | Shows the count in a panel over the game |
 | Log every | 1 min | How often to log the count to the console. 0 never logs it |
 
 ## NPC Indicators
@@ -54,7 +56,18 @@ Highlights the NPCs whose names you list, and can show when and where they respa
 | Outline feather | 0 | Not supported yet: the game's outline has no feather |
 
 The game draws hulls and outlines through walls. Without the native hook, NPCs with those styles get their tiles
-outlined instead. RuneLite's Shift + right-click **Tag** options aren't available yet.
+outlined instead.
+
+Hold Shift and right-click an NPC for these options, just above its **Examine**:
+
+| Option | What it does |
+|---|---|
+| **Tag** / **Un-tag** | Highlights this one NPC, or stops. Tags aren't saved: they go when the plugin is switched off or Kraken closes |
+| **Tag-All** / **Un-tag-All** | Adds the NPC's name to **NPCs to highlight**, or takes it out. Not shown for a name a `*` pattern matches |
+| **Tag color** | On a highlighted NPC: a colour for every NPC of its kind, from those in use nearby, **Pick color** (opens a colour picker) or **Reset** |
+| **Tag style** | On a highlighted NPC: one style for every NPC of its kind (hull, tile, true tile, south-west tile, south-west true tile or outline) in place of the render style settings, or **Reset** |
+
+The options need the native hook.
 
 ## Ground Items
 
@@ -94,7 +107,7 @@ RuneLite through the clipboard.
 |---|---|---|
 | Tile color | Yellow | The colour new marks get |
 | Draw tiles on minimap | Off | Not supported yet: needs minimap positions |
-| Show import/export/clear options | On | Not supported yet: needs right-click menu changes. Use the buttons below |
+| Show import/export/clear options | On | Not supported yet: the world map orb's menu isn't changed. Use the buttons below |
 | Border width | 2 | How thick outlines are |
 | Fill opacity | 50 | How opaque the fill is, 0 to 255 |
 | Mark hovered tile | Not set | A key that marks the tile under the mouse, or unmarks it. The game sees the key too, so pick one it doesn't use |
@@ -102,9 +115,16 @@ RuneLite through the clipboard.
 | Export to clipboard | | Copies the marks of the area around you |
 | Clear loaded markers | | Removes the marks of the area around you |
 
-Marks are drawn within 32 tiles of you, on your plane. RuneLite's Shift + right-click **Mark tile**, **Label** and
-**Color** options aren't available yet; labels and colours from an import are shown. Marks don't show in instances
-yet.
+Hold Shift and right-click a tile for these options, just below **Walk here**:
+
+| Option | What it does |
+|---|---|
+| **Mark Tile** / **Unmark Tile** | Marks the tile in the tile colour, or takes its mark off |
+| **Label Tile** | On a marked tile: asks for text to write on it. Leave it empty to take the label off |
+| **Color Tile** | On a marked tile: a colour in use nearby, **Pick** (opens a colour picker), or **Reset all**, which puts every mark in the region back to the tile colour after asking |
+
+The options need the native hook. The label and colour are asked for in small windows over the game, as Kraken can't
+type into the chatbox. Marks are drawn within 32 tiles of you, on your plane. Marks don't show in instances yet.
 
 ## Menu Entry Swapper
 

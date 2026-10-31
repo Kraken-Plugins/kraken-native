@@ -4,6 +4,7 @@ import com.kraken.api.Client;
 import com.kraken.api.GameFixture;
 import com.kraken.api.MenuAction;
 import com.kraken.api.MenuEntry;
+import com.kraken.api.World;
 import com.kraken.api.coords.WorldPoint;
 import com.kraken.api.gameval.InterfaceID;
 import com.kraken.api.internal.invoke.NativeCall;
@@ -321,6 +322,21 @@ class ActionsTest {
 
         assertTrue(actions.menuAction(-1, 0xe60002, MenuAction.WIDGET_CONTINUE, 0));
         assertEquals(fn("menuComponentPause"), sent.get(1).get(0).rva());
+    }
+
+    @Test
+    void theWorldHopperOpsAreComponentOpsOnTheLogoutPanelAndTheSwitcher() {
+        client.openWorldHopper();
+        NativeCall open = sent.get(0).get(0);
+        assertEquals(fn("menuComponentOp"), open.rva());
+        assertArrayEquals(new int[]{InterfaceID.Logout.WORLD_SWITCHER, -1, 1, 0, -1, 0}, ints(open),
+                "the World Switcher button's first op, no slot");
+
+        client.hopToWorld(World.builder().id(330).build());
+        NativeCall hop = sent.get(1).get(0);
+        assertEquals(fn("menuComponentOp"), hop.rva());
+        assertArrayEquals(new int[]{InterfaceID.Worldswitcher.BUTTONS, 330, 1, 0, -1, 0}, ints(hop),
+                "the Switch op on the switcher's buttons, the world as the slot");
     }
 
     @Test

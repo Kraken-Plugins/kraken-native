@@ -7,30 +7,30 @@ import lombok.Getter;
  * {@code ClientState.Stats}, with Lua's {@code SKILL_RUNECRAFTING} named {@link #RUNECRAFT}).
  */
 public enum Skill {
-    ATTACK("Attack"),
-    DEFENCE("Defence"),
-    STRENGTH("Strength"),
-    HITPOINTS("Hitpoints"),
-    RANGED("Ranged"),
-    PRAYER("Prayer"),
-    MAGIC("Magic"),
-    COOKING("Cooking"),
-    WOODCUTTING("Woodcutting"),
-    FLETCHING("Fletching"),
-    FISHING("Fishing"),
-    FIREMAKING("Firemaking"),
-    CRAFTING("Crafting"),
-    SMITHING("Smithing"),
-    MINING("Mining"),
-    HERBLORE("Herblore"),
-    AGILITY("Agility"),
-    THIEVING("Thieving"),
-    SLAYER("Slayer"),
-    FARMING("Farming"),
-    RUNECRAFT("Runecraft"),
-    HUNTER("Hunter"),
-    CONSTRUCTION("Construction"),
-    SAILING("Sailing");
+    ATTACK("Attack", false),
+    DEFENCE("Defence", false),
+    STRENGTH("Strength", false),
+    HITPOINTS("Hitpoints", false),
+    RANGED("Ranged", false),
+    PRAYER("Prayer", false),
+    MAGIC("Magic", false),
+    COOKING("Cooking", false),
+    WOODCUTTING("Woodcutting", false),
+    FLETCHING("Fletching", true),
+    FISHING("Fishing", false),
+    FIREMAKING("Firemaking", false),
+    CRAFTING("Crafting", false),
+    SMITHING("Smithing", false),
+    MINING("Mining", false),
+    HERBLORE("Herblore", true),
+    AGILITY("Agility", true),
+    THIEVING("Thieving", true),
+    SLAYER("Slayer", true),
+    FARMING("Farming", true),
+    RUNECRAFT("Runecraft", false),
+    HUNTER("Hunter", true),
+    CONSTRUCTION("Construction", true),
+    SAILING("Sailing", true);
 
     /**
      * The skill's name as the game shows it, e.g. "Runecraft".
@@ -38,7 +38,15 @@ public enum Skill {
     @Getter
     private final String name;
 
-    Skill(String name) {
+    /**
+     * Whether only members can train the skill. Free-to-play worlds with a total level requirement count only the
+     * other skills.
+     */
+    @Getter
+    private final boolean members;
+
+    Skill(String name, boolean members) {
         this.name = name;
+        this.members = members;
     }
 }

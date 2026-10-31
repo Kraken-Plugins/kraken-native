@@ -7,30 +7,28 @@ import com.kraken.api.GameState;
 import com.kraken.api.eventbus.Subscribe;
 import com.kraken.api.events.GameStateChanged;
 import com.kraken.api.events.GameTick;
+import com.kraken.api.gameval.InterfaceID;
+import com.kraken.api.widgets.Widget;
 import com.kraken.client.callback.ClientThread;
 import com.kraken.client.plugins.Plugin;
 import com.kraken.client.plugins.PluginDescriptor;
 import com.kraken.client.plugins.config.ConfigManager;
-import com.kraken.client.ui.overlay.OverlayManager;
-import lombok.AccessLevel;
-import lombok.Getter;
 import lombok.extern.java.Log;
 
 /**
- * The example plugin: counts game ticks while logged in, shows the count in a panel over the game and logs it to the
- * console now and then. It shows the shape of a Kraken plugin: an injected {@link Client} and {@link ClientThread}, a
- * {@code @Provides} config, an overlay, {@code startUp}/{@code shutDown}, and {@link Subscribe} methods for game
- * events.
+ * The example plugin: counts game ticks while logged in, shows the count on the chatbox's Report button in place of
+ * the word "Report", and logs it to the console now and then. It shows the shape of a Kraken plugin: an injected
+ * {@link Client} and {@link ClientThread}, a {@code @Provides} config, {@code startUp}/{@code shutDown},
+ * {@link Subscribe} methods for game events, and a widget write.
  *
- * <p>The count is only touched on the client thread (in the event handlers, the {@code clientThread} task and the
- * overlay's {@code render}), so it needs no locking.
+ * <p>The count is only touched on the client thread (in the event handlers and the {@code clientThread} tasks), so it
+ * needs no locking.
  */
 @Log(topic = "kraken")
 @PluginDescriptor(
         name = "Tick Counter",
-        description = "Counts game ticks while you're logged in, shows the count over the game and logs it to the "
-                + "console",
-        tags = {"tick", "timer", "example"},
+        description = "Counts game ticks while you're logged in and shows the count on the Report button",
+        tags = {"tick", "timer", "report", "example"},
         enabledByDefault = false
 )
 public class TickCounterPlugin extends Plugin {
@@ -39,6 +37,11 @@ public class TickCounterPlugin extends Plugin {
      * Game ticks a minute: 100 ticks of 0.6 s.
      */
     private static final int TICKS_PER_MINUTE = 100;
+
+    /**
+     * The Report button's own text, put back when the plugin stops.
+     */
+    static final String REPORT = "Report";
 
     @Inject
     private Client client;
@@ -49,16 +52,9 @@ public class TickCounterPlugin extends Plugin {
     @Inject
     private TickCounterConfig config;
 
-    @Inject
-    private OverlayManager overlayManager;
-
-    @Inject
-    private TickCounterOverlay overlay;
-
     /**
      * The ticks counted this session. Client thread only.
      */
-    @Getter(AccessLevel.PACKAGE)
     private int ticks;
 
     @Provides
@@ -68,7 +64,6 @@ public class TickCounterPlugin extends Plugin {
 
     @Override
     protected void startUp() {
-        overlayManager.add(overlay);
         clientThread.invoke(() -> {
             ticks = 0;
             log.info("Tick counter started: " + client.getGameState() + ", client tick " + client.getTickCount());
@@ -77,8 +72,10 @@ public class TickCounterPlugin extends Plugin {
 
     @Override
     protected void shutDown() {
-        overlayManager.remove(overlay);
-        clientThread.invoke(() -> log.info("Tick counter stopped after " + ticks + " ticks"));
+        clientThread.invoke(() -> {
+            setReportText(REPORT);
+            log.info("Tick counter stopped after " + ticks + " ticks");
+        });
     }
 
     @Subscribe
@@ -95,9 +92,23 @@ public class TickCounterPlugin extends Plugin {
     @Subscribe
     public void onGameTick(GameTick event) {
         ticks++;
+        setReportText(String.valueOf(ticks));
         int every = config.logInterval() * TICKS_PER_MINUTE;
         if (every > 0 && ticks % every == 0) {
             log.info("Tick counter: " + ticks + " ticks (" + duration(ticks) + ")");
+        }
+    }
+
+    /**
+     * Sets the Report button's text, if the chatbox is loaded. The game draws the new text from the next frame, and
+     * keeps it until the chatbox is reloaded, so the count is set again every tick.
+     *
+     * @param text the text
+     */
+    private void setReportText(String text) {
+        Widget report = client.getWidget(InterfaceID.Chatbox.REPORTABUSE_TEXT1);
+        if (report != null) {
+            report.setText(text);
         }
     }
 

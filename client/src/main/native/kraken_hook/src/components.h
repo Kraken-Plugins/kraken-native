@@ -3,7 +3,8 @@
 // interface or a script rebuilds a layer's children, so a write can't name an address. COMPONENTS
 // commands name components by id instead; the pump looks each one up on the game thread at the start
 // of the next frame, the way the client's own lookup does but without loading an interface that isn't
-// loaded, and only then writes a field or clears a listener. A component that has gone is skipped.
+// loaded, and only then writes a field, clears a listener or sets a string through the client's own
+// assignment and invalidate, as cc_settext does. A component that has gone is skipped.
 #pragma once
 
 #include "core/frame_reader.h"

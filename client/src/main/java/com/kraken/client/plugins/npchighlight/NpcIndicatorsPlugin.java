@@ -4,6 +4,8 @@ import com.google.inject.Inject;
 import com.google.inject.Provides;
 import com.kraken.api.Client;
 import com.kraken.api.GameState;
+import com.kraken.api.MenuAction;
+import com.kraken.api.MenuEntry;
 import com.kraken.api.actor.NPC;
 import com.kraken.api.actor.Player;
 import com.kraken.api.coords.WorldPoint;
@@ -13,18 +15,29 @@ import com.kraken.api.events.ClientTick;
 import com.kraken.api.events.GameStateChanged;
 import com.kraken.api.events.GameTick;
 import com.kraken.api.events.GraphicsObjectCreated;
+import com.kraken.api.events.MenuEntryAdded;
+import com.kraken.api.events.MenuEntryRemoved;
 import com.kraken.api.events.NpcChanged;
 import com.kraken.api.events.NpcDespawned;
 import com.kraken.api.events.NpcSpawned;
 import com.kraken.api.gameval.SpotanimID;
 import com.kraken.api.gameval.VarbitID;
+import com.kraken.api.menu.MenuEdits;
+import com.kraken.api.menu.MenuMatch;
+import com.kraken.api.menu.MenuRow;
+import com.kraken.api.menu.MenuRule;
+import com.kraken.api.menu.ShiftState;
 import com.kraken.api.scene.GraphicsObject;
 import com.kraken.client.callback.ClientThread;
 import com.kraken.client.events.ConfigChanged;
 import com.kraken.client.game.NpcUtil;
+import com.kraken.client.input.HotkeyListener;
+import com.kraken.client.input.KeyManager;
 import com.kraken.client.plugins.Plugin;
 import com.kraken.client.plugins.PluginDescriptor;
 import com.kraken.client.plugins.config.ConfigManager;
+import com.kraken.client.plugins.config.Keybind;
+import com.kraken.client.ui.Prompts;
 import com.kraken.client.ui.overlay.OverlayManager;
 import com.kraken.client.util.ColorUtil;
 import com.kraken.client.util.Text;
@@ -33,18 +46,27 @@ import lombok.AccessLevel;
 import lombok.Getter;
 
 import java.awt.Color;
+import java.awt.event.KeyEvent;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * Highlights NPCs by name, with wildcards, or by index (tagged NPCs), and shows when and where highlighted NPCs that
  * died will respawn. The game draws the hull and outline styles itself, on NPC highlight channels the plugin holds
  * while it runs ({@link NpcHighlightChannels}); its overlays draw the tile styles, the names and the respawn timers.
+ *
+ * <p>Shift + right-click an NPC to Tag or Un-tag it, Tag-All or Un-tag-All its name, and set its NPC id's own colour
+ * and style ({@link NpcTagMenu}). The rows are rules the native hook applies as the client rebuilds the menu
+ * ({@link MenuEdits}): made for an Examine row when it appears while Shift is held, or when Shift goes down over it,
+ * shown only while Shift is held, and made again whenever the highlights change so they say what the NPC is now. A
+ * picked colour is asked for in a dialog ({@link Prompts}).
  *
  * <p>Threading: the maps and lists below are plain because the game events, {@link ClientThread} tasks and the
  * overlays' {@code render} all run on the client thread. {@code startUp}, {@code shutDown} and
@@ -95,6 +117,12 @@ public class NpcIndicatorsPlugin extends Plugin {
 
     @Inject
     private ClientThread clientThread;
+
+    @Inject
+    private KeyManager keyManager;
+
+    @Inject
+    private Prompts prompts;
 
     /**
      * The NPCs highlighted now, with how. Client thread only.
@@ -161,6 +189,21 @@ public class NpcIndicatorsPlugin extends Plugin {
     private volatile NpcHighlightChannels channels;
 
     /**
+     * The ids of the rules adding the menu rows next to each Examine row, by the row's identity. Client thread only.
+     */
+    private final Map<MenuMatch, List<Integer>> menuRows = new LinkedHashMap<>();
+
+    /**
+     * Makes the menu rows for the NPCs under the mouse when Shift goes down after the mouse got there.
+     */
+    private final HotkeyListener shiftListener = new HotkeyListener(() -> Keybind.SHIFT) {
+        @Override
+        public void hotkeyPressed() {
+            offerMenuRows();
+        }
+    };
+
+    /**
      * Where and which remembered NPC despawned.
      *
      * @param coord its tile
@@ -179,6 +222,7 @@ public class NpcIndicatorsPlugin extends Plugin {
         channels = new NpcHighlightChannels(client.getHighlights());
         overlayManager.add(overlay);
         overlayManager.add(respawnOverlay);
+        keyManager.registerHotkeyListener(shiftListener);
         clientThread.invoke(() -> {
             skipNextSpawnCheck = true;
             rebuild();
@@ -187,6 +231,7 @@ public class NpcIndicatorsPlugin extends Plugin {
 
     @Override
     protected void shutDown() {
+        keyManager.unregisterHotkeyListener(shiftListener);
         overlayManager.remove(overlay);
         overlayManager.remove(respawnOverlay);
         NpcHighlightChannels held = channels;
@@ -202,6 +247,7 @@ public class NpcIndicatorsPlugin extends Plugin {
             teleportGraphicsObjectSpawnedThisTick.clear();
             npcTags.clear();
             highlightedNpcs.clear();
+            removeMenuRows();
         });
     }
 
@@ -297,6 +343,23 @@ public class NpcIndicatorsPlugin extends Plugin {
         syncChannels();
     }
 
+    @Subscribe
+    public void onMenuEntryAdded(MenuEntryAdded event) {
+        offerMenuRows(event.getMenuEntry());
+    }
+
+    @Subscribe
+    public void onMenuEntryRemoved(MenuEntryRemoved event) {
+        MenuEntry entry = event.getMenuEntry();
+        if (entry.isCreated()) {
+            return;
+        }
+        List<Integer> ids = menuRows.remove(MenuMatch.of(entry));
+        if (ids != null) {
+            client.getMenuEdits().removeAll(ids);
+        }
+    }
+
     /**
      * Tags or untags one NPC by its index, as the Tag and Un-tag menu entries do. Untagging an NPC whose name is in
      * the list leaves it highlighted. Client thread only.
@@ -317,6 +380,7 @@ public class NpcIndicatorsPlugin extends Plugin {
             highlightedNpcs.put(npc, highlightedNpc(npc));
         }
         syncChannels();
+        refreshMenuRows();
     }
 
     /**
@@ -415,6 +479,117 @@ public class NpcIndicatorsPlugin extends Plugin {
             }
         }
         syncChannels();
+        refreshMenuRows();
+    }
+
+    /**
+     * Makes the menu rows for every Examine row the menu shows now. Client thread only.
+     */
+    private void offerMenuRows() {
+        for (MenuEntry entry : client.getMenuEntries()) {
+            offerMenuRows(entry);
+        }
+    }
+
+    /**
+     * Makes the menu rows for an NPC's Examine row while Shift is held, once per row.
+     *
+     * @param entry a row of the menu
+     */
+    private void offerMenuRows(MenuEntry entry) {
+        if (entry.isCreated() || entry.getType() != MenuAction.EXAMINE_NPC
+                || !keyManager.isKeyPressed(KeyEvent.VK_SHIFT)) {
+            return;
+        }
+        MenuMatch anchor = MenuMatch.of(entry);
+        if (menuRows.containsKey(anchor)) {
+            return;
+        }
+        NPC npc = entry.getNpc();
+        String name = npc == null ? null : npc.getName();
+        if (name == null || name.isEmpty()) {
+            return;
+        }
+        int npcId = npc.getId();
+        NpcTagMenu.State state = NpcTagMenu.state(highlights, name, npcTags.contains(npc.getIndex()),
+                getNpcHighlightColor(npcId) != null, getNpcTagStyle(npcId) != null);
+        NpcTagMenu.Actions actions = new NpcTagMenu.Actions(
+                () -> withNpc(entry, this::tag),
+                () -> withNpc(entry, this::tagAll),
+                color -> setNpcHighlightColor(npcId, color),
+                () -> pickTagColor(npcId),
+                () -> unsetNpcHighlightColor(npcId),
+                style -> setNpcTagStyle(npcId, style),
+                () -> unsetNpcTagStyle(npcId));
+        List<Color> colors = state.highlighted() ? NpcTagMenu.colorChoices(usedColors()) : List.of();
+        MenuEdits edits = client.getMenuEdits();
+        List<Integer> ids = new ArrayList<>();
+        for (MenuRow row : NpcTagMenu.rows(entry.getTarget(), state, colors, actions)) {
+            ids.add(edits.add(new MenuRule.Add(anchor, ShiftState.HELD, true, MenuRule.Add.Position.ABOVE, row)));
+        }
+        menuRows.put(anchor, ids);
+    }
+
+    /**
+     * Makes the menu rows again, so they say what each NPC is now. Client thread only.
+     */
+    private void refreshMenuRows() {
+        removeMenuRows();
+        offerMenuRows();
+    }
+
+    /**
+     * Takes every menu row out. Client thread only.
+     */
+    private void removeMenuRows() {
+        MenuEdits edits = client.getMenuEdits();
+        for (List<Integer> ids : menuRows.values()) {
+            edits.removeAll(ids);
+        }
+        menuRows.clear();
+    }
+
+    /**
+     * Acts on the NPC a menu row is about, as the game holds it now.
+     *
+     * @param entry  the NPC's row
+     * @param action what to do; not called if the NPC is gone or has no name
+     */
+    private static void withNpc(MenuEntry entry, Consumer<NPC> action) {
+        NPC npc = entry.getNpc();
+        if (npc != null && npc.getName() != null && !npc.getName().isEmpty()) {
+            action.accept(npc);
+        }
+    }
+
+    /**
+     * Asks for an NPC id's colour, starting from the colour it has now, and saves it.
+     *
+     * @param npcId the NPC id
+     */
+    private void pickTagColor(int npcId) {
+        Color current = getNpcHighlightColor(npcId);
+        prompts.pickColor("Tag color", current != null ? current : config.highlightColor(),
+                color -> setNpcHighlightColor(npcId, color));
+    }
+
+    /**
+     * The colours loaded NPCs have of their own, for the Tag color sub-menu.
+     *
+     * @return the colours, each once, at most {@link NpcTagMenu#MAX_COLORS}
+     */
+    private List<Color> usedColors() {
+        List<Color> used = new ArrayList<>();
+        for (NPC npc : client.getNpcs()) {
+            Color color = getNpcHighlightColor(npc.getId());
+            if (color != null && !used.contains(color)) {
+                used.add(color);
+                if (used.size() >= NpcTagMenu.MAX_COLORS) {
+                    break;
+                }
+            }
+        }
+        return used;
     }
 
     /**
@@ -560,6 +735,25 @@ public class NpcIndicatorsPlugin extends Plugin {
     }
 
     /**
+     * Gives an NPC id a highlight colour of its own. The settings change rebuilds the highlights.
+     *
+     * @param npcId the NPC id
+     * @param color the colour
+     */
+    private void setNpcHighlightColor(int npcId, Color color) {
+        configManager.setConfiguration(NpcIndicatorsConfig.GROUP, HIGHLIGHT_COLOR_PREFIX + npcId, color);
+    }
+
+    /**
+     * Takes an NPC id's own highlight colour off. The settings change rebuilds the highlights.
+     *
+     * @param npcId the NPC id
+     */
+    private void unsetNpcHighlightColor(int npcId) {
+        configManager.unsetConfiguration(NpcIndicatorsConfig.GROUP, HIGHLIGHT_COLOR_PREFIX + npcId);
+    }
+
+    /**
      * An NPC id's own tag style.
      *
      * @param npcId the NPC id
@@ -567,5 +761,24 @@ public class NpcIndicatorsPlugin extends Plugin {
      */
     private String getNpcTagStyle(int npcId) {
         return configManager.getConfiguration(NpcIndicatorsConfig.GROUP, TAG_STYLE_PREFIX + npcId);
+    }
+
+    /**
+     * Gives an NPC id a tag style of its own. The settings change rebuilds the highlights.
+     *
+     * @param npcId the NPC id
+     * @param style the style, one of {@link RenderStyle}'s names
+     */
+    private void setNpcTagStyle(int npcId, String style) {
+        configManager.setConfiguration(NpcIndicatorsConfig.GROUP, TAG_STYLE_PREFIX + npcId, style);
+    }
+
+    /**
+     * Takes an NPC id's own tag style off. The settings change rebuilds the highlights.
+     *
+     * @param npcId the NPC id
+     */
+    private void unsetNpcTagStyle(int npcId) {
+        configManager.unsetConfiguration(NpcIndicatorsConfig.GROUP, TAG_STYLE_PREFIX + npcId);
     }
 }

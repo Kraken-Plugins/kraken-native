@@ -43,7 +43,7 @@ It has eight jobs:
 | Edit the right-click menu | Detours on the menu's rebuild, run and node destroy apply rules to the fresh rows every cycle | [Menu edits](menu-edits.md) |
 | Remap and block keys | A detour on the game window's procedure rewrites or drops key messages by a table of modes | [Key interception](key-interception.md) |
 | Hide entities | The per-frame step applies visibility rules to every player, NPC, projectile and graphics object | [Entity visibility](entity-visibility.md) |
-| Write interface components | The per-frame step looks components up by id and writes a field or clears a listener | [Widget writes](widget-writes.md) |
+| Write interface components | The per-frame step looks components up by id and writes a field, clears a listener or sets a text | [Widget writes](widget-writes.md) |
 
 Nothing in the DLL is specific to a build. Every function address, event id, capture plan and struct offset comes from
 the mapping, which the Java side sends in a handshake. A new game build needs the updater re-run, not a new DLL.
@@ -408,7 +408,7 @@ The complete list of what Kraken does to the game process, for review and debugg
 | Minimenu | Detours on the view rebuild, the run and the node destroy; after each rebuild, reorders the rows vector, frees hidden rows' children through the client's own destroy, rewrites entry texts through the client's assignment, grows the vector through its reserve and inserts nodes pointing at the DLL's own entries | `functions.minimenuViewRebuild`, `minimenuRun`, `minimenuNodeDestroy`, `minimenuNodeReserve`, `minimenuTextAssign` |
 | Window procedure | Detour that rewrites or drops `WM_KEYDOWN`, `WM_KEYUP` and `WM_CHAR` by the key table | `functions.renderViewWndProc` |
 | Entities | Each frame, sets and clears the hidden byte of players, NPCs, projectiles, keyed projectiles and graphics objects, and the 2D byte of players and NPCs, by the visibility rules; only clears what it set | `Actor.hidden`, `Actor.render2D`, `Projectile.hidden`, `KeyedProjectile.hidden`, `GraphicsObject.hidden` |
-| Components | Writes a component's drag dead time or dead zone, and clears its mouse-repeat listener through the client's own clear | `IfType.dragDeadTime`, `IfType.dragDeadZone`, `IfType.onMouseRepeat`, `functions.ifListenerClear` |
+| Components | Writes a component's drag dead time or dead zone, clears its mouse-repeat listener through the client's own clear, and sets its text through the client's string assignment and invalidate | `IfType.dragDeadTime`, `IfType.dragDeadZone`, `IfType.onMouseRepeat`, `functions.ifListenerClear`, `IfType.text`, `functions.stringAssign`, `functions.ifInvalidate` |
 | Calls | Calls the client's highlight functions, minimenu row bodies and packet helpers, with arguments and data from Kraken | `functions.highlight*`, `functions.menu*`, `functions.packet*` |
 | Shared memory | Maps Kraken's overlay surface and writes its `reading` word | none |
 
@@ -453,6 +453,12 @@ Raise messages go to `GameSession.onNative`, script messages to `GameSession.onS
 `GameSurface.frame`, and CALLS_DONE is logged when calls failed. `onEvent(name, consumer)` taps raw messages on the
 reader thread for diagnostics; nothing calls it yet. When the connection ends, everything above is switched off again and the API
 goes back to its 20 ms poll until the DLL reconnects.
+
+**Status.** `getStatus()` says where the hook has got to: `NOT_INSTALLED` until `install`, `INJECTING` until the DLL
+connects, `CONNECTED`, `DISCONNECTED` after a dropped connection, and `UNAVAILABLE` when the DLL can't be found or
+injected, the mapping gives it nothing to hook, or the server socket fails. `getReport()` holds the last STATUS (hooks
+installed and requested, protocol, and `NativeProtocol.featureNames` of the feature bits) while connected, and null
+otherwise. The Kraken page shows both.
 
 **Sending.** `Connection.send` is synchronized, so whole frames from different threads (plugins' highlight calls, the
 overlay surface, the frame cap) never interleave. On exit, `flushOnExit` waits up to a second for the last call batch's

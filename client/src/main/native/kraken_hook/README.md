@@ -86,19 +86,20 @@ Two more jobs run in the pump, after the calls. From the visibility block the DL
 the projectiles and the graphics objects are; each frame it applies the rules `VISIBILITY` sent, setting the hidden
 byte of what they hide and the 2D byte of actors, and clearing only what it set
 ([entity-visibility.md](../../../../../docs/developer/entity-visibility.md)). From the component block it knows the
-interface store's layout; it looks up each component a `COMPONENTS` write names, by id, and writes the field or calls
-the client's listener clear on it ([widget-writes.md](../../../../../docs/developer/widget-writes.md)).
+interface store's layout; it looks up each component a `COMPONENTS` write names, by id, and writes the field, calls
+the client's listener clear on it, or sets its text with the client's string assignment and invalidate
+([widget-writes.md](../../../../../docs/developer/widget-writes.md)).
 
-## Protocol v7 (little-endian)
+## Protocol v8 (little-endian)
 
-**Handshake** (Java → DLL): magic `KRK7`, a `u16` slot count, then per slot
+**Handshake** (Java → DLL): magic `KRK8`, a `u16` slot count, then per slot
 `{u64 rva, i32 fixedId (-1 = read idArg), u8 idArg, u8 args, u8 planLen, plan[planLen]}`, where a
 plan entry is `{u8 arg, u8 op}` with ops `RAW, I32, I64, I32X2, CSTR` = 0..4; then
 `u64 clientGlobal, u64 pumpFn, u64 presentFn` (RVAs; 0 = none); then five `u16`-length-prefixed
 blocks: the script block (empty for no script hooks; its 155-byte layout is `NativeProtocol.scriptLayout`'s
 and `parseScriptLayout`'s), the menu block (142 bytes, `menuLayout`'s and `menus.cpp`'s `parseLayout`'s),
 the key block (8 bytes, the window procedure's RVA), the visibility block (84 bytes, `visibilityLayout`'s and
-`visibility.cpp`'s) and the component block (56 bytes, `componentLayout`'s and `components.cpp`'s).
+`visibility.cpp`'s) and the component block (84 bytes, `componentLayout`'s and `components.cpp`'s).
 
 **Messages** (DLL → Java): a `u32` length frame, then
 `{u32 seq, i32 eventId, u64 regs[4], u8 nValues, values...}`, where a value is `{u8 arg, u8 op, payload}`.
@@ -106,7 +107,7 @@ the key block (8 bytes, the window procedure's RVA), the visibility block (84 by
 
 | id | Name | regs |
 |---|---|---|
-| -2 | STATUS | installed slots, requested slots, features (1 = pump hooked, 2 = present hooked, 4 = frame rate, 8 = script hooks, 16 = menu hooks, 32 = key hook, 64 = visibility, 128 = component writes), protocol version 7 |
+| -2 | STATUS | installed slots, requested slots, features (1 = pump hooked, 2 = present hooked, 4 = frame rate, 8 = script hooks, 16 = menu hooks, 32 = key hook, 64 = visibility, 128 = component writes), protocol version 8 |
 | -3 | FRAME | framebuffer width, height, GL version (`major << 16 \| minor`), surface generation drawn (0 = none) |
 | -4 | CALLS_DONE | batch id, calls run, calls faulted or skipped, last return value |
 | -5 | FPS | frames since the last FPS, microseconds since it, frame cap in force, 1 if presents were counted (0: frame steps) |

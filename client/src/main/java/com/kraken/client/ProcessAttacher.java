@@ -66,6 +66,11 @@ public final class ProcessAttacher {
         FAILED
     }
 
+    /**
+     * {@link #getMappingSource()} for the API's bundled mappings.
+     */
+    public static final String BUNDLED_MAPPINGS = "bundled";
+
     private static final int ATTEMPTS = 20;
     private static final long RETRY_MS = 500;
 
@@ -91,6 +96,25 @@ public final class ProcessAttacher {
     private volatile String detail = "Waiting for the client to start…";
 
     /**
+     * The game's process id, 0 until {@link #start}.
+     */
+    @Getter
+    private volatile long pid;
+
+    /**
+     * The game binary's build, null until it has been read.
+     */
+    @Getter
+    private volatile ClientBuild build;
+
+    /**
+     * Where the mapping came from: {@link #BUNDLED_MAPPINGS}, or the folder {@code -Dkraken.mappings} names. Null until
+     * the mapping has been loaded.
+     */
+    @Getter
+    private volatile String mappingSource;
+
+    /**
      * Creates the attacher.
      *
      * @param exe      the game binary, whose build picks the mapping
@@ -110,6 +134,7 @@ public final class ProcessAttacher {
      * @param pid the game's process id
      */
     public void start(long pid) {
+        this.pid = pid;
         Thread attach = new Thread(() -> attach(pid), "kraken-api-attach");
         attach.setDaemon(true);
         attach.start();
@@ -182,13 +207,14 @@ public final class ProcessAttacher {
     private void attach(long pid) {
         // The API's bundled mappings, unless -Dkraken.mappings=<dir> points at another folder of <version>.json files
         String override = System.getProperty("kraken.mappings");
-        String source = override != null ? override : "bundled";
+        String source = override != null ? override : BUNDLED_MAPPINGS;
         setState(State.ATTACHING, "Attaching to osclient.exe (pid " + pid + ")…");
         ClientBuild build;
         Mapping mapping;
         try {
             // The exe and its mapping don't change while the game runs, so they're read once rather than on every try
             build = ClientBuild.of(exe.toPath());
+            this.build = build;
             mapping = override != null ? GameSession.mappingFor(build, Path.of(override)) : GameSession.mappingFor(build);
         } catch (UnsupportedBuildException e) {
             unsupported(e);
@@ -198,6 +224,7 @@ public final class ProcessAttacher {
             setState(State.FAILED, "Could not read the client's build or mapping. See the console.");
             return;
         }
+        mappingSource = source;
 
         GameSession attached = open(pid, build, mapping);
         if (attached == null) {

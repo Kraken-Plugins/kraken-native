@@ -27,6 +27,7 @@ Paths are under [`client/src/main/java/com/kraken/client/`](../../client/src/mai
 | [`plugins/Plugin.java`](../../client/src/main/java/com/kraken/client/plugins/Plugin.java), [`PluginDescriptor.java`](../../client/src/main/java/com/kraken/client/plugins/PluginDescriptor.java), [`PluginDependency.java`](../../client/src/main/java/com/kraken/client/plugins/PluginDependency.java) | The plugin base class and its annotations |
 | [`plugins/config/`](../../client/src/main/java/com/kraken/client/plugins/config/) | `ConfigManager`, the proxy, the descriptors, the settings annotations |
 | [`input/`](../../client/src/main/java/com/kraken/client/input/) | `KeyManager` and `HotkeyListener`: which keys are held while the game has the keyboard |
+| [`worldhopper/`](../../client/src/main/java/com/kraken/client/worldhopper/) | The World Hopper: the world list, the hops and quick-hops, the sidebar page and its settings |
 | [`util/`](../../client/src/main/java/com/kraken/client/util/), [`game/`](../../client/src/main/java/com/kraken/client/game/) | Helpers for plugins: wildcard and list matching, text and colour tags, quantities, whether an NPC is dying |
 | [`ui/KrakenFrame.java`](../../client/src/main/java/com/kraken/client/ui/KrakenFrame.java) | The main window: layout, window state, settings that reach the window |
 | [`ui/Sidebar.java`](../../client/src/main/java/com/kraken/client/ui/Sidebar.java), [`HomePanel.java`](../../client/src/main/java/com/kraken/client/ui/HomePanel.java), [`PluginListPanel.java`](../../client/src/main/java/com/kraken/client/ui/PluginListPanel.java), [`ConfigPanel.java`](../../client/src/main/java/com/kraken/client/ui/ConfigPanel.java), [`ConsolePanel.java`](../../client/src/main/java/com/kraken/client/ui/ConsolePanel.java), [`Theme.java`](../../client/src/main/java/com/kraken/client/ui/Theme.java) | The sidebar pages, the console, the theme |
@@ -108,16 +109,16 @@ flowchart TD
 
 | Level | Bound explicitly | Created on first use |
 |---|---|---|
-| Root, `KrakenModule` | `@Named("exe") File`, `@Named("developerMode") boolean`, `@Named("settings") Path`, the `EventBus` instance, `@Named("edt") Executor`, `KrakenConfig` (a provider), and a `ScheduledExecutorService` provider that makes the `kraken-scheduler` thread | Every `@Singleton` class of the client: `KrakenFrame`, `GameView`, `GameLauncher`, `HomePanel`, `Sidebar`, `ConsolePanel`, `DevToolsPanel`, `DevToolManager`, `PluginListPanel`, `ExitHandler`, `ConfigManager`, `FrameRates`, `ProcessAttacher`, `PluginManager`, `OverlayManager`, `OverlayRenderer`, `OverlayEditor`, `GameOverlay`, `GameSurface`, `FpsOverlay` |
-| Session, `SessionModule` | `GameSession`, `Client`, `Mapping`, `@Named("pid") long`, `ClientThread` (singleton), `NativeEventServer` (singleton), `KeyManager` (singleton) | Nothing; the session services above are bound explicitly so that every plugin shares one |
+| Root, `KrakenModule` | `@Named("exe") File`, `@Named("developerMode") boolean`, `@Named("settings") Path`, the `EventBus` instance, `@Named("edt") Executor`, `KrakenConfig` (a provider), `WorldHopperConfig` (a provider), and a `ScheduledExecutorService` provider that makes the `kraken-scheduler` thread | Every `@Singleton` class of the client: `KrakenFrame`, `GameView`, `GameLauncher`, `HomePanel`, `Sidebar`, `ConsolePanel`, `DevToolsPanel`, `DevToolManager`, `PluginListPanel`, `WorldHopperPanel`, `WorldService`, `ExitHandler`, `ConfigManager`, `FrameRates`, `ProcessAttacher`, `PluginManager`, `OverlayManager`, `OverlayRenderer`, `OverlayEditor`, `GameOverlay`, `GameSurface`, `FpsOverlay` |
+| Session, `SessionModule` | `GameSession`, `Client`, `Mapping`, `@Named("pid") long`, `ClientThread` (singleton), `NativeEventServer` (singleton), `KeyManager` (singleton), `WorldHopper` (singleton) | Nothing; the session services above are bound explicitly so that every plugin shares one |
 | Plugin | The plugin instance itself, and the plugin's own module (its `@Provides` methods) | Its `@Inject` fields, drawn from the session injector and its dependencies' public modules |
 
 Two rules follow from this layout:
 
 * A root-level class can't inject a session object. `GameSession` has no binding above the session injector, so Guice
   fails when such a class is first requested. Pre-game components use `ProcessAttacher` instead: its state (through
-  `addStateListener`) and its poll and frame listeners. `DevToolManager`, `OverlayRenderer` and `HomePanel` all work
-  this way.
+  `addStateListener`), its attach listeners, which are handed the session injector, and its poll and frame listeners.
+  `DevToolManager`, `OverlayRenderer`, `HomePanel` and `WorldHopperPanel` all work this way.
 * Plugins are installed as Guice modules. `PluginManager` builds each plugin's injector as a child of the session
   injector, binds the plugin instance, and installs the plugin, so its `@Provides` methods run. A dependency's public
   module (`Plugin.getPublicModule()`) is installed into the dependent plugin's injector.
@@ -163,7 +164,7 @@ After the change, `embed` calls `fit()` and queues the focus start on the EDT.
 
 `GameView.fit()` reads the canvas's client rectangle (`GetClientRect`) and the game's rectangle (`GetWindowRect`). If the
 sizes differ, it calls `SetWindowPos` with `SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW` and fires the
-`gameSize` property change, which `KrakenFrame` shows on the Kraken page. The fit runs in two places:
+`gameSize` property change, which `HomePanel` shows on the Kraken page. The fit runs in two places:
 
 * on the EDT, from the canvas's `componentResized`;
 * on the launcher thread, every 250 ms.
@@ -245,6 +246,10 @@ stateDiagram-v2
 `UNSUPPORTED` is also the state for a mapping whose sha256 doesn't match the running exe. The text is the same, and the
 console line carries the reason.
 
+Besides the state, `ProcessAttacher` keeps what it learns for the Kraken page: `getPid()` from `start`, `getBuild()` once
+the exe has been read, and `getMappingSource()` once the mapping has loaded (`BUNDLED_MAPPINGS`, or the
+`kraken.mappings` folder).
+
 ### Retries and the Mapping
 
 `attach` reads the build with `ClientBuild.of` and the mapping once, before any attach try, because neither changes while
@@ -265,9 +270,9 @@ the poll loop.
 
 | Registration | Runs on | When | Registered by |
 |---|---|---|---|
-| `addStateListener` | EDT | Each state change | `HomePanel.showStatus`, `DevToolManager.attachStateChanged` |
-| `addAttachListener` | `kraken-api-attach`, before `ATTACHED` and before the first poll | Once | `KrakenClient`: plugin loading, then the hook install |
-| `addPollListener` | `kraken-api-poll` | Every 150 ms once attached | `KrakenFrame.readPlayer`, `DevToolManager.poll` |
+| `addStateListener` | EDT | Each state change | `HomePanel` (status line and build), `DevToolManager.attachStateChanged` |
+| `addAttachListener` | `kraken-api-attach`, before `ATTACHED` and before the first poll | Once | `HomePanel` (takes the `NativeEventServer`), then `KrakenClient`: plugin loading, then the hook install |
+| `addPollListener` | `kraken-api-poll` | Every 150 ms once attached | `KrakenFrame.readPlayer`, `HomePanel.readGame`, `DevToolManager.poll` |
 | `addFrameListener` | `kraken-api-poll` | Every pass of the poll loop, about every 20 ms or on a hook raise | `OverlayRenderer.frame` |
 
 A listener that throws is logged, and the other listeners still run. `notify` logs failures from the poll and frame
@@ -503,6 +508,32 @@ state from Windows (`GetAsyncKeyState`) instead, and counts keys only while `Cli
 
 Nothing here can consume or change a key: the game always sees it.
 
+## World Hopper
+
+The World Hopper is built in, not a plugin: a sidebar page that exists from launch and a session service that hops.
+Its classes are in [`worldhopper/`](../../client/src/main/java/com/kraken/client/worldhopper/).
+
+| Class | Injector | Role |
+|---|---|---|
+| `WorldClient` | Root | Fetches the world list from the address the game fetches it from (`slr.ws`) and decodes it into the API's `World`s |
+| `WorldService` | Root | Keeps the last list; refreshes every ten minutes once started, and on request |
+| `WorldHopperPanel` | Root | The sidebar page. Reads the current world in a poll listener and takes the `WorldHopper` from an attach listener |
+| `WorldHopperConfig` | Root | Group `worldhopper`: the quick-hop keys and filters, and hidden items for the page's filters and sort |
+| `WorldHopper` | Session | Runs hops and quick-hops on the client thread; registers the quick-hop `HotkeyListener`s |
+| `QuickHop` | None | Picks the world a quick-hop goes to |
+
+`KrakenClient` starts the `WorldHopper` from an attach listener. A hop follows the in-game world switcher: on each
+`GameTick`, if the switcher (group 69) isn't in the component table, the hopper calls `Client.openWorldHopper()`,
+the logout panel's World Switcher op, and gives up after three ticks; once it is open, it calls
+`Client.hopToWorld(world)`, the switcher's "Switch" op with the world's number as the slot, and the server makes the
+hop. The client's component op body sends nothing unless the server enabled the op on that component and slot, which
+it does as it opens the switcher. That's why the switcher has to be open first. The hopper watches `GameStateChanged`
+for the arrival, the "Please finish what you're doing" game message for a refusal, and gives up after ten ticks
+without either. Its status goes to the page and the console.
+
+The current world comes from `Client.getWorld()`, the mapping key `Client.currentWorld` that cs2's `map_world` reads.
+Hopping from the login screen would need the client's own world change, which the API doesn't map.
+
 ## The Window
 
 [`KrakenFrame`](../../client/src/main/java/com/kraken/client/ui/KrakenFrame.java) is a `JFrame` with the game area at
@@ -567,10 +598,29 @@ means the page is not reopened at launch.
 
 ### Home Page
 
-[`HomePanel`](../../client/src/main/java/com/kraken/client/ui/HomePanel.java) shows a list of facts (**PID**, **Build**,
-**Game size**, **Game FPS**, **Overlay FPS**) and the attach status. `set` is safe from any thread, since it posts to the
-EDT. The status dot's colour follows the attach state: accent for `ATTACHED`, warning for `ATTACHING`, error for
+[`HomePanel`](../../client/src/main/java/com/kraken/client/ui/HomePanel.java) is the **Kraken** page: the attach status,
+four cards of facts, and links. Each fact comes from where it is kept:
+
+| Card | Rows | Source |
+|---|---|---|
+| Kraken | Version, Commit, Java, Plugins, Overlay FPS | `KrakenProperties`, `Runtime.version()`, `PluginManager` (change listener), `FrameRates` |
+| Game client | Version, Build, PID, Size, FPS | `ProcessAttacher.getBuild()` and `getPid()`, `GameView`'s `gameSize`, `FrameRates` |
+| Game | State, Player, World, World type, Jagex account | `GameFacts`, read on the poll thread; the `JX_` environment variables |
+| API | Mapping, Native hook, Hooks, Features | `ProcessAttacher.getMappingSource()`, `NativeEventServer.getStatus()` and `getReport()` |
+
+The status dot's colour follows the attach state: accent for `ATTACHED`, warning for `ATTACHING`, error for
 `UNSUPPORTED` and `FAILED`, and muted for `WAITING`.
+
+The page is a root singleton, so it reaches the session's `NativeEventServer` through an attach listener rather than by
+injection. `GameFacts.read` runs in a poll listener, only while the page is showing (a hierarchy listener tracks that),
+and hands the facts to the EDT only when they change. The frame rates, the process and build, and the hook are
+refreshed by a one-second Swing timer.
+
+[`KrakenProperties`](../../client/src/main/java/com/kraken/client/KrakenProperties.java) reads `kraken.properties`:
+the version and commit, which `processResources` fills in (the commit from `git rev-parse --short HEAD`, empty outside
+a checkout), and the link addresses. A placeholder the build didn't fill in reads as missing, and a link with no
+address isn't shown. The links open in the default browser, and the last one opens the settings file's folder, on the
+`kraken-scheduler` thread.
 
 ### Plugins Page
 
@@ -610,7 +660,7 @@ the display's scale. `Theme.install()` must run on the EDT before any Swing comp
   last changed, so moving between two Kraken windows doesn't count as unfocused. Each change calls the limit listeners.
   `NativeEventServer` is one of them, and it sends the limit on the connection that paces frames.
 
-`KrakenFrame` writes the game and overlay rates to the Kraken page once a second. The game row shows `(capped at N)`
+`HomePanel` shows the game and overlay rates on the Kraken page once a second. The game row shows `(capped at N)`
 while a limit applies.
 
 [`FpsOverlay`](../../client/src/main/java/com/kraken/client/ui/overlay/FpsOverlay.java) is an `OverlayPanel` at the top
@@ -891,7 +941,8 @@ exercised only by running the client (see [Using the Client](../client.md)).
 **A plugin.** Add a package under `com.kraken.client.plugins` with a `Plugin` subclass and a `@PluginDescriptor`. The
 scan finds it, and nothing else needs registering. Put its settings in a `@ConfigGroup` interface, and provide it with a
 `@Provides` method that calls `ConfigManager.getConfig`. Add overlays in `startUp` and remove them in `shutDown`. The
-user-level guide is [Writing a Plugin](../writing-plugins.md). Use the `TickCounter` plugin as the worked example. For a
+user-level guide is [Writing a Plugin](../writing-plugins.md). Use the `TickCounter` plugin as the smallest worked
+example, and `npchighlight` for one with overlays. For a
 plugin that depends on another, use `@PluginDependency` and override `getPublicModule()` in the dependency.
 
 **A setting for Kraken itself.** Add a `@ConfigItem` getter with a default body to `KrakenConfig`, with a `position` and a

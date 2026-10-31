@@ -9,6 +9,7 @@ import com.kraken.api.mapping.Mapping;
 import com.kraken.client.callback.ClientThread;
 import com.kraken.client.callback.NativeEventServer;
 import com.kraken.client.input.KeyManager;
+import com.kraken.client.worldhopper.WorldHopper;
 import lombok.AllArgsConstructor;
 
 /**
@@ -18,7 +19,8 @@ import lombok.AllArgsConstructor;
  *
  * <p>Binds the {@link GameSession}, its {@link Client} and {@link Mapping}, the game's process id as
  * {@code @Named("pid") long}, and the services that only work once the game is attached ({@link ClientThread},
- * {@link NativeEventServer}, {@link KeyManager}). Bind such services here explicitly, so every plugin shares one.
+ * {@link NativeEventServer}, {@link KeyManager}, {@link WorldHopper}). Bind such services here explicitly, so every
+ * plugin shares one.
  */
 @AllArgsConstructor
 public final class SessionModule extends AbstractModule {
@@ -34,5 +36,6 @@ public final class SessionModule extends AbstractModule {
         bind(ClientThread.class).in(Singleton.class);
         bind(NativeEventServer.class).in(Singleton.class);
         bind(KeyManager.class).in(Singleton.class);
+        bind(WorldHopper.class).in(Singleton.class);
     }
 }

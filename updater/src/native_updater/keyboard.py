@@ -26,6 +26,7 @@ Output keys: functions.renderViewWndProc, IfType.onKey, IfType.onMouseRepeat, If
 functions.ifListenerClear.
 """
 from .analysis.provenance import Add, Arg, Const, Deref, Ret
+from .scripts import _table_cases
 
 CLASS_NAME = "JagRenderView"
 WNDCLASSEX_SIZE = 0x50          # sizeof(WNDCLASSEXA), stored into its cbSize
@@ -69,7 +70,7 @@ def render_view_wndproc(session, p):
 
 def component_listeners(session, p):
     model = session.model
-    handler = _hook_handler(model)
+    handler = _table_cases(model, HOOK_RANGE)
     if handler is None:
         session.notes.append(f"keyboard: no cs2 handler subtracts {HOOK_RANGE} and jumps through a case table")
         return {}
@@ -157,37 +158,6 @@ def _arg0_field(target):
     if isinstance(target.base, Add) and target.base.base == Arg(0):
         return target.base.off + target.off
     return None
-
-
-def _hook_handler(model):
-    """(fn, [case rva]) of the cs2 handler of ops 1400-1499: the `LEA EAX,[R - 1400]` or `ADD EAX,-1400`, a compare
-    with the case count and a jump through a table of image-relative case addresses."""
-    imm = (-HOOK_RANGE) & 0xffffffff
-    candidates = {fn for _, fn in model.insns_with_imm(imm) if fn is not None}
-    candidates |= {fn for _, fn in model.insns_with_disp(-HOOK_RANGE, "LEA") if fn is not None}
-    found = []
-    for fn in sorted(candidates):
-        body = model.insns(fn)
-        for k, insn in enumerate(body):
-            subtracts = (insn.mnem == "LEA" and len(insn.ops) == 2 and insn.ops[1].kind == "mem"
-                         and insn.ops[1].disp == -HOOK_RANGE) or \
-                        (insn.mnem == "ADD" and len(insn.ops) == 2 and insn.ops[1].kind == "imm"
-                         and insn.ops[1].imm in (imm, -HOOK_RANGE))
-            if not subtracts:
-                continue
-            bound = next((i.ops[1].imm for i in body[k + 1: k + 4] if i.mnem == "CMP" and len(i.ops) == 2
-                          and i.ops[1].kind == "imm"), None)
-            table = next((i.ops[1].disp for i in body[k + 1: k + 12] if i.mnem == "MOV" and len(i.ops) == 2
-                          and i.ops[1].kind == "mem" and i.ops[1].scale == 4 and i.ops[1].disp > 0), None)
-            if bound is None or table is None or not 0 < bound < 100:
-                continue
-            raw = model.pe.read(table, 4 * (bound + 1))
-            if raw is None:
-                continue
-            cases = [int.from_bytes(raw[4 * c: 4 * c + 4], "little") for c in range(bound + 1)]
-            if all(model.function_containing(c) == fn for c in cases):
-                found.append((fn, cases))
-    return found[0] if len(found) == 1 else None
 
 
 def _tail(model, fn, first):

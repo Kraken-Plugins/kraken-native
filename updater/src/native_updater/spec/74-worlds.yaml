@@ -1,0 +1,11 @@
+# The world the local player is on. The handler of cs2 ops 3300-3399 dispatches through a table of case addresses;
+# map_world (op 3318) pushes the client's current world id from a 4-byte Client field, checked against the field
+# worldflags (op 3324) reads as Client.worldFlags (extractor `cs2_world`, worlds.py). No Lua binding touches the
+# field itself.
+keys:
+  - key: Client.currentWorld
+    type: i32
+    priority: P1
+    doc: The world number the player is on (e.g. 302); what cs2 map_world (op 3318) pushes.
+    strategies:
+      - extractor: { name: cs2_world, field: Client.currentWorld, cls: A }

@@ -28,7 +28,7 @@ Outside the Kraken client, attach to the game yourself; see [Using the API on it
 
 | Area | Where to start |
 |---|---|
-| Game state and login | `client.getGameState()`, `isLoggedIn()`, `getWorldType()`, `getProfileType()`, `isFocused()` |
+| Game state and login | `client.getGameState()`, `isLoggedIn()`, `getWorld()` (the world number), `getWorldType()`, `getProfileType()`, `isFocused()` |
 | Ticks | `getTickCount()` (server ticks, about 600 ms), `getGameCycle()` (client cycles, 20 ms) |
 | You | `getLocalPlayer()`, which is null while logged out; `getFollower()` |
 | NPCs and players | `getNpcs()`, `getPlayers()`; by index through `getTopLevelWorldView().npcs()` and `.players()` |
@@ -208,6 +208,12 @@ interfaces; and click to continue. Examine, walking by the minimap and RuneLite'
 Actions aren't queued: while the hook isn't connected, they're dropped and return `false`. The
 [Action Tester](plugins.md#action-tester) plugin runs every kind from its settings page.
 
+Two methods on `Client` hop worlds with these actions, as the in-game world switcher does: `openWorldHopper()` clicks
+the logout panel's World Switcher button, and `hopToWorld(world)` clicks a world's row in the open switcher (a `World`
+from `World.builder().id(330).build()`; only the number counts). The server makes the hop, so the switcher has to be
+open first, which takes a tick or so after `openWorldHopper()`, and the server can still refuse, during combat for
+example. The client's [World Hopper](client.md#world-hopper) does both steps for you.
+
 Every action is sent to the game's servers like a real click. Read the disclaimer in the [README](../README.md).
 
 ## Menu Edits
@@ -274,11 +280,24 @@ details.
 
 ## Widget Writes
 
-Three `Widget` setters change the game's component: `setDragDeadTime` (how long, in client ticks, the mouse must be held
-before a drag starts), `setDragDeadZone` (how far it must move) and `setOnMouseRepeatListener((Object[]) null)`, which
-clears the component's mouse-repeat listener (setting one isn't supported). The native hook looks the component up by
-id at the start of the next frame and writes then, so a component that has gone is left alone; the snapshot shows the
-new value at once. Writes made without the hook are dropped.
+Four `Widget` setters change the game's component: `setText`, which sets its text the way a script's `cc_settext` does
+(the client redraws it), `setDragDeadTime` (how long, in client ticks, the mouse must be held before a drag starts),
+`setDragDeadZone` (how far it must move) and `setOnMouseRepeatListener((Object[]) null)`, which clears the component's
+mouse-repeat listener (setting one isn't supported). The native hook looks the component up by id at the start of the
+next frame and writes then, so a component that has gone is left alone; the snapshot shows the new value at once.
+Writes made without the hook are dropped. The game keeps a text until something sets it again, such as the
+interface's own scripts or a reload of the interface, so a plugin that shows something in a widget sets it again each
+tick:
+
+```java
+@Subscribe
+public void onGameTick(GameTick event) {
+    Widget report = client.getWidget(InterfaceID.Chatbox.REPORTABUSE_TEXT1);
+    if (report != null) {
+        report.setText(String.valueOf(client.getTickCount()));
+    }
+}
+```
 
 In a `ScriptPreFired` or `ScriptPostFired` handler, `client.getScriptActiveWidget()` is the component the script
 engine's `cc_*` ops were acting on at that moment, such as the item slot `ScriptID.INVENTORY_DRAWITEM` just drew, and

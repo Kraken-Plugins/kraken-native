@@ -24,10 +24,10 @@ import java.util.List;
  * <p>Positions and sizes are in canvas pixels, the units of {@link Client#getCanvasWidth()}. The rest of the native
  * component's fields, which Lua's {@code IfType} names, have getters too.
  *
- * <p>The setters ({@link #setDragDeadTime}, {@link #setDragDeadZone}, {@link #setOnMouseRepeatListener}) change the
- * game's component through the client's native hook, which looks the component up by id on the game thread at the
- * start of the next frame, so a write to a component that has gone since does nothing. The snapshot shows the new
- * value at once. A write made while the hook isn't connected is dropped.
+ * <p>The setters ({@link #setText}, {@link #setDragDeadTime}, {@link #setDragDeadZone},
+ * {@link #setOnMouseRepeatListener}) change the game's component through the client's native hook, which looks the
+ * component up by id on the game thread at the start of the next frame, so a write to a component that has gone since
+ * does nothing. The snapshot shows the new value at once. A write made while the hook isn't connected is dropped.
  *
  * <p>Two widgets over the same native component are equal.
  */
@@ -51,6 +51,11 @@ public final class Widget {
     private final byte[] data;
     private final ByteBuffer buffer;
     private final int frame;
+
+    /**
+     * The text {@link #setText} set on this snapshot, or null to read the snapshot's own.
+     */
+    private String text;
 
     /**
      * A snapshot of one native component.
@@ -243,7 +248,25 @@ public final class Widget {
      * @return the text, with the client's markup ({@code <col=ff0000>}, {@code <br>}); "" if none
      */
     public String getText() {
-        return string("text");
+        return text != null ? text : string("text");
+    }
+
+    /**
+     * Sets the widget's text, as {@code cc_settext} does: the client takes the text unless the widget already shows
+     * it, then marks the widget changed, so it is redrawn and anything subscribed to it hears of it. The game keeps
+     * the text until something sets it again, such as the interface's own scripts or the client reloading the
+     * interface.
+     *
+     * @param text the text, which may hold the client's markup ({@code <col=ff0000>}, {@code <br>}); null for none
+     * @return this widget
+     * @throws IllegalArgumentException if the text is longer than 4096 bytes as UTF-8
+     */
+    public Widget setText(String text) {
+        String value = text == null ? "" : text;
+        if (reader.writeText(this, "text", value)) {
+            this.text = value;
+        }
+        return this;
     }
 
     /**

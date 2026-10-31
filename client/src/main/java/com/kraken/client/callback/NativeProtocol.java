@@ -23,6 +23,7 @@ import lombok.NoArgsConstructor;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -31,7 +32,7 @@ import java.util.Set;
 import java.util.function.IntFunction;
 
 /**
- * The wire format between {@link NativeEventServer} and {@code kraken_hook.dll} (protocol v7, little-endian). Java
+ * The wire format between {@link NativeEventServer} and {@code kraken_hook.dll} (protocol v8, little-endian). Java
  * sends one handshake naming the raise functions to hook, their event ids and a capture plan per slot, then the
  * functions the drawing needs, then the script runtime's functions and layout, the minimenu's functions and layout,
  * the game window's procedure, where the entities and their visibility flags are, and the interface store's layout;
@@ -46,9 +47,9 @@ import java.util.function.IntFunction;
 final class NativeProtocol {
 
     /**
-     * Handshake magic: identifies protocol v7.
+     * Handshake magic: identifies protocol v8.
      */
-    static final byte[] MAGIC = {'K', 'R', 'K', '7'};
+    static final byte[] MAGIC = {'K', 'R', 'K', '8'};
 
     /**
      * Capture-plan ops: how the DLL reads the argument register a plan entry names.
@@ -145,6 +146,19 @@ final class NativeProtocol {
      * are made.
      */
     static final long FEATURE_COMPONENTS = 128;
+
+    /**
+     * Each STATUS feature bit and its name, in bit order.
+     */
+    private static final List<Map.Entry<Long, String>> FEATURE_NAMES = List.of(
+            Map.entry(FEATURE_CALLS, "calls"),
+            Map.entry(FEATURE_OVERLAY, "overlay"),
+            Map.entry(FEATURE_FRAME_RATE, "frame rate"),
+            Map.entry(FEATURE_SCRIPTS, "scripts"),
+            Map.entry(FEATURE_MENU, "menu"),
+            Map.entry(FEATURE_KEYS, "keys"),
+            Map.entry(FEATURE_VISIBILITY, "visibility"),
+            Map.entry(FEATURE_COMPONENTS, "components"));
 
     /**
      * Command type: a batch of calls.
@@ -372,12 +386,20 @@ final class NativeProtocol {
             "container:hash_map.node.next");
 
     /**
-     * The mapping keys the handshake's component block is built from, after the listener clear's RVA, in order: the
-     * interface store, its group entries and slots, a component's dynamic children, and its ids. All required.
+     * The functions the handshake's component block names first, in order: the listener clear, the string assignment
+     * and the component invalidate. One the mapping lacks is sent as 0, which leaves that write undone.
+     */
+    private static final String[] COMPONENT_FUNCTIONS = {"ifListenerClear", "stringAssign", "ifInvalidate"};
+
+    /**
+     * The mapping keys the handshake's component block is built from, after its functions, in order: the interface
+     * store, its group entries and slots, a component's dynamic children, its ids, and the eastl string layout. All
+     * required.
      */
     private static final String[] COMPONENT_OFFSETS = {"Client.interfaceStore", "IfStore.groupCount", "IfStore.groups",
             "IfStoreGroup.stride", "IfStoreGroup.count", "IfStoreGroup.slots", "IfStoreGroup.slotStride",
-            "container:shared_ptr.ptr", "IfType.dynCount", "IfType.dynSlots", "IfType.packedId", "IfType.subId"};
+            "container:shared_ptr.ptr", "IfType.dynCount", "IfType.dynSlots", "IfType.packedId", "IfType.subId",
+            "container:string.heapFlagByte", "container:string.heapFlagMask", "container:string.ssoCapacity"};
 
     /**
      * The four script functions the DLL hooks, in order.
@@ -423,6 +445,22 @@ final class NativeProtocol {
          * No calls and no overlay.
          */
         static final Drawing NONE = new Drawing(0, 0, 0);
+    }
+
+    /**
+     * Names the features a STATUS message reports.
+     *
+     * @param features the STATUS feature bits
+     * @return the names of the bits that are set, in bit order; unknown bits are left out
+     */
+    static List<String> featureNames(long features) {
+        List<String> names = new ArrayList<>();
+        for (Map.Entry<Long, String> feature : FEATURE_NAMES) {
+            if ((features & feature.getKey()) != 0) {
+                names.add(feature.getValue());
+            }
+        }
+        return names;
     }
 
     /**
@@ -567,16 +605,19 @@ final class NativeProtocol {
     }
 
     /**
-     * Builds the handshake's component block from a mapping: the RVA of the client's listener clear
-     * ({@code functions.ifListenerClear}, {@code u64}, 0 if the mapping lacks it, which leaves listeners alone), then
-     * the offsets of {@link #COMPONENT_OFFSETS} ({@code u32} each).
+     * Builds the handshake's component block from a mapping: the RVAs of {@link #COMPONENT_FUNCTIONS} ({@code u64}
+     * each, 0 for one the mapping lacks: without the listener clear listeners are left alone, without the string
+     * assignment or the invalidate texts are), then the offsets of {@link #COMPONENT_OFFSETS} ({@code u32} each).
      *
      * @param mapping the attached build's mapping
      * @return the block, or an empty array if the mapping lacks an offset (no component writes)
      */
     static byte[] componentLayout(Mapping mapping) {
-        ByteBuffer buf = ByteBuffer.allocate(8 + COMPONENT_OFFSETS.length * 4).order(ByteOrder.LITTLE_ENDIAN);
-        buf.putLong(mapping.hasFunction("ifListenerClear") ? mapping.function("ifListenerClear") : 0);
+        ByteBuffer buf = ByteBuffer.allocate(COMPONENT_FUNCTIONS.length * 8 + COMPONENT_OFFSETS.length * 4)
+                .order(ByteOrder.LITTLE_ENDIAN);
+        for (String function : COMPONENT_FUNCTIONS) {
+            buf.putLong(mapping.hasFunction(function) ? mapping.function(function) : 0);
+        }
         for (String key : COMPONENT_OFFSETS) {
             int value = layoutValue(mapping, key);
             if (value < 0) {
@@ -620,8 +661,8 @@ final class NativeProtocol {
 
     /**
      * Frames a batch of component writes: {@code {u32 len, u8 8, u16 count, count x {i32 packedId, i32 subId, u8 op,
-     * u16 offset, i32 value}}}, the op being the ordinal of the write's {@link ComponentOp.Op}. The length counts the
-     * bytes after it.
+     * u16 offset, i32 value}}}, the op being the ordinal of the write's {@link ComponentOp.Op}. A text write's value
+     * is its text's length in UTF-8 bytes, and the bytes follow it. The length counts the bytes after it.
      *
      * @param ops the writes, in order
      * @return the framed command
@@ -630,17 +671,28 @@ final class NativeProtocol {
         if (ops.size() > 0xffff) {
             throw new IllegalArgumentException("at most 65535 component writes a batch, got " + ops.size());
         }
+        List<byte[]> texts = new ArrayList<>(ops.size());
         int body = 1 + 2 + ops.size() * 15;
+        for (ComponentOp op : ops) {
+            byte[] text = op.op() == ComponentOp.Op.SET_TEXT ? op.text().getBytes(StandardCharsets.UTF_8) : null;
+            texts.add(text);
+            body += text == null ? 0 : text.length;
+        }
         ByteBuffer buf = ByteBuffer.allocate(4 + body).order(ByteOrder.LITTLE_ENDIAN);
         buf.putInt(body);
         buf.put((byte) COMMAND_COMPONENTS);
         buf.putShort((short) ops.size());
-        for (ComponentOp op : ops) {
+        for (int i = 0; i < ops.size(); i++) {
+            ComponentOp op = ops.get(i);
+            byte[] text = texts.get(i);
             buf.putInt(op.packedId());
             buf.putInt(op.subId());
             buf.put((byte) op.op().ordinal());
             buf.putShort((short) op.offset());
-            buf.putInt(op.value());
+            buf.putInt(text == null ? op.value() : text.length);
+            if (text != null) {
+                buf.put(text);
+            }
         }
         return buf.array();
     }

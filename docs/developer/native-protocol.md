@@ -1,6 +1,6 @@
 # The Native Protocol
 
-The Kraken client and `kraken_hook.dll` talk over one TCP connection on the loopback interface, using protocol v7.
+The Kraken client and `kraken_hook.dll` talk over one TCP connection on the loopback interface, using protocol v8.
 This page is the byte-level reference. [The native hook](native-hook.md) explains what each side does with the
 messages.
 
@@ -18,9 +18,9 @@ sequenceDiagram
     participant J as NativeEventServer (Java)
     participant D as kraken_hook.dll
     D->>J: connect to 127.0.0.1:42069
-    J->>D: handshake (KRK7, slots, drawing RVAs, script, menu, key, visibility and component blocks)
+    J->>D: handshake (KRK8, slots, drawing RVAs, script, menu, key, visibility and component blocks)
     D->>D: install the hooks it names
-    D->>J: STATUS (installed, requested, features, version 7)
+    D->>J: STATUS (installed, requested, features, version 8)
     J->>D: FRAME_LIMIT (if the DLL paces frames)
     loop while connected
         D-->>J: raise messages (event id, registers, captured values)
@@ -50,7 +50,7 @@ field.
 
 | Field | Type | Meaning |
 |---|---|---|
-| magic | 4 bytes | `KRK7`. Any other value makes the DLL drop the connection |
+| magic | 4 bytes | `KRK8`. Any other value makes the DLL drop the connection |
 | slot count | `u16` | The number of raise slots that follow |
 | slots | | Each as below |
 | client global | `u64` | RVA of the global holding the `Client*`, for `CLIENT` and `INDIRECT` call arguments; 0 for none |
@@ -227,25 +227,31 @@ effect while the layout is known and the pump is hooked (`FEATURE_VISIBILITY`).
 
 ### The Component Block
 
-56 bytes, built by `NativeProtocol.componentLayout` and parsed by `install` in `components.cpp`
-([Widget writes](widget-writes.md)). The Java side sends an empty block unless the mapping has every offset; the
-listener clear's RVA is 0 when the mapping lacks it, and listener clears are then skipped.
+84 bytes, built by `NativeProtocol.componentLayout` and parsed by `install` in `components.cpp`
+([Widget writes](widget-writes.md)). The Java side sends an empty block unless the mapping has every offset. A
+function's RVA is 0 when the mapping lacks it: without the listener clear, listener clears are skipped; without the
+string assignment or the invalidate, text writes are.
 
 | Offset | Type | Field | Mapping key |
 |---|---|---|---|
 | 0 | `u64` | listenerClear | `functions.ifListenerClear` |
-| 8 | `u32` | interfaceStore | `Client.interfaceStore` |
-| 12 | `u32` | groupCount | `IfStore.groupCount` |
-| 16 | `u32` | groups | `IfStore.groups` |
-| 20 | `u32` | groupStride | `IfStoreGroup.stride` |
-| 24 | `u32` | slotCount | `IfStoreGroup.count` |
-| 28 | `u32` | slots | `IfStoreGroup.slots` |
-| 32 | `u32` | slotStride | `IfStoreGroup.slotStride` |
-| 36 | `u32` | slotObject | `containers.shared_ptr.ptr` |
-| 40 | `u32` | dynCount | `IfType.dynCount` |
-| 44 | `u32` | dynSlots | `IfType.dynSlots` |
-| 48 | `u32` | packedId | `IfType.packedId` |
-| 52 | `u32` | subId | `IfType.subId` |
+| 8 | `u64` | textAssign | `functions.stringAssign` |
+| 16 | `u64` | invalidate | `functions.ifInvalidate` |
+| 24 | `u32` | interfaceStore | `Client.interfaceStore` |
+| 28 | `u32` | groupCount | `IfStore.groupCount` |
+| 32 | `u32` | groups | `IfStore.groups` |
+| 36 | `u32` | groupStride | `IfStoreGroup.stride` |
+| 40 | `u32` | slotCount | `IfStoreGroup.count` |
+| 44 | `u32` | slots | `IfStoreGroup.slots` |
+| 48 | `u32` | slotStride | `IfStoreGroup.slotStride` |
+| 52 | `u32` | slotObject | `containers.shared_ptr.ptr` |
+| 56 | `u32` | dynCount | `IfType.dynCount` |
+| 60 | `u32` | dynSlots | `IfType.dynSlots` |
+| 64 | `u32` | packedId | `IfType.packedId` |
+| 68 | `u32` | subId | `IfType.subId` |
+| 72 | `u32` | stringFlagByte | `containers.string.heapFlagByte` |
+| 76 | `u32` | stringFlagMask | `containers.string.heapFlagMask` |
+| 80 | `u32` | stringSsoCapacity | `containers.string.ssoCapacity` |
 
 The first handshake with a complete block fixes the layout. COMPONENTS commands take effect while the layout is known
 and the pump is hooked (`FEATURE_COMPONENTS`).
@@ -491,12 +497,13 @@ connection empties the rules, so the next frame shows everything the DLL hid.
 | Field | Type | Meaning |
 |---|---|---|
 | count | `u16` | Writes that follow |
-| writes | count × `{i32 packedId, i32 subId, u8 op, u16 offset, i32 value}` | The component by id and dynamic child index (-1 for a static one), what to do, where in it, and the value |
+| writes | count × `{i32 packedId, i32 subId, u8 op, u16 offset, i32 value}` | The component by id and dynamic child index (-1 for a static one), what to do, where in it, and the value. A `SET_TEXT` write's value is its text's length, at most 4,096, and that many bytes of UTF-8 text follow it |
 
 | Op | Value | What the DLL does with the component found |
 |---|---|---|
 | `SET_I32` | 0 | Writes the value as an `i32` at the offset |
 | `CLEAR_LISTENER` | 1 | Calls the listener clear on the listener slot at the offset; skipped when the block named none |
+| `SET_TEXT` | 2 | Unless the string at the offset already holds the text, assigns it with the string assignment and calls the invalidate with the client and the component's slot, as `cc_settext` does; skipped when the block named either function as 0 |
 
 Writes are queued and made in order at the start of the next frame, on the game thread, each component looked up by
 id first; a component the client doesn't hold, or whose ids differ, is skipped, and each write runs under an SEH
@@ -518,7 +525,7 @@ guard. At most 4,096 writes wait; more are dropped. A malformed command queues n
 
 ## Versioning
 
-The protocol version lives in two places: the handshake magic (`KRK7`) and `PROTOCOL_VERSION` (7), which STATUS
+The protocol version lives in two places: the handshake magic (`KRK8`) and `PROTOCOL_VERSION` (8), which STATUS
 reports and the client logs. A DLL that gets a magic it doesn't know drops the connection, and reconnects a second
 later to the same result, so a client and DLL of different versions never talk. The client always starts a fresh game and
 injects the DLL it was built with, so they only disagree when `-Dkraken.hook.dll` points at a DLL built from other
@@ -538,7 +545,7 @@ To change the format:
 | What | DLL (`protocol.h` unless noted) | Java |
 |---|---|---|
 | Port | `KRAKEN_PORT` = 42069 | `NativeEventServer.PORT` |
-| Magic | `"KRK7"` in `connection.cpp` | `NativeProtocol.MAGIC` |
+| Magic | `"KRK8"` in `connection.cpp` | `NativeProtocol.MAGIC` |
 | Capture-plan ops | `OP_RAW` … `OP_CSTR` | `NativeProtocol.OP_*` |
 | Plan length | `MAX_PLAN` = 8 | `NativeEvents` plans stay within it |
 | Reserved ids | `STATUS_EVENT_ID` … `KEY_EVENT_ID` | `NativeProtocol.*_EVENT_ID` |
@@ -551,9 +558,9 @@ To change the format:
 | Value kinds | `VALUE_OTHER` … `VALUE_LONG`, `NO_KIND` = 0xff | `NativeProtocol.VALUE_*`, the `0xff` fallback in `scriptLayout` |
 | Script block order | `ScriptLayout` and `parseScriptLayout` in `scripts.cpp` | `SCRIPT_FUNCTIONS`, `SCRIPT_OFFSETS`, `SCRIPT_KINDS`, `SCRIPT_FIELDS`, `SCRIPT_COMPONENTS` |
 | Visibility block order | `Layout` and `install` in `visibility.cpp` | `VISIBILITY_OFFSETS`, `VISIBILITY_REQUIRED` |
-| Component block order | `Layout` and `install` in `components.cpp` | `COMPONENT_OFFSETS` |
+| Component block order | `Layout` and `install` in `components.cpp` | `COMPONENT_FUNCTIONS`, `COMPONENT_OFFSETS` |
 | Visibility constants | `HIDE_*`, `LAYER_*`, `MAX_VISIBILITY_OVERRIDES`, `MAX_HIDDEN_GRAPHICS` | `WireVisibility.HIDE_*`, `LAYER_*`; `EntityVisibility.MAX_ACTORS`, `MAX_GRAPHICS` |
-| Component ops | `COMPONENT_SET_I32`, `COMPONENT_CLEAR_LISTENER`, `MAX_COMPONENT_OPS` | `ComponentOp.Op` ordinals, `ComponentWrites.MAX_BATCH` |
+| Component ops | `COMPONENT_SET_I32`, `COMPONENT_CLEAR_LISTENER`, `COMPONENT_SET_TEXT`, `MAX_COMPONENT_OPS`, `MAX_COMPONENT_TEXT` | `ComponentOp.Op` ordinals, `ComponentWrites.MAX_BATCH`, `ComponentOp.MAX_TEXT` |
 | Missing offset | `NONE` (`0xffffffff`) in `scripts.cpp` and `visibility.cpp` | `NativeProtocol.NO_OFFSET` |
 | Menu block order | `MenuLayout` and `parseLayout` in `menus.cpp` | `MENU_FUNCTIONS`, `MENU_OFFSETS`, `MENU_KINDS`, `MENU_OPS`, `MENU_STRING` |
 | Menu rule constants | `MENU_*`, `RULE_*`, `MATCH_*`, `TEXT_*`, `EDIT_*`, `SWAP_*`, `ADD_*`, `MENU_ROW_OP`, `NO_ROW`, `MENU_GRACE`, `CLICK_*` | `NativeProtocol.MENU_*`, `RULE_*`, `MATCH_*`, `EDIT_*`, `SWAP_*`; `MenuEdits.ROW_OP`; the enums' ordinals for text modes and positions |

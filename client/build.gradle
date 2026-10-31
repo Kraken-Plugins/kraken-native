@@ -8,6 +8,8 @@ java {
     }
 }
 
+version = '0.1.0-SNAPSHOT'
+
 repositories {
     mavenCentral()
 }
@@ -52,6 +54,27 @@ tasks.withType(JavaExec).configureEach {
 
 // The injected native hook, kraken_hook.dll, built from C++ with CMake and bundled into the jar
 apply from: 'native-hook.gradle'
+
+// kraken.properties carries the version and the commit the Kraken page shows. The commit is empty outside a git checkout
+def gitCommit = providers.exec {
+    commandLine 'git', 'rev-parse', '--short', 'HEAD'
+    ignoreExitValue = true
+}
+def commit = providers.provider {
+    try {
+        gitCommit.result.get().exitValue == 0 ? gitCommit.standardOutput.asText.get().trim() : ''
+    } catch (Exception ignored) {
+        ''
+    }
+}
+
+tasks.named('processResources', ProcessResources) {
+    def values = [version: project.version.toString(), commit: commit.get()]
+    inputs.properties(values)
+    filesMatching('kraken.properties') {
+        expand(values)
+    }
+}
 
 application {
     mainClass = 'com.kraken.client.KrakenClient'

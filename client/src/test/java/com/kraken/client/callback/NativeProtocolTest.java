@@ -63,7 +63,7 @@ class NativeProtocolTest {
 
         byte[] magic = new byte[4];
         buf.get(magic);
-        assertArrayEquals("KRK7".getBytes(StandardCharsets.US_ASCII), magic);
+        assertArrayEquals("KRK8".getBytes(StandardCharsets.US_ASCII), magic);
         assertEquals(2, buf.getShort(), "slot count");
 
         assertEquals(0xc44d0L, buf.getLong());
@@ -370,8 +370,10 @@ class NativeProtocolTest {
         Mapping mapping = Mapping.bundled("241.3");
         ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.componentLayout(mapping)).order(ByteOrder.LITTLE_ENDIAN);
 
-        assertEquals(mapping.hasFunction("ifListenerClear") ? mapping.function("ifListenerClear") : 0, buf.getLong(),
-                "the listener clear");
+        for (String function : new String[]{"ifListenerClear", "stringAssign", "ifInvalidate"}) {
+            assertTrue(mapping.hasFunction(function), function);
+            assertEquals(mapping.function(function), buf.getLong(), function);
+        }
         for (String key : new String[]{"Client.interfaceStore", "IfStore.groupCount", "IfStore.groups",
                 "IfStoreGroup.stride", "IfStoreGroup.count", "IfStoreGroup.slots", "IfStoreGroup.slotStride"}) {
             assertEquals(mapping.offset(key), buf.getInt(), key);
@@ -380,7 +382,10 @@ class NativeProtocolTest {
         for (String key : new String[]{"IfType.dynCount", "IfType.dynSlots", "IfType.packedId", "IfType.subId"}) {
             assertEquals(mapping.offset(key), buf.getInt(), key);
         }
-        assertEquals(0, buf.remaining(), "56 bytes, as the DLL reads them");
+        for (String key : new String[]{"string.heapFlagByte", "string.heapFlagMask", "string.ssoCapacity"}) {
+            assertEquals(mapping.container(key), buf.getInt(), key);
+        }
+        assertEquals(0, buf.remaining(), "84 bytes, as the DLL reads them");
     }
 
     @Test
@@ -437,6 +442,39 @@ class NativeProtocolTest {
         assertEquals(12 << 16 | 13, buf.getInt());
         assertEquals(-1, buf.getInt(), "a static component");
         assertEquals(0, buf.get(), "write an int");
+        assertEquals(0x324, buf.getShort());
+        assertEquals(30, buf.getInt());
+        assertEquals(0, buf.remaining());
+    }
+
+    @Test
+    void aTextWriteCarriesItsLengthAndItsUtf8Bytes() {
+        List<ComponentOp> ops = List.of(
+                new ComponentOp(162 << 16 | 33, -1, ComponentOp.Op.SET_TEXT, 0x158, 0, "1,234 é"),
+                new ComponentOp(162 << 16 | 33, -1, ComponentOp.Op.SET_TEXT, 0x158, 0, ""),
+                new ComponentOp(149 << 16, 3, ComponentOp.Op.SET_I32, 0x324, 30));
+        byte[] text = "1,234 é".getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.components(ops)).order(ByteOrder.LITTLE_ENDIAN);
+
+        assertEquals(1 + 2 + 3 * 15 + text.length, buf.getInt(), "the length counts the texts' bytes");
+        assertEquals(NativeProtocol.COMMAND_COMPONENTS, buf.get());
+        assertEquals(3, buf.getShort());
+        assertEquals(162 << 16 | 33, buf.getInt());
+        assertEquals(-1, buf.getInt());
+        assertEquals(2, buf.get(), "set a text");
+        assertEquals(0x158, buf.getShort());
+        assertEquals(text.length, buf.getInt(), "the value is the text's length in bytes");
+        byte[] sent = new byte[text.length];
+        buf.get(sent);
+        assertArrayEquals(text, sent);
+        assertEquals(162 << 16 | 33, buf.getInt());
+        assertEquals(-1, buf.getInt());
+        assertEquals(2, buf.get());
+        assertEquals(0x158, buf.getShort());
+        assertEquals(0, buf.getInt(), "an empty text has no bytes");
+        assertEquals(149 << 16, buf.getInt(), "the next write follows the text");
+        assertEquals(3, buf.getInt());
+        assertEquals(0, buf.get());
         assertEquals(0x324, buf.getShort());
         assertEquals(30, buf.getInt());
         assertEquals(0, buf.remaining());
@@ -695,6 +733,15 @@ class NativeProtocolTest {
         NativeEvent event = NativeProtocol.parse(body, id -> null);
         assertNull(event.name());
         assertEquals(999, event.id());
+    }
+
+    @Test
+    void featureNamesFollowTheBitOrderAndSkipUnknownBits() {
+        assertEquals(List.of(), NativeProtocol.featureNames(0));
+        assertEquals(List.of("calls", "keys"),
+                NativeProtocol.featureNames(NativeProtocol.FEATURE_KEYS | NativeProtocol.FEATURE_CALLS | 1L << 40));
+        assertEquals(List.of("calls", "overlay", "frame rate", "scripts", "menu", "keys", "visibility", "components"),
+                NativeProtocol.featureNames(0xff), "every known bit, in bit order");
     }
 
     /**

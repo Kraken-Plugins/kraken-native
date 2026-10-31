@@ -1,4 +1,4 @@
-// The wire format shared with the Kraken client: protocol v7, little-endian. Every value here must match
+// The wire format shared with the Kraken client: protocol v8, little-endian. Every value here must match
 // NativeProtocol, NativeEventServer and GameSurface on the Java side, so change them together.
 // docs/developer/native-protocol.md describes the format, and docs/developer/in-game-drawing.md the
 // overlay surface.
@@ -12,7 +12,7 @@ namespace kraken {
 // Must match NativeEventServer.PORT on the Java side.
 inline constexpr unsigned short KRAKEN_PORT = 42069;
 
-inline constexpr uint32_t PROTOCOL_VERSION = 7;
+inline constexpr uint32_t PROTOCOL_VERSION = 8;
 inline constexpr int MAX_PLAN = 8;  // capture-plan entries per slot
 inline constexpr int CSTR_MAX = 64; // longest NUL-terminated string captured
 
@@ -192,11 +192,14 @@ inline constexpr uint8_t LAYER_2D = 2;
 inline constexpr int MAX_VISIBILITY_OVERRIDES = 4096;
 inline constexpr int MAX_HIDDEN_GRAPHICS = 64; // graphics object spot anim ids a command can hide
 
-// COMPONENTS command ops: write an int32 field of the component, or clear one of its listeners
-// through the client's own function, which frees the listener's arguments.
+// COMPONENTS command ops: write an int32 field of the component, clear one of its listeners
+// through the client's own function, which frees the listener's arguments, or set one of its
+// strings as cc_settext does (the op's value is the text's length, its bytes follow the op).
 inline constexpr uint8_t COMPONENT_SET_I32 = 0;
 inline constexpr uint8_t COMPONENT_CLEAR_LISTENER = 1;
+inline constexpr uint8_t COMPONENT_SET_TEXT = 2;
 inline constexpr int MAX_COMPONENT_OPS = 4096; // ops waiting for the pump at most
+inline constexpr int MAX_COMPONENT_TEXT = 4096; // bytes of a COMPONENT_SET_TEXT text at most
 
 // Overlay surface layout (docs/developer/in-game-drawing.md, "The Overlay Surface").
 inline constexpr uint32_t SURFACE_MAGIC = 0x31564F4B; // "KOV1"

@@ -8,14 +8,15 @@ import com.kraken.api.actor.Player;
 import com.kraken.api.eventbus.EventBus;
 import com.kraken.client.ExitConfirmation;
 import com.kraken.client.ExitHandler;
-import com.kraken.client.FrameRates;
 import com.kraken.client.GameView;
 import com.kraken.client.KrakenConfig;
 import com.kraken.client.ProcessAttacher;
 import com.kraken.client.events.ConfigChanged;
 import com.kraken.client.plugins.config.ConfigManager;
 import com.kraken.client.ui.devtools.DevToolsPanel;
+import com.kraken.client.worldhopper.WorldHopperPanel;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
+import org.kordamp.ikonli.materialdesign2.MaterialDesignE;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignP;
 
 import java.awt.*;
@@ -72,11 +73,9 @@ public final class KrakenFrame extends JFrame {
     private static final int VISIBLE_TOP_HEIGHT = 20;
 
     private final GameView view;
-    private final HomePanel home;
     private final Sidebar sidebar;
     private final KrakenConfig config;
     private final ProcessAttacher attacher;
-    private final FrameRates frameRates;
     private final Timer saveTimer = new Timer(SAVE_DELAY_MS, e -> saveWindow());
 
     /**
@@ -87,15 +86,13 @@ public final class KrakenFrame extends JFrame {
 
     @Inject
     KrakenFrame(GameView view, HomePanel home, Sidebar sidebar, ConsolePanel console, DevToolsPanel devTools,
-                PluginListPanel plugins, ExitHandler exitHandler, ConfigManager configManager, EventBus eventBus,
-                KrakenConfig config, ProcessAttacher attacher, FrameRates frameRates) {
+                PluginListPanel plugins, WorldHopperPanel worldHopper, ExitHandler exitHandler,
+                ConfigManager configManager, EventBus eventBus, KrakenConfig config, ProcessAttacher attacher) {
         super(TITLE);
         this.view = view;
-        this.home = home;
         this.sidebar = sidebar;
         this.config = config;
         this.attacher = attacher;
-        this.frameRates = frameRates;
         setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             @Override
@@ -114,19 +111,9 @@ public final class KrakenFrame extends JFrame {
 
         Logger.getLogger("").addHandler(console.getHandler());
 
-        home.set("PID", "–");
-        home.set("Build", "–");
-        home.set("Game size", "–");
-        home.set("Game FPS", "–");
-        home.set("Overlay FPS", "–");
-        view.addPropertyChangeListener("gameSize", e -> {
-            Dimension size = (Dimension) e.getNewValue();
-            home.set("Game size", size.width + " × " + size.height);
-        });
-        new Timer(1000, e -> showFrameRates()).start();
-
         sidebar.addTab("Kraken", Theme.logoIcon(), Theme.logoIcon(), home);
         sidebar.addTab("Plugins", MaterialDesignP.PUZZLE_OUTLINE, plugins);
+        sidebar.addTab("World Hopper", MaterialDesignE.EARTH, worldHopper);
         sidebar.addTab("Dev Tools", MaterialDesignC.CODE_TAGS, devTools);
         sidebar.addTab("Settings", MaterialDesignC.COG_OUTLINE,
                 new ConfigPanel(configManager, eventBus, config, "Settings", null));
@@ -319,18 +306,6 @@ public final class KrakenFrame extends JFrame {
             playerName = name;
             SwingUtilities.invokeLater(this::updateTitle);
         }
-    }
-
-    /**
-     * Shows the frame rates on the Kraken page. EDT, once a second.
-     */
-    private void showFrameRates() {
-        double game = frameRates.getGameFrameRate();
-        int limit = frameRates.getFrameLimit();
-        home.set("Game FPS", Double.isNaN(game) ? "–"
-                : Math.round(game) + (limit > 0 ? " (capped at " + limit + ")" : ""));
-        double overlays = frameRates.getOverlayFrameRate();
-        home.set("Overlay FPS", overlays > 0 ? String.valueOf(Math.round(overlays)) : "idle");
     }
 
     private void updateTitle() {

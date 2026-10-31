@@ -337,6 +337,38 @@ def _op_cases(model, fn):
     return None
 
 
+def _table_cases(model, op_range):
+    """(fn, [case rva]) of the one cs2 handler of ops op_range to op_range + 99 that jumps through a plain case table:
+    the `LEA EAX,[R - op_range]` or `ADD EAX,-op_range`, a compare with the last case and a jump through a table of
+    image-relative case addresses, all inside the handler. None unless exactly one function does."""
+    imm = (-op_range) & 0xffffffff
+    candidates = {fn for _, fn in model.insns_with_imm(imm) if fn is not None}
+    candidates |= {fn for _, fn in model.insns_with_disp(-op_range, "LEA") if fn is not None}
+    found = []
+    for fn in sorted(candidates):
+        body = model.insns(fn)
+        for k, insn in enumerate(body):
+            subtracts = (insn.mnem == "LEA" and len(insn.ops) == 2 and insn.ops[1].kind == "mem"
+                         and insn.ops[1].disp == -op_range) or \
+                        (insn.mnem == "ADD" and len(insn.ops) == 2 and insn.ops[1].kind == "imm"
+                         and insn.ops[1].imm in (imm, -op_range))
+            if not subtracts:
+                continue
+            bound = next((i.ops[1].imm for i in body[k + 1: k + 4] if i.mnem == "CMP" and len(i.ops) == 2
+                          and i.ops[1].kind == "imm"), None)
+            table = next((i.ops[1].disp for i in body[k + 1: k + 12] if i.mnem == "MOV" and len(i.ops) == 2
+                          and i.ops[1].kind == "mem" and i.ops[1].scale == 4 and i.ops[1].disp > 0), None)
+            if bound is None or table is None or not 0 < bound < 100:
+                continue
+            raw = model.pe.read(table, 4 * (bound + 1))
+            if raw is None:
+                continue
+            cases = [int.from_bytes(raw[4 * c: 4 * c + 4], "little") for c in range(bound + 1)]
+            if all(model.function_containing(c) == fn for c in cases):
+                found.append((fn, cases))
+    return found[0] if len(found) == 1 else None
+
+
 def _case_facts(facts, entry, bounds):
     """The loads, stores and calls between a case's entry and the next case."""
     end = next((b for b in bounds if b > entry), None)

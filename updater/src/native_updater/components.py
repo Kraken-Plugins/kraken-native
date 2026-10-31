@@ -1,5 +1,5 @@
-"""What a component's drag waits for, and which components the cs2 runtime's ops act on, for the writes the hook DLL
-makes to components.
+"""What a component's drag waits for, which components the cs2 runtime's ops act on, and how a script sets a
+component's text, for the writes the hook DLL makes to components.
 
 The cs2 runtime's handler of ops 1300-1399 (cc_setop, cc_setdraggable, ...; the if_ ops 2300-2399 arrive mapped down
 by 1000) first resolves the component the op acts on, then subtracts 1300 from the op and jumps through a byte table
@@ -15,16 +15,29 @@ counter passes the dead time and the mouse has moved past the dead zone.
                    ScriptRunner.activeComponent, ScriptRunner.dotComponent: from the resolver's return
                    runner + offset + operand * stride, the slots for operand 0 and operand 1.
 
-Output keys: IfType.dragDeadZone, IfType.dragDeadTime, ScriptRunner.activeComponent, ScriptRunner.dotComponent.
+The handler of ops 1100-1199 (cc_setscrollpos, cc_setcolour, ...) resolves its component the same way, then subtracts
+1100 and jumps through a plain table of case addresses. The case of op 1112 (cc_settext) copies the popped string,
+compares it with the component's IfType.text and, when they differ, assigns it to IfType.text with the client's
+string assignment, then calls the invalidate with the client and the resolver's shared_ptr. The cases of the other
+set ops call the invalidate the same way after their store.
+
+  cs2_set_text     functions.stringAssign: the one function the case calls with the resolved component plus
+                   IfType.text first; functions.ifInvalidate: the one function the case then calls with the client
+                   ([global.client]) and the resolver's return.
+
+Output keys: IfType.dragDeadZone, IfType.dragDeadTime, ScriptRunner.activeComponent, ScriptRunner.dotComponent,
+functions.stringAssign, functions.ifInvalidate.
 """
-from .analysis.provenance import Add, Arg, Bin, Const, Deref, Mul, Ret
-from .scripts import _case_facts, _int_stack, _op_cases
+from .analysis.provenance import Add, Arg, Bin, Const, Deref, Global, Mul, Ret
+from .scripts import _case_facts, _int_stack, _op_cases, _table_cases
 
 OP_RANGE = 1300                  # the cs2 ops this handler runs
 DRAG = {                         # the ops that set a drag field, with their names
     "IfType.dragDeadZone": (1303, "cc_setdragdeadzone"),
     "IfType.dragDeadTime": (1304, "cc_setdragdeadtime"),
 }
+SET_RANGE = 1100                 # the cs2 ops of the handler that sets a component's look
+SET_TEXT = (1112, "cc_settext")
 
 
 def cs2_components(session, p):
@@ -60,6 +73,63 @@ def cs2_components(session, p):
     (holder, rva), = holders.items()
     out.update(_current_components(session, fn, facts, holder, rva, ptr))
     return out
+
+
+def cs2_set_text(session, p):
+    model = session.model
+    ptr = session.value("container.shared_ptr.ptr")
+    text = session.value("IfType.text")
+    client = Deref(Global(session.value("global.client")), 0, 8)
+    op, name = SET_TEXT
+    handler = _table_cases(model, SET_RANGE)
+    if handler is None:
+        session.notes.append(f"components: no cs2 handler subtracts {SET_RANGE} and jumps through a case table")
+        return {}
+    fn, cases = handler
+    if op - SET_RANGE >= len(cases):
+        session.notes.append(f"components: the {SET_RANGE} handler {fn:#x} has {len(cases)} cases, no op {op}")
+        return {}
+    calls = _case_facts(session.prov.facts(fn), cases[op - SET_RANGE], sorted(set(cases)))["calls"]
+    assigns = {}
+    for call in calls:
+        if call.target is not None and len(call.args) >= 3 \
+                and (holder := _field_holder(call.args[0], ptr, text)) is not None:
+            assigns.setdefault((model.resolve(call.target), holder), call.rva)
+    if len(assigns) != 1:
+        session.notes.append(f"components: {name}'s case (op {op}) assigns IfType.text with {len(assigns)} functions")
+        return {}
+    ((assign, holder), assign_rva), = assigns.items()
+    out = {"functions.stringAssign": (assign, [session.evidence(assign_rva, fn, "rip")],
+                                      f"{name}'s case (op {op}) assigns the new text to the resolved component's "
+                                      f"IfType.text with it")}
+    invalidates = {}
+    for call in calls:
+        if call.target is not None and call.rva > assign_rva and len(call.args) >= 2 and call.args[0] == client \
+                and call.args[1] == holder:
+            invalidates.setdefault(model.resolve(call.target), call.rva)
+    if len(invalidates) != 1:
+        session.notes.append(f"components: after assigning the text, {name}'s case calls {len(invalidates)} "
+                             f"functions with the client and the component")
+        return out
+    (invalidate, rva), = invalidates.items()
+    out["functions.ifInvalidate"] = (invalidate, [session.evidence(rva, fn, "rip")],
+                                     f"{name}'s case (op {op}) calls it with the client and the resolved component's "
+                                     f"shared_ptr after assigning the text")
+    return out
+
+
+def _field_holder(value, ptr, offset):
+    """The holder of a [holder + ptr]8 + offset address: a field of the component held in a shared_ptr, the holder
+    being what the resolver call returned or the address it computes; else None."""
+    if not isinstance(value, Add) or value.off != offset:
+        return None
+    component = value.base
+    if not isinstance(component, Deref) or component.size != 8 or component.off != ptr or component.index is not None:
+        return None
+    holder = component.base
+    if isinstance(holder, Ret) and holder.target is None:
+        return None
+    return holder
 
 
 def _handler(model):

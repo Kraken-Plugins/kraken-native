@@ -98,7 +98,8 @@ consensus verdicts (`consensus.py`, `carry.py`) → invariants (`verify.py`) →
   `Client.getMenuEdits()`, `createMenuEntry`, `setMenuEntries`, the `MenuEntry` setters; `docs/developer/menu-edits.md`);
   the visibility rules the DLL applies to every entity each frame (`com.kraken.api.render`,
   `Client.getEntityVisibility()`; `docs/developer/entity-visibility.md`); and component writes the DLL makes after
-  looking the component up by id (the `Widget` drag and mouse-repeat setters; `docs/developer/widget-writes.md`).
+  looking the component up by id (the `Widget` text, drag and mouse-repeat setters; text through the client's own
+  string assignment and invalidate; `docs/developer/widget-writes.md`).
   Other Lua functions that change the client (camera) are out of scope.
 - Events (`com.kraken.api.events`): `EventSource`'s trackers build them, only for subscribed events, by comparing game
   state each poll. Hook raises (`GameSession.onNative`) only make trackers run sooner; ticks always come from the
@@ -137,17 +138,22 @@ consensus verdicts (`consensus.py`, `carry.py`) → invariants (`verify.py`) →
   DLL's shared-memory `GameSurface` while it is active, otherwise to `GameOverlay` (a click-through window; dev tool
   overlays always use it). Alt + drag moves or resizes overlays (`OverlayEditor`), right-click resets; `OverlayManager`
   saves placements in group `overlays`. Worked examples: `plugins.npchighlight` (NPC Indicators), `objectmarkers`,
-  `groundmarkers`, `tileindicators`, `tickcounter`, `actiontester`.
+  `groundmarkers`, `tileindicators`, `actiontester`. `tickcounter` is the smallest plugin: it writes the tick count
+  into the chatbox's Report button with `Widget.setText`.
 - Ported RuneLite plugins (`npchighlight`, `grounditems`, `groundmarkers`, `tileindicators`, `menuentryswapper`,
   `keyremapping`, `entityhider`, `antidrag`) keep RuneLite's config group,
   keys, names and defaults. A setting the client can't back yet stays, marked `@Unsupported("reason")` (greyed out);
   `docs/developer/plugin-ports.md` tracks the gaps and where to wire each one. Shared helpers: `util.*`
-  (`WildcardMatcher`, `Text`, `QuantityFormatter`, `ColorUtil`), `game.NpcUtil`.
+  (`WildcardMatcher`, `Text`, `QuantityFormatter`, `ColorUtil`), `game.NpcUtil`, and `ui.Prompts` (text, colour and
+  yes/no dialogs where RuneLite uses the chatbox input or its colour picker).
 - Keys: the game owns the keyboard. `input.KeyManager` (session service) reads held keys with `GetAsyncKeyState` while
   `Client.isFocused()`, and polls `HotkeyListener`s on the client thread; `Keybind` and `ModifierlessKeybind` settings
   store `keyCode:modifiers`. Remapping and blocking go through the hook's window procedure detour: a table of
   `KeyRemapMode`s and the mode in force (`setRemapTable`, `setRemapMode`), applied in the DLL with no round trip
   (`docs/developer/key-interception.md`). Kraken never sees a key event of its own.
+- World Hopper (`worldhopper`): built in, not a plugin. `WorldHopperPanel` is the sidebar's World Hopper tab over
+  `WorldService` (the game's `slr.ws` world list); the session's `WorldHopper` hops on game ticks through
+  `Client.openWorldHopper`/`hopToWorld` (menu actions) and owns the quick-hop keys; config group `worldhopper`.
 - Dev tools: subclass `DevTool<S>` and list it in `DevToolCatalog.create()`. `read(api)` runs on the poll thread and
   returns an immutable snapshot; `paintOverlay`/`createView` run on the EDT. Tools read and subscribe only while
   showing. `PlannedTool` holds spots for features the API can't read yet; `view.GamePicker` lets the user click

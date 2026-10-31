@@ -637,6 +637,25 @@ public final class WidgetReader extends GameReader {
     }
 
     /**
+     * Queues a text write for the native hook, which sets the string as {@code cc_settext} does: through the client's
+     * own string assignment, then marking the component changed so the client redraws it.
+     *
+     * @param widget the component
+     * @param field  the string field, e.g. "text"
+     * @param text   the text
+     * @return false if this build's mapping lacks the field, the string assignment or the invalidate, or no hook that
+     * writes components is connected
+     * @throws IllegalArgumentException if the text is longer than {@link ComponentOp#MAX_TEXT} UTF-8 bytes
+     */
+    public boolean writeText(Widget widget, String field, String text) {
+        int offset = field(field);
+        ComponentOp op = new ComponentOp(widget.getId(), widget.getIndex(), ComponentOp.Op.SET_TEXT,
+                Math.max(offset, 0), 0, text);
+        return offset >= 0 && mapping.hasFunction("stringAssign") && mapping.hasFunction("ifInvalidate")
+                && writes.add(op);
+    }
+
+    /**
      * Decodes a string field held in a snapshot.
      *
      * @param data   the snapshot
