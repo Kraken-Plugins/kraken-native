@@ -6,8 +6,8 @@ from pathlib import Path, PurePath
 from types import SimpleNamespace
 from unittest import mock
 
-from native_updater import (emit, extractors, fingerprints, highlights, identity, minimenu, strategies, winpaths,
-                            x86, verify)
+from native_updater import (emit, extractors, fingerprints, frames, highlights, identity, minimenu, strategies,
+                            winpaths, x86, verify)
 from native_updater.analysis.bindings import BindingTableParser
 from native_updater.analysis.provenance import (Add, Addr, Arg, Bin, Call, Cmp, Const, Deref, Facts, Global, Load, Mul,
                                                 Provenance, Ret, StackAddr, State, Store, Unknown)
@@ -657,6 +657,39 @@ class DrawTests(unittest.TestCase):
         self.assertEqual((rva, ev["cls"]), (0x2000, "B"))
         self.assertIsNone(fingerprints.resolve(s, "Missing", {"references": "nowhere"})[0])
 
+
+    def render_queue(self, loop_pops_recorded=False):
+        """appUpdate begins a frame, ends it and presents the device itself after checking the recorded frame; the
+        render loop pops a frame into the rendering slot (or, broken, the recorded one), runs it and presents it."""
+        popped = 0x1068 if loop_pops_recorded else 0x1070
+        functions = {
+            0x1000: ["RET"],                                                    # present
+            0x2000: ["MOV RAX,qword ptr [0x140e90a78]", "MOV RBX,qword ptr [RAX + 0x1b0]",
+                     "MOV RCX,RBX", "CALL 0x140003000", "MOV RCX,RBX", "CALL 0x140003100",
+                     "CMP qword ptr [RBX + 0x1068],0x0", "LEA RCX,[RBX + 0x10]", "CALL 0x140001000",
+                     "MOV EAX,0x3b9aca00", "RET"],                              # appUpdate
+            0x3000: ["MOV RBX,RCX", "MOV RCX,qword ptr [RCX + 0x1060]", "MOV RAX,qword ptr [RCX]",
+                     "CALL qword ptr [RAX + 0x20]", "MOV qword ptr [RBX + 0x1068],RAX", "RET"],    # beginFrame
+            0x3100: ["MOV RDI,RCX", "XOR R12D,R12D", "MOV qword ptr [RDI + 0x1068],R12", "RET"],  # endFrame
+            0x4000: ["MOV RDI,RCX", "XOR R15D,R15D", f"MOV qword ptr [RDI + {popped:#x}],R15",
+                     "MOV RCX,qword ptr [RDI + 0x1060]", "MOV RAX,qword ptr [RCX]", "CALL qword ptr [RAX + 0x10]",
+                     f"MOV qword ptr [RDI + {popped:#x}],RAX", "LEA RCX,[RDI + 0x10]", "CALL 0x140001000",
+                     f"MOV qword ptr [RDI + {popped:#x}],R15", "RET"],        # render loop
+        }
+        s = self.session(functions)
+        s.fingerprints.update(Present=0x1000, AppUpdate=0x2000)
+        return s
+
+    def test_render_frames_find_the_end_of_frame_and_the_device_offsets(self):
+        s = self.render_queue()
+        out = {k: v[0] for k, v in frames.render_frames(s, {}).items()}
+        self.assertEqual(out, {"RenderEndFrame": 0x3100, "GlDevice.context": 0x10, "GlDevice.recordingFrame": 0x1068,
+                               "GlDevice.renderingFrame": 0x1070}, s.notes)
+
+    def test_render_frames_refuse_a_loop_that_renders_from_the_recorded_frame(self):
+        s = self.render_queue(loop_pops_recorded=True)
+        self.assertEqual(frames.render_frames(s, {}), {})
+        self.assertIn("0 candidate offsets", s.notes[0])
 
 class BindingParserTests(unittest.TestCase):
     def test_property_getter_is_followed_to_its_lambda(self):

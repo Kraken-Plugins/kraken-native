@@ -10,7 +10,8 @@
 # highlightNpcOn(npcIndex, creationCycle, channel).
 #
 # Hook sites: the GL present (the function calling SwapBuffers) and the per-frame main loop step that calls it, which
-# runs on the game thread.
+# runs on the game thread, and the GL device's endFrame, which hands each recorded frame to the render thread that
+# presents it (frames.py).
 fingerprints:
   HighlightNpcOn:          { callee_of: ClientOp.highlightNpcOn, arg0: { addr: client } }
   HighlightNpcOff:         { callee_of: ClientOp.highlightNpcOff, arg0: { addr: client } }
@@ -42,6 +43,9 @@ fingerprints:
   Present:                 { references: SwapBuffers }
   # jag::BaseApp::Update(float): times the frame in nanoseconds, runs the logic cycles, renders and presents
   AppUpdate:               { caller_of: "@Present", imm: 0x3b9aca00 }
+  # The GL device's endFrame(device, task): queues the frame recorded on the game thread for the render thread
+  # (frames.py)
+  RenderEndFrame:          { extractor: render_frames, field: RenderEndFrame, cls: E }
 
 keys:
   - key: Client.highlightManager
@@ -309,3 +313,32 @@ keys:
     doc: jag::BaseApp::Update, the main loop's per-frame step on the game thread. dt arrives in XMM1.
     strategies:
       - fingerprint: { name: AppUpdate }
+  # Frame sync (frames.py): the game thread records each frame into the device's recording frame, endFrame queues it,
+  # and the render thread pops it into the rendering frame and presents device + context. The DLL hooks endFrame to
+  # draw the overlay for the frame being queued and matches the presented frame to it.
+  - key: functions.renderEndFrame
+    type: "void(GlDevice*, Task*)"
+    priority: P1
+    doc: Ends the frame the game thread recorded and queues it for the render thread (or runs it, without one). Called
+      by appUpdate on the game thread, once per frame drawn.
+    strategies:
+      - fingerprint: { name: RenderEndFrame }
+  - key: GlDevice.context
+    type: GlContext
+    priority: P1
+    doc: Offset of the GlContext present takes inside the GL device; the device is present's argument minus this.
+    strategies:
+      - extractor: { name: render_frames, field: GlDevice.context, cls: E }
+  - key: GlDevice.recordingFrame
+    type: ptr
+    priority: P1
+    doc: The frame object the game thread is recording into; endFrame queues it and clears this.
+    strategies:
+      - extractor: { name: render_frames, field: GlDevice.recordingFrame, cls: E }
+  - key: GlDevice.renderingFrame
+    type: ptr
+    priority: P1
+    doc: The frame object the render thread is running and presents next; 0 between frames and without a render
+      thread.
+    strategies:
+      - extractor: { name: render_frames, field: GlDevice.renderingFrame, cls: E }

@@ -90,9 +90,9 @@ interface store's layout; it looks up each component a `COMPONENTS` write names,
 the client's listener clear on it, or sets its text with the client's string assignment and invalidate
 ([widget-writes.md](../../../../../docs/developer/widget-writes.md)).
 
-## Protocol v8 (little-endian)
+## Protocol v9 (little-endian)
 
-**Handshake** (Java → DLL): magic `KRK8`, a `u16` slot count, then per slot
+**Handshake** (Java → DLL): magic `KRK9`, a `u16` slot count, then per slot
 `{u64 rva, i32 fixedId (-1 = read idArg), u8 idArg, u8 args, u8 planLen, plan[planLen]}`, where a
 plan entry is `{u8 arg, u8 op}` with ops `RAW, I32, I64, I32X2, CSTR` = 0..4; then
 `u64 clientGlobal, u64 pumpFn, u64 presentFn` (RVAs; 0 = none); then five `u16`-length-prefixed
@@ -108,7 +108,7 @@ messages carry 0. Reserved ids:
 
 | id | Name | regs |
 |---|---|---|
-| -2 | STATUS | installed slots, requested slots, features (1 = pump hooked, 2 = present hooked, 4 = frame rate, 8 = script hooks, 16 = menu hooks, 32 = key hook, 64 = visibility, 128 = component writes), protocol version 8 |
+| -2 | STATUS | installed slots, requested slots, features (1 = pump hooked, 2 = present hooked, 4 = frame rate, 8 = script hooks, 16 = menu hooks, 32 = key hook, 64 = visibility, 128 = component writes, 256 = frame sync), protocol version 9 |
 | -3 | FRAME | framebuffer width, height, GL version (`major << 16 \| minor`), surface generation drawn (0 = none) |
 | -4 | CALLS_DONE | batch id, calls run, calls faulted or skipped, last return value |
 | -5 | FPS | frames since the last FPS, microseconds since it, frame cap in force, 1 if presents were counted (0: frame steps) |
@@ -116,9 +116,9 @@ messages carry 0. Reserved ids:
 | -7 | MENU_CLICK | 0 for a row of Kraken's own or 1 for a rule's report, the row or rule id, the parent row id (0xffffffff for none), mouse x \| y << 32 |
 | -8 | MENU_EXPIRED | the id of a scoped rule nothing matched for 25 rebuilds, 0, 0, 0 |
 | -9 | KEY | the window message, the key or character, action << 16 \| the key it became (0 passed, 1 remapped, 2 blocked), mode before \| mode after << 8 |
-| -10 | PRESENT | presents so far, 0, 0, 0; sent as the game presents a frame while the overlay draws a surface |
+| -10 | DRAW | the frame (a tag endFrame gave it with frame sync, else the present count), 1 if the game waits for FRAME_DONE, 0, 0 |
 
-STATUS, FRAME, FPS and PRESENT are written by the writer thread straight to the socket, with `seq` 0, so they can
+STATUS, FRAME, FPS and DRAW are written by the writer thread straight to the socket, with `seq` 0, so they can
 arrive out of order with ring messages; CALLS_DONE, SCRIPT, MENU_CLICK, MENU_EXPIRED and KEY go through the ring. FPS goes out about once a second
 while the pump or present is hooked.
 

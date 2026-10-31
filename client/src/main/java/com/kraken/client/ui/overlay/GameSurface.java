@@ -22,9 +22,14 @@ import java.util.logging.Level;
  * {@code docs/developer/in-game-drawing.md} ("The Overlay Surface").
  *
  * <p>The hook's connection sets it up: {@link #connected} once the DLL reports it hooked the present, {@link #frame}
- * each time it reports the framebuffer's size, {@link #presented} as the game presents a frame while the DLL draws the
- * surface, {@link #disconnected} when it drops. {@link #publish} runs on the poll thread. The surface follows the
- * framebuffer: a new size makes a new mapping (a new generation), which the DLL is told to switch to.
+ * each time it reports the framebuffer's size, {@link #drawRequested} each time it asks for an overlay frame,
+ * {@link #disconnected} when it drops. {@link #publish} runs on the poll thread. The surface follows the framebuffer: a
+ * new size makes a new mapping (a new generation), which the DLL is told to switch to.
+ *
+ * <p>Frame sync ({@code docs/developer/in-game-drawing.md}, "Frame Sync"): while it is on ({@link #setSync}), the DLL
+ * holds the game at the end of each frame and asks for that frame's overlay with a tag. The frame drawn for it goes
+ * into a slot carrying the tag, which the DLL shows when it presents that game frame, and {@link #finish} lets the game
+ * go on.
  */
 @Log(topic = "kraken")
 @Singleton
@@ -43,6 +48,8 @@ public final class GameSurface {
     static final int OFFSET_READING = 20;
     static final int OFFSET_SLOT_HEADERS = 64;
     static final int SLOT_HEADER_SIZE = 16;
+    static final int OFFSET_SLOT_TAG = 8;
+    static final int OFFSET_SLOT_SEQ = 12;
     static final int OFFSET_PIXELS = 128;
 
     /**
@@ -62,9 +69,13 @@ public final class GameSurface {
     private static final long ADOPT_GRACE_NANOS = 2_000_000_000L;
 
     /**
-     * Tells the DLL which surface to draw.
+     * How many times a frame tries for a slot the DLL isn't reading before it gives up.
      */
-    @FunctionalInterface
+    private static final int CLAIM_ATTEMPTS = 8;
+
+    /**
+     * The DLL's connection: which surface to draw, and frame sync.
+     */
     public interface Link {
 
         /**
@@ -75,6 +86,31 @@ public final class GameSurface {
          * @throws RuntimeException if the connection broke
          */
         void show(int generation, String name);
+
+        /**
+         * Sends the FRAME_SYNC command.
+         *
+         * @param on whether the game should wait for each frame's overlay
+         * @throws RuntimeException if the connection broke
+         */
+        void sync(boolean on);
+
+        /**
+         * Sends the FRAME_DONE command.
+         *
+         * @param frame the frame whose overlay is in the surface
+         * @throws RuntimeException if the connection broke
+         */
+        void done(long frame);
+    }
+
+    /**
+     * The DLL's request for an overlay frame.
+     *
+     * @param frame the frame: with frame sync, the tag of the game frame being queued; otherwise the present count
+     * @param waits whether the game waits for it, until {@link #finish}
+     */
+    public record DrawRequest(long frame, boolean waits) {
     }
 
     /**
@@ -163,22 +199,32 @@ public final class GameSurface {
     private volatile int drawnGeneration;
     /**
      * -- GETTER --
-     *  The game's present count as the DLL last reported it on this connection. It reports only while it draws the
-     *  surface, so a count that moved means the game showed a frame with the overlay in it.
+     *  The DLL's latest request for an overlay frame on this connection.
      *
-     * @return the presents so far, 0 until the DLL reports one
+     * @return the request, or null before the first
      */
     @Getter
-    private volatile long presents;
+    private volatile DrawRequest drawRequest;
     /**
      * -- SETTER --
-     *  Sets what runs each time the DLL reports a present: on the hook's reader thread, so it should only hand work
-     *  to another thread.
+     *  Sets what runs each time the DLL asks for an overlay frame: on the hook's reader thread, so it should only hand
+     *  work to another thread.
      *
      * @param listener the listener, or null for none
      */
     @Setter
-    private volatile Runnable presentListener;
+    private volatile Runnable drawListener;
+
+    /**
+     * Whether the connected DLL can hold the game for each frame's overlay, and whether it was last asked to.
+     */
+    private boolean frameSync;
+    private boolean syncing;
+
+    /**
+     * The last frame {@link #finish} let the game go on from.
+     */
+    private long finished;
 
     private Region region;
     private int width;
@@ -228,13 +274,14 @@ public final class GameSurface {
     }
 
     /**
-     * The DLL's report that the game presented a frame while it drew the surface. Called on the hook's reader thread.
+     * The DLL's request for an overlay frame. Called on the hook's reader thread.
      *
-     * @param count the presents the game has made so far
+     * @param frame the frame: with frame sync, the tag of the game frame being queued; otherwise the present count
+     * @param waits whether the game waits for it
      */
-    public void presented(long count) {
-        presents = count;
-        Runnable listener = presentListener;
+    public void drawRequested(long frame, boolean waits) {
+        drawRequest = new DrawRequest(frame, waits);
+        Runnable listener = drawListener;
         if (listener != null) {
             listener.run();
         }
@@ -243,15 +290,65 @@ public final class GameSurface {
     /**
      * The hook drew its present and can take the surface. Called on the hook's reader thread.
      *
-     * @param link tells the DLL which surface to draw
-     * @param pid  the game's process id, which names the mappings
+     * @param link      tells the DLL which surface to draw, and frame sync
+     * @param pid       the game's process id, which names the mappings
+     * @param frameSync whether the DLL can hold the game for each frame's overlay
      */
-    public synchronized void connected(Link link, long pid) {
+    public synchronized void connected(Link link, long pid, boolean frameSync) {
         this.link = link;
         this.pid = pid;
+        this.frameSync = frameSync;
         refused = false;
-        presents = 0;
+        syncing = false;
+        drawRequest = null;
+        finished = 0;
         closeRegion();
+    }
+
+    /**
+     * Asks the DLL to hold the game for each frame's overlay, or to stop. Does nothing if it already is (or isn't), or
+     * if the DLL can't. Poll thread.
+     *
+     * @param on whether the game should wait for each frame's overlay
+     */
+    public synchronized void setSync(boolean on) {
+        boolean next = on && frameSync && link != null;
+        if (next == syncing) {
+            return;
+        }
+        try {
+            link.sync(next);
+            syncing = next;
+        } catch (RuntimeException e) {
+            log.log(Level.FINE, "Could not change frame sync", e);
+        }
+    }
+
+    /**
+     * Whether the DLL holds the game for each frame's overlay.
+     *
+     * @return true while frame sync is on
+     */
+    public synchronized boolean isSyncing() {
+        return syncing;
+    }
+
+    /**
+     * Lets a game waiting for a frame's overlay go on, whether or not one was drawn for it. Does nothing for a request
+     * nothing waits for, or one already finished. Poll thread.
+     *
+     * @param request the request the frame was drawn for, or null
+     */
+    public synchronized void finish(DrawRequest request) {
+        if (request == null || !request.waits() || request.frame() == finished || link == null) {
+            return;
+        }
+        finished = request.frame();
+        try {
+            link.done(request.frame());
+        } catch (RuntimeException e) {
+            log.log(Level.FINE, "Could not tell the native hook a frame is done", e);
+        }
     }
 
     /**
@@ -277,22 +374,26 @@ public final class GameSurface {
         frameWidth = 0;
         frameHeight = 0;
         drawnGeneration = 0;
-        presents = 0;
+        frameSync = false;
+        syncing = false;
+        drawRequest = null;
         closeRegion();
     }
 
     /**
      * Hands the DLL a frame. Only the rows that changed are copied: this frame's rows that hold pixels, and the rows
-     * the slot written into held before, which this frame clears. Poll thread.
+     * the slot written into held before, which this frame clears. The slot keeps the frame's tag, so the DLL can show
+     * it with the game frame it was drawn for. Poll thread.
      *
      * @param pixels premultiplied ARGB, rows top to bottom, {@code width * height} of them
      * @param width  the frame's width, which should be {@link #getFrameWidth()}
      * @param height the frame's height
      * @param top    the first row holding a pixel
      * @param bottom one past the last row holding a pixel ({@code top} for an empty frame)
+     * @param tag    the frame of the request it was drawn for, 0 for none
      * @return true if the frame went to the game
      */
-    public synchronized boolean publish(int[] pixels, int width, int height, int top, int bottom) {
+    public synchronized boolean publish(int[] pixels, int width, int height, int top, int bottom, long tag) {
         if (!isAvailable() || width < 1 || height < 1 || pixels.length < width * height) {
             return false;
         }
@@ -303,8 +404,7 @@ public final class GameSurface {
                 open(width, height);
             }
             int published = region.getInt(OFFSET_PUBLISHED);
-            int reading = region.getInt(OFFSET_READING);
-            int slot = freeSlot(published, reading);
+            int slot = claimSlot(published);
             int from = Math.min(top, tops[slot]);
             int to = Math.max(bottom, bottoms[slot]);
             if (bottoms[slot] <= tops[slot]) {
@@ -316,11 +416,13 @@ public final class GameSurface {
                 region.write(base + (long) from * width * 4, pixels, from * width, (to - from) * width);
             }
             long header = OFFSET_SLOT_HEADERS + (long) slot * SLOT_HEADER_SIZE;
+            sequence = (sequence + 1) & 0x0fffffff;
             region.putInt(header, top);
             region.putInt(header + 4, bottom);
+            region.putInt(header + OFFSET_SLOT_SEQ, sequence);
+            region.putInt(header + OFFSET_SLOT_TAG, (int) tag);
             tops[slot] = top;
             bottoms[slot] = bottom;
-            sequence = (sequence + 1) & 0x0fffffff;
             region.putInt(OFFSET_PUBLISHED, slot | sequence << 4);
             // The DLL stores which slot it reads, then re-reads published; this fence keeps the next read of reading
             // after the store above, so the slot chosen next is never one the DLL confirmed
@@ -337,20 +439,46 @@ public final class GameSurface {
     }
 
     /**
-     * The slot to write: neither the one last published nor the one the DLL reads.
+     * Picks the slot to write and clears its tag: neither the one last published nor the one the DLL reads. The DLL
+     * stores which slot it reads, then checks the slot still holds what it wants (the tag, or that it is still the
+     * published one); this clears the tag, then checks the slot the DLL reads again, each with a fence between. So
+     * either this sees the DLL reading the slot and picks another, or the DLL sees the cleared tag and leaves it.
+     *
+     * @param published the published word
+     * @return the slot, which no longer carries a tag
+     * @throws IllegalStateException if the DLL moved to each slot this picked
+     */
+    private int claimSlot(int published) {
+        int avoid = -1;
+        for (int attempt = 0; attempt < CLAIM_ATTEMPTS; attempt++) {
+            int slot = freeSlot(published, region.getInt(OFFSET_READING), avoid);
+            region.putInt(OFFSET_SLOT_HEADERS + (long) slot * SLOT_HEADER_SIZE + OFFSET_SLOT_TAG, 0);
+            VarHandle.fullFence();
+            if (region.getInt(OFFSET_READING) != slot) {
+                return slot;
+            }
+            avoid = slot;
+        }
+        throw new IllegalStateException("the native hook kept reading the slot picked to write");
+    }
+
+    /**
+     * The slot to write: neither the one last published, nor the one the DLL reads, nor one to avoid.
      *
      * @param published the published word
      * @param reading   the slot the DLL reads, or -1
+     * @param avoid     a slot the DLL was found reading, or -1
      * @return the slot
      */
-    static int freeSlot(int published, int reading) {
+    static int freeSlot(int published, int reading, int avoid) {
         int last = published == NONE_PUBLISHED ? -1 : published & 0xf;
         for (int slot = 0; slot < SLOTS; slot++) {
-            if (slot != last && slot != reading) {
+            if (slot != last && slot != reading && slot != avoid) {
                 return slot;
             }
         }
-        throw new IllegalStateException("no free slot: published " + last + ", reading " + reading);
+        throw new IllegalStateException("no free slot: published " + last + ", reading " + reading + ", avoiding "
+                + avoid);
     }
 
     /**

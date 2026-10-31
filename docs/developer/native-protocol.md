@@ -1,6 +1,6 @@
 # The Native Protocol
 
-The Kraken client and `kraken_hook.dll` talk over one TCP connection on the loopback interface, using protocol v8.
+The Kraken client and `kraken_hook.dll` talk over one TCP connection on the loopback interface, using protocol v9.
 This page is the byte-level reference. [The native hook](native-hook.md) explains what each side does with the
 messages.
 
@@ -19,7 +19,7 @@ sequenceDiagram
     participant J as NativeEventServer (Java)
     participant D as kraken_hook.dll
     D->>J: connect to 127.0.0.1:42069
-    J->>D: handshake (KRK8, slots, drawing RVAs, script, menu, key, visibility and component blocks)
+    J->>D: handshake (KRK9, slots, drawing RVAs, script, menu, key, visibility, component and frame blocks)
     D->>D: install the hooks it names
     D->>J: STATUS (installed, requested, features, version 8)
     J->>D: FRAME_LIMIT (if the DLL paces frames)
@@ -29,7 +29,9 @@ sequenceDiagram
         D-->>J: CALLS_DONE (run, skipped, last return)
         J->>D: SURFACE (generation, mapping name)
         D-->>J: FRAME (framebuffer size, GL version, generation drawn)
-        D-->>J: PRESENT (each game frame while the surface is drawn)
+        J->>D: FRAME_SYNC (whether the game waits for each frame's overlay)
+        D-->>J: DRAW (a frame's overlay to draw: its tag, or the present count)
+        J->>D: FRAME_DONE (the overlay for a tagged frame is in the surface)
         J->>D: SCRIPTS (which script events to send)
         D-->>J: SCRIPT (kind, id, depth, stacks, request)
         J->>D: MENU (rules to apply at each menu rebuild)
@@ -52,7 +54,7 @@ field.
 
 | Field | Type | Meaning |
 |---|---|---|
-| magic | 4 bytes | `KRK8`. Any other value makes the DLL drop the connection |
+| magic | 4 bytes | `KRK9`. Any other value makes the DLL drop the connection |
 | slot count | `u16` | The number of raise slots that follow |
 | slots | | Each as below |
 | client global | `u64` | RVA of the global holding the `Client*`, for `CLIENT` and `INDIRECT` call arguments; 0 for none |
@@ -68,6 +70,8 @@ field.
 | visibility block | bytes | See [The Visibility Block](#the-visibility-block) |
 | component block length | `u16` | 0 for no component writes |
 | component block | bytes | See [The Component Block](#the-component-block) |
+| frame block length | `u16` | 0 for no frame sync |
+| frame block | bytes | See [The Frame Block](#the-frame-block) |
 
 An **RVA** is an address relative to the start of the loaded `osclient.exe`; the DLL adds the module base to it.
 
@@ -258,6 +262,23 @@ string assignment or the invalidate, text writes are.
 The first handshake with a complete block fixes the layout. COMPONENTS commands take effect while the layout is known
 and the pump is hooked (`FEATURE_COMPONENTS`).
 
+### The Frame Block
+
+20 bytes, built by `NativeProtocol.frameLayout` and parsed by `install` in `frames.cpp`
+([In-game drawing](in-game-drawing.md#frame-sync)). The Java side sends an empty block unless the mapping has all four
+keys.
+
+| Offset | Type | Field | Mapping key |
+|---|---|---|---|
+| 0 | `u64` | endFrame | `functions.renderEndFrame` |
+| 8 | `u32` | context | `GlDevice.context` |
+| 12 | `u32` | recording | `GlDevice.recordingFrame` |
+| 16 | `u32` | rendering | `GlDevice.renderingFrame` |
+
+The DLL refuses an RVA outside the image, an offset of `0x100000` or more, or the same offset for both frames. The first
+handshake with a complete block hooks endFrame and fixes the layout. FRAME_SYNC takes effect while endFrame and the
+present are hooked (`FEATURE_FRAME_SYNC`).
+
 ## Messages
 
 DLL → Java. Each is `{u32 length, body}`; the body is:
@@ -280,7 +301,7 @@ came.
 
 | Id | Name | RCX | RDX | R8 | R9 | Sent |
 |---|---|---|---|---|---|---|
-| -2 | `STATUS` | Slots installed (total) | Slots requested by this handshake | Feature bits | Protocol version (8) | Once per handshake |
+| -2 | `STATUS` | Slots installed (total) | Slots requested by this handshake | Feature bits | Protocol version (9) | Once per handshake |
 | -3 | `FRAME` | Framebuffer width | Height | GL version, `major << 16 \| minor` | Surface generation drawn, 0 for none | When any of them changes |
 | -4 | `CALLS_DONE` | Batch id | Calls run | Calls skipped or faulted | Last call's return value | After each batch |
 | -5 | `FPS` | Frames since the last FPS | Microseconds since it | Frame cap in force | 1 if presents were counted, 0 for frame steps | About once a second |
@@ -288,7 +309,7 @@ came.
 | -7 | `MENU_CLICK` | 0 for a row of a plugin's own, 1 for a client row a rule reports | The row id, or the rule id | The parent row id of a sub row, `0xffffffff` for none | Mouse `x \| y << 32` | Per click |
 | -8 | `MENU_EXPIRED` | Rule id | 0 | 0 | 0 | When a scoped rule goes unmatched for 25 rebuilds |
 | -9 | `KEY` | Window message (`0x100` key down, `0x101` up, `0x102` char, `0x104`/`0x105` the Alt variants) | The key or character it carried | `action << 16 \| the key it became` (action 0 passed, 1 remapped, 2 blocked) | `mode before \| mode after << 8` | Per key message handled, while asked |
-| -10 | `PRESENT` | Presents so far | 0 | 0 | 0 | When the game presented a frame since the last one, while the overlay draws a surface (generation drawn not 0). Presents close together can come as one |
+| -10 | `DRAW` | The frame: a frame's tag with frame sync, else the presents so far | 1 if the game waits for `FRAME_DONE` with this frame | 0 | 0 | With frame sync, as endFrame queues each frame. Without it, when the game presented since the last one while the overlay draws a surface (presents close together can come as one) |
 
 Feature bits in STATUS:
 
@@ -302,6 +323,7 @@ Feature bits in STATUS:
 | 32 | `FEATURE_KEYS` | `FEATURE_KEYS` | The window procedure is hooked: `KEYS` is honoured |
 | 64 | `FEATURE_VISIBILITY` | `FEATURE_VISIBILITY` | The pump is hooked and the visibility block was complete: `VISIBILITY` is honoured |
 | 128 | `FEATURE_COMPONENTS` | `FEATURE_COMPONENTS` | The pump is hooked and the component block was complete: `COMPONENTS` is honoured |
+| 256 | `FEATURE_FRAME_SYNC` | `FEATURE_FRAME_SYNC` | endFrame and the present are hooked and the frame block was complete: `FRAME_SYNC` is honoured |
 
 ### The SCRIPT Payload
 
@@ -350,6 +372,8 @@ older DLL.
 | 6 | `KEYS` | The key remapping: the table, the mode, reporting |
 | 7 | `VISIBILITY` | What to hide, replacing the rules held |
 | 8 | `COMPONENTS` | A batch of component writes for the next frame |
+| 9 | `FRAME_SYNC` | Whether the game waits for each frame's overlay |
+| 10 | `FRAME_DONE` | The overlay for a tagged frame is in the surface |
 
 ### CALLS
 
@@ -513,15 +537,37 @@ id first; a component the client doesn't hold, or whose ids differ, is skipped, 
 guard. At most 4,096 writes wait; more are dropped. A malformed command queues nothing. Ignored until
 `FEATURE_COMPONENTS`. A dropped connection drops the writes waiting.
 
+### FRAME_SYNC
+
+| Field | Type | Meaning |
+|---|---|---|
+| on | `u8` | 1 to have the game wait at the end of each frame for its overlay, 0 to stop |
+
+Ignored, and sync left off, until `FEATURE_FRAME_SYNC`. While it is on and the overlay draws a surface, endFrame tags
+each frame, sends `DRAW {tag, 1}`, queues the frame, and holds the game thread until `FRAME_DONE` reports the tag, for
+at most `FRAME_WAIT_MS` (10 ms). After `MAX_FRAME_MISSES` (3) waits in a row run out, it stops waiting until Java has
+reported the frame before the current one. The present of a tagged frame waits for the same report, or for the game
+thread to give up on it. Turning sync off releases both waits. Each connection starts with it off, and a dropped
+connection turns it off.
+
+### FRAME_DONE
+
+| Field | Type | Meaning |
+|---|---|---|
+| frame | `u32` | The tag of a `DRAW`: its overlay is in the surface, in a slot whose header carries the tag |
+
+Java sends one for each `DRAW` with RDX 1, whether or not it drew anything for it, so the game never waits out the
+limit for a frame Java skipped.
+
 ## Ordering and Delivery
 
 * Every ring message takes a sequence number from one counter. The writer's own messages (`STATUS`, `FRAME`, `FPS`,
-  `PRESENT`) carry 0 and take none.
+  `DRAW`) carry 0 and take none.
 * Raise, `SCRIPT`, `CALLS_DONE`, `MENU_CLICK`, `MENU_EXPIRED` and `KEY` messages are written by the game thread into the
   DLL's ring and sent in order by the writer thread (`KEY` from the window's thread, which the DLL takes to be the
-  game thread). `STATUS`, `FRAME`, `FPS` and `PRESENT` are written straight to the socket by the writer between ring
-  drains, so they can arrive out of order with ring messages. `PRESENT` goes out before the ring is drained, since
-  the overlay's next frame waits on it.
+  game thread). `STATUS`, `FRAME`, `FPS` and `DRAW` are written straight to the socket by the writer between ring
+  drains, so they can arrive out of order with ring messages. `DRAW` goes out before the ring is drained, since the
+  overlay's next frame (and, with frame sync, the game) waits on it.
 * A full ring drops new messages; the gap in `seq` shows it. The Java side checks the sequence of the ring's messages
   and logs gaps at FINE.
 * The API never depends on a message arriving: a raise only makes a tracker read sooner, and the trackers' own reads
@@ -530,7 +576,7 @@ guard. At most 4,096 writes wait; more are dropped. A malformed command queues n
 
 ## Versioning
 
-The protocol version lives in two places: the handshake magic (`KRK8`) and `PROTOCOL_VERSION` (8), which STATUS
+The protocol version lives in two places: the handshake magic (`KRK9`) and `PROTOCOL_VERSION` (9), which STATUS
 reports and the client logs. A DLL that gets a magic it doesn't know drops the connection, and reconnects a second
 later to the same result, so a client and DLL of different versions never talk. The client always starts a fresh game and
 injects the DLL it was built with, so they only disagree when `-Dkraken.hook.dll` points at a DLL built from other
@@ -550,12 +596,13 @@ To change the format:
 | What | DLL (`protocol.h` unless noted) | Java |
 |---|---|---|
 | Port | `KRAKEN_PORT` = 42069 | `NativeEventServer.PORT` |
-| Magic | `"KRK8"` in `connection.cpp` | `NativeProtocol.MAGIC` |
+| Magic | `"KRK9"` in `connection.cpp` | `NativeProtocol.MAGIC` |
 | Capture-plan ops | `OP_RAW` … `OP_CSTR` | `NativeProtocol.OP_*` |
 | Plan length | `MAX_PLAN` = 8 | `NativeEvents` plans stay within it |
-| Reserved ids | `STATUS_EVENT_ID` … `PRESENT_EVENT_ID` | `NativeProtocol.*_EVENT_ID` |
-| Feature bits | `FEATURE_PUMP`, `FEATURE_PRESENT`, `FEATURE_FRAME_RATE`, `FEATURE_SCRIPTS`, `FEATURE_MENU`, `FEATURE_KEYS`, `FEATURE_VISIBILITY`, `FEATURE_COMPONENTS` | `FEATURE_CALLS`, `FEATURE_OVERLAY`, `FEATURE_FRAME_RATE`, `FEATURE_SCRIPTS`, `FEATURE_MENU`, `FEATURE_KEYS`, `FEATURE_VISIBILITY`, `FEATURE_COMPONENTS` |
-| Command types | `CMD_CALLS` … `CMD_COMPONENTS` | `NativeProtocol.COMMAND_*` |
+| Reserved ids | `STATUS_EVENT_ID` … `DRAW_EVENT_ID` | `NativeProtocol.*_EVENT_ID` |
+| Feature bits | `FEATURE_PUMP`, `FEATURE_PRESENT`, `FEATURE_FRAME_RATE`, `FEATURE_SCRIPTS`, `FEATURE_MENU`, `FEATURE_KEYS`, `FEATURE_VISIBILITY`, `FEATURE_COMPONENTS`, `FEATURE_FRAME_SYNC` | `FEATURE_CALLS`, `FEATURE_OVERLAY`, `FEATURE_FRAME_RATE`, `FEATURE_SCRIPTS`, `FEATURE_MENU`, `FEATURE_KEYS`, `FEATURE_VISIBILITY`, `FEATURE_COMPONENTS`, `FEATURE_FRAME_SYNC` |
+| Command types | `CMD_CALLS` … `CMD_FRAME_DONE` | `NativeProtocol.COMMAND_*` |
+| Frame block order | `install` in `frames.cpp` | `frameLayout`, `FRAME_OFFSETS` |
 | Argument kinds | `ARG_IMM` … `ARG_INDIRECT` | `NativeCall.Kind` ordinals |
 | Call limits | `MAX_ARGS` = 8, `SCRATCH_SIZE` = 4096 | `NativeCall.MAX_ARGS`, `NativeCall.SCRATCH_SIZE`, `NativeCall.MAX_DATA` |
 | Script capture bits | `SCRIPT_CAPTURE_PRE`, `_POST`, `_ROOTS` | `NativeProtocol.scriptCapture` |
@@ -570,4 +617,4 @@ To change the format:
 | Menu block order | `MenuLayout` and `parseLayout` in `menus.cpp` | `MENU_FUNCTIONS`, `MENU_OFFSETS`, `MENU_KINDS`, `MENU_OPS`, `MENU_STRING` |
 | Menu rule constants | `MENU_*`, `RULE_*`, `MATCH_*`, `TEXT_*`, `EDIT_*`, `SWAP_*`, `ADD_*`, `MENU_ROW_OP`, `NO_ROW`, `MENU_GRACE`, `CLICK_*` | `NativeProtocol.MENU_*`, `RULE_*`, `MATCH_*`, `EDIT_*`, `SWAP_*`; `MenuEdits.ROW_OP`; the enums' ordinals for text modes and positions |
 | Key constants | `KEYS_*`, `KEY_MODE_BLOCK_TYPING`, `KEY_SHIFT`/`CTRL`/`ALT`, `KEY_TO_BLOCK`, `KEY_STAY`, `MAX_KEY_MODES`, `KEY_PASSED`/`REMAPPED`/`BLOCKED` | `NativeProtocol.KEYS_*`, `KeyHook.SHIFT`/`CTRL`/`ALT`/`BLOCK`/`STAY`/`MAX_MODES`, `KeyReport.Action` ordinals |
-| Surface layout | `SURFACE_MAGIC`, `SURFACE_PUBLISHED` … `SURFACE_PIXELS`, `SURFACE_MAX_SLOTS`, `PUBLISHED_NONE` | `GameSurface.MAGIC`, `OFFSET_*`, `SLOTS`, `NONE_PUBLISHED` |
+| Surface layout | `SURFACE_MAGIC`, `SURFACE_PUBLISHED` … `SURFACE_PIXELS`, `SURFACE_SLOT_TAG`, `SURFACE_SLOT_SEQ`, `SURFACE_MAX_SLOTS`, `PUBLISHED_NONE` | `GameSurface.MAGIC`, `OFFSET_*`, `SLOTS`, `NONE_PUBLISHED` |

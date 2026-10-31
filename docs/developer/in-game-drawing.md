@@ -20,13 +20,17 @@ flowchart LR
         reader["reader thread"] --> queue["call queue"]
         queue --> pump["pump detour<br/>appUpdate on the game thread"]
         present["present detour<br/>SwapBuffers"]
-        writer["writer thread<br/>STATUS, FRAME, FPS, PRESENT"]
+        endframe["endFrame detour<br/>frame sync on the game thread"]
+        writer["writer thread<br/>STATUS, FRAME, FPS, DRAW"]
     end
-    srv -->|"CALLS, SURFACE, FRAME_LIMIT"| reader
+    srv -->|"CALLS, SURFACE, FRAME_LIMIT, FRAME_SYNC, FRAME_DONE"| reader
     pump -->|"calls into the client"| game["client highlight functions"]
     pump -->|"CALLS_DONE"| srv
     surface -.->|"shared memory KOV1"| present
-    writer -->|"FRAME, FPS, PRESENT"| srv
+    writer -->|"FRAME, FPS, DRAW"| srv
+    endframe -->|"a tag to draw"| writer
+    reader -->|"FRAME_DONE"| endframe
+    endframe -.->|"the frame's tag"| present
 ```
 
 ## Key Files
@@ -55,13 +59,15 @@ flowchart LR
 | [`protocol.h`](../../client/src/main/native/kraken_hook/src/protocol.h) | Every constant the two sides share |
 | [`calls.cpp`](../../client/src/main/native/kraken_hook/src/calls.cpp) | Queues the batches, runs them in the pump, sends CALLS_DONE |
 | [`pump.cpp`](../../client/src/main/native/kraken_hook/src/pump.cpp) | The `appUpdate` detour: frame cap, then calls |
-| [`connection.cpp`](../../client/src/main/native/kraken_hook/src/connection.cpp) | Reader and writer threads, STATUS, FRAME, FPS, PRESENT |
+| [`connection.cpp`](../../client/src/main/native/kraken_hook/src/connection.cpp) | Reader and writer threads, STATUS, FRAME, FPS, DRAW |
+| [`frames.cpp`](../../client/src/main/native/kraken_hook/src/frames.cpp) | Frame sync: the endFrame detour, frame tags, the waits for FRAME_DONE |
+| [`frames.py`](../../updater/src/native_updater/frames.py) | Finds endFrame and the GL device's frame fields |
 | [`overlay.cpp`](../../client/src/main/native/kraken_hook/src/overlay/overlay.cpp) | The present detour, texture upload, the draw, FRAME values |
 | [`surface.cpp`](../../client/src/main/native/kraken_hook/src/overlay/surface.cpp) | Opens the named mapping and hands it to the present thread |
 | [`gl.cpp`](../../client/src/main/native/kraken_hook/src/overlay/gl.cpp), [`gl_state.cpp`](../../client/src/main/native/kraken_hook/src/overlay/gl_state.cpp) | GL entry points, saving and restoring the client's GL state |
 | [`guard.h`](../../client/src/main/native/kraken_hook/src/core/guard.h) | The SEH guards around every call into the client and the GL draw |
 | [`highlights.py`](../../updater/src/native_updater/highlights.py) | Finds the script-op dispatcher, the channel store and the config layout |
-| [`90-draw.yaml`](../../updater/src/native_updater/spec/90-draw.yaml) | Fingerprints and keys for the highlight, present and frame-step functions |
+| [`90-draw.yaml`](../../updater/src/native_updater/spec/90-draw.yaml) | Fingerprints and keys for the highlight, present, frame-step and endFrame functions and the GL device fields |
 | [`241.3.json`](../../api/src/main/resources/mappings/241.3.json) | The 241.3 values the API reads |
 
 ## Highlights
@@ -319,11 +325,11 @@ iteration: about every 20 ms, as soon as a raise asks, and on each `GameSession.
 
 ```mermaid
 flowchart TD
-    present["Game presents a frame: the DLL sends PRESENT"] --> presented["GameSurface.presented, then requestFrame"]
-    presented --> poll
+    draw["DRAW: a frame ends (frame sync) or the game presents"] --> requested["drawRequested, requestFrame"]
+    requested --> poll
     poll["Poll iteration: on a frame request, a raise, or about every 20 ms"] --> frame["Frame listener: OverlayRenderer.draw"]
     frame --> avail{"GameSurface.isAvailable()"}
-    avail -->|"yes"| due1{"overlays added and a frame due:<br/>a new game frame, within the cap"}
+    avail -->|"yes"| due1{"overlays added and a frame due:<br/>a new request (within the cap unless the game waits)"}
     due1 -->|"no"| stop1["return"]
     due1 -->|"yes"| clear1["clear the rows the last frame held"]
     clear1 --> compose1["scale to the framebuffer, compose into gameImage"]
@@ -336,6 +342,8 @@ flowchart TD
     due2 -->|"yes"| back["compose into the back Frame, scaled to the window"]
     back --> swap["swap front and back, window.refresh"]
     swap --> edt["EDT paints the front frame in GameOverlay"]
+    publish --> finish["GameSurface.finish: FRAME_DONE if the game waits"]
+    stop1 --> finish
 ```
 
 On the surface path, `draw` clears the window's last frame first, so the window hides. `drawInGame` then works at the
@@ -344,22 +352,100 @@ from the client. The image is `TYPE_INT_ARGB_PRE`, so its pixels are premultipli
 pixels, so the graphics are scaled by framebuffer over canvas. Only the rows that held pixels in the last frame are
 cleared. Only the rows that hold pixels now, or that the target slot held before, are copied to the surface.
 
-**When a frame is due.** On the surface path, the overlay follows the game's frames. While the DLL draws a surface,
-it sends `PRESENT` for each frame the game presents, from the present detour just before the swap. The server hands the
-count to `GameSurface.presented`, whose listener, `OverlayRenderer.presented`, calls `GameSession.requestFrame` when
-any overlay is added. That wakes the poll loop at once, without an event read. `gameFrameDue` then draws one frame for
-each new present count, so the overlay is redrawn once per game frame and is ready for the next present. Polls with no
-new present draw nothing, since the DLL only shows the newest frame at each present. Before the first `PRESENT` of a
-connection (while the DLL hasn't drawn the surface yet), frames are drawn on the schedule alone.
+**When a frame is due.** On the surface path, the overlay follows the game's frames: the DLL sends `DRAW` when it
+wants one. The server hands each request to `GameSurface.drawRequested`, whose listener,
+`OverlayRenderer.drawRequested`, calls `GameSession.requestFrame` when any overlay is added, or whenever the game waits
+for the frame. That wakes the
+poll loop at once, without an event read. `gameFrameDue` then draws one frame for each new request. Polls with no new
+request draw nothing, since the DLL only shows the frame drawn for a game frame, or the newest. Before the first
+request of a connection (while the DLL hasn't drawn the surface yet), frames are drawn on the schedule alone. After
+each frame, drawn or not, `GameSurface.finish` sends `FRAME_DONE` for a request the game waits on.
 
-`FrameSchedule.due` caps both paths. One interval is one second divided by `overlayFrameRate` (240 by default, 1 to 240
-in the settings), held to `OverlayRenderer.MAX_FRAME_RATE` (240) for the game and `WINDOW_MAX_FRAME_RATE` (50, one a
-poll) for the window. A due frame moves the schedule on by one interval, so 30 fps on a 20 ms poll averages 30. Below
-the game's frame rate, the cap skips game frames and the overlay lags the scene in steps. With no overlays nothing is
-read or drawn, except one empty frame that clears the last one.
+There are two kinds of request:
 
-The overlay is drawn from the game's state as the game presents a frame, and the DLL shows it at the next present, so
-it trails the scene by one game frame.
+- **Frame sync** (the default, see [Frame Sync](#frame-sync)). `DRAW` comes at the end of each game frame, tagged, and
+  the game waits until the overlay for it is in the surface. It is drawn whatever the frame rate setting says.
+- **Presents.** With frame sync off, or a DLL or mapping without it, `DRAW` carries the present count as the game
+  presents, and nothing waits. The overlay is drawn from whatever state the game is in by then and shown at the next
+  present, so it trails the scene by a frame or so, and the trail changes from frame to frame.
+
+`FrameSchedule.due` caps the frames nothing waits on. One interval is one second divided by `overlayFrameRate` (240 by
+default, 1 to 240 in the settings), held to `OverlayRenderer.MAX_FRAME_RATE` (240) for the game and
+`WINDOW_MAX_FRAME_RATE` (50, one a poll) for the window. A due frame moves the schedule on by one interval, so 30 fps
+on a 20 ms poll averages 30. Below the game's frame rate, the cap skips game frames and the overlay lags the scene in
+steps. With no overlays nothing is read or drawn, except one empty frame that clears the last one.
+
+### Frame Sync
+
+The client renders on two threads. The game thread runs each frame's logic and records the frame's drawing into a
+frame object held by the GL device. Then `functions.renderEndFrame` queues the frame for a render thread (a
+`std::thread`), which runs the commands and presents the frame. The queue holds two frame objects, so the render
+thread is at most one frame behind. By the time a frame is presented, the game thread is already updating the next
+one. An overlay drawn from memory read at the present can mix values from two frames (camera from one, NPC
+positions from the other), and the mix changes every frame, so outlines jump about as the camera or the player moves.
+
+Frame sync draws each frame's overlay from the state the frame was recorded from, the way an overlay drawn inside the
+frame would be:
+
+```mermaid
+sequenceDiagram
+    participant Game as Game thread (endFrame detour)
+    participant DLL as DLL writer and reader
+    participant Java as Poll thread
+    participant Render as Render thread (present detour)
+    Game->>Game: tag the frame object at [device + recordingFrame]
+    Game->>DLL: requested = tag, wake the writer
+    DLL->>Java: DRAW {tag, 1}
+    Game->>Render: original endFrame queues the frame
+    Note over Game: holds, up to 10 ms, so its state stays put
+    Java->>Java: read the game, draw, publish the slot with the tag
+    Java->>DLL: FRAME_DONE {tag}
+    DLL->>Game: done = tag, the game goes on
+    Render->>Render: frame object at [device + renderingFrame] gives the tag
+    Render->>Render: wait for done (if Java is still drawing), then take the slot with the tag
+```
+
+- **Turning it on.** `OverlayRenderer.draw` calls `GameSurface.setSync` on every poll: on while the surface is
+  available, overlays are added and the `syncOverlays` setting is on (it is by default). `setSync` sends `FRAME_SYNC`
+  only when that changes, and only to a DLL whose STATUS has `FEATURE_FRAME_SYNC`. The DLL starts each connection with
+  it off, and turns it off when the connection drops.
+- **The game thread.** While sync is on and a surface is drawn, the endFrame detour reads the frame object at
+  `[device + GlDevice.recordingFrame]`, gives it the next tag (`remember`, a ring of the last eight), stores the tag
+  as requested and wakes the writer, which sends `DRAW {tag, 1}`. It then runs the original endFrame, which queues the
+  frame, so the render thread starts on it while Java draws. Last, it waits on an event until `FRAME_DONE` reports
+  that tag, sync turns off, or `FRAME_WAIT_MS` (10 ms) pass.
+- **Falling behind.** After `MAX_FRAME_MISSES` (3) waits in a row run out, the detour stops waiting, and only waits
+  again once Java has reported the frame before the current one. A Java that stalls or stops costs three slow frames,
+  not every frame.
+- **Java.** The request wakes the poll loop, which draws the frame while the game thread is held, so every read comes
+  from one frame. `publish` writes the tag into the slot's header, and `finish` sends `FRAME_DONE`, drawn or not.
+- **The render thread.** The present detour works out the device from its argument (minus `GlDevice.context`), reads
+  the frame object at `[device + GlDevice.renderingFrame]` and looks up its tag. If Java was asked for that tag and
+  hasn't reported it, the detour waits until it does or the game thread gives up on it. Then `takeFrame` takes the
+  slot whose header carries the tag, and falls back to the newest published slot if none does.
+- **Without a render thread.** The device presents right after endFrame, on the game thread. Both frame fields are 0
+  then, so the lookup finds the newest tag, which is the frame being presented.
+
+Two frame objects in the queue are what keep three slots enough. When Java writes the overlay for frame N+1, frame N
+may still be waiting for its present, so its slot has to survive. It does, because Java only writes a slot that is
+neither published nor being read. Frame N+2 can't be asked for until frame N's object comes back, after its present.
+
+The cost is the game thread's wait: about the time Java takes to draw a frame, less whatever the render thread spends
+on the frame meanwhile. An overlay inside the frame would cost the same. The **Keep in step with the game** setting
+turns it off, and then overlays go back to following the presents.
+
+The updater finds the four keys in `frames.py` (anchor class E, call-graph topology). appUpdate presents
+`device + GlDevice.context` itself when there is no render thread, after comparing `[device + recordingFrame]` with 0.
+endFrame is appUpdate's call before that present that takes the device and stores 0 to `[arg0 + recordingFrame]`.
+The render loop is present's other caller: it stores the frame it pops to `[arg0 + renderingFrame]` and clears it
+again.
+
+| Key | 241.3 | Meaning |
+|---|---|---|
+| `functions.renderEndFrame` | `0xa4da00` | `void(GlDevice*, Task*)`: queues the recorded frame for the render thread, or runs it without one |
+| `GlDevice.context` | `0x10` | The `GlContext` present takes, inside the device |
+| `GlDevice.recordingFrame` | `0x1068` | The frame object the game thread records into |
+| `GlDevice.renderingFrame` | `0x1070` | The frame object the render thread runs and presents |
 
 ### Compositing Rules
 
@@ -419,7 +505,8 @@ offset  size            field        writer  meaning
 16      4               published    Java    slot in bits 0-3, sequence from bit 4; 0xFFFFFFFF = none yet
 20      4               reading      DLL     slot being uploaded, -1 = none
 24      40              (reserved)
-64      3 x 16          slot headers Java    per slot: u32 top, u32 bottom (rows that may hold pixels), 8 unused
+64      3 x 16          slot headers Java    per slot: u32 top, u32 bottom (rows that may hold pixels), u32 tag (the
+                                             frame it was drawn for, 0 for none or while written), u32 sequence
 112     16              (reserved)
 128     3 x W x H x 4   pixels       Java    slot 0, slot 1, slot 2: premultiplied BGRA, top row first
 ```
@@ -434,15 +521,18 @@ little-endian int, so the bytes come out as B, G, R, A, which is the `GL_BGRA` u
 
 ### Writing a Frame
 
-`GameSurface.publish(pixels, width, height, top, bottom)` runs on the poll thread:
+`GameSurface.publish(pixels, width, height, top, bottom, tag)` runs on the poll thread:
 
 1. It returns false unless `isAvailable()`. It also returns false for a bad size or a short pixel array.
 2. If there is no mapping or the size changed, `open` makes a new mapping with a new generation, writes the header, and
    sends `SURFACE`.
-3. It reads `published` and `reading`, and `freeSlot` picks the first of the three slots that is neither.
+3. `claimSlot` reads `reading`, and `freeSlot` picks the first of the three slots that is neither published nor being
+   read. It clears that slot's tag, runs a full fence and reads `reading` again. If the DLL has started reading that
+   slot meanwhile, it picks another.
 4. It copies rows from `min(top, tops[slot])` to `max(bottom, bottoms[slot])`. That is this frame's band plus the rows the
    slot held before, which this frame clears. If the slot was empty, only the new band is copied.
-5. It writes the slot header (top and bottom), then `tops` and `bottoms`, and advances the sequence.
+5. It advances the sequence and writes the slot header: top, bottom, the sequence, and last the tag. Then `tops` and
+   `bottoms`.
 6. It stores `published` as `slot | sequence << 4` and runs a full fence.
 
 The caller's image is zero outside the new band, and the copy covers the slot's old band. So each slot is zero outside its
@@ -472,14 +562,17 @@ sequenceDiagram
     Java->>Map: the next publish reads reading before picking a slot
 ```
 
-The DLL's side is in `takeFrame`. It reads `published` and skips a sequence it has already taken. Otherwise it claims the
-slot in `reading`, runs a full barrier, and reads `published` again. If the value moved, it releases `reading` and takes
-the newer frame at the next present. Otherwise it reads the slot's band and uploads it. It then releases `reading` and
-records the sequence as taken.
+The DLL's side is in `takeFrame`. It picks a slot: with [frame sync](#frame-sync), the slot whose header carries the
+tag of the frame being presented (the newest such, by sequence); otherwise, or if none does, the published one. It
+claims the slot in `reading`, runs a full barrier, and checks the slot still holds that frame: the tag for a tagged slot,
+`published` unchanged for the published one. If not, it releases `reading` and tries again at the next present. It skips
+a slot and sequence the texture already holds. Otherwise it reads the slot's band and uploads it, releases `reading` and
+records the slot and sequence as taken.
 
 The two sides follow the Dekker pattern: each stores its word, puts a full fence between that store and its read of the
-other word, and then reads. So a slot the DLL has claimed is never one Java picks, and a slot Java is writing is never
-one the DLL uploads.
+other's, and then reads. Java stores a cleared tag and reads `reading`; the DLL stores `reading` and reads the tag (or
+`published`). So a slot the DLL has claimed is never one Java picks, and a slot Java is writing is never one the DLL
+uploads. Java never writes the published slot, so a claim of the published slot only needs `published` to stay put.
 
 ### Adoption, Refusal and Switching
 
@@ -549,10 +642,10 @@ flowchart TD
     gen0 --> wake["wake the writer if FRAME changed"]
     gen1 --> wake
     off --> wake
-    wake --> drawn{"a surface drawn"}
-    drawn -->|"yes"| wakePresent["wake the writer for PRESENT"]
+    wake --> drawn{"a surface drawn and frame sync off"}
+    drawn -->|"yes"| wakeDraw["wake the writer for DRAW"]
     drawn -->|"no"| orig
-    wakePresent --> orig
+    wakeDraw --> orig
 ```
 
 What `drawOverlay` does, in order:
@@ -591,10 +684,11 @@ The client's GL state is saved first and restored after, under SEH guards. The t
 A fault in the save, the draw or the restore turns the overlay off until the game process exits (`g_overlayFaulted`).
 FRAME reports generation 0 from then on. A fault during the restore can leave some of the client's state unrestored.
 
-`presentDetour` counts presents for FPS and PRESENT, runs `overlayFrame`, wakes the writer while a surface is drawn,
+`presentDetour` counts presents for FPS and DRAW, looks up the tag of the frame it presents (frame sync) and waits for
+its overlay if need be, runs `overlayFrame` with the tag, wakes the writer while a surface is drawn without frame sync,
 and then calls the trampoline to the original present. `overlayFrame` wakes the writer, through `ring::wakeWriter`,
-when FRAME's values change. The writer sends `PRESENT` when the count moved and the generation drawn isn't 0, before it
-drains the ring.
+when FRAME's values change. The writer sends `DRAW` for a new tag, or, without frame sync, when the present count moved
+and a surface is drawn, before it drains the ring.
 
 ### Dev Tool Overlays
 
@@ -612,8 +706,9 @@ behaviour for users.
   second even when nothing else wakes it. `NativeEventServer` passes RCX and RDX to `FrameRates.gameFrames`.
 - **Staleness.** `getGameFrameRate` is NaN after 3 s without a report, and after a disconnect. `FpsOverlay` shows a dash
   for NaN.
-- **Presents.** While a surface is drawn, the writer sends `PRESENT` with the present count after each present it
-  sees, so Java draws a frame per game frame (see the frame pipeline above).
+- **Draw requests.** With frame sync, the writer sends `DRAW` with each frame's tag; without it, with the present
+  count after each present it sees while a surface is drawn. Either way Java draws a frame per game frame (see the
+  frame pipeline above).
 - **The overlays' rate.** `FrameRates.overlayFrameDrawn` runs for each frame handed over. The `RateMeter` counts events
   over one-second windows, and resets after a pause of more than a second.
 - **The readout.** `FpsOverlay` shows `Game` and `Overlays` rows at the top centre of the game, when `showFps` is on. It
@@ -674,7 +769,10 @@ local testing.
 | 20 ms | `GameSession.POLL_INTERVAL_MS` | Poll loop period, which also runs the frame listener. The loop holds a 1 ms Windows timer (`TimerResolution`), so the wait isn't stretched to the default 15.6 ms tick (about 31 ms) |
 | 250 ms | `GameSession.HOOKED_EVENT_POLL_MS` | Event read safety interval while the hook is connected |
 | 150 ms | `GameSession.RENDER_INTERVAL_MS` | Poll listener period (dev tools) |
-| 240 fps, 1 to 240 | `KrakenConfig.overlayFrameRate` | Overlay frame cap. In the game, frames follow the game's presents up to it (`OverlayRenderer.MAX_FRAME_RATE`, 240); in the window, at most `WINDOW_MAX_FRAME_RATE` (50) |
+| 240 fps, 1 to 240 | `KrakenConfig.overlayFrameRate` | Cap on the frames nothing waits on. In the game, frames follow the game's presents up to it (`OverlayRenderer.MAX_FRAME_RATE`, 240); in the window, at most `WINDOW_MAX_FRAME_RATE` (50) |
+| 10 ms | `protocol.h` `FRAME_WAIT_MS` | Longest the game thread (and the present) waits for a frame's overlay |
+| 3 | `protocol.h` `MAX_FRAME_MISSES` | Waits in a row that may run out before the game stops waiting for Java |
+| 8 | `frames.cpp` `TAGGED` | Recent frames whose tags the present can look up |
 | 2 s | `GameSurface.ADOPT_GRACE_NANOS` | Time for the DLL to draw a new surface |
 | 3 s | `FrameRates.GAME_STALE_NANOS` | Age at which the game's rate reads as unknown |
 | 250 ms | `FrameRates.FOCUS_SETTLE_MS` | Focus settle before the cap follows it |
@@ -698,7 +796,7 @@ Java tests, run with `./gradlew :api:test` and `./gradlew :client:test`:
 | [`HighlightsTest`](../../api/src/test/java/com/kraken/api/highlight/HighlightsTest.java) | Channel allocation, every style field's offset, each target's arguments, diffs in `set`, names as short strings, reconnect re-apply, broken connections, `releaseAll`, a mapping without the keys |
 | [`NativeCallTest`](../../api/src/test/java/com/kraken/api/internal/invoke/NativeCallTest.java) | Aligned data copies in one block, scratch offsets, packing of indirect offsets, value semantics, the eight-argument limit |
 | [`NativeProtocolTest`](../../client/src/test/java/com/kraken/client/callback/NativeProtocolTest.java) | The byte framing of `CALLS`, `SURFACE`, `FRAME_LIMIT` and the script block, and parsing of raised and script events |
-| [`GameSurfaceTest`](../../client/src/test/java/com/kraken/client/ui/overlay/GameSurfaceTest.java) | GL 3 and framebuffer requirements, the first frame, slot choice, slot reuse clearing rows, a new size making a new generation, the 2 s refusal, a disconnect closing the mapping, present counts and their listener. Uses a fake `RegionFactory`, not Win32 |
+| [`GameSurfaceTest`](../../client/src/test/java/com/kraken/client/ui/overlay/GameSurfaceTest.java) | GL 3 and framebuffer requirements, the first frame, slot choice, slot reuse clearing rows, a new size making a new generation, the 2 s refusal, a disconnect closing the mapping, draw requests, frame sync changes, `finish`, slot tags and sequences, leaving a slot the DLL starts reading. Uses a fake `RegionFactory`, not Win32 |
 | [`OverlayRendererTest`](../../client/src/test/java/com/kraken/client/ui/overlay/OverlayRendererTest.java) | Finding the rows with pixels, the frame schedule at poll and game frame rates, the cap, restarts, clearing rows |
 | [`OverlayCompositorTest`](../../client/src/test/java/com/kraken/client/ui/overlay/OverlayCompositorTest.java) | Anchors and stacks, layers and priorities, failing overlays, editing outlines, the shared top-right stack |
 | [`OverlayManagerTest`](../../client/src/test/java/com/kraken/client/ui/overlay/OverlayManagerTest.java), `OverlayDragTest` | Saved placements, reset, drag and resize geometry |
@@ -734,8 +832,9 @@ Code gaps, found by reading the code against this page:
    the plugins releasing their channels, followed by the one-second flush.
 6. **The protocol names differ.** `protocol.h` calls the bits `FEATURE_PUMP` and `FEATURE_PRESENT`. Java calls them
    `FEATURE_CALLS` and `FEATURE_OVERLAY`. The values match.
-7. **The overlay trails the scene by one game frame.** It is drawn from the state the game presented and shown at the
-   next present. Matching the scene exactly would need the present to wait for Java's frame.
+7. **Without frame sync, the overlay trails the scene.** It is drawn from whatever state the game is in after a
+   present and shown at the next one.
+8. **A slow overlay slows the game.** With frame sync, each frame waits for Java, up to 10 ms.
 
 Live checks still pending. Each of these needs a running client, and none is covered by a test:
 
@@ -748,6 +847,8 @@ Live checks still pending. Each of these needs a running client, and none is cov
   Each should either draw the overlay or refuse cleanly after the grace.
 - Surface cost: upload time per frame at 1080p and 4K, and that an empty overlay costs nothing.
 - Frames per present: with Show FPS on, Overlays matches Game up to the cap, and a moving camera shows no judder.
+- Frame sync: tile and NPC outlines stay on their tiles while the camera turns and the player walks; the game's frame
+  rate with and without it; the render thread path (frame objects at `renderingFrame`) and the path without one.
 - The Game FPS readout matches the game's own counter, and the cap holds the game at the rate asked, lifts on focus,
   and leaves logic and highlights working while held.
 - Alt-drag with the surface: Alt is seen while the game has the keyboard, a click on an overlay leaves the game focused,

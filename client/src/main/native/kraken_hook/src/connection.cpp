@@ -14,6 +14,7 @@
 #include "core/frame_reader.h"
 #include "core/process.h"
 #include "core/ring.h"
+#include "frames.h"
 #include "keys.h"
 #include "menus.h"
 #include "overlay/overlay.h"
@@ -111,6 +112,12 @@ DWORD WINAPI readerThread(LPVOID) {
             case CMD_COMPONENTS:
                 components::queue(r);
                 break;
+            case CMD_FRAME_SYNC:
+                frames::setSync(r);
+                break;
+            case CMD_FRAME_DONE:
+                frames::done(r);
+                break;
             default:
                 break; // an unknown command is skipped, so a newer client can still talk to this DLL
         }
@@ -150,7 +157,7 @@ void sendStatus(uint16_t requested) {
                         | (pumpHooked || presentHooked ? FEATURE_FRAME_RATE : 0)
                         | (scripts::hooked() ? FEATURE_SCRIPTS : 0) | (menus::hooked() ? FEATURE_MENU : 0)
                         | (keys::hooked() ? FEATURE_KEYS : 0) | (visibility::live() ? FEATURE_VISIBILITY : 0)
-                        | (components::live() ? FEATURE_COMPONENTS : 0);
+                        | (components::live() ? FEATURE_COMPONENTS : 0) | (frames::live() ? FEATURE_FRAME_SYNC : 0);
     uint64_t regs[4] = {static_cast<uint64_t>(raises::installedCount()), requested, features, PROTOCOL_VERSION};
     sendDirect(STATUS_EVENT_ID, regs);
 }
@@ -178,19 +185,19 @@ bool readBlock(void (*install)(FrameReader)) {
 }
 
 /**
- * Reads the handshake and installs any hooks not installed yet. The handshake is: magic "KRK8", a
+ * Reads the handshake and installs any hooks not installed yet. The handshake is: magic "KRK9", a
  * u16 slot count, each slot's rva, id configuration, argument count and capture plan, then the
- * Client* slot, the pump function and the present function, then five length-prefixed blocks: the
- * script block, the menu block, the key block, the visibility block and the component block (each
- * empty for no such feature). A slot whose rva is already hooked is left alone, so a re-handshake
- * after a reconnect only adds new ones; the pump, present, script, menu and key hooks install once,
- * and the visibility and component layouts are taken once.
+ * Client* slot, the pump function and the present function, then six length-prefixed blocks: the
+ * script block, the menu block, the key block, the visibility block, the component block and the
+ * frame block (each empty for no such feature). A slot whose rva is already hooked is left alone, so
+ * a re-handshake after a reconnect only adds new ones; the pump, present, script, menu, key and
+ * endFrame hooks install once, and the visibility and component layouts are taken once.
  *
  * @return true if the handshake parsed; false if the connection closed mid-handshake
  */
 bool readHandshake() {
     char magic[4];
-    if (!recvExact(magic, 4) || std::memcmp(magic, "KRK8", 4) != 0) {
+    if (!recvExact(magic, 4) || std::memcmp(magic, "KRK9", 4) != 0) {
         return false;
     }
     uint16_t count = 0;
@@ -224,7 +231,8 @@ bool readHandshake() {
     pump::install(tail[1]);
     overlay::install(tail[2]);
     if (!readBlock(&scripts::install) || !readBlock(&menus::install) || !readBlock(&keys::install)
-            || !readBlock(&visibility::install) || !readBlock(&components::install)) {
+            || !readBlock(&visibility::install) || !readBlock(&components::install)
+            || !readBlock(&frames::install)) {
         return false;
     }
     sendStatus(count);
@@ -307,39 +315,51 @@ bool sendFpsIfDue(FpsState &last) {
 }
 
 /**
- * Sends PRESENT if the game presented a frame since the last one sent and the overlay draws a surface,
- * so Java draws the overlay's next frame as each game frame goes out. Presents made while no surface is
- * drawn are skipped, not sent later.
+ * The frame tag and present count DRAW last went out for on this connection.
+ */
+struct DrawState {
+    uint32_t tag = frames::requested();
+    uint64_t presents = overlay::presents();
+};
+
+/**
+ * Sends DRAW when Java has an overlay frame to draw: for a frame endFrame tagged and waits for, or,
+ * while frame sync is off, for each present while the overlay draws a surface. Presents made while no
+ * surface is drawn are skipped, not sent later.
  *
- * @param last the present count last seen, updated each call
+ * @param last the tag and present count last seen, updated each call
  * @return false if the send failed
  */
-bool sendPresentIfNew(uint64_t &last) {
+bool sendDrawIfNew(DrawState &last) {
+    uint32_t tag = frames::requested();
     uint64_t presents = overlay::presents();
-    if (presents == last) {
-        return true;
+    bool presented = presents != last.presents;
+    last.presents = presents;
+    if (tag != last.tag) {
+        last.tag = tag;
+        uint64_t regs[4] = {tag, 1, 0, 0};
+        return sendDirect(DRAW_EVENT_ID, regs);
     }
-    last = presents;
-    if (overlay::frameInfo().generation == 0) {
+    if (!presented || frames::syncing() || !overlay::drawing()) {
         return true;
     }
     uint64_t regs[4] = {presents, 0, 0, 0};
-    return sendDirect(PRESENT_EVENT_ID, regs);
+    return sendDirect(DRAW_EVENT_ID, regs);
 }
 
 /**
- * Drains the ring to the socket, and sends PRESENT as the game presents while the overlay draws a
- * surface, FRAME when the present thread's values change and FPS once a second, until a send fails or
- * the reader thread sees the socket close.
+ * Drains the ring to the socket, and sends DRAW as the overlay needs frames, FRAME when the present
+ * thread's values change and FPS once a second, until a send fails or the reader thread sees the
+ * socket close.
  *
  * @return false when the connection should be re-established
  */
 bool drainRing() {
     FrameState last;
     FpsState fps;
-    uint64_t presents = overlay::presents();
+    DrawState draw;
     for (;;) {
-        if (!sendPresentIfNew(presents) || !ring::sendQueued(sendExact)) {
+        if (!sendDrawIfNew(draw) || !ring::sendQueued(sendExact)) {
             return false;
         }
         if (!sendFrameIfChanged(last) || !sendFpsIfDue(fps)) {
@@ -392,9 +412,9 @@ bool init() {
 void run() {
     // Hooks stay installed across reconnects; a dropped socket costs the client latency, not events,
     // because the Java side keeps polling as a fallback. A dropped socket also drops the queued calls
-    // and component ops, stops the overlay, since nothing would keep it current, stops the script
-    // events, drops the menu rules and key table, shows again what the visibility rules hid and lifts
-    // the frame cap.
+    // and component ops, stops the overlay, since nothing would keep it current, turns frame sync off,
+    // stops the script events, drops the menu rules and key table, shows again what the visibility
+    // rules hid and lifts the frame cap.
     bool first = true;
     for (;;) {
         if (!connectToJava(first ? 50 : 10)) {
@@ -420,6 +440,7 @@ void run() {
         components::clear();
         visibility::clear();
         overlay::stopSurface();
+        frames::clear();
         scripts::stopCapture();
         menus::clear();
         keys::clear();

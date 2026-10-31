@@ -1,4 +1,4 @@
-// The wire format shared with the Kraken client: protocol v8, little-endian. Every value here must match
+// The wire format shared with the Kraken client: protocol v9, little-endian. Every value here must match
 // NativeProtocol, NativeEventServer and GameSurface on the Java side, so change them together.
 // docs/developer/native-protocol.md describes the format, and docs/developer/in-game-drawing.md the
 // overlay surface.
@@ -12,7 +12,7 @@ namespace kraken {
 // Must match NativeEventServer.PORT on the Java side.
 inline constexpr unsigned short KRAKEN_PORT = 42069;
 
-inline constexpr uint32_t PROTOCOL_VERSION = 8;
+inline constexpr uint32_t PROTOCOL_VERSION = 9;
 inline constexpr int MAX_PLAN = 8;  // capture-plan entries per slot
 inline constexpr int CSTR_MAX = 64; // longest NUL-terminated string captured
 
@@ -34,9 +34,11 @@ inline constexpr uint8_t OP_CSTR = 4;  // NUL-terminated bytes at [register], at
 // for a top row or a rule), mouse x | mouse y << 32}. MENU_EXPIRED: regs = {rule id, 0, 0, 0}.
 // KEY: regs = {message, the key or character it carried, what was done (KEY_*) << 16 | the key it
 // became, mode before | mode after << 8}.
-// PRESENT: regs = {presents so far, 0, 0, 0}; sent when the game presented a frame since the last
-// PRESENT, while the overlay draws a surface, so Java draws the overlay's next frame.
-// STATUS, FRAME, FPS and PRESENT go straight from the writer thread and carry sequence number 0.
+// DRAW: regs = {frame, 1 if the game waits for its overlay, 0, 0}: draw the overlay for this frame.
+// While frame sync is on, frame is the tag endFrame gave the frame it is queuing, and the game thread
+// waits for FRAME_DONE with that tag; otherwise it is the present count, sent as the game presents
+// while the overlay draws a surface, and nothing waits.
+// STATUS, FRAME, FPS and DRAW go straight from the writer thread and carry sequence number 0.
 inline constexpr int32_t STATUS_EVENT_ID = -2;
 inline constexpr int32_t FRAME_EVENT_ID = -3;
 inline constexpr int32_t CALLS_DONE_EVENT_ID = -4;
@@ -45,14 +47,15 @@ inline constexpr int32_t SCRIPT_EVENT_ID = -6;
 inline constexpr int32_t MENU_CLICK_EVENT_ID = -7;
 inline constexpr int32_t MENU_EXPIRED_EVENT_ID = -8;
 inline constexpr int32_t KEY_EVENT_ID = -9;
-inline constexpr int32_t PRESENT_EVENT_ID = -10;
+inline constexpr int32_t DRAW_EVENT_ID = -10;
 
 // STATUS feature bits. FRAME_RATE: FPS is sent, and FRAME_LIMIT is honoured while the pump is hooked.
 // SCRIPTS: the four script hooks are live, and SCRIPTS commands are honoured. MENU: the minimenu
 // hooks are live, and MENU commands are honoured. KEYS: the window procedure is hooked, and KEYS
 // commands are honoured. VISIBILITY: the pump is hooked and the handshake named the entity layout, so
 // VISIBILITY commands are honoured. COMPONENTS: the pump is hooked and the handshake named the
-// interface store, so COMPONENTS commands are honoured.
+// interface store, so COMPONENTS commands are honoured. FRAME_SYNC: the present and the GL device's
+// endFrame are hooked and the handshake named the device's layout, so FRAME_SYNC is honoured.
 inline constexpr uint64_t FEATURE_PUMP = 1;
 inline constexpr uint64_t FEATURE_PRESENT = 2;
 inline constexpr uint64_t FEATURE_FRAME_RATE = 4;
@@ -61,6 +64,7 @@ inline constexpr uint64_t FEATURE_MENU = 16;
 inline constexpr uint64_t FEATURE_KEYS = 32;
 inline constexpr uint64_t FEATURE_VISIBILITY = 64;
 inline constexpr uint64_t FEATURE_COMPONENTS = 128;
+inline constexpr uint64_t FEATURE_FRAME_SYNC = 256;
 
 // Command frames (Java -> DLL): {u32 len, u8 type, body}, len counting the type byte and the body.
 inline constexpr uint8_t CMD_CALLS = 1;
@@ -71,6 +75,8 @@ inline constexpr uint8_t CMD_MENU = 5;
 inline constexpr uint8_t CMD_KEYS = 6;
 inline constexpr uint8_t CMD_VISIBILITY = 7;
 inline constexpr uint8_t CMD_COMPONENTS = 8;
+inline constexpr uint8_t CMD_FRAME_SYNC = 9;
+inline constexpr uint8_t CMD_FRAME_DONE = 10;
 inline constexpr uint32_t MAX_FRAME_LIMIT = 1000; // a higher cap is no cap
 inline constexpr uint32_t MAX_FRAME = 4u << 20;   // bytes per command frame
 inline constexpr int MAX_ARGS = 8;                // arguments per call
@@ -205,12 +211,20 @@ inline constexpr uint8_t COMPONENT_SET_TEXT = 2;
 inline constexpr int MAX_COMPONENT_OPS = 4096; // ops waiting for the pump at most
 inline constexpr int MAX_COMPONENT_TEXT = 4096; // bytes of a COMPONENT_SET_TEXT text at most
 
+// Frame sync: FRAME_SYNC {u8 on} turns it on or off; FRAME_DONE {u32 frame} says the overlay for a
+// DRAW's frame is in the surface. The game thread waits at most FRAME_WAIT_MS for it, and after
+// MAX_FRAME_MISSES waits in a row run out, waits no more until Java catches up.
+inline constexpr uint32_t FRAME_WAIT_MS = 10;
+inline constexpr int MAX_FRAME_MISSES = 3;
+
 // Overlay surface layout (docs/developer/in-game-drawing.md, "The Overlay Surface").
 inline constexpr uint32_t SURFACE_MAGIC = 0x31564F4B; // "KOV1"
 inline constexpr size_t SURFACE_PUBLISHED = 16;
 inline constexpr size_t SURFACE_READING = 20;
 inline constexpr size_t SURFACE_SLOT_HEADERS = 64;
 inline constexpr size_t SURFACE_SLOT_HEADER_SIZE = 16;
+inline constexpr size_t SURFACE_SLOT_TAG = 8;  // in a slot header: the frame the slot was drawn for
+inline constexpr size_t SURFACE_SLOT_SEQ = 12; // in a slot header: its publish sequence, 0 while written
 inline constexpr size_t SURFACE_PIXELS = 128;
 inline constexpr uint32_t SURFACE_MAX_SLOTS = 3;
 inline constexpr uint32_t SURFACE_MAX_SIDE = 16384;

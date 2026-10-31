@@ -1,5 +1,6 @@
 // The present hook (functions.present, which calls SwapBuffers). Before the original runs, it uploads
-// the newest overlay frame from the surface and draws it over framebuffer 0 as one full-screen
+// the overlay frame for the frame being presented from the surface (with frame sync, the one Java drew
+// for the frame's tag; otherwise the newest) and draws it over framebuffer 0 as one full-screen
 // triangle with premultiplied-alpha blending (GLSL 330 core on GL 3.3+, 150 on 3.2, 130 on 3.0 and
 // 3.1; nothing below 3.0). It saves every piece of GL state it changes and restores it after, under
 // SEH guards; a fault turns the overlay off for the session. See docs/developer/in-game-drawing.md.
@@ -39,6 +40,13 @@ bool hooked();
  * @return the presents so far
  */
 uint64_t presents();
+
+/**
+ * Whether the overlay drew a surface at the last present.
+ *
+ * @return true while a surface is being drawn
+ */
+bool drawing();
 
 /**
  * What the present thread last saw. All zero before the first present.

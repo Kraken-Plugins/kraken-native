@@ -8,9 +8,11 @@ import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.function.IntConsumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -23,7 +25,8 @@ class GameSurfaceTest {
     private static final int GL_4_6 = 4 << 16 | 6;
 
     private final List<FakeRegion> regions = new ArrayList<>();
-    private final List<String> shown = new ArrayList<>();
+    private final FakeLink link = new FakeLink();
+    private final List<String> shown = link.shown;
     private long now;
     private GameSurface surface;
 
@@ -37,7 +40,7 @@ class GameSurfaceTest {
     }
 
     private void connect(int width, int height) {
-        surface.connected((generation, name) -> shown.add(generation + " " + name), PID);
+        surface.connected(link, PID, true);
         surface.frame(width, height, GL_4_6, 0);
     }
 
@@ -52,8 +55,8 @@ class GameSurfaceTest {
     @Test
     void itNeedsTheHookAFramebufferAndGl3() {
         assertFalse(surface.isAvailable());
-        assertFalse(surface.publish(new int[4], 2, 2, 0, 2));
-        surface.connected((generation, name) -> { }, PID);
+        assertFalse(surface.publish(new int[4], 2, 2, 0, 2, 0));
+        surface.connected(link, PID, false);
         assertFalse(surface.isAvailable(), "no framebuffer reported yet");
         surface.frame(4, 3, 2 << 16 | 1, 0);
         assertFalse(surface.isAvailable(), "GL 2.1 isn't drawn with");
@@ -66,7 +69,7 @@ class GameSurfaceTest {
     @Test
     void theFirstFrameLaysOutTheMappingAndTellsTheDll() {
         connect(4, 3);
-        assertTrue(surface.publish(image(4, 3, 1), 4, 3, 1, 2));
+        assertTrue(surface.publish(image(4, 3, 1), 4, 3, 1, 2, 0));
 
         assertEquals(List.of("1 Local\\KrakenOverlay-1234-1"), shown);
         FakeRegion region = regions.get(0);
@@ -86,25 +89,25 @@ class GameSurfaceTest {
     @Test
     void eachFrameGoesToASlotNeitherPublishedNorRead() {
         connect(4, 3);
-        surface.publish(image(4, 3, 0), 4, 3, 0, 1);
+        surface.publish(image(4, 3, 0), 4, 3, 0, 1, 0);
         FakeRegion region = regions.get(0);
         region.putInt(GameSurface.OFFSET_READING, 1);
-        surface.publish(image(4, 3, 2), 4, 3, 2, 3);
+        surface.publish(image(4, 3, 2), 4, 3, 2, 3, 0);
         assertEquals(2 | 2 << 4, region.getInt(GameSurface.OFFSET_PUBLISHED), "0 is published and 1 is read");
         region.putInt(GameSurface.OFFSET_READING, 0);
-        surface.publish(image(4, 3, 1), 4, 3, 1, 2);
+        surface.publish(image(4, 3, 1), 4, 3, 1, 2, 0);
         assertEquals(1 | 3 << 4, region.getInt(GameSurface.OFFSET_PUBLISHED), "2 is published and 0 is read");
     }
 
     @Test
     void aSlotReusedClearsTheRowsItHeldBefore() {
         connect(4, 3);
-        surface.publish(image(4, 3, 0), 4, 3, 0, 1);
+        surface.publish(image(4, 3, 0), 4, 3, 0, 1, 0);
         FakeRegion region = regions.get(0);
         region.putInt(GameSurface.OFFSET_READING, 1);
-        surface.publish(image(4, 3), 4, 3, 0, 0);
+        surface.publish(image(4, 3), 4, 3, 0, 0, 0);
         region.putInt(GameSurface.OFFSET_READING, 2);
-        surface.publish(image(4, 3, 2), 4, 3, 2, 3);
+        surface.publish(image(4, 3, 2), 4, 3, 2, 3, 0);
         assertEquals(0, region.getInt(GameSurface.OFFSET_PUBLISHED) & 0xf, "back to slot 0");
         assertEquals(0, region.pixel(0, 0, 0, 4, 3), "row 0 cleared: the slot held it, this frame doesn't");
         assertEquals(0xff00ff00, region.pixel(0, 0, 2, 4, 3));
@@ -115,9 +118,9 @@ class GameSurfaceTest {
     @Test
     void aNewSizeMakesANewGeneration() {
         connect(4, 3);
-        surface.publish(image(4, 3, 0), 4, 3, 0, 1);
+        surface.publish(image(4, 3, 0), 4, 3, 0, 1, 0);
         surface.frame(6, 2, GL_4_6, 1);
-        surface.publish(image(6, 2, 1), 6, 2, 1, 2);
+        surface.publish(image(6, 2, 1), 6, 2, 1, 2, 0);
         assertEquals(List.of("1 Local\\KrakenOverlay-1234-1", "2 Local\\KrakenOverlay-1234-2"), shown);
         assertTrue(regions.get(0).closed, "the old mapping is closed");
         assertEquals(1 << 4, regions.get(1).getInt(GameSurface.OFFSET_PUBLISHED), "the new one starts over");
@@ -126,7 +129,7 @@ class GameSurfaceTest {
     @Test
     void aSurfaceTheDllNeverDrawsIsGivenUp() {
         connect(4, 3);
-        surface.publish(image(4, 3, 0), 4, 3, 0, 1);
+        surface.publish(image(4, 3, 0), 4, 3, 0, 1, 0);
         now += 1_000_000_000L;
         assertTrue(surface.isAvailable(), "within the grace period");
         now += 2_000_000_000L;
@@ -142,7 +145,7 @@ class GameSurfaceTest {
     @Test
     void aDrawnSurfaceStaysAvailable() {
         connect(4, 3);
-        surface.publish(image(4, 3, 0), 4, 3, 0, 1);
+        surface.publish(image(4, 3, 0), 4, 3, 0, 1, 0);
         surface.frame(4, 3, GL_4_6, 1);
         now += 10_000_000_000L;
         assertTrue(surface.isAvailable());
@@ -151,34 +154,125 @@ class GameSurfaceTest {
     @Test
     void aDisconnectClosesTheMapping() {
         connect(4, 3);
-        surface.publish(image(4, 3, 0), 4, 3, 0, 1);
+        surface.publish(image(4, 3, 0), 4, 3, 0, 1, 0);
         surface.disconnected();
         assertFalse(surface.isAvailable());
         assertTrue(regions.get(0).closed);
     }
 
     @Test
-    void aPresentIsRecordedAndHeardUntilTheConnectionDrops() {
-        List<Long> heard = new ArrayList<>();
-        surface.setPresentListener(() -> heard.add(surface.getPresents()));
+    void aDrawRequestIsRecordedAndHeardUntilTheConnectionDrops() {
+        List<GameSurface.DrawRequest> heard = new ArrayList<>();
+        surface.setDrawListener(() -> heard.add(surface.getDrawRequest()));
         connect(4, 3);
-        assertEquals(0, surface.getPresents(), "none reported yet");
-        surface.presented(41);
-        surface.presented(43);
-        assertEquals(List.of(41L, 43L), heard, "the listener runs after the count is recorded");
+        assertNull(surface.getDrawRequest(), "none asked for yet");
+        surface.drawRequested(41, true);
+        surface.drawRequested(43, false);
+        assertEquals(List.of(new GameSurface.DrawRequest(41, true), new GameSurface.DrawRequest(43, false)), heard,
+                "the listener runs after the request is recorded");
         surface.disconnected();
-        assertEquals(0, surface.getPresents(), "the count belongs to the connection");
-        surface.presented(50);
+        assertNull(surface.getDrawRequest(), "requests belong to the connection");
+        surface.drawRequested(50, true);
         connect(4, 3);
-        assertEquals(0, surface.getPresents(), "a new connection starts with none");
+        assertNull(surface.getDrawRequest(), "a new connection starts with none");
     }
 
     @Test
-    void freeSlotSkipsPublishedAndReading() {
-        assertEquals(0, GameSurface.freeSlot(GameSurface.NONE_PUBLISHED, -1));
-        assertEquals(1, GameSurface.freeSlot(0, -1));
-        assertEquals(2, GameSurface.freeSlot(0 | 5 << 4, 1));
-        assertEquals(0, GameSurface.freeSlot(1, 2));
+    void syncIsSentWhenItChangesAndOnlyToADllThatCanSync() {
+        surface.connected(link, PID, false);
+        surface.setSync(true);
+        assertEquals(List.of(), link.syncs, "this DLL can't hold the game");
+        assertFalse(surface.isSyncing());
+
+        connect(4, 3);
+        surface.setSync(true);
+        surface.setSync(true);
+        surface.setSync(false);
+        assertEquals(List.of(true, false), link.syncs, "only changes are sent");
+        surface.setSync(true);
+        surface.disconnected();
+        assertFalse(surface.isSyncing(), "the DLL turns frame sync off as the connection drops");
+        connect(4, 3);
+        surface.setSync(true);
+        assertEquals(List.of(true, false, true, true), link.syncs, "a new connection is asked again");
+    }
+
+    @Test
+    void finishLetsAWaitingGameGoOnOncePerFrame() {
+        connect(4, 3);
+        surface.finish(new GameSurface.DrawRequest(5, true));
+        surface.finish(new GameSurface.DrawRequest(5, true));
+        surface.finish(new GameSurface.DrawRequest(6, false));
+        surface.finish(null);
+        surface.finish(new GameSurface.DrawRequest(7, true));
+        assertEquals(List.of(5L, 7L), link.done, "nothing waits on a present's frame, and a frame finishes once");
+    }
+
+    @Test
+    void aSlotCarriesTheFramesTagAndSequence() {
+        connect(4, 3);
+        surface.publish(image(4, 3, 0), 4, 3, 0, 1, 9);
+        surface.publish(image(4, 3, 1), 4, 3, 1, 2, 0x1_0000_000aL);
+        FakeRegion region = regions.get(0);
+        assertEquals(9, region.getInt(GameSurface.OFFSET_SLOT_HEADERS + GameSurface.OFFSET_SLOT_TAG));
+        assertEquals(1, region.getInt(GameSurface.OFFSET_SLOT_HEADERS + GameSurface.OFFSET_SLOT_SEQ));
+        long second = GameSurface.OFFSET_SLOT_HEADERS + GameSurface.SLOT_HEADER_SIZE;
+        assertEquals(10, region.getInt(second + GameSurface.OFFSET_SLOT_TAG), "the DLL's tags are 32 bits");
+        assertEquals(2, region.getInt(second + GameSurface.OFFSET_SLOT_SEQ));
+    }
+
+    @Test
+    void aSlotTheDllStartsReadingAsItIsPickedIsLeftAlone() {
+        connect(4, 3);
+        surface.publish(image(4, 3, 0), 4, 3, 0, 1, 1);
+        FakeRegion region = regions.get(0);
+        // The DLL claims slot 1 (an older tagged frame) just as this clears that slot's tag
+        region.onTagCleared = slot -> {
+            if (slot == 1) {
+                region.putInt(GameSurface.OFFSET_READING, 1);
+            }
+        };
+        long second = GameSurface.OFFSET_SLOT_HEADERS + GameSurface.SLOT_HEADER_SIZE;
+        region.putInt(second + GameSurface.OFFSET_SLOT_TAG, 77);
+        assertTrue(surface.publish(image(4, 3, 2), 4, 3, 2, 3, 2));
+        assertEquals(2, region.getInt(GameSurface.OFFSET_PUBLISHED) & 0xf, "slot 2 instead of the one being read");
+        assertEquals(0, region.pixel(1, 0, 2, 4, 3), "slot 1's pixels are untouched");
+        assertEquals(0, region.getInt(second + GameSurface.OFFSET_SLOT_TAG),
+                "its tag stays cleared, so the DLL, which checks it after claiming, leaves it");
+    }
+
+    @Test
+    void freeSlotSkipsPublishedReadingAndAvoided() {
+        assertEquals(0, GameSurface.freeSlot(GameSurface.NONE_PUBLISHED, -1, -1));
+        assertEquals(1, GameSurface.freeSlot(0, -1, -1));
+        assertEquals(2, GameSurface.freeSlot(0 | 5 << 4, 1, -1));
+        assertEquals(0, GameSurface.freeSlot(1, 2, -1));
+        assertEquals(2, GameSurface.freeSlot(0, -1, 1));
+    }
+
+    /**
+     * A link recording what it would send.
+     */
+    private static final class FakeLink implements GameSurface.Link {
+
+        final List<String> shown = new ArrayList<>();
+        final List<Boolean> syncs = new ArrayList<>();
+        final List<Long> done = new ArrayList<>();
+
+        @Override
+        public void show(int generation, String name) {
+            shown.add(generation + " " + name);
+        }
+
+        @Override
+        public void sync(boolean on) {
+            syncs.add(on);
+        }
+
+        @Override
+        public void done(long frame) {
+            done.add(frame);
+        }
     }
 
     /**
@@ -190,6 +284,8 @@ class GameSurfaceTest {
         final int size;
         final ByteBuffer buf;
         boolean closed;
+        IntConsumer onTagCleared = slot -> {
+        };
 
         FakeRegion(String name, int size) {
             this.name = name;
@@ -205,6 +301,11 @@ class GameSurfaceTest {
         @Override
         public void putInt(long offset, int value) {
             buf.putInt((int) offset, value);
+            long slotOffset = offset - GameSurface.OFFSET_SLOT_HEADERS;
+            boolean inHeaders = slotOffset >= 0 && offset < GameSurface.OFFSET_PIXELS;
+            if (value == 0 && inHeaders && slotOffset % GameSurface.SLOT_HEADER_SIZE == GameSurface.OFFSET_SLOT_TAG) {
+                onTagCleared.accept((int) (slotOffset / GameSurface.SLOT_HEADER_SIZE));
+            }
         }
 
         @Override

@@ -548,6 +548,11 @@
       "ignoreRebuild": "0xf",
       "disableModel": "0x10"
     },
+    "GlDevice": {
+      "context": "0x10",
+      "recordingFrame": "0x1068",
+      "renderingFrame": "0x1070"
+    },
     "InterfaceCoordinates": {
       "offX": "0x10",
       "offY": "0x14",
@@ -794,7 +799,8 @@
     "highlightChannelClear": "0x1b9550",
     "highlightChannelConfigure": "0x3ad8c0",
     "present": "0xa555c0",
-    "appUpdate": "0x918950"
+    "appUpdate": "0x918950",
+    "renderEndFrame": "0xa4da00"
   },
   "events": {
     "ON_GAME_TICK": [

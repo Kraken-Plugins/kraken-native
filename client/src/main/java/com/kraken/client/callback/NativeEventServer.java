@@ -64,9 +64,11 @@ import java.util.logging.Level;
  * <p>The same connection carries the drawing ({@code docs/developer/in-game-drawing.md}). The handshake names the
  * per-frame step the DLL runs calls in and the present it draws the overlay in. Once the DLL reports its game-thread
  * pump, the API's highlights get a {@link com.kraken.api.internal.invoke.NativeInvoker} that sends their calls here;
- * once it reports the present hook and a framebuffer, {@link GameSurface} hands it overlay frames, and the presents it
- * reports while it draws them go to {@link GameSurface#presented}, which paces the overlay to the game's frames. It
- * also reports the game's frame rate to {@link FrameRates}, and is told the frame cap to hold the game to from there.
+ * once it reports the present hook and a framebuffer, {@link GameSurface} hands it overlay frames, and its requests
+ * for them go to {@link GameSurface#drawRequested}, which paces the overlay to the game's frames. The handshake names
+ * the GL device's frame queue ({@link NativeProtocol#frameLayout}) too; once the DLL reports frame sync, the surface
+ * can have the game wait for each frame's overlay. It also reports the game's frame rate to {@link FrameRates}, and is
+ * told the frame cap to hold the game to from there.
  *
  * <p>The handshake also names the script runtime ({@link NativeProtocol#scriptLayout}). Once the DLL reports its script
  * hooks, the API gets a {@link ScriptHook} that tells the DLL which script events to send, and each script event the
@@ -273,6 +275,11 @@ public final class NativeEventServer {
             log.info("Native event hook: no actor visibility flags in mapping " + mapping.version()
                     + "; entities can't be hidden.");
         }
+        byte[] frames = NativeProtocol.frameLayout(mapping);
+        if (frames.length == 0) {
+            log.info("Native event hook: no GL device frame queue in mapping " + mapping.version()
+                    + "; overlays can't be kept in step with the game.");
+        }
         byte[] components = NativeProtocol.componentLayout(mapping);
         if (components.length == 0) {
             log.info("Native event hook: no interface store layout in mapping " + mapping.version()
@@ -286,7 +293,7 @@ public final class NativeEventServer {
             return;
         }
         byte[] handshake = NativeProtocol.handshake(build.slots, drawing, scripts, menu, keys, visibility,
-                components);
+                components, frames);
         ServerSocket server = null;
         try {
             server = new ServerSocket();
@@ -597,7 +604,8 @@ public final class NativeEventServer {
                         + ((features & NativeProtocol.FEATURE_MENU) != 0) + ", keys "
                         + ((features & NativeProtocol.FEATURE_KEYS) != 0) + ", visibility "
                         + ((features & NativeProtocol.FEATURE_VISIBILITY) != 0) + ", components "
-                        + ((features & NativeProtocol.FEATURE_COMPONENTS) != 0) + ").");
+                        + ((features & NativeProtocol.FEATURE_COMPONENTS) != 0) + ", frame sync "
+                        + ((features & NativeProtocol.FEATURE_FRAME_SYNC) != 0) + ").");
                 if ((features & NativeProtocol.FEATURE_CALLS) != 0) {
                     session.setNativeInvoker(batch -> sendCalls(open, batch));
                 }
@@ -617,7 +625,7 @@ public final class NativeEventServer {
                     session.setComponentHook(ops -> send(open, NativeProtocol.components(ops)));
                 }
                 if ((features & NativeProtocol.FEATURE_OVERLAY) != 0) {
-                    surface.connected((generation, name) -> sendSurface(open, generation, name), pid);
+                    surface.connected(surfaceLink(open), pid, (features & NativeProtocol.FEATURE_FRAME_SYNC) != 0);
                 }
                 long pacingFeatures = NativeProtocol.FEATURE_CALLS | NativeProtocol.FEATURE_FRAME_RATE;
                 if ((features & pacingFeatures) == pacingFeatures) {
@@ -626,7 +634,8 @@ public final class NativeEventServer {
                     sendFrameLimit(frameRates.getFrameLimit());
                 }
             }
-            case NativeProtocol.PRESENT_EVENT_ID -> surface.presented(event.reg(NativeEvent.RCX));
+            case NativeProtocol.DRAW_EVENT_ID -> surface.drawRequested(event.reg(NativeEvent.RCX),
+                    event.reg(NativeEvent.RDX) != 0);
             case NativeProtocol.FPS_EVENT_ID -> frameRates.gameFrames(event.reg(NativeEvent.RCX),
                     event.reg(NativeEvent.RDX));
             case NativeProtocol.FRAME_EVENT_ID -> {
@@ -686,6 +695,31 @@ public final class NativeEventServer {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    /**
+     * The overlay surface's link to the DLL on a connection: the surface to draw, frame sync and frames done.
+     *
+     * @param open the connection
+     * @return the link
+     */
+    private static GameSurface.Link surfaceLink(Connection open) {
+        return new GameSurface.Link() {
+            @Override
+            public void show(int generation, String name) {
+                sendSurface(open, generation, name);
+            }
+
+            @Override
+            public void sync(boolean on) {
+                send(open, NativeProtocol.frameSync(on));
+            }
+
+            @Override
+            public void done(long frame) {
+                send(open, NativeProtocol.frameDone(frame));
+            }
+        };
     }
 
     /**

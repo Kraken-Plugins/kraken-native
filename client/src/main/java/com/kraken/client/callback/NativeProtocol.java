@@ -32,24 +32,25 @@ import java.util.Set;
 import java.util.function.IntFunction;
 
 /**
- * The wire format between {@link NativeEventServer} and {@code kraken_hook.dll} (protocol v8, little-endian). Java
+ * The wire format between {@link NativeEventServer} and {@code kraken_hook.dll} (protocol v9, little-endian). Java
  * sends one handshake naming the raise functions to hook, their event ids and a capture plan per slot, then the
  * functions the drawing needs, then the script runtime's functions and layout, the minimenu's functions and layout,
- * the game window's procedure, where the entities and their visibility flags are, and the interface store's layout;
+ * the game window's procedure, where the entities and their visibility flags are, the interface store's layout and
+ * the GL device's frame queue;
  * the DLL sends one message per raise with the id, the argument registers and the captured values, one per script
  * event it was asked for, one per click on a menu row of a plugin's own and per key it handled, and status messages
  * with reserved ids. After the handshake Java sends commands: batches of calls for the game thread, the overlay
- * surface to draw, the frame cap, which script events to send, the menu rules, the key remapping, the visibility rules
- * and component writes. Every field and op code here matches the constants in the DLL's {@code src/protocol.h};
- * {@code docs/developer/native-protocol.md} describes the format.
+ * surface to draw, the frame cap, which script events to send, the menu rules, the key remapping, the visibility rules,
+ * component writes, frame sync and the overlay frames done for it. Every field and op code here matches the constants
+ * in the DLL's {@code src/protocol.h}; {@code docs/developer/native-protocol.md} describes the format.
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 final class NativeProtocol {
 
     /**
-     * Handshake magic: identifies protocol v8.
+     * Handshake magic: identifies protocol v9.
      */
-    static final byte[] MAGIC = {'K', 'R', 'K', '8'};
+    static final byte[] MAGIC = {'K', 'R', 'K', '9'};
 
     /**
      * Capture-plan ops: how the DLL reads the argument register a plan entry names.
@@ -105,10 +106,12 @@ final class NativeProtocol {
     static final int KEY_EVENT_ID = -9;
 
     /**
-     * A reserved event id the DLL sends as the game presents a frame while it draws the overlay surface: the presents
-     * so far in RCX. Presents close together may come as one.
+     * A reserved event id the DLL sends when the overlay needs a frame: the frame in RCX and 1 in RDX if the game waits
+     * for it. With frame sync on, the frame is the tag the GL device's endFrame gave the frame it is queuing, and the
+     * game thread waits for {@link #frameDone} with it; otherwise it is the present count, sent as the game presents
+     * while the overlay draws a surface (presents close together may come as one).
      */
-    static final int PRESENT_EVENT_ID = -10;
+    static final int DRAW_EVENT_ID = -10;
 
     /**
      * The STATUS feature bit for the game-thread pump: the DLL runs calls.
@@ -154,6 +157,12 @@ final class NativeProtocol {
     static final long FEATURE_COMPONENTS = 128;
 
     /**
+     * STATUS feature bit: the present and the GL device's endFrame are hooked and the handshake's frame block was
+     * complete, so {@link #COMMAND_FRAME_SYNC} is honoured.
+     */
+    static final long FEATURE_FRAME_SYNC = 256;
+
+    /**
      * Each STATUS feature bit and its name, in bit order.
      */
     private static final List<Map.Entry<Long, String>> FEATURE_NAMES = List.of(
@@ -164,7 +173,8 @@ final class NativeProtocol {
             Map.entry(FEATURE_MENU, "menu"),
             Map.entry(FEATURE_KEYS, "keys"),
             Map.entry(FEATURE_VISIBILITY, "visibility"),
-            Map.entry(FEATURE_COMPONENTS, "components"));
+            Map.entry(FEATURE_COMPONENTS, "components"),
+            Map.entry(FEATURE_FRAME_SYNC, "frame sync"));
 
     /**
      * Command type: a batch of calls.
@@ -205,6 +215,22 @@ final class NativeProtocol {
      * Command type: a batch of component writes.
      */
     static final int COMMAND_COMPONENTS = 8;
+
+    /**
+     * Command type: frame sync on or off.
+     */
+    static final int COMMAND_FRAME_SYNC = 9;
+
+    /**
+     * Command type: the overlay for a frame is in the surface.
+     */
+    static final int COMMAND_FRAME_DONE = 10;
+
+    /**
+     * The mapping keys of the handshake's frame block, after the endFrame RVA, in order.
+     */
+    private static final String[] FRAME_OFFSETS = {"GlDevice.context", "GlDevice.recordingFrame",
+            "GlDevice.renderingFrame"};
 
     /**
      * A layout offset the mapping lacks, which leaves that part off in the DLL.
@@ -471,8 +497,8 @@ final class NativeProtocol {
 
     /**
      * Builds the handshake: magic, a slot count, then each slot's rva, id configuration, argument count and plan, then
-     * the drawing functions, then five length-prefixed blocks (a u16 length each): the script block, the menu block,
-     * the key block, the visibility block and the component block.
+     * the drawing functions, then six length-prefixed blocks (a u16 length each): the script block, the menu block,
+     * the key block, the visibility block, the component block and the frame block.
      *
      * @param slots      the slots to install
      * @param drawing    the client pointer, the pump and the present function
@@ -481,12 +507,13 @@ final class NativeProtocol {
      * @param keys       the key block ({@link #keyLayout}), empty for no key hook
      * @param visibility the visibility block ({@link #visibilityLayout}), empty for no entity hiding
      * @param components the component block ({@link #componentLayout}), empty for no component writes
+     * @param frames     the frame block ({@link #frameLayout}), empty for no frame sync
      * @return the handshake bytes
      */
     static byte[] handshake(List<Slot> slots, Drawing drawing, byte[] scripts, byte[] menu, byte[] keys,
-                            byte[] visibility, byte[] components) {
+                            byte[] visibility, byte[] components, byte[] frames) {
         int size = MAGIC.length + 2 + 3 * 8 + 2 + scripts.length + 2 + menu.length + 2 + keys.length + 2
-                + visibility.length + 2 + components.length;
+                + visibility.length + 2 + components.length + 2 + frames.length;
         for (Slot slot : slots) {
             size += 8 + 4 + 1 + 1 + 1 + slot.plan().size() * 2;
         }
@@ -517,6 +544,31 @@ final class NativeProtocol {
         buf.put(visibility);
         buf.putShort((short) components.length);
         buf.put(components);
+        buf.putShort((short) frames.length);
+        buf.put(frames);
+        return buf.array();
+    }
+
+    /**
+     * Builds the handshake's frame block from a mapping: the RVA of {@code functions.renderEndFrame} ({@code u64}),
+     * then the offsets of {@link #FRAME_OFFSETS} ({@code u32} each).
+     *
+     * @param mapping the attached build's mapping
+     * @return the block, or an empty array if the mapping lacks a key it needs (no frame sync)
+     */
+    static byte[] frameLayout(Mapping mapping) {
+        if (!mapping.hasFunction("renderEndFrame")) {
+            return new byte[0];
+        }
+        ByteBuffer buf = ByteBuffer.allocate(8 + FRAME_OFFSETS.length * 4).order(ByteOrder.LITTLE_ENDIAN);
+        buf.putLong(mapping.function("renderEndFrame"));
+        for (String key : FRAME_OFFSETS) {
+            int value = layoutValue(mapping, key);
+            if (value < 0) {
+                return new byte[0];
+            }
+            buf.putInt(value);
+        }
         return buf.array();
     }
 
@@ -1157,6 +1209,38 @@ final class NativeProtocol {
         buf.putInt(body);
         buf.put((byte) COMMAND_FRAME_LIMIT);
         buf.putInt(Math.max(0, fps));
+        return buf.array();
+    }
+
+    /**
+     * Frames the frame sync command: {@code {u32 len, u8 9, u8 on}}. While it is on, the GL device's endFrame waits
+     * for the overlay of each frame it queues. The length counts the bytes after it.
+     *
+     * @param on whether the game should wait for each frame's overlay
+     * @return the framed command
+     */
+    static byte[] frameSync(boolean on) {
+        int body = 1 + 1;
+        ByteBuffer buf = ByteBuffer.allocate(4 + body).order(ByteOrder.LITTLE_ENDIAN);
+        buf.putInt(body);
+        buf.put((byte) COMMAND_FRAME_SYNC);
+        buf.put((byte) (on ? 1 : 0));
+        return buf.array();
+    }
+
+    /**
+     * Frames the frame done command: {@code {u32 len, u8 10, u32 frame}}, which lets a game waiting for that frame's
+     * overlay go on. The length counts the bytes after it.
+     *
+     * @param frame the frame of the {@link #DRAW_EVENT_ID} the overlay was drawn for
+     * @return the framed command
+     */
+    static byte[] frameDone(long frame) {
+        int body = 1 + 4;
+        ByteBuffer buf = ByteBuffer.allocate(4 + body).order(ByteOrder.LITTLE_ENDIAN);
+        buf.putInt(body);
+        buf.put((byte) COMMAND_FRAME_DONE);
+        buf.putInt((int) frame);
         return buf.array();
     }
 

@@ -698,8 +698,11 @@ flowchart TD
     E -->|no| I["Nothing is read or drawn"]
 ```
 
-In the game, a frame is due for each frame the game presents: the hook reports each one (`PRESENT`), and
-`GameSurface.presented` wakes the poll loop through `GameSession.requestFrame`, so the overlay moves with the scene.
+In the game, a frame is due for each frame the hook asks for (`DRAW`): `GameSurface.drawRequested` wakes the poll
+loop through `GameSession.requestFrame`, so the overlay moves with the scene. With frame sync (the `syncOverlays`
+setting), the hook asks at the end of each game frame and holds the game until the frame is drawn and
+`GameSurface.finish` says so; without it, it asks as the game presents
+([In-game drawing](in-game-drawing.md#frame-sync)).
 `FrameSchedule` caps that at `overlayFrameRate` (240 by default, at most 240), and is the whole schedule for the window,
 at most 50 a second there. The schedule steps by one interval per frame, so 30 frames a second on a 20 ms poll
 averages 30 and doesn't drop to 25. A frame due after a pause starts the schedule again, so frames don't bunch up.

@@ -19,6 +19,7 @@
 #include "core/hooks.h"
 #include "core/process.h"
 #include "core/ring.h"
+#include "frames.h"
 #include "pump.h"
 #include "raises.h"
 
@@ -35,7 +36,7 @@ DWORD WINAPI init(LPVOID) {
         return 1;
     }
     kraken::raises::init();
-    if (!kraken::ring::init() || !kraken::pump::init() || !kraken::hooks::init()) {
+    if (!kraken::ring::init() || !kraken::pump::init() || !kraken::frames::init() || !kraken::hooks::init()) {
         return 1;
     }
     kraken::connection::run();

@@ -5,6 +5,7 @@
 #include "core/guard.h"
 #include "core/hooks.h"
 #include "core/ring.h"
+#include "frames.h"
 #include "overlay/gl.h"
 #include "overlay/gl_state.h"
 #include "overlay/surface.h"
@@ -13,7 +14,7 @@
 namespace kraken::overlay {
 namespace {
 
-constexpr uint32_t PUBLISHED_UNSEEN = 0xfffffffeu; // forces a full upload of whatever is published
+constexpr uint32_t NO_SLOT = 0xffffffffu; // the texture holds no slot's frame yet: upload whatever is taken
 
 /**
  * The overlay's GL objects and upload state for one context. Present thread only.
@@ -36,7 +37,8 @@ struct GlOverlay {
     uint32_t texTop = 0;     // the rows [texTop, texBottom) of the texture that may hold pixels
     uint32_t texBottom = 0;
     bool linear = false;     // the texture's filter: linear when it is stretched to the viewport
-    uint32_t lastPublished = PUBLISHED_UNSEEN;
+    uint32_t lastSlot = NO_SLOT; // the slot and sequence of the frame the texture holds
+    uint32_t lastSeq = 0;
 };
 
 void *g_presentTrampoline = nullptr;
@@ -205,32 +207,75 @@ void uploadRows(const uint8_t *pixels, uint32_t width, uint32_t top, uint32_t bo
 }
 
 /**
- * Takes the newest published frame of the surface into the bound texture, if there is one the
- * texture doesn't have yet. Follows the surface's triple-buffer handshake: claim the slot in
- * {@code reading}, fence, confirm {@code published} didn't move, upload the rows that changed
- * against the texture, release the slot.
+ * A slot's header: top, bottom, tag, sequence.
  *
  * @param surface the open surface
+ * @param slot    the slot
+ * @return its header words
  */
-void takeFrame(const SurfaceView &surface) {
+volatile const uint32_t *slotHeader(const SurfaceView &surface, uint32_t slot) {
+    return reinterpret_cast<volatile const uint32_t *>(surface.view + SURFACE_SLOT_HEADERS
+                                                       + slot * SURFACE_SLOT_HEADER_SIZE);
+}
+
+/**
+ * The slot holding the overlay Java drew for a frame, the newest if two do.
+ *
+ * @param surface the open surface
+ * @param tag     the frame's tag
+ * @return the slot, or NO_SLOT if none holds it
+ */
+uint32_t taggedSlot(const SurfaceView &surface, uint32_t tag) {
+    uint32_t found = NO_SLOT;
+    uint32_t newest = 0;
+    for (uint32_t slot = 0; slot < surface.slots; slot++) {
+        volatile const uint32_t *header = slotHeader(surface, slot);
+        uint32_t seq = header[SURFACE_SLOT_SEQ / 4];
+        if (header[SURFACE_SLOT_TAG / 4] == tag && seq != 0 && (found == NO_SLOT || seq > newest)) {
+            found = slot;
+            newest = seq;
+        }
+    }
+    return found;
+}
+
+/**
+ * Takes a frame of the surface into the bound texture, if the texture doesn't have it yet: the slot
+ * Java drew for the frame being presented when it is tagged and Java filled one for it, otherwise the
+ * newest published frame. Follows the surface's handshake: claim the slot in {@code reading}, fence,
+ * confirm the slot still holds that frame (the tag for a tagged slot, {@code published} for the
+ * newest), upload the rows that changed against the texture, release the slot.
+ *
+ * @param surface the open surface
+ * @param want    the tag of the frame being presented, 0 for the newest
+ */
+void takeFrame(const SurfaceView &surface, uint32_t want) {
     volatile uint32_t *published = reinterpret_cast<volatile uint32_t *>(surface.view + SURFACE_PUBLISHED);
     volatile int32_t *reading = reinterpret_cast<volatile int32_t *>(surface.view + SURFACE_READING);
     uint32_t pub = *published;
-    if (pub == PUBLISHED_NONE || pub == g_gl.lastPublished) {
+    if (pub == PUBLISHED_NONE) {
         return;
     }
-    uint32_t slot = pub & 0xf;
+    uint32_t slot = want != 0 ? taggedSlot(surface, want) : NO_SLOT;
+    bool tagged = slot != NO_SLOT;
+    if (!tagged) {
+        slot = pub & 0xf;
+    }
     if (slot >= surface.slots) {
         return;
     }
+    volatile const uint32_t *header = slotHeader(surface, slot);
     *reading = static_cast<int32_t>(slot);
     MemoryBarrier();
-    if (*published != pub) {
+    if (tagged ? header[SURFACE_SLOT_TAG / 4] != want : *published != pub) {
         *reading = -1;
-        return; // Java published again in between; take the newer frame next present
+        return; // Java is writing that slot, or published again in between; try again next present
     }
-    const uint32_t *header = reinterpret_cast<const uint32_t *>(
-            surface.view + SURFACE_SLOT_HEADERS + slot * SURFACE_SLOT_HEADER_SIZE);
+    uint32_t seq = header[SURFACE_SLOT_SEQ / 4];
+    if (seq != 0 && slot == g_gl.lastSlot && seq == g_gl.lastSeq) {
+        *reading = -1;
+        return; // the texture has this frame already
+    }
     uint32_t top = header[0];
     uint32_t bottom = header[1];
     if (top > bottom || bottom > surface.height) {
@@ -260,7 +305,8 @@ void takeFrame(const SurfaceView &surface) {
     g_gl.texValid = true;
     g_gl.texTop = top;
     g_gl.texBottom = bottom;
-    g_gl.lastPublished = pub;
+    g_gl.lastSlot = slot;
+    g_gl.lastSeq = seq;
 }
 
 /**
@@ -270,8 +316,9 @@ void takeFrame(const SurfaceView &surface) {
  * @param width   the window's client width
  * @param height  the window's client height
  * @param s       the saved state, whose draw buffer this fills in once framebuffer 0 is bound
+ * @param want    the tag of the frame being presented, 0 for the newest
  */
-void drawOverlayBody(const SurfaceView &surface, uint32_t width, uint32_t height, GlSaved &s) {
+void drawOverlayBody(const SurfaceView &surface, uint32_t width, uint32_t height, GlSaved &s, uint32_t want) {
     GlFunctions &f = g_gl.fn;
     if (!g_gl.built) {
         buildGl();
@@ -303,7 +350,7 @@ void drawOverlayBody(const SurfaceView &surface, uint32_t width, uint32_t height
         g_gl.texWidth = surface.width;
         g_gl.texHeight = surface.height;
         g_gl.texValid = false;
-        g_gl.lastPublished = PUBLISHED_UNSEEN;
+        g_gl.lastSlot = NO_SLOT;
         g_gl.linear = !linear; // forces the filter below
     }
     if (g_gl.linear != linear) {
@@ -312,7 +359,7 @@ void drawOverlayBody(const SurfaceView &surface, uint32_t width, uint32_t height
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
         g_gl.linear = linear;
     }
-    takeFrame(surface);
+    takeFrame(surface, want);
     if (!g_gl.texValid || g_gl.texBottom <= g_gl.texTop) {
         return; // nothing to show: an empty overlay costs no draw
     }
@@ -364,11 +411,12 @@ bool guardedSave(GlSaved &s) {
  * @param width   the window's client width
  * @param height  the window's client height
  * @param s       the saved state
+ * @param want    the tag of the frame being presented, 0 for the newest
  * @return false if it faulted
  */
-bool guardedDraw(const SurfaceView &surface, uint32_t width, uint32_t height, GlSaved &s) {
+bool guardedDraw(const SurfaceView &surface, uint32_t width, uint32_t height, GlSaved &s, uint32_t want) {
     bool faulted = false;
-    GUARD_BEGIN drawOverlayBody(surface, width, height, s); GUARD_END
+    GUARD_BEGIN drawOverlayBody(surface, width, height, s, want); GUARD_END
     return !faulted;
 }
 
@@ -391,9 +439,10 @@ bool guardedRestore(const GlSaved &s) {
  * @param surface the open surface
  * @param width   the window's client width
  * @param height  the window's client height
+ * @param want    the tag of the frame being presented, 0 for the newest
  * @return false if drawing faulted
  */
-bool drawOverlay(const SurfaceView &surface, uint32_t width, uint32_t height) {
+bool drawOverlay(const SurfaceView &surface, uint32_t width, uint32_t height, uint32_t want) {
     if (!g_gl.loaded) {
         bool faulted = false;
         GUARD_BEGIN loadGlFunctions(); GUARD_END
@@ -408,7 +457,7 @@ bool drawOverlay(const SurfaceView &surface, uint32_t width, uint32_t height) {
     if (!guardedSave(s)) {
         return false;
     }
-    bool drew = guardedDraw(surface, width, height, s);
+    bool drew = guardedDraw(surface, width, height, s, want);
     bool restored = guardedRestore(s);
     return drew && restored;
 }
@@ -430,7 +479,7 @@ void adoptPendingSurface() {
     g_surface = next;
     *reinterpret_cast<volatile int32_t *>(g_surface->view + SURFACE_READING) = -1;
     g_gl.texValid = false;
-    g_gl.lastPublished = PUBLISHED_UNSEEN;
+    g_gl.lastSlot = NO_SLOT;
 }
 
 /**
@@ -446,10 +495,12 @@ bool publishFrameValue(std::atomic<uint32_t> &slot, uint32_t value) {
 
 /**
  * The overlay's share of one present: track the framebuffer and context, take a new surface, and
- * draw the newest frame, waking the writer thread when what FRAME reports changed. Present thread
- * only; never touches the ring.
+ * draw the frame for this present, waking the writer thread when what FRAME reports changed. Present
+ * thread only; never touches the ring.
+ *
+ * @param want the tag of the frame being presented, 0 for the newest
  */
-void overlayFrame() {
+void overlayFrame(uint32_t want) {
     adoptPendingSurface();
     HDC dc = wglGetCurrentDC();
     HGLRC rc = wglGetCurrentContext();
@@ -479,7 +530,7 @@ void overlayFrame() {
 
     uint32_t generation = 0;
     if (g_surface != nullptr && !g_overlayFaulted && !g_gl.broken && glAtLeast(3, 0) && width > 0 && height > 0) {
-        if (drawOverlay(*g_surface, width, height)) {
+        if (drawOverlay(*g_surface, width, height, want)) {
             generation = g_gl.broken ? 0 : g_surface->generation;
         } else {
             g_overlayFaulted = true;
@@ -492,16 +543,20 @@ void overlayFrame() {
 }
 
 /**
- * The present detour: draws the overlay over the finished frame, then presents it. While a surface is
- * drawn, it wakes the writer thread before presenting, so the writer sends PRESENT and Java starts the
- * overlay's next frame while the game waits on the swap.
+ * The present detour: draws the overlay for the frame being presented over it, then presents it.
+ * With frame sync on, that is the overlay Java drew for the frame's tag, waited for if Java is still
+ * drawing it. Otherwise it is the newest,
+ * and while a surface is drawn the detour wakes the writer thread before presenting, so the writer
+ * sends DRAW and Java starts the overlay's next frame while the game waits on the swap.
  *
  * @param self the client's GL context object
  */
 void __fastcall presentDetour(void *self) {
     g_presents.fetch_add(1, std::memory_order_relaxed);
-    overlayFrame();
-    if (g_drawnGeneration.load(std::memory_order_relaxed) != 0) {
+    uint32_t want = frames::tagOf(self);
+    frames::awaitOverlay(want);
+    overlayFrame(want);
+    if (g_drawnGeneration.load(std::memory_order_relaxed) != 0 && !frames::syncing()) {
         ring::wakeWriter();
     }
     using Fn = void(__fastcall *)(void *);
@@ -520,6 +575,10 @@ bool hooked() {
 
 uint64_t presents() {
     return g_presents.load(std::memory_order_relaxed);
+}
+
+bool drawing() {
+    return g_drawnGeneration.load(std::memory_order_relaxed) != 0;
 }
 
 FrameInfo frameInfo() {

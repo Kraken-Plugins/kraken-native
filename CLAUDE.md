@@ -62,7 +62,7 @@ consensus verdicts (`consensus.py`, `carry.py`) → invariants (`verify.py`) →
 - `src/native_updater/spec/*.yaml` defines every key (strategies, invariants, a `live` probe check). The prefix picks
   the mapping section: `Struct.field` → `structs`, `global.x`, `functions.x`, `enums.x`, `container.x.y`,
   `events.ON_X` (native raise sites, `events.py`). Feature areas pair a spec file with a module, e.g. `90-draw.yaml` ↔
-  `highlights.py`, `62-menu-actions.yaml` ↔ `menuops.py`, `66-scripts.yaml` ↔ `scripts.py`,
+  `highlights.py` and `frames.py`, `62-menu-actions.yaml` ↔ `menuops.py`, `66-scripts.yaml` ↔ `scripts.py`,
   `61-menu-edits.yaml` ↔ `menuedits.py`, `72-keyboard.yaml` ↔ `keyboard.py`, `73-components.yaml` ↔ `components.py`,
   `91-visibility.yaml` ↔ `visibility.py`.
 - The mapping holds only PROVEN/ANCHORED/INFERRED, non-`internal` keys. Evidence and every Lua binding's handler RVA go
@@ -107,7 +107,8 @@ consensus verdicts (`consensus.py`, `carry.py`) → invariants (`verify.py`) →
   `ScriptPreFired`/`ScriptPostFired` come straight from hook reports (`GameSession.onScript`), with the stacks readable
   via `Client.getIntStack()` and friends during the handler. The bus also matches supertypes and interfaces.
 - The `kraken-api-poll` thread is the client thread: every 20 ms (it holds a 1 ms Windows timer), on a raise, or on
-  `GameSession.requestFrame` (each game frame while overlays draw in the game) it runs `invoke*` tasks, events
+  `GameSession.requestFrame` (each game frame while overlays draw in the game; with frame sync the game waits at the
+  end of the frame until the overlay is drawn) it runs `invoke*` tasks, events
   (`GameTick` after the tick's other events, `ClientTick` per cycle), `invokeAtTickEnd` tasks, the frame listener
   (overlays), then the 150 ms poll listener.
 - Adding a Lua read: take the handler RVA from `analysis.json`, map each constant it uses to a mapping key (adding a

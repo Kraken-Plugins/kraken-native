@@ -170,18 +170,37 @@ public interface KrakenConfig extends Config {
     }
 
     /**
-     * The most overlay frames to draw a second. Inside the game, overlays are redrawn with each frame the game draws,
-     * up to this; in the window over the game, at this rate, up to 50.
+     * Whether the game waits at the end of each frame for that frame's overlay, so overlays are drawn from the same
+     * moment of the game as the frame they're shown with. Needs the native hook, and a mapping that names the GL
+     * device's frame queue.
+     *
+     * @return true to keep overlays in step with the game
+     */
+    @ConfigItem(keyName = "syncOverlays", name = "Keep in step with the game",
+            description = "Draw each overlay frame from the same moment as the game frame it's shown with, so "
+                    + "outlines and labels stay on what they mark while the camera or the player moves. The game "
+                    + "waits for each overlay frame (up to 10 ms), so overlays that are slow to draw cost game frame "
+                    + "rate. Needs the native hook.",
+            position = 31, section = overlays)
+    default boolean syncOverlays() {
+        return true;
+    }
+
+    /**
+     * The most overlay frames to draw a second, while they aren't kept in step with the game: inside the game,
+     * overlays are redrawn with each frame the game draws, up to this; in the window over the game, at this rate, up
+     * to 50.
      *
      * @return the frame rate
      */
     @Range(min = 1, max = 240)
     @Units(Units.FPS)
     @ConfigItem(keyName = "overlayFrameRate", name = "Frame rate",
-            description = "The most times a second plugin overlays are redrawn. Inside the game they're redrawn with "
-                    + "each frame the game draws, up to this; below the game's frame rate, they lag behind the scene. "
-                    + "Every frame reads the game, so a higher rate costs more. Without the native hook, at most 50.",
-            position = 31, section = overlays)
+            description = "The most times a second plugin overlays are redrawn while they aren't kept in step with "
+                    + "the game. Inside the game they're redrawn with each frame the game draws, up to this; below "
+                    + "the game's frame rate, they lag behind the scene. Every frame reads the game, so a higher rate "
+                    + "costs more. Without the native hook, at most 50.",
+            position = 32, section = overlays)
     default int overlayFrameRate() {
         return 240;
     }
@@ -193,7 +212,7 @@ public interface KrakenConfig extends Config {
      */
     @ConfigItem(keyName = "overlayFont", name = "Font",
             description = "The font overlay panels are drawn in. Labels drawn over the scene use its bold weight.",
-            position = 32, section = overlays)
+            position = 33, section = overlays)
     default OverlayFont overlayFont() {
         return OverlayFont.REGULAR;
     }
@@ -206,7 +225,7 @@ public interface KrakenConfig extends Config {
     @Range(min = 8, max = 32)
     @Units(Units.PIXELS)
     @ConfigItem(keyName = "overlayFontSize", name = "Font size", description = "The size of overlay text.",
-            position = 33, section = overlays)
+            position = 34, section = overlays)
     default int overlayFontSize() {
         return 12;
     }
@@ -218,7 +237,7 @@ public interface KrakenConfig extends Config {
      */
     @Alpha
     @ConfigItem(keyName = "overlayBackground", name = "Panel background",
-            description = "The colour behind overlay panels.", position = 34, section = overlays)
+            description = "The colour behind overlay panels.", position = 35, section = overlays)
     default Color overlayBackground() {
         return ComponentConstants.STANDARD_BACKGROUND_COLOR;
     }

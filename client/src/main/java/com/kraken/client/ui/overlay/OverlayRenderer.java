@@ -27,10 +27,13 @@ import javax.swing.*;
  *   <li><b>On the client thread.</b> At the end of each API poll, if overlays are added and a frame is due, the poll
  *       thread clears an image and draws every overlay into it ({@link OverlayCompositor}). Overlays' {@code render}
  *       thus runs where game events and {@code ClientThread} tasks do, and memory reads stay off the EDT.
- *   <li><b>When a frame is due.</b> For the game, once per game frame: the DLL reports each frame the game presents
- *       ({@link GameSurface#presented}), which wakes the poll loop at once, so the overlay moves with the scene rather
- *       than on a timer of its own. The {@linkplain KrakenConfig#overlayFrameRate frame rate} caps it. For the window,
- *       which nothing paces, at the frame rate, at most {@value #WINDOW_MAX_FRAME_RATE} a second (one a poll).
+ *   <li><b>When a frame is due.</b> For the game, once per game frame, when the DLL asks
+ *       ({@link GameSurface#drawRequested}), which wakes the poll loop at once. With frame sync on (the
+ *       {@linkplain KrakenConfig#syncOverlays setting}, while overlays are added), the DLL asks at the end of each game
+ *       frame and holds the game until the frame is drawn ({@link GameSurface#finish}), so the overlay is drawn from
+ *       the same state as the frame it is shown with. Otherwise it asks as the game presents, and the
+ *       {@linkplain KrakenConfig#overlayFrameRate frame rate} caps the frames. For the window, which nothing paces, at
+ *       the frame rate, at most {@value #WINDOW_MAX_FRAME_RATE} a second (one a poll).
  *   <li><b>Two images for the window.</b> The EDT paints the last finished frame while the next one is drawn into the
  *       other, so it never shows a half-drawn frame. Each image is locked while it's drawn or painted, for the rare
  *       frame where the EDT is still painting an image when its turn to be drawn into comes round.
@@ -101,9 +104,9 @@ public final class OverlayRenderer {
     private boolean gameShowing;
 
     /**
-     * The game's present count when the last frame for the game was drawn. Poll thread only.
+     * The frame of the DLL's request the last frame for the game was drawn for. Poll thread only.
      */
-    private long drawnPresents;
+    private long drawnFrame;
 
     @Inject
     OverlayRenderer(OverlayManager manager, GameOverlay window, GameSurface surface, OverlayEditor editor,
@@ -137,44 +140,51 @@ public final class OverlayRenderer {
             }
         });
         attacher.addFrameListener(this::frame);
-        surface.setPresentListener(this::presented);
+        surface.setDrawListener(this::drawRequested);
     }
 
     /**
-     * Wakes the client thread to draw the next frame for the game as the game presents one, unless there is nothing to
-     * draw. Hook's reader thread.
+     * Wakes the client thread to draw the frame the DLL asks for: always when the game waits for it, so it can go on,
+     * otherwise only if there is something to draw. Hook's reader thread.
      */
-    private void presented() {
+    private void drawRequested() {
         GameSession session = attacher.attached();
-        if (session != null && !manager.isEmpty()) {
+        GameSurface.DrawRequest request = surface.getDrawRequest();
+        if (session != null && (!manager.isEmpty() || request != null && request.waits())) {
             session.requestFrame();
         }
     }
 
     /**
-     * Draws a frame if one is due. Poll thread.
+     * Draws a frame if one is due, then lets a game waiting for the frame it was asked for go on, drawn or not. Poll
+     * thread.
      *
      * @param session the attached API
      */
     private void frame(GameSession session) {
+        GameSurface.DrawRequest request = surface.getDrawRequest();
         try {
-            draw(session);
+            draw(session, request);
             failing = false;
         } catch (RuntimeException | LinkageError e) {
             if (!failing) {
                 failing = true;
                 log.log(Level.WARNING, "Drawing the overlays failed", e);
             }
+        } finally {
+            surface.finish(request);
         }
     }
 
-    private void draw(GameSession session) {
+    private void draw(GameSession session, GameSurface.DrawRequest request) {
         List<Overlay> overlays = manager.getOverlays();
         if (surface.isAvailable()) {
             clear();
-            drawInGame(session, overlays);
+            surface.setSync(config.syncOverlays() && !overlays.isEmpty());
+            drawInGame(session, overlays, request);
             return;
         }
+        surface.setSync(false);
         gameShowing = false;
         GameOverlay.Surface area = window.getSurface();
         if (overlays.isEmpty() || area == null) {
@@ -259,23 +269,28 @@ public final class OverlayRenderer {
     }
 
     /**
-     * Whether a frame for the game is due, moving the schedule on if so. Once the DLL reports the game's presents, one
-     * is due for each game frame presented since the last one drawn, at most at the frame rate. The game takes only
-     * the newest frame at each present, so drawing more often would waste frames, and drawing on a timer instead would
-     * leave some game frames showing an older one. Until the DLL reports a present, one is due at the frame rate.
+     * Whether a frame for the game is due, moving the schedule on if so. Once the DLL asks for frames, one is due for
+     * each request since the last frame drawn: always for a game frame waiting on it, otherwise at most at the frame
+     * rate. The game shows only the frame drawn for it (with frame sync) or the newest one, so drawing more often would
+     * waste frames, and drawing on a timer instead would leave some game frames showing an older one. Before the first
+     * request, one is due at the frame rate.
      *
-     * @param fresh true for a new image, which is drawn at once
+     * @param fresh   true for a new image, which is drawn at once
+     * @param request the DLL's latest request, or null
      * @return true to draw a frame now
      */
-    private boolean gameFrameDue(boolean fresh) {
-        long presents = surface.getPresents();
-        if (!fresh && presents != 0 && presents == drawnPresents) {
+    private boolean gameFrameDue(boolean fresh, GameSurface.DrawRequest request) {
+        if (!fresh && request != null && request.frame() == drawnFrame) {
             return false;
+        }
+        if (request != null && request.waits()) {
+            drawnFrame = request.frame();
+            return true;
         }
         if (!due(fresh, MAX_FRAME_RATE)) {
             return false;
         }
-        drawnPresents = presents;
+        drawnFrame = request == null ? 0 : request.frame();
         return true;
     }
 
@@ -285,8 +300,9 @@ public final class OverlayRenderer {
      *
      * @param session  the attached API
      * @param overlays the overlays, in drawing order
+     * @param request  the DLL's latest request for a frame, or null
      */
-    private void drawInGame(GameSession session, List<Overlay> overlays) {
+    private void drawInGame(GameSession session, List<Overlay> overlays, GameSurface.DrawRequest request) {
         if (overlays.isEmpty()) {
             clearGame();
             return;
@@ -300,7 +316,7 @@ public final class OverlayRenderer {
         int width = surface.getFrameWidth();
         int height = surface.getFrameHeight();
         boolean fresh = gameImage == null || gameImage.getWidth() != width || gameImage.getHeight() != height;
-        if (!gameFrameDue(fresh)) {
+        if (!gameFrameDue(fresh, request)) {
             return;
         }
         if (fresh) {
@@ -321,7 +337,7 @@ public final class OverlayRenderer {
         int[] pixels = pixels(gameImage);
         int top = firstRow(pixels, width, height);
         int bottom = top == height ? top : lastRow(pixels, width, top, height) + 1;
-        if (surface.publish(pixels, width, height, top, bottom)) {
+        if (surface.publish(pixels, width, height, top, bottom, drawnFrame)) {
             gameTop = top;
             gameBottom = bottom;
             gameShowing = bottom > top;
@@ -342,7 +358,7 @@ public final class OverlayRenderer {
             clearRows(gameImage, gameTop, gameBottom);
             gameTop = 0;
             gameBottom = 0;
-            gameShowing = !surface.publish(pixels(gameImage), gameImage.getWidth(), gameImage.getHeight(), 0, 0);
+            gameShowing = !surface.publish(pixels(gameImage), gameImage.getWidth(), gameImage.getHeight(), 0, 0, 0);
         }
     }
 

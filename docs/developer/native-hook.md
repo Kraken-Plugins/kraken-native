@@ -57,7 +57,7 @@ hook, is in [Using the client](../client.md#the-native-hook).
 |---|---|
 | [`src/dllmain.cpp`](../../client/src/main/native/kraken_hook/src/dllmain.cpp) | `DllMain`: refuses a second load, starts the init thread |
 | [`src/protocol.h`](../../client/src/main/native/kraken_hook/src/protocol.h) | Every constant the Java side must match |
-| [`src/connection.cpp`](../../client/src/main/native/kraken_hook/src/connection.cpp) | Connecting back, the handshake, the reader thread, the writer loop, STATUS/FRAME/FPS/PRESENT |
+| [`src/connection.cpp`](../../client/src/main/native/kraken_hook/src/connection.cpp) | Connecting back, the handshake, the reader thread, the writer loop, STATUS/FRAME/FPS/DRAW |
 | [`src/raises.cpp`](../../client/src/main/native/kraken_hook/src/raises.cpp) | The generic raise detours and capture plans |
 | [`src/calls.cpp`](../../client/src/main/native/kraken_hook/src/calls.cpp) | The call queue and running calls under a guard |
 | [`src/pump.cpp`](../../client/src/main/native/kraken_hook/src/pump.cpp) | The per-frame detour: the frame cap, then the queued calls, component writes and visibility rules |
@@ -66,6 +66,7 @@ hook, is in [Using the client](../client.md#the-native-hook).
 | [`src/keys.cpp`](../../client/src/main/native/kraken_hook/src/keys.cpp) | The window procedure detour, the key table, KEYS commands and KEY reports |
 | [`src/visibility.cpp`](../../client/src/main/native/kraken_hook/src/visibility.cpp) | VISIBILITY commands and the per-frame walk that hides and shows entities |
 | [`src/components.cpp`](../../client/src/main/native/kraken_hook/src/components.cpp) | COMPONENTS commands, the component lookup and the writes |
+| [`src/frames.cpp`](../../client/src/main/native/kraken_hook/src/frames.cpp) | Frame sync: the endFrame detour, frame tags, FRAME_SYNC and FRAME_DONE, the waits |
 | [`src/overlay/overlay.cpp`](../../client/src/main/native/kraken_hook/src/overlay/overlay.cpp) | The present detour: uploading and drawing the overlay |
 | [`src/overlay/surface.cpp`](../../client/src/main/native/kraken_hook/src/overlay/surface.cpp) | Opening the shared-memory surface a SURFACE command names |
 | [`src/overlay/gl.cpp`](../../client/src/main/native/kraken_hook/src/overlay/gl.cpp), [`gl_state.cpp`](../../client/src/main/native/kraken_hook/src/overlay/gl_state.cpp) | GL entry points beyond 1.1; saving and restoring the client's GL state |
@@ -157,8 +158,9 @@ The init thread sets up every module, then becomes the writer thread for the lif
 | 3 | `raises::init` | Fills the table of 64 generic detours |
 | 4 | `ring::init` | Creates the event that wakes the writer |
 | 5 | `pump::init` | Creates the event that wakes a pump waiting out the frame cap |
-| 6 | `hooks::init` | `MH_Initialize` (MinHook) |
-| 7 | `connection::run` | Connects, handshakes, drains the ring; never returns |
+| 6 | `frames::init` | Creates the events that wake a game thread and a present waiting for an overlay frame |
+| 7 | `hooks::init` | `MH_Initialize` (MinHook) |
+| 8 | `connection::run` | Connects, handshakes, drains the ring; never returns |
 
 An address in the mapping is an **RVA** (relative virtual address): an offset from the start of the loaded image. The
 DLL turns it into a real address by adding the module base it found in step 2, and `process::inImage(rva)` checks an
@@ -194,7 +196,7 @@ flowchart TB
 | Thread | Runs | Rules |
 |---|---|---|
 | Game thread | Every detour: raises, scripts, the pump and the present | Never blocks on Kraken: pushes into the ring, takes the call queue with a try-lock |
-| Writer thread | `connection::run`: connect, handshake, drain the ring, send STATUS/FRAME/FPS/PRESENT | The only thread that writes to the socket |
+| Writer thread | `connection::run`: connect, handshake, drain the ring, send STATUS/FRAME/FPS/DRAW | The only thread that writes to the socket |
 | Reader thread | `readerThread`: reads command frames and hands them on | Queues calls, hands over surfaces, sets the frame cap and script filter |
 
 The ring has one producer (the game thread) and one consumer (the writer). The present detour runs on the game thread
@@ -219,9 +221,9 @@ stateDiagram-v2
 * The writer reads the handshake itself, installing each hook as it parses it, then sends STATUS. A slot whose RVA is
   already hooked is skipped, so the handshake the Java side re-sends on every reconnect only adds what's new.
 * The socket has Nagle's algorithm off (`TCP_NODELAY`), so each message goes out as it is sent.
-* It then starts a reader thread for the connection and loops: send PRESENT if the game presented while a surface is
-  drawn, send everything queued in the ring, send FRAME if the framebuffer, GL version or drawn surface changed, send
-  FPS if a second has passed, then wait up to a second for more.
+* It then starts a reader thread for the connection and loops: send DRAW for a frame endFrame tagged, or (without
+  frame sync) if the game presented while a surface is drawn, send everything queued in the ring, send FRAME if the
+  framebuffer, GL version or drawn surface changed, send FPS if a second has passed, then wait up to a second for more.
 * When the socket drops, the hooks stay installed for the life of the process. What depended on Kraken being there is
   undone: queued calls are dropped, the overlay stops (nothing would keep it current), script capture stops and the
   frame cap is lifted.
@@ -300,7 +302,7 @@ g_ring: 4 MiB, positions only grow and are taken modulo the size
 * A record that doesn't fit before the end of the buffer starts at the beginning, behind a `RING_PAD` (`0xffffffff`)
   length that tells the writer to skip to the start.
 * A full ring drops the new message. Every ring message takes a sequence number in `ring::writeHead` first, so the
-  Java side sees the drop as a gap in `seq`. The writer's own messages (STATUS, FRAME, FPS, PRESENT) carry 0 and take
+  Java side sees the drop as a gap in `seq`. The writer's own messages (STATUS, FRAME, FPS, DRAW) carry 0 and take
   none.
 * The game thread only signals the writer's event when the writer has said it is about to wait
   (`g_writerWaiting`), so a burst of messages costs no system call each. Both sides use sequentially consistent atomics
@@ -361,21 +363,33 @@ hidden, the walk returns at once.
 
 1. Take a surface the reader thread opened since the last present (an atomic swap), or a request to stop drawing.
 2. Find the current GL context and the window's client size. A new context starts the overlay's GL objects over.
-3. If a surface is open and the context is GL 3.0 or newer: save the client's GL state, upload the newest published
-   overlay frame into a texture (only the rows that changed), draw it as one full-screen triangle with premultiplied
-   alpha blending, and restore the state. The shader is GLSL 330 core on GL 3.3 and up, 150 on 3.2, and 130 on 3.0 and
-   3.1.
+3. If a surface is open and the context is GL 3.0 or newer: save the client's GL state, upload the overlay frame for
+   this present into a texture (only the rows that changed): with frame sync, the slot tagged for the frame being
+   presented, after waiting for it if Java is still drawing it; otherwise the newest published one. Then draw it as
+   one full-screen triangle with premultiplied alpha blending, and restore the state. The shader is GLSL 330 core on
+   GL 3.3 and up, 150 on 3.2, and 130 on 3.0 and 3.1.
 4. Publish the framebuffer size, GL version and the surface generation drawn, and wake the writer if they changed, so
    it sends FRAME.
-5. While a surface is drawn, wake the writer so it sends PRESENT. Java then draws the overlay's next frame while the
-   game waits on the swap, so the overlay is redrawn once per game frame.
+5. While a surface is drawn without frame sync, wake the writer so it sends DRAW. Java then draws the overlay's next
+   frame while the game waits on the swap, so the overlay is redrawn once per game frame.
 
 Saving, drawing and restoring each run under an SEH guard. A fault turns the overlay off for the rest of the session,
 since a half-restored GL state would be worse than no overlay. The surface's memory layout and its triple-buffer
 handshake are in [In-game drawing](in-game-drawing.md).
 
-The present detour also counts presents for the FPS and PRESENT messages. While it isn't hooked, the pump's frame steps are counted
-instead.
+The present detour also counts presents for the FPS and DRAW messages. While it isn't hooked, the pump's frame steps
+are counted instead.
+
+## The endFrame Hook
+
+`functions.renderEndFrame` is the GL device's end of frame, `void(GlDevice*, Task*)`: the game thread calls it from
+appUpdate once it has recorded a frame, and it queues the frame for the render thread that presents it. Its detour does
+frame sync ([In-game drawing](in-game-drawing.md#frame-sync)): while `FRAME_SYNC` is on and a surface is drawn, it
+tags the frame object at `[device + GlDevice.recordingFrame]`, has the writer send `DRAW` with the tag, runs the
+original, and holds the game thread until `FRAME_DONE` reports the tag, for at most 10 ms. The present detour reads
+the frame object it presents at `[device + GlDevice.renderingFrame]`, where the device is its argument minus
+`GlDevice.context`, and draws the slot tagged for it. The frame block of the handshake names the RVA and the three
+offsets; the hook installs once.
 
 ## The Script Hooks
 
@@ -454,9 +468,10 @@ safety net), and reads messages until the socket closes. On STATUS it switches o
 | `FEATURE_KEYS` (32) | `keyManager.setKeyHook(...)`: the key remapping sends `KEYS` |
 | `FEATURE_VISIBILITY` (64) | `session.setVisibilityHook(...)`: the entity visibility sends `VISIBILITY` |
 | `FEATURE_COMPONENTS` (128) | `session.setComponentHook(...)`: the widget setters' writes send `COMPONENTS` |
+| `FEATURE_FRAME_SYNC` (256) | `GameSurface.connected(..., true)`: the surface can turn frame sync on |
 
 Raise messages go to `GameSession.onNative`, script messages to `GameSession.onScript`, FPS to `FrameRates`, FRAME to
-`GameSurface.frame`, PRESENT to `GameSurface.presented` (which wakes the client thread to draw the overlay's next
+`GameSurface.frame`, DRAW to `GameSurface.drawRequested` (which wakes the client thread to draw the overlay's next
 frame), and CALLS_DONE is logged when calls failed. `onEvent(name, consumer)` taps raw messages on the
 reader thread for diagnostics; nothing calls it yet. When the connection ends, everything above is switched off again and the API
 goes back to its 20 ms poll until the DLL reconnects.

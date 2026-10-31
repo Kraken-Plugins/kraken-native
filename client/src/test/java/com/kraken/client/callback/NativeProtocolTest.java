@@ -58,12 +58,13 @@ class NativeProtocolTest {
         byte[] keys = {4};
         byte[] visibility = {3, 2};
         byte[] components = {1};
+        byte[] frames = {0, 11};
         ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.handshake(slots, drawing, scripts, menu, keys, visibility,
-                components)).order(ByteOrder.LITTLE_ENDIAN);
+                components, frames)).order(ByteOrder.LITTLE_ENDIAN);
 
         byte[] magic = new byte[4];
         buf.get(magic);
-        assertArrayEquals("KRK8".getBytes(StandardCharsets.US_ASCII), magic);
+        assertArrayEquals("KRK9".getBytes(StandardCharsets.US_ASCII), magic);
         assertEquals(2, buf.getShort(), "slot count");
 
         assertEquals(0xc44d0L, buf.getLong());
@@ -100,13 +101,16 @@ class NativeProtocolTest {
         assertEquals(2, buf.get());
         assertEquals(1, buf.getShort(), "the component block's length");
         assertEquals(1, buf.get());
+        assertEquals(2, buf.getShort(), "the frame block's length");
+        assertEquals(0, buf.get());
+        assertEquals(11, buf.get());
         assertEquals(0, buf.remaining(), "no trailing bytes");
     }
 
     @Test
     void aHandshakeWithoutDrawingOrScriptsEndsInZeros() {
         ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.handshake(List.of(), Drawing.NONE, new byte[0], new byte[0],
-                new byte[0], new byte[0], new byte[0])).order(ByteOrder.LITTLE_ENDIAN);
+                new byte[0], new byte[0], new byte[0], new byte[0])).order(ByteOrder.LITTLE_ENDIAN);
         buf.position(4);
         assertEquals(0, buf.getShort());
         assertEquals(0, buf.getLong());
@@ -117,6 +121,7 @@ class NativeProtocolTest {
         assertEquals(0, buf.getShort(), "no key block");
         assertEquals(0, buf.getShort(), "no visibility block");
         assertEquals(0, buf.getShort(), "no component block");
+        assertEquals(0, buf.getShort(), "no frame block");
         assertEquals(0, buf.remaining());
     }
 
@@ -389,6 +394,17 @@ class NativeProtocolTest {
     }
 
     @Test
+    void theFrameBlockNamesEndFrameAndTheDeviceOffsets() throws IOException {
+        Mapping mapping = Mapping.bundled("241.3");
+        ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.frameLayout(mapping)).order(ByteOrder.LITTLE_ENDIAN);
+        assertEquals(mapping.function("renderEndFrame"), buf.getLong(), "endFrame");
+        assertEquals(mapping.offset("GlDevice.context"), buf.getInt(), "the context present takes");
+        assertEquals(mapping.offset("GlDevice.recordingFrame"), buf.getInt(), "the frame being recorded");
+        assertEquals(mapping.offset("GlDevice.renderingFrame"), buf.getInt(), "the frame being rendered");
+        assertEquals(0, buf.remaining(), "20 bytes, as the DLL reads them");
+    }
+
+    @Test
     void aMappingWithoutActorFlagsHasNoVisibilityOrComponentBlock() throws IOException {
         Path file = Files.createTempFile("mapping", ".json");
         try {
@@ -396,6 +412,7 @@ class NativeProtocolTest {
                     + " \"structs\": {}, \"containers\": {}, \"enums\": {}, \"functions\": {}}");
             assertEquals(0, NativeProtocol.visibilityLayout(Mapping.load(file)).length);
             assertEquals(0, NativeProtocol.componentLayout(Mapping.load(file)).length);
+            assertEquals(0, NativeProtocol.frameLayout(Mapping.load(file)).length);
         } finally {
             Files.delete(file);
         }
@@ -686,6 +703,22 @@ class NativeProtocolTest {
     }
 
     @Test
+    void frameSyncAndFrameDoneFrameTheirValues() {
+        ByteBuffer on = ByteBuffer.wrap(NativeProtocol.frameSync(true)).order(ByteOrder.LITTLE_ENDIAN);
+        assertEquals(2, on.getInt(), "the type byte and a u8");
+        assertEquals(NativeProtocol.COMMAND_FRAME_SYNC, on.get());
+        assertEquals(1, on.get());
+        assertEquals(0, on.remaining());
+        assertEquals(0, NativeProtocol.frameSync(false)[5]);
+
+        ByteBuffer done = ByteBuffer.wrap(NativeProtocol.frameDone(0x1_0000_0007L)).order(ByteOrder.LITTLE_ENDIAN);
+        assertEquals(5, done.getInt(), "the type byte and a u32");
+        assertEquals(NativeProtocol.COMMAND_FRAME_DONE, done.get());
+        assertEquals(7, done.getInt(), "the DLL's tags are 32 bits");
+        assertEquals(0, done.remaining());
+    }
+
+    @Test
     void parsesIdRegistersAndSequenceWithNoValues() {
         byte[] body = message(7, 44, new long[]{0xAA, 0xBB, 0xCC, 0xDD}, builder -> {
         });
@@ -740,8 +773,8 @@ class NativeProtocolTest {
         assertEquals(List.of(), NativeProtocol.featureNames(0));
         assertEquals(List.of("calls", "keys"),
                 NativeProtocol.featureNames(NativeProtocol.FEATURE_KEYS | NativeProtocol.FEATURE_CALLS | 1L << 40));
-        assertEquals(List.of("calls", "overlay", "frame rate", "scripts", "menu", "keys", "visibility", "components"),
-                NativeProtocol.featureNames(0xff), "every known bit, in bit order");
+        assertEquals(List.of("calls", "overlay", "frame rate", "scripts", "menu", "keys", "visibility", "components",
+                "frame sync"), NativeProtocol.featureNames(0x1ff), "every known bit, in bit order");
     }
 
     /**
