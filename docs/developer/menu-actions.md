@@ -6,7 +6,9 @@ and the walking or facing that follow are the client's. This page covers the min
 and what each one sends, the packet helpers behind the mouse click and the dialog answers, the Java side, the path
 from a call to the game thread, the updater recipes that find all of it, and the Action Tester.
 
-Plugin authors start with [Menu Actions](../api.md#menu-actions) and the [Action Tester](../plugins.md#action-tester).
+Plugin authors start with [Interacting](../api.md#interacting), [Menu Actions](../api.md#menu-actions) and the
+[Action Tester](../plugins.md#action-tester). The interaction methods are a layer above `Actions`; see
+[The Layer Above: Interactions](#the-layer-above-interactions).
 New to x64 or the native hook? The [walkthrough](menu-action-walkthrough.md) follows one action end to end first.
 
 ```mermaid
@@ -31,6 +33,7 @@ flowchart TD
 | Path | Role |
 |---|---|
 | [`Actions`](../../api/src/main/java/com/kraken/api/action/Actions.java) | Builds the calls for each action, the mouse click and the dialog answers |
+| [`Interactions`](../../api/src/main/java/com/kraken/api/internal/action/Interactions.java) | The rules behind `interact`, `click` and `useOn`: options, rows, `GONE` checks, the click policy |
 | [`NativeCall`](../../api/src/main/java/com/kraken/api/internal/invoke/NativeCall.java) | One call: the function's RVA, its arguments by kind, and a data block |
 | [`NativeInvoker`](../../api/src/main/java/com/kraken/api/internal/invoke/NativeInvoker.java) | The sender a connection gives the API to send a batch |
 | [`MenuAction`](../../api/src/main/java/com/kraken/api/MenuAction.java) | What an entry does when it runs |
@@ -375,6 +378,59 @@ returns once the batch is sent. A send that throws a `RuntimeException` is logge
 `Client.menuAction(p0, p1, action, id, itemId, option, target)` passes its first five arguments to
 `Actions.menuAction`. `option` and `target` are unused, since a native entry carries neither.
 
+### The Layer Above: Interactions
+
+The interaction methods (`npc.interact("Attack")`, `widget.useOn(npc)` and the services such as `Inventory` and
+`Magic`; see [Interacting](../api.md#interacting)) never build a call themselves. They work out a row's arguments and
+hand them to two internal entry points of `Actions`, which build the calls as above and return an `ActionResult`
+rather than a `boolean`:
+
+| Entry point | Batch |
+|---|---|
+| `run(ActionRequest)` | The click calls when the request names a click point, then the row function |
+| `useOn(ActionRequest source, ActionRequest target)` | The source's click and the select, then the target's click and its targeted row function |
+
+`ActionRequest` is a record of one row: the `MenuAction`, `param0`, `param1`, the identifier, the item, the
+sub-option, the world tile and the click point. `run` returns `UNSUPPORTED` when the mapping lacks the row function or
+the arguments can't be built, and `NOT_CONNECTED` without a connection or when the send throws.
+
+The rules live in one internal class, [`Interactions`](../../api/src/main/java/com/kraken/api/internal/action/Interactions.java),
+one per `Client` (`client.getInteractions()`); the entity methods are one-line calls into it.
+
+| Subject | Options matched against | Row | Arguments | `GONE` when |
+|---|---|---|---|---|
+| `NPC` | The shown (transformed) type's actions, else the base type's | `NPC_*_OPTION` | identifier = index | Its address reads 0, or its transform shows no NPC |
+| `Player` | `Client.getPlayerOptions()` | `PLAYER_*_OPTION` | identifier = index | Its address reads 0 |
+| `TileObject` | The impostor's actions (`ObjectComposition.getImpostor()`) | `GAME_OBJECT_*_OPTION` | identifier = the base id; tile = the tile it was placed on, on its own plane | Its tile no longer holds the same loc, or the impostor shows nothing |
+| `TileItem` | The item's ground actions | `GROUND_ITEM_*_OPTION` | identifier = item id; tile = its tile | Its tile's pile no longer holds the item |
+| `Widget` | Its ops; for an item slot with none, Use then the item's inventory actions | `CC_OP` | param0 = slot, param1 = packed id, identifier = op, item, sub-option | `WidgetReader.lookup(id, slot)` finds nothing, or the slot holds another item |
+| `Widget.click()` with no named op | | `WIDGET_CONTINUE` for a pause button (button type 6 or the click mask's pause bit), else `WIDGET_TYPE_1/4/5` or `WIDGET_CLOSE` by button type | param0 = slot, param1 = packed id | As above |
+
+[`OptionMatcher`](../../api/src/main/java/com/kraken/api/internal/action/OptionMatcher.java) turns text into an op:
+markup removed (the `<lt>` and `<gt>` escapes kept as brackets), case ignored, runs of spaces, `-` and `_` counted as
+one; the first match in op order wins; empty and "null" slots never match. A number must be in range and, when the
+options can be read, name a non-empty slot.
+
+`useOn` checks the source's target mask (bits 11-16 of `Widget.getClickMask()`, named by `WidgetConfig`) for the
+target's kind, and for a widget target that the target takes selections (`WIDGET_USE_TARGET`), as the client's menu
+does before it builds a targeted row. A spellbook component is a static widget with no item, so it selects with slot
+and item -1, which is what the spellbook's own row selects.
+
+The click point comes from the policy (`ClickPolicy`): `ON_SCREEN` asks
+[`ClickPoints`](../../api/src/main/java/com/kraken/api/internal/action/ClickPoints.java) for the subject's canvas point
+(100 units above an actor's tile, a loc's centre, a tile's centre, a widget's centre) and falls back to the static
+point when it is off the canvas; `STATIC` always uses the static point; `NONE` sends no click. The point is worked out
+only under `ON_SCREEN`, since a projection costs reads.
+
+[`Toggle`](../../api/src/main/java/com/kraken/api/internal/action/Toggle.java) backs the setters that flip a var-kept
+state (run, prayers, quick prayers): it remembers the state it last sent and takes it as the state until the var
+changes or two ticks pass.
+
+The services in `com.kraken.api.action` (`Movement`, `Dialogue`, `Inventory`, `Magic`, `Prayers`, `Bank`,
+`Equipment`) find the widget or subject by id or name and call the entity methods; `Client` makes one of each and the
+client's `SessionModule` binds them for injection. `Bank`'s Withdraw-X queues its count answer through
+`Client.queueTask`, which `GameSession` points at its client thread.
+
 ## Sending the Calls
 
 ```mermaid
@@ -541,6 +597,12 @@ when they go out, not their contents beyond the arguments it passes.
   sub-options, the old-style buttons and close, select and targeted batches for items and spells, the pause row, the
   four dialog answers and the text limits, click then action, the refusals (unsupported actions, no connection) and
   that `Client.menuAction` passes its arguments on.
+- [`InteractionsTest`](../../api/src/test/java/com/kraken/api/internal/action/InteractionsTest.java) checks that each
+  interaction sends the batch the matching `Actions` call sends (recorded with a second client over the same fixture),
+  so it holds across builds; then each `ActionResult` per kind of subject, the target mask, and the click policies.
+  [`OptionMatcherTest`](../../api/src/test/java/com/kraken/api/internal/action/OptionMatcherTest.java) and
+  [`ToggleTest`](../../api/src/test/java/com/kraken/api/internal/action/ToggleTest.java) cover the matching and the
+  tick lag; each service has its own test in `api/src/test/java/com/kraken/api/action/`.
 - [`MenuTest`](../../api/src/test/java/com/kraken/api/MenuTest.java) reads the rows of a fixture menu: bottom first, NPC
   and player entries, loc, item and walk tiles, component ops, sub-menu rows, submenu groups, the open flag and entry
   equality.
@@ -574,7 +636,25 @@ Live checks pending, against the 241.3 client:
 - Calls while logged out or on the login screen. The RE notes say the send drops the packet while the connection isn't
   up. That isn't re-verified here.
 
+For the interaction layer (see the design's live checks):
+
+- The inventory's op numbering when a slot has no ops of its own: Use as op 1, then the item's inventory actions.
+- The tile the client's loc row captures for an object three or more tiles across: the placed tile, as the interaction
+  methods send, or the centre.
+- `Chatmenu.OPTIONS`: whether an option's slot is its child index, and that the title row has no pause bit.
+- Withdraw-X: the count prompt answered by the follow-up task.
+- The inventory panel picked while the bank, a shop or the deposit box is open.
+- The values of varbit `SPELLBOOK` for the four spellbooks (0 standard, 1 ancient, 2 lunar, 3 arceuus), which every
+  `Magic` cast checks first.
+- A prayer book component's first op turns its prayer on and off, as `Prayers.setActive` clicks it, also while the
+  prayer tab isn't the one shown.
+- The bank's deposit buttons (`Bankmain.DEPOSITINV`, `DEPOSITWORN`) carry the op `Widget.click()` runs.
+- The worn-items slot components (`Wornitems.SLOT<n>`) carry the worn item's id, which their op rows capture.
+
 Known gaps in the code:
+
+- Deadeye and Mystic Vigour share the prayer book components of Eagle Eye and Mystic Might, so `Prayer` leaves them
+  out, and `Prayer` doesn't cover the Ruinous prayer book. `Prayerbook.PRAYER30` names no prayer in this build's data.
 
 - The minimap walk and Examine aren't sent. See What Is Not Supported.
 - `Actions.walk` takes any world tile, and the upper bounds of op and sub-option aren't checked.

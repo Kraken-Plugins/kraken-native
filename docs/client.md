@@ -223,6 +223,13 @@ Changes apply at once and are saved. **Reset** at the bottom puts every setting 
 | Font size | 12 px | The size of overlay text |
 | Panel background | Translucent dark brown | The colour behind overlay panels |
 
+**Actions**
+
+| Setting | Default | What it does |
+|---|---|---|
+| Mouse click | On screen | Whether the actions plugins send (an NPC's Attack, an item's Drop) go after a mouse click, as the game sends one for a real click. **On screen** clicks where the subject is, or at the click point when it is off screen; **Static point** always clicks at the click point; **None** sends the action alone. See [Interacting](api.md#interacting) |
+| Click point | 0, 0 | The canvas point the click lands on when it doesn't land on the subject |
+
 ## The Console
 
 The console along the bottom shows Kraken's log, the plugins' messages and the game's own output. Warnings and errors

@@ -6,8 +6,9 @@ and the rest. Its classes, method names and events follow RuneLite's API, so if 
 of it will look familiar. Each getter reads what the game's own Lua plugin API reads.
 
 Everything is read-only, with a few exceptions that go through the [native hook](client.md#the-native-hook):
-[highlights](#highlights), which have the game outline things itself, [menu actions](#menu-actions), which run a
-menu option as a click would, [menu edits](#menu-edits), which change the right-click menu,
+[highlights](#highlights), which have the game outline things itself, [interactions](#interacting) and
+[menu actions](#menu-actions), which run a menu option as a click would, [menu edits](#menu-edits), which change the
+right-click menu,
 [entity visibility](#entity-visibility), which hides players, NPCs and projectiles, and [widget writes](#widget-writes),
 which change a few fields of interface components.
 
@@ -179,9 +180,131 @@ shortcuts.
 a limited number of them. Without the hook, the channel remembers its style and targets and applies them when the hook
 connects; `client.getHighlights().isAvailable()` tells you whether it's connected now.
 
+## Interacting
+
+The interaction methods act on what you already hold, by the option text the player sees. They work out the menu row
+the game would build for it and run it through [menu actions](#menu-actions), so they need the native hook too.
+
+```java
+npc.interact("Attack");
+tree.interact("Chop down");          // a TileObject
+coins.take();                        // a TileItem: interact("Take")
+player.interact("Trade with");
+bankItem.interact("Withdraw-10");    // a Widget
+slot.interact("Drop", "All");        // an option with one of its sub-options
+slot.useOn(npc);                     // use an inventory item on an NPC
+fireStrike.useOn(npc);               // cast a spellbook spell on an NPC
+```
+
+| Subject | Options it matches against (`getActions()`) | Numbers |
+|---|---|---|
+| `NPC` | Its shown type's actions, so a transformed NPC's are the ones it shows as | 1-5 |
+| `Player` | `client.getPlayerOptions()`: the options the server set, the same for every player | 1-8 |
+| `TileObject` | Its impostor's actions; `getName()` is the impostor's name too | 1-5 |
+| `TileItem` | The item's ground actions; Take is 3 | 1-5 |
+| `Widget` | Its ops, or for an item slot with none of its own, Use followed by the item's inventory actions | 1-10 |
+
+Conditional options are resolved against the current vars, as the game does. Text is matched loosely: colour tags and
+case are ignored, and spaces, `-` and `_` count as the same, so `"chop down"`, `"Chop-Down"` and `"Chop down"` all
+match. `interact(int)` takes the number as the menu counts it, from 1.
+
+The rows carry what the game's own rows would. An object's row names its own id and the tile it was placed on, on its
+own plane, which isn't `GameObject.getWorldLocation()` (the footprint's centre) for objects three or more tiles across.
+
+`widget.click()` runs the widget's first option, its "Click here to continue", or its old-style button, whichever it
+has first. `widget.useOn(target)` selects the widget's item or spell and uses it on an NPC, player, object, ground item
+or another widget, in one batch. A spellbook spell is a widget with no item, so the same method casts it. The game only
+lets a selection be used on the kinds of target its widget's click mask allows (`WidgetConfig.USE_NPC` and the rest),
+and neither does `useOn`.
+
+### Results
+
+Every method returns an `ActionResult` saying what happened, rather than throwing, since the game can change between
+the check and the send:
+
+| Result | Meaning |
+|---|---|
+| `SENT` | The batch went to the hook. The server can still refuse it |
+| `NOT_CONNECTED` | The hook isn't connected. Nothing is queued |
+| `UNSUPPORTED` | This build's mapping lacks something the action needs |
+| `GONE` | The subject isn't there any more: the NPC left, the object changed, the item was taken, the widget closed or its slot holds another item |
+| `NO_SUCH_OPTION` | No option with that text or number, or a selection that can't be used on that kind of target |
+| `NOT_FOUND` | A service couldn't find what it was asked for: the item isn't held, the spell isn't in the spellbook shown, no dialogue is open |
+| `OUT_OF_SCENE` | A walk to a tile outside the loaded area |
+
+`if (npc.interact("Attack").isSent())` reads like a `boolean`. Each failure is also logged at `FINE` on `kraken.api`
+with the detail, such as `Goblin (NPC 5) has no "Atack" option; it has Attack, Examine`.
+
+### Services
+
+For common tasks, services find what to act on by id or name. Inject them, or get them from the client
+(`client.getInventory()` and so on):
+
+```java
+@Inject
+private Inventory inventory;
+
+@Inject
+private Magic magic;
+
+@Inject
+private Prayers prayers;
+
+inventory.interact(ItemID.COINS, "Deposit-All");   // through the bank's inventory panel while the bank is open
+inventory.wieldOrWear(ItemID.RUNE_SCIMITAR);
+magic.cast(Spell.HIGH_ALCHEMY, ItemID.RUNE_PLATEBODY);
+prayers.activate(Prayer.PROTECT_FROM_MELEE);
+```
+
+| Service | Methods |
+|---|---|
+| `Movement` | `walk(worldPoint)` and `walk(localPoint)` within the loaded area; `isRunning()`, `setRunning(boolean)`; `getDestination()` |
+| `Dialogue` | `isOpen()`; `canContinue()`, `clickContinue()`; `getOptions()`, `selectOption(text or number)`; `enterAmount`, `enterName`, `enterText`, `selectItem`, each after checking its prompt is the one showing |
+| `Inventory` | `contains`, `count`, `isFull`, `isEmpty`, `getItems`, `getSlot(id or name)`; `interact(id, option)`, `use(id, target or other id)`, `drop`, `wield`, `wear`, `wieldOrWear` |
+| `Magic` | `cast(spell)` for a spell with no target, `cast(spell, target)`, `cast(spell, itemId)`; `isAvailable(spell)`, `getSpell(spell)`, `getSpellbook()` |
+| `Prayers` | `isActive`, `setActive`, `activate`, `deactivate`; `isQuickPrayerActive`, `setQuickPrayer` |
+| `Bank` | `isOpen`, `contains`, `count`; `withdraw(id, amount)`, `withdrawAll`, `deposit(id, amount)`, `depositAll`, `depositInventory`, `depositEquipment`, `close` |
+| `Equipment` | `isEquipped`, `getItem(slot)`; `remove(slot)`, `interact(slot, option)`, `interact(slot, option, subOption)` |
+
+`Spell` and `Prayer` name each spell and prayer by its interface component. For a spell `Spell` lacks,
+`client.getWidget(InterfaceID.MagicSpellbook.X).useOn(target)` does the same as `cast`.
+
+The setters that toggle (run, prayers, quick prayers) only click when the state differs. The game only changes the
+state when the server answers, a tick or so later, so each remembers what it sent and takes that as the state until the
+var changes or two ticks pass: calling `prayers.activate(...)` every tick doesn't flip the prayer back and forth. They
+return `SENT` when the state is already the one asked for.
+
+`bank.withdraw` and `bank.deposit` are the only calls with two steps: an amount the bank's options don't name runs
+Withdraw-X (or Deposit-X), and a client thread task answers the amount prompt once the server opens it.
+
+### The Mouse Click
+
+The game sends a mouse click packet before the row of a real click, and so do these methods. Where it lands is the
+click policy, `client.getInteractions().setClickPolicy(...)`, which the client's Settings page sets:
+
+| Policy | The click |
+|---|---|
+| `ON_SCREEN` (the default) | On the subject when it is on screen, otherwise at the static point |
+| `STATIC` | Always at the static point, `setStaticClickPoint(...)`, (0, 0) unless set |
+| `NONE` | No click, just the row |
+
+A `useOn` clicks the item or spell first and then the target.
+
+### Timing
+
+Each call reads the subject (whether it is still there, its options) on the calling thread and sends one batch at
+once, which the game runs at the start of its next frame. Call them from event handlers, which run on the
+[client thread](#threads), so the reads and the send see the same moment. Nothing waits for the result: the subject
+can still go before the frame runs, and two calls are two batches, run in order. Actions sent this way post no
+`MenuOptionClicked`.
+
+The API posts a spawn event for everything already loaded when tracking starts, so a plugin that acts from spawn events
+acts on every tree in sight at once. Pick one target on a `GameTick` instead.
+
 ## Menu Actions
 
-`client.getActions()` runs a menu option the way a click on it would, without moving the mouse: the native hook calls
+The [interaction methods](#interacting) are built on these. `client.getActions()` runs a menu option the way a click on
+it would, without moving the mouse: the native hook calls
 the game's own code for that menu row on the game thread, so the game sends the same packets and starts the same
 walking and facing as for a real click.
 

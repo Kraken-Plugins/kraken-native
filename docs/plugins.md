@@ -235,7 +235,8 @@ To find an object's name or id, turn on the **Game objects** [dev tool](dev-tool
 
 Runs one menu action, or one of the game's dialog answers, from its settings page: attack an NPC, open a door, eat an
 item, cast a spell, walk to a tile, enter an amount, and so on. It's a test bench for the API's
-[menu actions](api.md#menu-actions), and needs the native hook for everything except listing the menu.
+[interaction methods](api.md#interacting) and [menu actions](api.md#menu-actions), and needs the native hook for
+everything except listing the menu.
 
 Every action it runs is sent to the game's servers just as a click would be. Read the disclaimer in the
 [README](../README.md) before you use it.
@@ -243,7 +244,8 @@ Every action it runs is sent to the game's servers just as a click would be. Rea
 1. Pick an **Action**. The page shows only the settings that action uses.
 2. Fill those in. Drop-downs such as **NPC**, **Object** or **Inventory item** list what the game has loaded right now,
    refreshed each time you open them. If several things share a name, the nearest is used.
-3. Press **Run**. The console says what was sent, on lines starting `Action Tester:`.
+3. Press **Run**. The console says what was run and its result (`SENT`, or why nothing was sent, such as
+   `NO_SUCH_OPTION` with the options the subject has), on lines starting `Action Tester:`.
 
 Turn on **Repeat** to run the action again every few ticks (**Repeat every**, 5 ticks by default) until you turn it
 off.
@@ -260,6 +262,6 @@ The actions come in groups:
 | Walk | Walk to a tile near you or to a world tile; toggle run |
 | Mouse | Send only the mouse click |
 
-When the target is on screen, an action first sends a mouse click at its position, as the game does for a real
-click. Turn off **Send mouse click** to send the action alone. **Mouse: click packet only** clicks at the point
-in **Click at**, with the left or right button.
+An action first sends a mouse click as the game does for a real click, where the **Mouse click** setting on the
+[Settings](client.md#settings) page says. **Mouse: click packet only** clicks at the point in **Click at**, with the
+left or right button.

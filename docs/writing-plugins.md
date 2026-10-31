@@ -151,6 +151,7 @@ they only appear then. Your plugin's on/off state, and its settings, are saved i
 | Type | What it is |
 |---|---|
 | `Client` | The game. See the [API guide](api.md) |
+| `Movement`, `Dialogue`, `Inventory`, `Magic`, `Prayers`, `Bank`, `Equipment` | The services that act on the game by id or name; see [Interacting](api.md#interacting) |
 | `ClientThread` | Runs code on the client thread: `invoke`, `invokeLater`, `invokeAtTickEnd` |
 | `EventBus` | The bus events are posted on, for posting your own or subscribing other objects |
 | `ConfigManager` | Reads and writes settings: `getConfig`, `getConfiguration`, `setConfiguration` |
@@ -291,6 +292,39 @@ private void rebuild() {
 
 Clear what you track on `GameStateChanged` with `GameState.LOADING`: a map load posts spawns for the new area but no
 despawns for the old one.
+
+## Acting on the Game
+
+Subjects act by the option text the player sees, and the services find what to act on by id or name. One action per
+tick is plenty; the game runs each at the start of its next frame:
+
+```java
+@Inject
+private Client client;
+
+@Inject
+private Inventory inventory;
+
+@Subscribe
+public void onGameTick(GameTick event) {
+    Player me = client.getLocalPlayer();
+    if (me == null || me.isInteracting() || inventory.isFull()) {
+        return;
+    }
+    client.getScene().getTileObjects().stream()
+            .filter(o -> "Oak".equals(o.getName()))
+            .min(Comparator.comparingInt(o -> o.getWorldLocation().distanceTo(me.getWorldLocation())))
+            .ifPresent(oak -> {
+                ActionResult result = oak.interact("Chop down");
+                if (!result.isSent()) {
+                    log.fine("Couldn't chop: " + result);
+                }
+            });
+}
+```
+
+Every call returns an `ActionResult` instead of throwing: `SENT`, or why nothing was sent. [Interacting](api.md#interacting)
+lists the methods, the results and the mouse click setting.
 
 ## Overlays
 

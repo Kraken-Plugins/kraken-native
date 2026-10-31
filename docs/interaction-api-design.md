@@ -1,6 +1,8 @@
 # Interaction API: Design
 
-Status: proposal, 2026-10-31. Only the gaps of §9 are filled; nothing else on this page is built yet.
+Status: built, 2026-10-31: the core, the entity methods, the services, the client's Settings and the Action Tester.
+The live checks of §10 are pending. [Interacting](api.md#interacting) is the user guide, and
+[The Layer Above: Interactions](developer/menu-actions.md#the-layer-above-interactions) the developer notes.
 
 The interaction API lets a plugin act on the things it already holds, by the option text the player sees:
 `npc.interact("Attack")`, `tree.interact("Chop down")`, `magic.cast(Spell.FIRE_STRIKE, npc)`. It sits on top of
@@ -240,10 +242,12 @@ don't take canvas coordinates. `Interactions` has a policy instead:
 | `ClickPolicy` | What is sent |
 |---|---|
 | `NONE` | The row only, as `menuAction` sends today |
-| `ON_SCREEN` | The click packet at the subject's canvas point when it is on the canvas, then the row; the row alone when it isn't |
+| `ON_SCREEN` | The click packet at the subject's canvas point when it is on the canvas, else at the static point, then the row |
+| `STATIC` | The click packet at the static point, wherever the subject is, then the row |
 
-The policy is set with `client.getInteractions().setClickPolicy(...)` (Internal), and the client shows it as a setting
-on its Settings page. The default is open question 2.
+The policy is set with `client.getInteractions().setClickPolicy(...)` and the static point, (0, 0) unless set, with
+`setStaticClickPoint(...)` (Internal); the client shows both on its Settings page. The default is `ON_SCREEN` (open
+question 2).
 
 ### 5.7 Threads and Timing
 
@@ -296,6 +300,7 @@ loc shows nothing.
 
 ```java
 item.interact("Take");
+item.take(); // short for item.interact("Take");
 String name = item.getName();           // read
 String[] options = item.getActions();   // read: the ground actions
 ```
@@ -376,6 +381,9 @@ while the bank is open (`Bankside`), a shop's while a shop is open (`Shopside`),
 | `use(int itemId, target)` | `getSlot(itemId).useOn(target)`, with an overload for `NPC`, `Player`, `TileObject` and `TileItem` |
 | `drop(int itemId)` | `interact(itemId, "Drop")` |
 
+It should also include methods for wielding weapons and wearing armour like: .wield(itemId), .wear(itemId), or wieldOrWear(itemId) checking if the action wield 
+is available and if not checking if the action wear is available and performing the first action that matches.
+
 ### 7.4 Magic and Spell
 
 | Method | What it does |
@@ -403,7 +411,8 @@ or generate it is open question 3.
 | `setActive(Prayer, boolean)` | The prayer book component's op 1, only when the state differs (§7.8) |
 | `isQuickPrayerActive()`, `setQuickPrayer(boolean)` | The quick prayer orb |
 
-Each `Prayer` constant names its `InterfaceID.Prayerbook` component and its varbit.
+Each `Prayer` constant names its `InterfaceID.Prayerbook` component and its varbit. Prayer should have some simple
+methods like activate(Prayer) and deactivate(Prayer) which overload setActive();
 
 ### 7.6 Bank
 
@@ -488,6 +497,8 @@ All five are filled (2026-10-31), ahead of the rest of the design:
 - `Chatmenu.OPTIONS`: whether an option's slot is its child index, and which row is the title.
 - Withdraw-X: the count prompt answered by the follow-up task.
 - The inventory panel picked while the bank, a shop or the deposit box is open.
+- The `SPELLBOOK` varbit's value for each spellbook, and that a prayer's first op toggles it.
+- The bank's deposit buttons' ops, and the worn-items slots carrying the worn item's id.
 
 ## 11. Testing
 

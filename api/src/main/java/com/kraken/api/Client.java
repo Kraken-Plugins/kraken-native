@@ -72,8 +72,9 @@ import java.util.function.Consumer;
  * <p>Every getter follows the mapped offset chains in the live process, replaying what the client's own Lua handlers
  * read; a getter's Javadoc names the Lua function it mirrors. The API reads, so input, models and setters are not
  * exposed. A few things it does change, through the client's native hook: what the client highlights
- * ({@link #getHighlights()}), the menu actions it runs ({@link #getActions()}, {@link #menuAction}, and the world hops
- * {@link #openWorldHopper} and {@link #hopToWorld} make of them), the rows of the
+ * ({@link #getHighlights()}), the menu actions it runs ({@link #getActions()}, {@link #menuAction}, the world hops
+ * {@link #openWorldHopper} and {@link #hopToWorld} make of them, and the interaction methods such as
+ * {@code npc.interact("Attack")} and the services such as {@link #getInventory()} built on them), the rows of the
  * right-click menu ({@link #getMenuEdits()}, {@link #createMenuEntry}, {@link #setMenuEntries} and the
  * {@link MenuEntry} setters), which entities it draws ({@link #getEntityVisibility()}), and a few fields of interface
  * components (the {@link Widget} setters). Reads are tolerant: an unreadable or logged-out state gives -1, false, "",

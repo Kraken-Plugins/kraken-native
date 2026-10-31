@@ -94,7 +94,10 @@ consensus verdicts (`consensus.py`, `carry.py`) → invariants (`verify.py`) →
 - Read-only, except two kinds of `internal.invoke.NativeCall` the hook DLL runs on the game thread: highlights
   (`com.kraken.api.highlight`, `Client.getHighlights()`; sends diffs, re-applies all on reconnect) and menu actions
   (`com.kraken.api.action.Actions`, `Client.menuAction`; calls the client's own minimenu row bodies and packet
-  helpers); the menu rules the DLL applies as the client rebuilds the right-click menu (`com.kraken.api.menu`,
+  helpers), with the interaction layer on top (`npc.interact("Attack")`, `Widget.click`/`useOn`, the services
+  `Movement`, `Dialogue`, `Inventory`, `Magic`, `Prayers`, `Bank`, `Equipment` in `com.kraken.api.action`; rules,
+  click policy and `GONE` checks in `internal.action.Interactions`; results are `ActionResult`s, never exceptions;
+  `docs/developer/menu-actions.md`); the menu rules the DLL applies as the client rebuilds the right-click menu (`com.kraken.api.menu`,
   `Client.getMenuEdits()`, `createMenuEntry`, `setMenuEntries`, the `MenuEntry` setters; `docs/developer/menu-edits.md`);
   the visibility rules the DLL applies to every entity each frame (`com.kraken.api.render`,
   `Client.getEntityVisibility()`; `docs/developer/entity-visibility.md`); and component writes the DLL makes after
