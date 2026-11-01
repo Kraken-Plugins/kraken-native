@@ -143,8 +143,9 @@ consensus verdicts (`consensus.py`, `carry.py`) → invariants (`verify.py`) →
   DLL's shared-memory `GameSurface` while it is active, otherwise to `GameOverlay` (a click-through window; dev tool
   overlays always use it). Alt + drag moves or resizes overlays (`OverlayEditor`), right-click resets; `OverlayManager`
   saves placements in group `overlays`. Worked examples: `plugins.npchighlight` (NPC Indicators), `objectmarkers`,
-  `groundmarkers`, `tileindicators`, `actiontester`. `tickcounter` is the smallest plugin: it writes the tick count
-  into the chatbox's Report button with `Widget.setText`.
+  `groundmarkers`, `tileindicators`, `actiontester`; `mossgiantkiller` acts through the interaction API and
+  services. `tickcounter` is the smallest plugin: it writes the tick count into the chatbox's Report button with
+  `Widget.setText`.
 - Ported RuneLite plugins (`npchighlight`, `grounditems`, `groundmarkers`, `tileindicators`, `menuentryswapper`,
   `keyremapping`, `entityhider`, `antidrag`) keep RuneLite's config group,
   keys, names and defaults. A setting the client can't back yet stays, marked `@Unsupported("reason")` (greyed out);

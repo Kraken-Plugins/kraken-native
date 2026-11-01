@@ -1,6 +1,6 @@
 # Plugins
 
-Kraken comes with eleven plugins. They're all off until you switch them on in the **Plugins** tab, and they double
+Kraken comes with twelve plugins. They're all off until you switch them on in the **Plugins** tab, and they double
 as examples for [writing your own](writing-plugins.md). NPC Indicators, Ground Items, Ground Markers, Tile Indicators,
 Menu Entry Swapper, Key Remapping, Entity Hider and Anti Drag are ports of RuneLite's plugins of the same names, with
 the same settings.
@@ -230,6 +230,36 @@ loaded area, and new ones as they appear.
 | Show names | Off | Writes each object's name on it |
 
 To find an object's name or id, turn on the **Game objects** [dev tool](dev-tools.md) and look at it.
+
+## Moss Giant Killer
+
+Fights moss giants, or any NPC you name, near where you switched it on: it attacks the nearest one that isn't fighting
+someone else (one attacking you first), eats when your hitpoints get low, picks up the drops you list, buries bones,
+and walks back if it wanders off. It can also keep running on, click through level-up messages, and pray Protect from
+Melee during fights. When it needs to eat and has no food left, it casts a teleport and stops. It's an example of the
+[interaction API](api.md#interacting): every action is an `interact`, `take` or service call.
+
+It needs the [native hook](client.md#the-native-hook). Stand where you want to fight and switch it on; it fights
+within **Fight radius** of that spot. The status panel shows what it's doing, the kills, the food left and your
+hitpoints. Once it stops (out of food, or moved too far away), switch it off and on again to restart.
+
+Every action it runs is sent to the game's servers just as a click would be. Read the disclaimer in the
+[README](../README.md) before you use it.
+
+| Setting | Default | What it does |
+|---|---|---|
+| NPC name | Moss giant | The NPC to fight |
+| Fight radius | 10 | How many tiles from where you switched it on to fight in |
+| Eat at | 20 | Eat when your hitpoints are this low. Anything in the inventory with an Eat option is food |
+| Teleport when out of food | On | Cast **Escape spell** and stop when there's no food left; off, just stop |
+| Escape spell | Varrock Teleport | The teleport to cast. It must be in the spellbook you have open |
+| Pick up | Big bones, the runes giants drop, Mossy key | Ground items to pick up between fights, by name |
+| Pick-up radius | 6 | How far away a ground item can be |
+| Bury bones | On | Bury anything with a Bury option between fights |
+| Protect from Melee | Off | Pray Protect from Melee during fights and switch it off between them. Needs 43 Prayer |
+| Keep running | On | Switch running on when it's off, trying again about every minute |
+| Continue dialogues | On | Click through "Click here to continue", such as level-up messages |
+| Show status | On | Show the status panel |
 
 ## Action Tester
 
