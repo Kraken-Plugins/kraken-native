@@ -269,6 +269,7 @@ public class MossGiantKillerPlugin extends Plugin {
             act(dialogue.clickContinue(), "continue the dialogue", state);
             return;
         }
+
         if (config.keepRunning() && !movement.isRunning() && tick - lastRunAttempt >= RUN_RETRY_TICKS) {
             lastRunAttempt = tick;
             movement.setRunning(true);
