@@ -27,7 +27,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 class GameSessionTest {
 
     /**
-     * The loop's wait when no raise wakes it, longer than any test runs, so only a raise moves it.
+     * The loop's wait when no raise wakes it, and its safety interval between event reads while hooked, longer than any
+     * test runs, so only a raise moves the loop and, where a test sets both, only a raise reads the game.
      */
     private static final long NO_TIMER_MS = 60_000;
 
@@ -105,20 +106,22 @@ class GameSessionTest {
         GameFixture game = new GameFixture();
         EventBus bus = new EventBus();
         BlockingQueue<Object> seen = new LinkedBlockingQueue<>();
+        BlockingQueue<String> frames = new LinkedBlockingQueue<>();
         bus.register(GameStateChanged.class, seen::add, 0);
 
-        try (GameSession session = new GameSession(game.memory, game.map, bus, NO_TIMER_MS)) {
+        try (GameSession session = new GameSession(game.memory, game.map, bus, NO_TIMER_MS, NO_TIMER_MS)) {
             session.setHookConnected(true);
+            session.setFrameListener(() -> frames.add("frame"));
             session.start();
             session.onNative(gameTickRaise(1));
             assertInstanceOf(GameStateChanged.class, seen.poll(5, TimeUnit.SECONDS), "the first read");
+            assertEquals("frame", frames.poll(5, TimeUnit.SECONDS), "the raise's pass ends with the frame listener");
 
-            session.setFrameListener(() -> seen.add("frame"));
             game.setGameState(25);
             session.requestFrame();
-            assertEquals("frame", seen.poll(5, TimeUnit.SECONDS), "the request woke the loop at once");
+            assertEquals("frame", frames.poll(5, TimeUnit.SECONDS), "the request woke the loop at once");
             assertNull(seen.poll(100, TimeUnit.MILLISECONDS),
-                    "the request doesn't read the game, so the state change waits for the safety interval");
+                    "the request doesn't read the game, so the state change waits for the next raise");
         }
     }
 
@@ -150,7 +153,7 @@ class GameSessionTest {
         bus.register(GameStateChanged.class, seen::add, 0);
         bus.register(ScriptPostFired.class, seen::add, 0);
 
-        try (GameSession session = new GameSession(game.memory, game.map, bus, NO_TIMER_MS)) {
+        try (GameSession session = new GameSession(game.memory, game.map, bus, NO_TIMER_MS, NO_TIMER_MS)) {
             session.setHookConnected(true);
             session.start();
             session.onNative(gameTickRaise(1));
@@ -160,7 +163,7 @@ class GameSessionTest {
             session.onScript(new ScriptRun(ScriptRun.Kind.POST, 73, 0, ScriptStack.EMPTY, null));
             assertEquals(new ScriptPostFired(73), seen.poll(5, TimeUnit.SECONDS), "posted as the report arrives");
             assertNull(seen.poll(100, TimeUnit.MILLISECONDS),
-                    "the report doesn't read the game, so the state change waits for the safety interval");
+                    "the report doesn't read the game, so the state change waits for the next raise");
         }
     }
 }

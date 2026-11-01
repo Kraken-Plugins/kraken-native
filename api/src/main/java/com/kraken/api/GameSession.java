@@ -75,6 +75,12 @@ public final class GameSession implements AutoCloseable {
     private final long pollIntervalMs;
 
     /**
+     * The longest gap between event reads while a native hook is connected: {@link #HOOKED_EVENT_POLL_MS}, or longer in
+     * tests so that only a raise reads the game.
+     */
+    private final long hookedEventPollMs;
+
+    /**
      * Guards {@link #wakeRequested}; the loop waits on it between iterations and {@link #wake} notifies it.
      */
     private final Object wakeLock = new Object();
@@ -144,10 +150,26 @@ public final class GameSession implements AutoCloseable {
      * @param pollIntervalMs how long the loop waits between iterations when no raise wakes it
      */
     GameSession(Memory memory, Mapping mapping, EventBus eventBus, long pollIntervalMs) {
+        this(memory, mapping, eventBus, pollIntervalMs, HOOKED_EVENT_POLL_MS);
+    }
+
+    /**
+     * Like {@link #GameSession(Memory, Mapping, EventBus, long)}, with the longest gap between event reads while a
+     * native hook is connected set too. Tests set it long, so that only a raise reads the game and a pass the hook asked
+     * for without a read never reads it.
+     *
+     * @param memory            the client process's memory; closed with the session if it is a {@link ProcessMemory}
+     * @param mapping           the client build's mapping
+     * @param eventBus          the bus to post the game events on
+     * @param pollIntervalMs    how long the loop waits between iterations when no raise wakes it
+     * @param hookedEventPollMs the longest gap between event reads while a native hook is connected
+     */
+    GameSession(Memory memory, Mapping mapping, EventBus eventBus, long pollIntervalMs, long hookedEventPollMs) {
         this.memory = memory;
         this.mapping = mapping;
         this.eventBus = eventBus;
         this.pollIntervalMs = pollIntervalMs;
+        this.hookedEventPollMs = hookedEventPollMs;
         this.client = new Client(memory, mapping);
         this.client.setTaskQueue(tasks::invoke);
         this.source = new EventSource(client, eventBus);
@@ -559,7 +581,7 @@ public final class GameSession implements AutoCloseable {
             // The loop, its tasks and the frame listener run every POLL_INTERVAL_MS, on every raise and on every frame
             // request. While the hook is connected the events are read when a raise asked for it or the safety
             // interval lapsed; without it (interval 0), every iteration.
-            long safetyInterval = hookConnected ? HOOKED_EVENT_POLL_MS : 0;
+            long safetyInterval = hookConnected ? hookedEventPollMs : 0;
             if (eventPollRequested || now - lastEventPoll >= safetyInterval) {
                 eventPollRequested = false;
                 lastEventPoll = now;
