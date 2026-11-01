@@ -12,6 +12,7 @@ and links to the deep dives below.
 |---|---|
 | [Architecture](architecture.md) | The pieces, the mapping contract, the process boundary, a session end to end, data flows, threads, every place Kraken touches the game, design rules, glossary |
 | [Cookbook](cookbook.md) | Step-by-step recipes: tests, a new game build, a mapping key, a Lua-backed read, an event, a hook, a DLL command, a dev tool, a setting |
+| [Releasing](releasing.md) | The Build workflow, what a release holds, cutting one, and packaging `Kraken.exe` with `jpackage` |
 
 ## The Parts
 
@@ -56,6 +57,7 @@ and links to the deep dives below.
 | Hide entities, or write an interface component | [Entity visibility](entity-visibility.md), [Widget writes](widget-writes.md) |
 | Work on the client UI, plugins or settings | [Client internals](client.md) |
 | Port a RuneLite plugin, or make an unsupported setting work | [Plugin ports](plugin-ports.md) |
+| Publish a release, or change what it holds | [Releasing](releasing.md) |
 
 ## Conventions
 

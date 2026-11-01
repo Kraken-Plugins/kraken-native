@@ -3,7 +3,6 @@ plugins {
 }
 
 group = 'com.kraken'
-version = '0.1.0-SNAPSHOT'
 
 java {
     toolchain {

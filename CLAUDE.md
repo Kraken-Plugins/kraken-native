@@ -24,7 +24,13 @@ From the repo root (Gradle provisions JDK 21):
 ./gradlew :client:run --args="[osclient.exe] [--plugin <class>] [--developer-mode]"   # exe defaults to the Jagex Launcher install
 ./gradlew :client:buildNativeHook                         # kraken_hook.dll; also runs on every client build
 ./gradlew :api:generateGameval [-PgamevalCommit=<sha>]    # regenerates com.kraken.api.gameval; never edit it by hand
+./gradlew :client:packageZip                              # Kraken.exe + jlink'd Java 21 (jpackage), zipped; packageRelease adds the installer (WiX 3)
 ```
+
+The version is in `gradle.properties`. `.github/workflows/build.yml` tests and packages on every push and pull request
+(Windows runner); a `v*` tag also publishes a GitHub release (`docs/developer/releasing.md`). The packaged runtime has
+only the JDK modules jdeps finds plus `extraModules` in `client/packaging.gradle`: add one there when a dependency
+needs a module only by reflection.
 
 System properties: `kraken.mappings=<dir>`, `kraken.settings=<file>` (default `~/.kraken-native/settings.properties`),
 `kraken.hook.dll=<path>`, `kraken.hook.projectileStep=true`.

@@ -34,17 +34,31 @@ its **Environment** tab.
 
 ## Starting Kraken With Them
 
-Set them in PowerShell and start Kraken from the same window:
+Set them in PowerShell and start Kraken from the same window. For the installed app:
 
 ```powershell
 $env:JX_SESSION_ID   = "<session id>"
 $env:JX_CHARACTER_ID = "<character id>"
 $env:JX_DISPLAY_NAME = "<display name>"
-./gradlew :client:run
+& "$env:LOCALAPPDATA\Kraken\Kraken.exe"
 ```
 
-The variables last until you close that window. In IntelliJ, put them in the run configuration's environment
-variables instead.
+From a checkout, run `./gradlew :client:run` as the last line instead. The variables last until you close that window.
+In IntelliJ, put them in the run configuration's environment variables instead.
+
+### From the Start Menu
+
+Kraken started from the Start menu or a shortcut sees only your Windows account's environment variables. To log in
+that way, save the variables to your account once:
+
+```powershell
+[Environment]::SetEnvironmentVariable("JX_SESSION_ID", "<session id>", "User")
+[Environment]::SetEnvironmentVariable("JX_CHARACTER_ID", "<character id>", "User")
+[Environment]::SetEnvironmentVariable("JX_DISPLAY_NAME", "<display name>", "User")
+```
+
+Programs started after that see them. Windows keeps them unencrypted in your profile, where every program you run can
+read them. To remove them, run the same lines with `$null` in place of each value.
 
 To play a different character on the same Jagex account, change `JX_CHARACTER_ID` and `JX_DISPLAY_NAME`. A character
 on another Jagex account needs that account's session ID.

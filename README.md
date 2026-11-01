@@ -39,7 +39,34 @@ Use at your own risk. The developers are not responsible for any consequences re
 The repository includes the mapping for game version 241.3. When the game updates, [run the updater](docs/updater.md)
 to make one for the new build.
 
-## Prerequisites
+## Download
+
+Kraken runs on Windows 10 or 11, 64-bit, with Old School RuneScape installed through the
+[Jagex Launcher](https://www.jagex.com/launcher).
+
+1. Download `Kraken-<version>-windows-x64-setup.exe` from the
+   [latest release](https://github.com/Kraken-Plugins/kraken-native/releases/latest).
+2. Run it. It installs Kraken for your Windows account and needs no administrator rights. If Windows says it protected
+   your PC, choose **More info**, then **Run anyway**: Kraken isn't signed, so Windows doesn't know its publisher.
+3. Start **Kraken** from the Start menu.
+
+The release's `.zip` holds the same app without the installer: unzip it anywhere and run `Kraken\Kraken.exe`. Both
+carry their own Java, so there's nothing else to install.
+
+Kraken starts the game from the Jagex Launcher's install folder, takes its window in, and attaches to it. When the
+**Kraken** tab's status line reads **Attached**, open the **Plugins** tab and switch a plugin on;
+[Tick Counter](docs/plugins.md#tick-counter) is a good first one.
+
+Don't start the game from the launcher first: Kraken starts its own copy, and closing Kraken closes it.
+
+### Logging In
+
+The Jagex Launcher normally hands your Jagex account session to the game. When Kraken starts the game, you hand it over
+instead, through three environment variables. See [Logging in with a Jagex account](docs/jagex-accounts.md).
+
+## Building From Source
+
+### Prerequisites
 
 * Windows 10 or 11, 64-bit, with Old School RuneScape installed through the [Jagex Launcher](https://www.jagex.com/launcher).
 * [Java 21](https://adoptium.net/). The Gradle wrapper is included.
@@ -49,7 +76,7 @@ to make one for the new build.
 The [updater](docs/updater.md) needs [uv](https://docs.astral.sh/uv/) and [Ghidra](https://github.com/NationalSecurityAgency/ghidra)
 as well, but only when you're mapping a new game build.
 
-## Quick Start
+### Quick Start
 
 ```powershell
 git clone https://github.com/Kraken-Plugins/kraken-native.git
@@ -57,17 +84,8 @@ cd kraken-native
 ./gradlew :client:run
 ```
 
-The first run downloads its dependencies and builds everything, which takes a few minutes. Then Kraken starts the
-game from the Jagex Launcher's install folder, takes its window in, and attaches to it. When the **Kraken** tab's
-status line reads **Attached**, open the **Plugins** tab and switch a plugin on;
-[Tick Counter](docs/plugins.md#tick-counter) is a good first one.
-
-Don't start the game from the launcher first: Kraken starts its own copy, and closing Kraken closes it.
-
-### Logging In
-
-The Jagex Launcher normally hands your Jagex account session to the game. When Kraken starts the game, you hand it over
-instead, through three environment variables. See [Logging in with a Jagex account](docs/jagex-accounts.md).
+The first run downloads its dependencies and builds everything, which takes a few minutes. Then Kraken starts the game
+as the downloaded app does.
 
 ### Launch Options
 
@@ -88,10 +106,20 @@ More options and settings are in [Using the client](docs/client.md).
 This skips the native hook. Kraken still reads the game and runs plugins, but overlays are drawn in a window over the
 game, the game's own highlights and menu actions aren't available, and events arrive a little later.
 
-### When the Game Updates
+### Packaging
+
+```powershell
+./gradlew :client:packageZip
+```
+
+This builds the downloadable app, `Kraken.exe` with its own Java, into `client/build/jpackage/`. Pushing a `v*` tag
+has GitHub Actions test, package and publish it as a release: see [Releasing](docs/developer/releasing.md).
+
+## When the Game Updates
 
 Each game build needs a mapping. When Jagex ships a new client, Kraken's status line says there's no mapping for it,
-and no plugins load. Make one with the updater, then run Kraken again:
+and no plugins load. Install the Kraken release that supports the new build. From a checkout, you can also make the
+mapping yourself with the updater, then run Kraken again:
 
 ```powershell
 cd updater

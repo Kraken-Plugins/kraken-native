@@ -36,10 +36,17 @@ PowerShell splits `-Dname.with.dots=value` at the first dot. Quote it: `"-Dkrake
 
 ## Launching
 
+### Windows protected your PC
+
+Windows SmartScreen shows this the first time you run the installer or `Kraken.exe`, because they aren't signed and
+Windows doesn't know their publisher. Choose **More info**, then **Run anyway**. Check the file against the release's
+`SHA256SUMS.txt` first if you like: `Get-FileHash <file>` in PowerShell prints its SHA-256.
+
 ### `Could not launch the client, see the console for details`
 
 Kraken couldn't start `osclient.exe`. Usually the game isn't in the Jagex Launcher's default folder: pass its path, as
-in `./gradlew :client:run --args="D:/Games/OSRS/osclient.exe"`. The console has the exact error.
+in `./gradlew :client:run --args="D:/Games/OSRS/osclient.exe"`, or add it to the shortcut's target (see
+[Command-line options](client.md#command-line-options)). The console has the exact error.
 
 ### The game shows the old login screen
 

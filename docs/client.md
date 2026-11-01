@@ -6,7 +6,8 @@ running.
 
 ## Launching
 
-From the repository root:
+Start **Kraken** from the Start menu, or run `Kraken.exe` in the folder you unzipped the release to (see
+[Download](../README.md#download)). From a checkout, run this from the repository root:
 
 ```powershell
 ./gradlew :client:run
@@ -21,7 +22,14 @@ To log in with a Jagex account, set your session variables before launching. See
 
 ### Command-Line Options
 
-Pass options through Gradle's `--args`:
+For the installed app, add options to a shortcut: right-click it, choose **Properties**, and put them in **Target**
+after the quoted path to `Kraken.exe`:
+
+```
+"C:\Users\<you>\AppData\Local\Kraken\Kraken.exe" "D:\Games\OSRS\osclient.exe" --developer-mode
+```
+
+From a checkout, pass them through Gradle's `--args`:
 
 ```powershell
 ./gradlew :client:run --args="D:/Games/OSRS/osclient.exe --developer-mode"
@@ -49,6 +57,10 @@ Pass them to Gradle with `-D`. In PowerShell, quote each one, or PowerShell spli
 ```powershell
 ./gradlew :client:run "-Dkraken.settings=D:\kraken\test.properties"
 ```
+
+The installed app reads them from `app\Kraken.cfg` in its folder: add a line such as
+`java-options=-Dkraken.settings=D:\kraken\test.properties` under `[JavaOptions]`. Installing another version replaces
+the file, so add them again after an update.
 
 ## What Happens When It Starts
 

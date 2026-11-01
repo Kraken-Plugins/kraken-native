@@ -1,0 +1,150 @@
+// The Windows app players download, built with the JDK's jpackage, so they need neither Java nor Gradle.
+// packageImage builds build/jpackage/image/Kraken: Kraken.exe, the app's jars and a Java runtime cut down to the
+// modules those jars use. packageZip zips that folder (unzip anywhere, run Kraken.exe), and packageInstaller wraps it in
+// a setup .exe that installs it for the current user with Start menu and desktop shortcuts. packageRelease collects
+// both, with the API jar, into build/release, the files a GitHub release carries (.github/workflows/build.yml).
+//
+// The installer needs WiX Toolset 3 on PATH or in its default folder; the zip needs only the JDK.
+
+def appName = 'Kraken'
+def appVendor = 'Kraken Plugins'
+def appDescription = 'Plugins, overlays and dev tools for the official Old School RuneScape client'
+def appIcon = layout.projectDirectory.file('src/packaging/kraken.ico')
+// Ties every installer to one product, so a newer installer replaces the installed version. Never change it.
+def upgradeUuid = '7630a4cd-58c8-4b7f-8d6c-a80988cdcd12'
+// jdeps finds the modules the jars link against; these are the ones they only reach at run time.
+// jdk.crypto.ec: the elliptic-curve ciphers most HTTPS servers ask for
+def extraModules = ['jdk.crypto.ec']
+
+def stageDir = layout.buildDirectory.dir('jpackage/input')
+def imageDir = layout.buildDirectory.dir('jpackage/image')
+def appDir = imageDir.map { it.dir(appName) }
+def zipDir = layout.buildDirectory.dir('jpackage/zip')
+def installerDir = layout.buildDirectory.dir('jpackage/installer')
+def releaseDir = layout.buildDirectory.dir('release')
+
+// jpackage and Windows Installer take up to three numbers, so 1.2.0-beta.1 is packaged as 1.2.0
+def appVersion = providers.provider {
+    def numbers = project.version.toString().find(/^\d+(\.\d+){0,2}/)
+    if (!numbers) {
+        throw new GradleException("Version ${project.version} doesn't start with a number, which jpackage needs")
+    }
+    return numbers
+}
+
+// A tool from the JDK 21 toolchain the client compiles with
+def jdkTool = { String name ->
+    javaToolchains.launcherFor(java.toolchain).get().metadata.installationPath.file("bin/${name}.exe").asFile.path
+}
+
+tasks.register('stageApp', Sync) {
+    description = 'Collects the client jar and its runtime classpath, the jars the packaged app runs from.'
+    group = 'distribution'
+    from tasks.named('jar')
+    from configurations.runtimeClasspath
+    into stageDir
+}
+
+tasks.register('packageImage', Exec) {
+    description = 'Builds build/jpackage/image/Kraken: Kraken.exe, the app jars and a cut-down Java runtime.'
+    group = 'distribution'
+    dependsOn 'stageApp'
+    def mainJar = tasks.named('jar', Jar).flatMap { it.archiveFileName }
+    inputs.dir(stageDir)
+    inputs.file(appIcon)
+    inputs.property('appVersion', appVersion)
+    inputs.property('mainJar', mainJar)
+    inputs.property('extraModules', extraModules)
+    outputs.dir(appDir)
+    doFirst {
+        def jars = stageDir.get().asFile.listFiles().findAll { it.name.endsWith('.jar') }*.path.sort()
+        def report = providers.exec {
+            commandLine([jdkTool('jdeps'), '--multi-release', '21', '--ignore-missing-deps', '--print-module-deps']
+                    + jars)
+        }.standardOutput.asText.get()
+        def found = report.readLines().findAll { !it.isBlank() }.last().trim()
+        if (!(found ==~ /[\w.]+(,[\w.]+)*/)) {
+            throw new GradleException("jdeps didn't list the runtime modules:\n${report}")
+        }
+        def modules = (found.split(',').toList() + extraModules).unique().sort()
+        logger.lifecycle("Runtime modules: ${modules.join(', ')}")
+
+        // jpackage won't write over an existing image
+        delete(imageDir)
+        executable jdkTool('jpackage')
+        args '--type', 'app-image',
+                '--name', appName,
+                '--app-version', appVersion.get(),
+                '--vendor', appVendor,
+                '--description', appDescription,
+                '--icon', appIcon.asFile.path,
+                '--input', stageDir.get().asFile.path,
+                '--main-jar', mainJar.get(),
+                '--main-class', application.mainClass.get(),
+                '--add-modules', modules.join(','),
+                '--dest', imageDir.get().asFile.path
+    }
+}
+
+tasks.register('packageZip', Zip) {
+    description = 'Zips the packaged app: unzip it anywhere and run Kraken\\Kraken.exe.'
+    group = 'distribution'
+    from tasks.named('packageImage')
+    into appName
+    archiveFileName = "${appName}-${project.version}-windows-x64.zip"
+    destinationDirectory = zipDir
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+}
+
+tasks.register('packageInstaller', Exec) {
+    description = 'Builds a setup .exe that installs Kraken for the current user (needs WiX Toolset 3).'
+    group = 'distribution'
+    dependsOn 'packageImage'
+    inputs.dir(appDir)
+    inputs.property('appVersion', appVersion)
+    outputs.dir(installerDir)
+    doFirst {
+        delete(installerDir)
+        executable jdkTool('jpackage')
+        // Installs into %LOCALAPPDATA%\Kraken unless the player picks another folder, so it needs no administrator
+        args '--type', 'exe',
+                '--app-image', appDir.get().asFile.path,
+                '--name', appName,
+                '--app-version', appVersion.get(),
+                '--vendor', appVendor,
+                '--description', appDescription,
+                '--about-url', 'https://kraken-plugins.com',
+                '--dest', installerDir.get().asFile.path,
+                '--win-per-user-install',
+                '--win-dir-chooser',
+                '--win-menu',
+                '--win-menu-group', appName,
+                '--win-shortcut',
+                '--win-shortcut-prompt',
+                '--win-upgrade-uuid', upgradeUuid,
+                '--win-update-url', 'https://github.com/Kraken-Plugins/kraken-native/releases'
+    }
+}
+
+tasks.register('packageRelease', Sync) {
+    description = 'Collects the release files into build/release: the zipped app, the installer and the API jar.'
+    group = 'distribution'
+    def version = project.version.toString()
+    from tasks.named('packageZip')
+    from(tasks.named('packageInstaller')) {
+        include '*.exe'
+        rename { "${appName}-${version}-windows-x64-setup.exe" }
+    }
+    from(tasks.named('stageApp')) {
+        include "api-${version}.jar"
+        rename { "kraken-api-${version}.jar" }
+    }
+    into releaseDir
+    doLast {
+        def names = releaseDir.get().asFile.list().toList().sort()
+        if (names.size() != 3) {
+            throw new GradleException("Expected the zip, the installer and the API jar in build/release, found ${names}")
+        }
+    }
+}

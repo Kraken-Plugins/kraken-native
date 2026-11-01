@@ -10,7 +10,11 @@ nothing is left half done. The other developer pages explain the parts these ste
 ./gradlew :api:test --tests 'com.kraken.api.ClientTest'    # one class; append .methodName for one method
 ./gradlew :client:test                                     # client: plugins, config, overlays (headless)
 ./gradlew :client:test -x buildNativeHook                  # the same, without compiling the DLL
+./gradlew :client:packageZip                               # Kraken.exe with its own Java, zipped (see Releasing)
 ```
+
+The Build workflow runs the API's and client's tests and packages the app on every push and pull request; see
+[Releasing](releasing.md).
 
 The updater's tests run under WSL, through the `uv` shell function from [`updater/README.md`](../../updater/README.md)
 (it keeps WSL's environment in `.venv-linux`, apart from Windows' `.venv`):
