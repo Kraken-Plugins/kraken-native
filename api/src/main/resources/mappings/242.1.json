@@ -1,0 +1,1060 @@
+{
+  "version": "242.1",
+  "sha256": "aa10826e888cb7557ccd4dbb947e8322fd58ab9221bd56d38fc7816a6047ff13",
+  "globals": {
+    "client": "0xea4c30",
+    "cycle": "0xea4c2c",
+    "varps": "0x15ab0f8",
+    "varpsBits": "0x15ab110",
+    "varpCount": "0xecf0c8",
+    "varbitMaskTable": "0xb46820",
+    "configCache": "0xecf158",
+    "cameraControlled": "0xea4c59",
+    "cameraTarget": "0xd0610c",
+    "inventories.buckets": "0x159c648",
+    "inventories.bucketCount": "0x159c650",
+    "scriptRunner": "0x159c9e0",
+    "chatLines.buckets": "0x159c5d8",
+    "chatLines.bucketCount": "0x159c5e0",
+    "chatLines.nextId": "0xea4b80"
+  },
+  "structs": {
+    "Client": {
+      "gameState": "0x2160",
+      "loginToken": "0x3368",
+      "tickCount": "0x31e8",
+      "skillLevel": "0x33a0",
+      "skillBase": "0x3404",
+      "skillXp": "0x3468",
+      "skillIndexMax": "0x19",
+      "statsValidGate": "0x413f74",
+      "worldFlags": "0x30f4",
+      "varcs": "0x417cf8",
+      "worlds": "0xca08",
+      "worlds.map": "0xca20",
+      "topLevelWorld": "0xcad0",
+      "localPlayerIndex": "0xcc9c",
+      "localPlayerWorldId": "0xcca0",
+      "followerVarps": "0xcca8",
+      "followerVarpsEnd": "0xccb0",
+      "friendManager": "0x4850",
+      "friendsChat": "0x4798",
+      "playerIndexCount": "0xcd20",
+      "playerIndices": "0xcd24",
+      "camera.pos": "0x89618",
+      "camera.lookAt": "0x89690",
+      "camera.angles": "0x8962c",
+      "renderer": "0x90",
+      "zoomA": "0x4880",
+      "zoomB": "0x4864",
+      "actorSteps": "0x2728",
+      "interfaces.buckets": "0x413d10",
+      "interfaces.bucketCount": "0x413d18",
+      "subInterfaces.buckets": "0x413bf0",
+      "subInterfaces.bucketCount": "0x413bf8",
+      "interfaceStore": "0x413c28",
+      "renderCycle": "0x41344c",
+      "mapLoader": "0x49f8",
+      "minimenu": "0x413440",
+      "projectiles": "0xccc0",
+      "keyedProjectiles": "0xccd8",
+      "destination": "0x40eb00",
+      "connection": "0x31f0",
+      "pluginGate": "0x4186e0",
+      "topLevelInterface": "0x413c18",
+      "ifEvents.buckets": "0x413dc0",
+      "ifEvents.bucketCount": "0x413dc8",
+      "currentWorld": "0x3304",
+      "highlightManager": "0x896d0"
+    },
+    "Varcs": {
+      "entries": "0x48",
+      "entriesEnd": "0x50"
+    },
+    "VarcEntry": {
+      "size": "0x30",
+      "key": "0x0",
+      "value": "0x8",
+      "type": "0x28"
+    },
+    "Renderer": {
+      "canvasWidth": "0x6c",
+      "canvasHeight": "0x70",
+      "screenWidth": "0x30",
+      "screenHeight": "0x34",
+      "viewport": "0xf8"
+    },
+    "Viewport": {
+      "offsetX": "0x58",
+      "centerX": "0x14",
+      "offsetY": "0x50",
+      "centerY": "0x18"
+    },
+    "World": {
+      "scene": "0x10",
+      "plane": "0x18",
+      "baseX": "0x24",
+      "baseZ": "0x28",
+      "width": "0x1c",
+      "height": "0x20",
+      "players": "0x60",
+      "npcs": "0x90",
+      "npcIndices": "0xd0",
+      "npcIndexCount": "0xd8",
+      "objPiles": "0x140",
+      "objPiles.stride": "0x18",
+      "objPiles.dataOffset": "0x10",
+      "graphicsObjects": "0x160"
+    },
+    "Actor": {
+      "fineX": "0x268",
+      "fineZ": "0x26c",
+      "pathX": "0x3f0",
+      "pathZ": "0x418",
+      "worldId": "0x4a0",
+      "interactingType": "0x3a7",
+      "interacting": "0x3a8",
+      "hidden": "0x1c",
+      "render2D": "0x3a0",
+      "headbars": "0x388",
+      "headbarCount": "0x398",
+      "anim": "0x4d8",
+      "animSeqType": "0x4d0",
+      "pathLength": "0x3ec",
+      "poseAnims": "0x280",
+      "overheadTimer": "0x2f4",
+      "name": "0x710",
+      "overheadText": "0x2d8",
+      "spotAnims": "0x6f0",
+      "spotAnimsEnd": "0x6f8",
+      "hitmarks": "0x330",
+      "hitmarksEnd": "0x338"
+    },
+    "Headbar": {
+      "type": "0x8",
+      "updates": "0x10",
+      "updateCount": "0x20"
+    },
+    "HeadbarType": {
+      "id": "0x0",
+      "duration": "0x18"
+    },
+    "HeadbarEntry": {
+      "cycle": "0x0",
+      "health": "0x4",
+      "health2": "0x8",
+      "cycleOffset": "0xc"
+    },
+    "Npc": {
+      "type": "0x730",
+      "index": "0x738",
+      "spawnCycle": "0x73c"
+    },
+    "NpcType": {
+      "id": "0x0",
+      "size": "0x20",
+      "name": "0x8",
+      "type": "0x94",
+      "ops": "0x100",
+      "isFollower": "0x15a",
+      "multiCount": "0x140",
+      "multi": "0x148",
+      "multiVarbit": "0x150",
+      "multiVarp": "0x154"
+    },
+    "Player": {
+      "name": "0x718",
+      "level": "0x798",
+      "index": "0x79c",
+      "friendState": "0x7a0",
+      "friendChatState": "0x7a4",
+      "groupState": "0x7a8"
+    },
+    "PlayerName": {
+      "display": "0x0",
+      "normalized": "0x18"
+    },
+    "FriendManager": {
+      "friends": "0x8",
+      "ignores": "0xb8"
+    },
+    "NameList": {
+      "byName": "0x28",
+      "byPrevName": "0x58"
+    },
+    "NameNode": {
+      "value": "0x30",
+      "next": "0x38"
+    },
+    "Friend": {
+      "world": "0x68"
+    },
+    "SpotAnimSlot": {
+      "size": "0x18",
+      "slot": "0x0",
+      "spotAnim": "0x10"
+    },
+    "ActorSpotAnim": {
+      "id": "0x260",
+      "height": "0x268",
+      "startCycle": "0x26c",
+      "animFrame": "0x28e"
+    },
+    "Scene": {
+      "sizeX": "0x948",
+      "sizeZ": "0x94c",
+      "tiles": "0x968",
+      "bridgeTiles": "0x980",
+      "levels": "0x944",
+      "heights": "0x3d0",
+      "tileSettings": "0x400",
+      "cameraTrig": "0x418",
+      "tileEntryStride": "0x10",
+      "tileEntryPtrOffset": "0x8",
+      "collisionMaps": "0x2f8",
+      "collisionMapsEnd": "0x300"
+    },
+    "Tile": {
+      "wall": "0x108",
+      "wallDecor": "0x110",
+      "groundDecor": "0x118",
+      "gameObjectCount": "0x34",
+      "gameObjects": "0x38",
+      "gameObjectEntryStride": "0x10"
+    },
+    "Loc": {
+      "tag": "0x38",
+      "tagIdShift": "0x14",
+      "tagKindShift": "0x10"
+    },
+    "GameObject": {
+      "tag": "0x1f0",
+      "originX": "0x210",
+      "originZ": "0x218"
+    },
+    "GroundItem": {
+      "id": "0x20",
+      "count": "0x24"
+    },
+    "LocType": {
+      "id": "0x8"
+    },
+    "Inventory": {
+      "id": "0x0",
+      "next": "0x38",
+      "ids": "0x8",
+      "idsEnd": "0x10",
+      "counts": "0x20",
+      "countsEnd": "0x28"
+    },
+    "IfGroupNode": {
+      "key": "0x0",
+      "next": "0x28",
+      "value": "0x4"
+    },
+    "SubInterfaceNode": {
+      "key": "0x0",
+      "next": "0x10",
+      "group": "0x4",
+      "type": "0x8"
+    },
+    "IfStore": {
+      "groupCount": "0x6888",
+      "groups": "0x6890"
+    },
+    "IfStoreGroup": {
+      "stride": "0x18",
+      "count": "0x8",
+      "slots": "0x10",
+      "slotStride": "0x10"
+    },
+    "IfType": {
+      "packedId": "0x4",
+      "layerSubId": "0xc",
+      "type": "0x28",
+      "sourceName": "0x10",
+      "aspectRatio": "0x6c",
+      "scrollPos": "0x84",
+      "scrollSize": "0x8c",
+      "colour": "0x98",
+      "colour2": "0x9c",
+      "colourOver": "0xa0",
+      "shadowColour": "0xf4",
+      "graphicURL": "0xd0",
+      "text": "0x158",
+      "text2": "0x170",
+      "baseOpName": "0x2c0",
+      "opCount": "0x2e0",
+      "opNames": "0x2e8",
+      "dynCount": "0xb50",
+      "dynSlots": "0xb58",
+      "renderCycle": "0xb78",
+      "subOpCount": "0x2f8",
+      "subOpNames": "0x300",
+      "onKey": "0x758",
+      "dragDeadZone": "0x320",
+      "dragDeadTime": "0x324",
+      "onMouseRepeat": "0x470",
+      "events": "0x2b0",
+      "subId": "0x8",
+      "x": "0x5c",
+      "y": "0x60",
+      "width": "0x64",
+      "height": "0x68",
+      "hidden": "0x78",
+      "graphic": "0xc8",
+      "graphic2": "0xcc",
+      "transparency": "0xb0",
+      "layerId": "0x74",
+      "event": "0x2c",
+      "eventCode": "0x30",
+      "isEntityOverlay": "0x34",
+      "lastProcess": "0x38",
+      "modeX": "0x3c",
+      "modeY": "0x40",
+      "modeWidth": "0x44",
+      "modeHeight": "0x48",
+      "dataX": "0x4c",
+      "dataY": "0x50",
+      "dataWidth": "0x54",
+      "dataHeight": "0x58",
+      "layerIdXMin": "0x7c",
+      "layerIdXMax": "0x80",
+      "overlayType": "0x94",
+      "overlayId": "0x288",
+      "fill": "0xa8",
+      "blendMode": "0xac",
+      "strokeWidth": "0xb8",
+      "diagonalStartAtBottom": "0xbc",
+      "startAngle": "0xc0",
+      "stopAngle": "0xc4",
+      "rotate": "0xe8",
+      "tiling": "0xec",
+      "outline": "0xf0",
+      "vFlip": "0xf8",
+      "hFlip": "0xf9",
+      "model1Id": "0x100",
+      "model1Type": "0xfc",
+      "model2Id": "0x108",
+      "model2Type": "0x104",
+      "modelAnim": "0x10c",
+      "modelAnim2": "0x110",
+      "modelXOf": "0x114",
+      "modelYOf": "0x118",
+      "modelXAn": "0x11c",
+      "modelYAn": "0x120",
+      "modelZAn": "0x124",
+      "modelZoom": "0x128",
+      "modelWid": "0x12c",
+      "modelHei": "0x130",
+      "modelSpin": "0x134",
+      "orthog": "0x138",
+      "linkObjType": "0xb38",
+      "linkObjCount": "0xb3c"
+    },
+    "CollisionMapRecord": {
+      "stride": "0x28",
+      "originX": "0x0",
+      "originZ": "0x4",
+      "sizeX": "0x8",
+      "sizeZ": "0xc",
+      "flags": "0x20",
+      "columnStride": "0x18",
+      "columnData": "0x10"
+    },
+    "MapLoader": {
+      "baseX": "0x54bc",
+      "baseZ": "0x54c0"
+    },
+    "Minimenu": {
+      "rows": "0x280",
+      "open": "0x7c0",
+      "clicked": "0x3d8",
+      "clickCycles": "0x534",
+      "playerOps": "0x898",
+      "playerOpPriorities": "0x958"
+    },
+    "MinimenuEntry": {
+      "size": "0x150",
+      "option": "0xb8",
+      "target": "0x50",
+      "typeId": "0x128",
+      "subjectIndex": "0x12c",
+      "opIndex": "0x134",
+      "level": "0x138",
+      "x": "0x13c",
+      "z": "0x140",
+      "subjectType": "0x146"
+    },
+    "Projectile": {
+      "hidden": "0x1c",
+      "startCycle": "0x288",
+      "endCycle": "0x28c",
+      "sourceLevel": "0x260",
+      "sourceX": "0x264",
+      "sourceZ": "0x268",
+      "sourceActor": "0x270",
+      "startHeight": "0x26c",
+      "targetLevel": "0x274",
+      "targetX": "0x278",
+      "targetZ": "0x27c",
+      "targetActor": "0x284",
+      "endHeight": "0x280",
+      "slope": "0x290",
+      "startDistance": "0x294",
+      "spotAnimId": "0x298",
+      "started": "0x2c0",
+      "fineX": "0x2a0",
+      "fineY": "0x2a8",
+      "fineZ": "0x2b0",
+      "yaw": "0x2b8",
+      "pitch": "0x2bc"
+    },
+    "GraphicsObject": {
+      "spotAnimId": "0x274",
+      "level": "0x264",
+      "fineX": "0x268",
+      "fineZ": "0x26c",
+      "height": "0x270",
+      "startCycle": "0x260",
+      "animSeqType": "0x288",
+      "animFrame": "0x296",
+      "hidden": "0x1c"
+    },
+    "KeyedProjectile": {
+      "spotAnimId": "0x264",
+      "startCycle": "0x2ac",
+      "endCycle": "0x2b0",
+      "sourceLevel": "0x268",
+      "sourceX": "0x26c",
+      "sourceZ": "0x270",
+      "sourceActor": "0x280",
+      "sourceOffsetX": "0x274",
+      "startHeight": "0x278",
+      "sourceOffsetZ": "0x27c",
+      "targetLevel": "0x290",
+      "targetX": "0x294",
+      "targetZ": "0x298",
+      "targetActor": "0x2a8",
+      "targetOffsetX": "0x29c",
+      "endHeight": "0x2a0",
+      "targetOffsetZ": "0x2a4",
+      "started": "0x300",
+      "fineX": "0x2e0",
+      "fineY": "0x2e4",
+      "fineZ": "0x2e8",
+      "yaw": "0x318",
+      "pitch": "0x31c",
+      "hidden": "0x1c"
+    },
+    "Destination": {
+      "x": "0x0",
+      "z": "0x4"
+    },
+    "Connection": {
+      "outCipher": "0xa08"
+    },
+    "ScriptRunner": {
+      "intStack": "0x50",
+      "intStackSize": "0xff0",
+      "objStack": "0xff8",
+      "objStackSize": "0xac38",
+      "frameCount": "0xcbc0",
+      "activeComponent": "0xded8",
+      "dotComponent": "0xdee8"
+    },
+    "ScriptFrame": {
+      "script": "0x0"
+    },
+    "ClientScript": {
+      "id": "0x18"
+    },
+    "VarValue": {
+      "type": "0x20",
+      "size": "0x28"
+    },
+    "HookReq": {
+      "argCount": "0x8",
+      "args": "0x10",
+      "source": "0x40",
+      "target": "0x60",
+      "op": "0x50",
+      "subOp": "0x54",
+      "mouseX": "0x48",
+      "mouseY": "0x4c",
+      "keyCode": "0x68",
+      "keyChar": "0x6c",
+      "opbase": "0x70"
+    },
+    "ChatLine": {
+      "type": "0x40",
+      "cycle": "0x8",
+      "name": "0x48",
+      "text": "0x70",
+      "sender": "0xa0"
+    },
+    "Hitmark": {
+      "size": "0xc",
+      "type": "0x0",
+      "value": "0x4",
+      "endCycle": "0x8"
+    },
+    "IfListener": {
+      "count": "0x8",
+      "args": "0x10"
+    },
+    "IfEventsNode": {
+      "key": "0x0",
+      "from": "0x4",
+      "to": "0x8",
+      "events": "0xc",
+      "next": "0x18"
+    },
+    "Js5Archive": {
+      "groupCount": "0x28",
+      "groups": "0x30"
+    },
+    "Js5Group": {
+      "size": "0x70",
+      "version": "0x4",
+      "fileCount": "0x40",
+      "files": "0x48"
+    },
+    "Js5File": {
+      "size": "0x20",
+      "start": "0x8",
+      "buffer": "0x18"
+    },
+    "Packet": {
+      "length": "0x8",
+      "data": "0x10"
+    },
+    "HighlightManager": {
+      "npcs": "0x1258",
+      "npcTypes": "0x12b8",
+      "players": "0x1288",
+      "objTypes": "0x1318",
+      "categoryCount": "0x9",
+      "channelMax": "0x1f"
+    },
+    "HighlightIdNode": {
+      "mask": "0x8",
+      "next": "0x10"
+    },
+    "HighlightNameNode": {
+      "mask": "0x18",
+      "next": "0x20"
+    },
+    "HighlightConfig": {
+      "colour": "0x0",
+      "outlineWidth": "0x4",
+      "enableModelOutline": "0x6",
+      "enableTileOutline": "0x7",
+      "enableModelFill": "0x8",
+      "enableTileFill": "0x9",
+      "alwaysOnTop": "0xa",
+      "showInsideEdges": "0xb",
+      "saveToFile": "0xc",
+      "snapToGrid": "0xd",
+      "swOnly": "0xe",
+      "ignoreRebuild": "0xf",
+      "disableModel": "0x10"
+    },
+    "GlDevice": {
+      "context": "0x10",
+      "recordingFrame": "0x1068",
+      "renderingFrame": "0x1070"
+    },
+    "InterfaceCoordinates": {
+      "offX": "0x10",
+      "offY": "0x14",
+      "clipX1": "0x0",
+      "clipX2": "0x8",
+      "clipY1": "0x4",
+      "clipY2": "0xc",
+      "scriptOffX": "0x18",
+      "scriptOffY": "0x1c"
+    }
+  },
+  "containers": {
+    "minimenu": {
+      "node.list": "0x0",
+      "node.index": "0x8",
+      "node.children": "0x10",
+      "node.size": "0x18",
+      "list.entries": "0x18"
+    },
+    "hash_map": {
+      "buckets": "0x8",
+      "bucketCount": "0x10",
+      "node.key": "0x0",
+      "node.value": "0x10",
+      "node.next": "0x18"
+    },
+    "shared_ptr": {
+      "ptr": "0x8"
+    },
+    "list": {
+      "node.next": "0x0",
+      "node.prev": "0x8",
+      "node.value": "0x18"
+    },
+    "string": {
+      "size": "0x18",
+      "ssoCapacity": "0x17",
+      "heapFlagByte": "0x17",
+      "heapFlagMask": "0x80"
+    }
+  },
+  "enums": {
+    "gameState": {
+      "LOGGED_IN": 30
+    },
+    "minimenuSubject": {
+      "TILE": 1,
+      "NPC": 2,
+      "LOC": 3,
+      "OBJ": 4,
+      "PLAYER": 6,
+      "COMPONENT": 7
+    },
+    "minimenuOp": {
+      "TARGET": -1,
+      "EXAMINE": 2147483646
+    },
+    "clientProt": {
+      "EVENT_MOUSE_CLICK": 36,
+      "RESUME_P_COUNTDIALOG": 31,
+      "RESUME_P_NAMEDIALOG": 33,
+      "RESUME_P_STRINGDIALOG": 39,
+      "RESUME_P_OBJDIALOG": 74
+    },
+    "varValueType": {
+      "INT": 1,
+      "STRING": 2,
+      "LONG": 5
+    },
+    "events": {
+      "NULL_EVENT": -1,
+      "POINTER_MOVE": 0,
+      "POINTER_PRESS": 1,
+      "POINTER_RELEASE": 2,
+      "POINTER_DRAG": 3,
+      "POINTER_CANCEL": 4,
+      "KEYBOARD_INPUT_FOCUS_CHANGE": 5,
+      "TEXT_COMMAND_RECEIVED": 6,
+      "WHEEL_SCROLL": 7,
+      "KEY_DOWN": 8,
+      "KEY_UP": 9,
+      "KEY_TYPE": 10,
+      "ON_VAR_TRANSMIT": 11,
+      "ON_INV_TRANSMIT": 12,
+      "ON_STAT_TRANSMIT": 13,
+      "ON_CHAT_TRANSMIT": 14,
+      "ON_FRIEND_TRANSMIT": 15,
+      "ON_STOCK_TRANSMIT": 16,
+      "ON_ACTIVE_OFFERS_TRANSMIT": 17,
+      "ON_CLAN_RECORD_TRANSMIT": 18,
+      "ON_CLAN_CHANNEL_TRANSMIT": 19,
+      "ON_FRIEND_CHANNEL_TRANSMIT": 20,
+      "ON_TARGET_ENTER": 21,
+      "ON_TARGET_LEAVE": 22,
+      "ON_NPC_OP": 23,
+      "ON_LOC_OP": 24,
+      "ON_TILE_OP": 25,
+      "ON_PLAYER_OP": 26,
+      "ON_OBJ_OP": 27,
+      "ON_COMPONENT_OP": 28,
+      "ON_RUN_ENERGY_TRANSMIT": 29,
+      "ON_RUN_WEIGHT_TRANSMIT": 30,
+      "ON_REBOOT_TIMER_TRANSMIT": 31,
+      "ON_DIALOG_ABORT": 32,
+      "ON_SUB_CHANGE": 33,
+      "ON_MAP_REBUILD_PRE": 34,
+      "ON_MAP_REBUILD_POST": 35,
+      "ON_MINIMENU_REBUILD": 36,
+      "ON_MINIMENU_CLICK": 37,
+      "ON_CLIENTSCRIPT": 38,
+      "ON_GAME_STATE_CHANGED": 39,
+      "ON_LOC_LOAD": 40,
+      "ON_LOC_UNLOAD": 41,
+      "ON_NPC_LOAD": 42,
+      "ON_NPC_UNLOAD": 43,
+      "ON_GAME_TICK": 44,
+      "ON_SCREEN_RESIZE": 45,
+      "ON_VARBIT_UPDATE": 46,
+      "ON_IF_LOAD": 47,
+      "ON_IF_CLICK": 48,
+      "ON_IF_CLICK_REPEAT": 49,
+      "ON_IF_HOLD": 50,
+      "ON_IF_MOUSEOVER": 51,
+      "ON_IF_MOUSEREPEAT": 52,
+      "ON_IF_MOUSELEAVE": 53,
+      "ON_IF_DRAG": 54,
+      "ON_IF_DRAG_COMPLETE": 55,
+      "ON_IF_OP": 56,
+      "ON_IF_OPT": 57,
+      "ON_IF_TIMER": 58,
+      "ON_IF_MISC_TRANSMIT": 59,
+      "ON_IF_COMPONENT_CHANGED": 60,
+      "ON_PERF_CAPTURE_START": 61,
+      "ON_PERF_CAPTURE_END": 62,
+      "COUNT": 63
+    },
+    "gameStateTrigger": {
+      "ENTER_TITLE_STATE": 0,
+      "ENTER_LOADING_STATE": 1,
+      "ENTER_WORLD_STATE": 2,
+      "LEAVE_WORLD_STATE": 3,
+      "ENTER_WORLD_HOP_STATE": 4
+    },
+    "profileType": {
+      "STANDARD": 0,
+      "BETA": 1,
+      "DEADMAN": 2,
+      "PVP_ARENA": 3,
+      "QUEST_SPEEDRUNNING": 4,
+      "SEASONAL": 5
+    },
+    "highlightCategory": {
+      "NPC": 0,
+      "NPCTYPE": 1,
+      "LOC": 2,
+      "LOCTYPE": 3,
+      "OBJ": 4,
+      "OBJTYPE": 5,
+      "PLAYER": 6,
+      "TILE": 7,
+      "OPGROUP": 8,
+      "NUM_CATEGORIES": 9
+    }
+  },
+  "functions": {
+    "worldToScreen": "0x187120",
+    "npcLookup": "0x125700",
+    "playerLookup": "0x1250d0",
+    "setSequence": "0xa1b50",
+    "locTypeLoader": "0x5f5a90",
+    "npcTypeLoader": "0x5fa440",
+    "objTypeLoader": "0x5fe820",
+    "varbitRead": "0x5b68b0",
+    "minimenuRun": "0x3730f0",
+    "minimenuViewRebuild": "0x372da0",
+    "minimenuNodeDestroy": "0x381700",
+    "minimenuNodeReserve": "0x382030",
+    "minimenuTextAssign": "0xe57f0",
+    "menuNpcOp": "0x37ee30",
+    "menuLocOp": "0x37dce0",
+    "menuObjOp": "0x32a9a0",
+    "menuPlayerOp": "0x32b6d0",
+    "menuWalk": "0x37d510",
+    "menuNpcTargetOp": "0x37ebf0",
+    "menuLocTargetOp": "0x37da20",
+    "menuObjTargetOp": "0x32a820",
+    "menuPlayerTargetOp": "0x32b4d0",
+    "menuComponentOp": "0x32e7f0",
+    "menuComponentTargetOp": "0x32e440",
+    "menuComponentSelect": "0x32dce0",
+    "menuComponentPause": "0x32e2f0",
+    "menuComponentButton": "0x32dc00",
+    "menuComponentToggle": "0x32e0e0",
+    "menuComponentSet": "0x32e1e0",
+    "menuComponentClose": "0x32e0d0",
+    "packetCreate": "0x681c40",
+    "packetWriteShort": "0x461b0",
+    "packetWriteByte": "0x460c0",
+    "packetWriteInt": "0x460e0",
+    "packetWriteString": "0x3f100",
+    "packetSend": "0x163de0",
+    "packetRelease": "0x681da0",
+    "setVarcInt": "0x33560",
+    "setVarcString": "0x33820",
+    "dispatchEvent": "0xc60b0",
+    "clientCycle": "0x59e90",
+    "setGameState": "0x5cb40",
+    "npcInfoDecode": "0x99b50",
+    "playerInfoDecode": "0xe7500",
+    "playerAdd": "0x3529f0",
+    "playerRemove": "0x9eb60",
+    "objAdd": "0x75e70",
+    "objDel": "0x76190",
+    "objCount": "0x763e0",
+    "projectileCtor": "0xa41b0",
+    "projectileStep": "0xa4340",
+    "projectileListUpdate": "0xc79e0",
+    "executeScript": "0x12f330",
+    "executeScriptInner": "0x12fb40",
+    "scriptLookup": "0x32780",
+    "scriptSwapLocals": "0x12e5b0",
+    "ifOpenSub": "0x865f0",
+    "ifCloseSub": "0x867e0",
+    "renderViewWndProc": "0x6da660",
+    "ifListenerClear": "0x44980",
+    "stringAssign": "0x4bd90",
+    "ifInvalidate": "0x7d730",
+    "highlightNpcOn": "0x330f00",
+    "highlightNpcOff": "0x332e00",
+    "highlightNpcTypeOn": "0x331470",
+    "highlightNpcTypeOff": "0x3332f0",
+    "highlightTileOn": "0x3312f0",
+    "highlightTileOff": "0x3330e0",
+    "highlightPlayerOn": "0x331220",
+    "highlightPlayerOff": "0x333080",
+    "highlightLocOn": "0x330fc0",
+    "highlightLocOff": "0x332e60",
+    "highlightLocTypeOn": "0x331790",
+    "highlightLocTypeOff": "0x333340",
+    "highlightObjOn": "0x3310f0",
+    "highlightObjOff": "0x332f70",
+    "highlightObjTypeOn": "0x331e20",
+    "highlightObjTypeOff": "0x333390",
+    "highlightChannelClear": "0x330560",
+    "highlightChannelConfigure": "0x3a7c70",
+    "present": "0xa5de70",
+    "appUpdate": "0x9211f0",
+    "renderEndFrame": "0xa562b0"
+  },
+  "events": {
+    "ON_GAME_TICK": [
+      {
+        "fn": "0xc60b0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "ON_SCREEN_RESIZE": [
+      {
+        "fn": "0xc60b0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "ON_DIALOG_ABORT": [
+      {
+        "fn": "0xc60b0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "ON_MINIMENU_REBUILD": [
+      {
+        "fn": "0xc60b0",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "ON_GAME_STATE_CHANGED": [
+      {
+        "fn": "0xc7140",
+        "id": 39,
+        "args": 2
+      }
+    ],
+    "ON_NPC_LOAD": [
+      {
+        "fn": "0xc94a0",
+        "idArg": 0,
+        "args": 3
+      }
+    ],
+    "ON_NPC_UNLOAD": [
+      {
+        "fn": "0xc94a0",
+        "idArg": 0,
+        "args": 3
+      }
+    ],
+    "ON_LOC_LOAD": [
+      {
+        "fn": "0xc9690",
+        "id": 40,
+        "args": 4
+      }
+    ],
+    "ON_LOC_UNLOAD": [
+      {
+        "fn": "0xc97f0",
+        "id": 41,
+        "args": 4
+      }
+    ],
+    "ON_VARBIT_UPDATE": [
+      {
+        "fn": "0xc8870",
+        "id": 46,
+        "args": 3
+      }
+    ],
+    "ON_IF_LOAD": [
+      {
+        "fn": "0x1480f0",
+        "id": 47,
+        "args": 3
+      }
+    ],
+    "ON_CLIENTSCRIPT": [
+      {
+        "fn": "0xc85e0",
+        "id": 38,
+        "args": 3
+      }
+    ],
+    "ON_TARGET_ENTER": [
+      {
+        "fn": "0x382970",
+        "idArg": 0,
+        "args": 2
+      }
+    ],
+    "ON_TARGET_LEAVE": [
+      {
+        "fn": "0x382970",
+        "idArg": 0,
+        "args": 2
+      }
+    ],
+    "ON_NPC_OP": [
+      {
+        "fn": "0x384350",
+        "idArg": 0,
+        "args": 4
+      }
+    ],
+    "ON_LOC_OP": [
+      {
+        "fn": "0x384540",
+        "id": 24,
+        "args": 4
+      }
+    ],
+    "ON_TILE_OP": [
+      {
+        "fn": "0x384150",
+        "id": 25,
+        "args": 3
+      }
+    ],
+    "ON_PLAYER_OP": [
+      {
+        "fn": "0x384350",
+        "idArg": 0,
+        "args": 4
+      }
+    ],
+    "ON_OBJ_OP": [
+      {
+        "fn": "0x384740",
+        "id": 27,
+        "args": 4
+      }
+    ],
+    "ON_COMPONENT_OP": [
+      {
+        "fn": "0x384350",
+        "idArg": 0,
+        "args": 4
+      }
+    ],
+    "ON_VAR_TRANSMIT": [
+      {
+        "fn": "0x53400",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "ON_INV_TRANSMIT": [
+      {
+        "fn": "0x53400",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "ON_STAT_TRANSMIT": [
+      {
+        "fn": "0x53400",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "ON_CHAT_TRANSMIT": [
+      {
+        "fn": "0x651e0",
+        "id": 14,
+        "args": 1
+      }
+    ],
+    "ON_RUN_ENERGY_TRANSMIT": [
+      {
+        "fn": "0x53400",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "ON_RUN_WEIGHT_TRANSMIT": [
+      {
+        "fn": "0x53400",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "ON_REBOOT_TIMER_TRANSMIT": [
+      {
+        "fn": "0x53400",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "ON_FRIEND_TRANSMIT": [
+      {
+        "fn": "0x53400",
+        "idArg": 0,
+        "args": 1
+      },
+      {
+        "fn": "0x65690",
+        "id": 15,
+        "args": 1
+      }
+    ],
+    "ON_FRIEND_CHANNEL_TRANSMIT": [
+      {
+        "fn": "0x656e0",
+        "id": 20,
+        "args": 1
+      }
+    ],
+    "ON_CLAN_RECORD_TRANSMIT": [
+      {
+        "fn": "0x53400",
+        "idArg": 0,
+        "args": 1
+      },
+      {
+        "fn": "0x65730",
+        "id": 18,
+        "args": 1
+      }
+    ],
+    "ON_CLAN_CHANNEL_TRANSMIT": [
+      {
+        "fn": "0x53400",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "ON_STOCK_TRANSMIT": [
+      {
+        "fn": "0x53400",
+        "idArg": 0,
+        "args": 1
+      }
+    ],
+    "ON_ACTIVE_OFFERS_TRANSMIT": [
+      {
+        "fn": "0x53400",
+        "idArg": 0,
+        "args": 1
+      }
+    ]
+  }
+}

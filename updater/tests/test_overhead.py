@@ -1,6 +1,7 @@
 """The overhead text recipe (overhead.py) over a miniature of the client's: the actor step counting an actor's overhead
 timer down and emptying its text at 0, the client cycle calling that step and incrementing a counter right after, and
-the say block setting the text and the timer (a store to the timer that isn't a countdown)."""
+the say block setting the text and the timer (a store to the timer that isn't a countdown), and a function with a stack
+slot at the timer's offset."""
 import re
 import unittest
 from types import SimpleNamespace
@@ -33,7 +34,7 @@ def resolve(lines, labels):
 
 
 class OverheadCountdownTests(unittest.TestCase):
-    CYCLE, STEP, COUNTDOWN, ASSIGN, SAY, OTHER_STEP = 0x1000, 0x1400, 0x1800, 0x1c00, 0x2000, 0x2400
+    CYCLE, STEP, COUNTDOWN, ASSIGN, SAY, OTHER_STEP, LOCAL = 0x1000, 0x1400, 0x1800, 0x1c00, 0x2000, 0x2400, 0x2800
 
     @staticmethod
     def countdown(clears=True):
@@ -58,6 +59,7 @@ class OverheadCountdownTests(unittest.TestCase):
             self.COUNTDOWN: assemble(self.COUNTDOWN, self.countdown(clears), labels),
             self.ASSIGN: ["RET"],
             self.SAY: [f"MOV dword ptr [RCX + {TIMER:#x}],0x64", "RET"],
+            self.LOCAL: [f"MOV dword ptr [RSP + {TIMER:#x}],0x0", "RET"],
         }
         labels.update(step=self.STEP, other_step=self.OTHER_STEP, countdown=self.COUNTDOWN, assign=self.ASSIGN)
         return {entry: resolve(lines, labels) for entry, lines in parts.items()}
@@ -75,6 +77,15 @@ class OverheadCountdownTests(unittest.TestCase):
         out = {k: v[0] for k, v in overhead.overhead_countdown(s, {}).items()}
         self.assertEqual(out, {"Actor.overheadText": TEXT, "Client.actorSteps": STEPS})
         self.assertEqual(s.notes, [])
+
+    def test_a_stack_slot_at_the_timers_offset_isnt_interpreted(self):
+        s = self.session()
+        analysed, facts = [], s.prov.facts
+        s.prov.facts = lambda fn, inline=True: analysed.append(fn) or facts(fn, inline)
+        out = {k: v[0] for k, v in overhead.overhead_countdown(s, {}).items()}
+        self.assertEqual(out, {"Actor.overheadText": TEXT, "Client.actorSteps": STEPS})
+        self.assertIn(self.SAY, analysed)
+        self.assertNotIn(self.LOCAL, analysed)
 
     def test_a_countdown_that_never_empties_a_string_gives_nothing(self):
         s = self.session(clears=False)

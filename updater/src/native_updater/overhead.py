@@ -22,7 +22,8 @@ def overhead_countdown(session, p):
     model = session.model
     timer = session.value("Actor.overheadTimer")
     countdowns = {}
-    for fn in sorted({fn for _, fn in model.insns_with_disp(timer) if fn is not None}):
+    fields = {fn for rva, fn in model.insns_with_disp(timer) if fn is not None and field_access(model.insn(rva), timer)}
+    for fn in sorted(fields):
         text = countdown_text(session.prov.facts(fn), timer)
         if text is not None:
             countdowns[fn] = text
@@ -53,6 +54,14 @@ def overhead_countdown(session, p):
                                 "the Client field the client cycle's actor step increments right after counting the "
                                 "overhead timers down")
     return out
+
+
+def field_access(insn, off):
+    """Whether insn reads or writes [reg + off] through a pointer register: a struct field, not a stack slot (the cs2
+    interpreter keeps a local at the timer's offset, and its 30k-instruction body is too big to interpret) or a
+    RIP-relative global."""
+    return insn is not None and any(op.kind == "mem" and op.disp == off and op.base not in (None, "RSP", "RIP")
+                                    for op in insn.ops)
 
 
 def countdown_text(facts, timer):
