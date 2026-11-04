@@ -404,6 +404,30 @@ of the client thread's pass, and an actor that comes into view is drawn for one 
 remembered without the hook and sent when it connects. [Entity visibility](developer/entity-visibility.md) has the
 details.
 
+## Draw List
+
+`client.getDrawList()` draws tile areas and images inside the game's own frames, each tied to an NPC. The native hook
+keeps your items and, in every frame, finds each NPC, projects the item with that frame's camera and draws it into
+the frame, so items stay on the scene while the camera, the player or the NPC moves, and the game never waits for
+Java. Take a layer of your own and close it when done, which removes its items:
+
+```java
+DrawLayer layer = client.getDrawList().createLayer();
+Anchor goblin = Anchor.npc(npc);                     // where the NPC is drawn; Anchor.npcTile(npc) for its server tile
+layer.set(List.of(
+        new DrawItem.TileArea(goblin, 1, 1, Color.CYAN, new Color(0, 255, 255, 20), 2),
+        new DrawItem.Sprite(goblin.lift(240), nameImage, -nameImage.getWidth() / 2, -nameImage.getHeight())));
+// later
+layer.close();
+```
+
+`offset` shifts an anchor along the ground and `lift` raises it, in local units. A tile area is 1 to 64 tiles each
+way, centred on its anchor, with an outline (width in the client's pixels) and a fill. A sprite's image is drawn pixel
+for pixel at the projected anchor plus its offset, in framebuffer pixels; images are matched by identity and sent to
+the game once, so reuse the same image for the same picture. An NPC that is gone draws nothing. Items reach the game
+at the end of the client thread's pass when they changed, and are remembered without the hook and sent when it
+connects (`isAvailable()`). [In-game drawing](developer/in-game-drawing.md#the-anchored-draw-list) has the details.
+
 ## Widget Writes
 
 Four `Widget` setters change the game's component: `setText`, which sets its text the way a script's `cc_settext` does

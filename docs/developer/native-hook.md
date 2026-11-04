@@ -363,14 +363,16 @@ hidden, the walk returns at once.
 
 1. Take a surface the reader thread opened since the last present (an atomic swap), or a request to stop drawing.
 2. Find the current GL context and the window's client size. A new context starts the overlay's GL objects over.
-3. If a surface is open and the context is GL 3.0 or newer: save the client's GL state, upload the overlay frame for
-   this present into a texture (only the rows that changed): with frame sync, the slot tagged for the frame being
-   presented, after waiting for it if Java is still drawing it; otherwise the newest published one. Then draw it as
-   one full-screen triangle with premultiplied alpha blending, and restore the state. The shader is GLSL 330 core on
-   GL 3.3 and up, 150 on 3.2, and 130 on 3.0 and 3.1.
-4. Publish the framebuffer size, GL version and the surface generation drawn, and wake the writer if they changed, so
+3. Take the draw list's batch for the frame being presented (the one endFrame resolved for its frame object).
+4. If a surface is open or the batch has triangles, and the context is GL 3.0 or newer: save the client's GL state,
+   draw the batch, upload the overlay frame for this present into a texture (only the rows that changed): with frame
+   sync, the slot tagged for the frame being presented, after waiting for it if Java is still drawing it; otherwise
+   the newest published one. Then draw it over the batch as one full-screen triangle with premultiplied alpha
+   blending, and restore the state. The shaders are GLSL 330 core on GL 3.3 and up, 150 on 3.2, and 130 on 3.0 and
+   3.1.
+5. Publish the framebuffer size, GL version and the surface generation drawn, and wake the writer if they changed, so
    it sends FRAME.
-5. While a surface is drawn without frame sync, wake the writer so it sends DRAW. Java then draws the overlay's next
+6. While a surface is drawn without frame sync, wake the writer so it sends DRAW. Java then draws the overlay's next
    frame while the game waits on the swap, so the overlay is redrawn once per game frame.
 
 Saving, drawing and restoring each run under an SEH guard. A fault turns the overlay off for the rest of the session,
@@ -383,8 +385,10 @@ are counted instead.
 ## The endFrame Hook
 
 `functions.renderEndFrame` is the GL device's end of frame, `void(GlDevice*, Task*)`: the game thread calls it from
-appUpdate once it has recorded a frame, and it queues the frame for the render thread that presents it. Its detour does
-frame sync ([In-game drawing](in-game-drawing.md#frame-sync)): while `FRAME_SYNC` is on and a surface is drawn, it
+appUpdate once it has recorded a frame, and it queues the frame for the render thread that presents it. Its detour
+first resolves the draw list against the frame's state, into a batch keyed by the frame object at
+`[device + GlDevice.recordingFrame]` ([In-game drawing](in-game-drawing.md#the-anchored-draw-list)), on every frame.
+Then it does frame sync ([In-game drawing](in-game-drawing.md#frame-sync)): while `FRAME_SYNC` is on and a surface is drawn, it
 tags the frame object at `[device + GlDevice.recordingFrame]`, has the writer send `DRAW` with the tag, runs the
 original, and holds the game thread until `FRAME_DONE` reports the tag, for at most 10 ms. The present detour reads
 the frame object it presents at `[device + GlDevice.renderingFrame]`, where the device is its argument minus
@@ -469,6 +473,7 @@ safety net), and reads messages until the socket closes. On STATUS it switches o
 | `FEATURE_VISIBILITY` (64) | `session.setVisibilityHook(...)`: the entity visibility sends `VISIBILITY` |
 | `FEATURE_COMPONENTS` (128) | `session.setComponentHook(...)`: the widget setters' writes send `COMPONENTS` |
 | `FEATURE_FRAME_SYNC` (256) | `GameSurface.connected(..., true)`: the surface can turn frame sync on |
+| `FEATURE_DRAW_LIST` (512) | `session.setDrawHook(...)`: the draw list sends `DRAW_SPRITES` and `DRAW_LIST` |
 
 Raise messages go to `GameSession.onNative`, script messages to `GameSession.onScript`, FPS to `FrameRates`, FRAME to
 `GameSurface.frame`, DRAW to `GameSurface.drawRequested` (which wakes the client thread to draw the overlay's next

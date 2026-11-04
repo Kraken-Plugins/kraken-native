@@ -24,11 +24,15 @@ import java.awt.Stroke;
 
 /**
  * Draws the highlighted NPCs' tile outlines and names, each in its own colours. The game draws the hull and outline
- * styles itself while the native hook is connected; without it, this outlines those NPCs' tiles instead. Nothing is
- * drawn during a cutscene. Runs on the client thread, like the plugin's event handlers, so it reads
+ * styles itself while the native hook is connected; without it, this outlines those NPCs' tiles instead. While the
+ * draw list draws the tiles and names in the game's frames, this draws them only to compare, in magenta and unfilled.
+ * Nothing is drawn during a cutscene. Runs on the client thread, like the plugin's event handlers, so it reads
  * {@link NpcIndicatorsPlugin#getHighlightedNpcs()} without locking.
  */
 class NpcIndicatorsOverlay extends Overlay {
+
+    private static final Color COMPARE = Color.MAGENTA;
+    private static final Color NO_FILL = new Color(0, 0, 0, 0);
 
     private final Client client;
     private final NpcIndicatorsPlugin plugin;
@@ -48,20 +52,24 @@ class NpcIndicatorsOverlay extends Overlay {
             return null;
         }
         boolean drawnInGame = plugin.isDrawnInGame();
+        boolean inFrame = plugin.isDrawnInFrame();
+        if (inFrame && !plugin.isComparing()) {
+            return null;
+        }
         for (HighlightedNpc highlighted : plugin.getHighlightedNpcs().values()) {
-            render(graphics, highlighted, drawnInGame);
+            render(graphics, highlighted, drawnInGame, inFrame);
         }
         return null;
     }
 
-    private void render(Graphics2D graphics, HighlightedNpc highlighted, boolean drawnInGame) {
+    private void render(Graphics2D graphics, HighlightedNpc highlighted, boolean drawnInGame, boolean compare) {
         NPC npc = highlighted.getNpc();
         NPCComposition composition = npc.getTransformedComposition();
         if (composition == null || !composition.isInteractible() || !highlighted.isShown()) {
             return;
         }
-        Color border = highlighted.getHighlightColor();
-        Color fill = highlighted.getFillColor();
+        Color border = compare ? COMPARE : highlighted.getHighlightColor();
+        Color fill = compare ? NO_FILL : highlighted.getFillColor();
         Stroke stroke = new BasicStroke(highlighted.getBorderWidth());
         int size = composition.getSize();
 

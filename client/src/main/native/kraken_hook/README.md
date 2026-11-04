@@ -90,16 +90,18 @@ interface store's layout; it looks up each component a `COMPONENTS` write names,
 the client's listener clear on it, or sets its text with the client's string assignment and invalidate
 ([widget-writes.md](../../../../../docs/developer/widget-writes.md)).
 
-## Protocol v9 (little-endian)
+## Protocol v10 (little-endian)
 
-**Handshake** (Java → DLL): magic `KRK9`, a `u16` slot count, then per slot
+**Handshake** (Java → DLL): magic `KRKA`, a `u16` slot count, then per slot
 `{u64 rva, i32 fixedId (-1 = read idArg), u8 idArg, u8 args, u8 planLen, plan[planLen]}`, where a
 plan entry is `{u8 arg, u8 op}` with ops `RAW, I32, I64, I32X2, CSTR` = 0..4; then
-`u64 clientGlobal, u64 pumpFn, u64 presentFn` (RVAs; 0 = none); then five `u16`-length-prefixed
+`u64 clientGlobal, u64 pumpFn, u64 presentFn` (RVAs; 0 = none); then seven `u16`-length-prefixed
 blocks: the script block (empty for no script hooks; its 155-byte layout is `NativeProtocol.scriptLayout`'s
 and `parseScriptLayout`'s), the menu block (142 bytes, `menuLayout`'s and `menus.cpp`'s `parseLayout`'s),
 the key block (8 bytes, the window procedure's RVA), the visibility block (84 bytes, `visibilityLayout`'s and
-`visibility.cpp`'s) and the component block (84 bytes, `componentLayout`'s and `components.cpp`'s).
+`visibility.cpp`'s), the component block (84 bytes, `componentLayout`'s and `components.cpp`'s), the frame block
+(20 bytes, `frameLayout`'s and `frames.cpp`'s) and the draw block (132 bytes, `drawLayout`'s and
+`drawlist.cpp`'s).
 
 **Messages** (DLL → Java): a `u32` length frame, then
 `{u32 seq, i32 eventId, u64 regs[4], u8 nValues, values...}`, where a value is `{u8 arg, u8 op, payload}`.
@@ -108,7 +110,7 @@ messages carry 0. Reserved ids:
 
 | id | Name | regs |
 |---|---|---|
-| -2 | STATUS | installed slots, requested slots, features (1 = pump hooked, 2 = present hooked, 4 = frame rate, 8 = script hooks, 16 = menu hooks, 32 = key hook, 64 = visibility, 128 = component writes, 256 = frame sync), protocol version 9 |
+| -2 | STATUS | installed slots, requested slots, features (1 = pump hooked, 2 = present hooked, 4 = frame rate, 8 = script hooks, 16 = menu hooks, 32 = key hook, 64 = visibility, 128 = component writes, 256 = frame sync, 512 = draw list), protocol version 10 |
 | -3 | FRAME | framebuffer width, height, GL version (`major << 16 \| minor`), surface generation drawn (0 = none) |
 | -4 | CALLS_DONE | batch id, calls run, calls faulted or skipped, last return value |
 | -5 | FPS | frames since the last FPS, microseconds since it, frame cap in force, 1 if presents were counted (0: frame steps) |
@@ -161,6 +163,13 @@ byte and the body, at most 4 MiB.
   Replaces the rules; applied at every frame's pump; a dropped connection empties them, showing what the DLL hid.
 - `8 COMPONENTS`: `u16 count`, `count` × `{i32 packedId, i32 subId, u8 op (0 set i32, 1 clear listener), u16 offset,
   i32 value}`. Made at the next pump, each component looked up by id first; a dropped connection drops the queue.
+- `9 FRAME_SYNC`, `10 FRAME_DONE`: frame sync on or off, and the overlay for a tagged frame is in the surface
+  ([native-protocol.md](../../../../../docs/developer/native-protocol.md#frame_sync)).
+- `11 DRAW_SPRITES`: `u16 count`, `count` × `{u16 x, u16 y, u16 w, u16 h, w·h × u32 premultiplied ARGB}`, copied into
+  the draw list's 1024 × 1024 atlas.
+- `12 DRAW_LIST`: `u16 count`, `count` × items anchored to NPCs (tile areas and sprites), replacing the ones held;
+  resolved at every endFrame and drawn at the present of the same frame; a dropped connection drops them
+  ([native-protocol.md](../../../../../docs/developer/native-protocol.md#draw_list)).
 
 The surface layout and its lock-free triple-buffer handshake are in
 [in-game-drawing.md](../../../../../docs/developer/in-game-drawing.md).

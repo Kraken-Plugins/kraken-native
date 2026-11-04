@@ -56,6 +56,7 @@ void saveGl(const GlFunctions &f, GlSaved &s) {
     glGetIntegerv(GL_UNPACK_SKIP_ROWS, &s.unpackSkipRows);
     glGetIntegerv(GL_UNPACK_SKIP_PIXELS, &s.unpackSkipPixels);
     glGetIntegerv(KGL_PIXEL_UNPACK_BUFFER_BINDING, &s.unpackBuffer);
+    glGetIntegerv(KGL_ARRAY_BUFFER_BINDING, &s.arrayBuffer);
     // The draw buffer is per framebuffer: the draw reads framebuffer 0's once it binds it
     s.drawBuffer = -1;
 }
@@ -87,6 +88,7 @@ void restoreGl(const GlFunctions &f, const GlSaved &s) {
     glPixelStorei(GL_UNPACK_SKIP_ROWS, s.unpackSkipRows);
     glPixelStorei(GL_UNPACK_SKIP_PIXELS, s.unpackSkipPixels);
     f.bindBuffer(KGL_PIXEL_UNPACK_BUFFER, static_cast<GLuint>(s.unpackBuffer));
+    f.bindBuffer(KGL_ARRAY_BUFFER, static_cast<GLuint>(s.arrayBuffer));
     if (f.bindSampler) {
         f.bindSampler(0, static_cast<GLuint>(s.sampler0));
     }

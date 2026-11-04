@@ -58,6 +58,8 @@ add_library(kraken_hook SHARED
     src/components.cpp
     src/frames.h
     src/frames.cpp
+    src/drawlist.h
+    src/drawlist.cpp
     src/core/frame_reader.h
     src/core/guard.h
     src/core/hooks.h
@@ -68,6 +70,8 @@ add_library(kraken_hook SHARED
     src/core/process.cpp
     src/core/ring.h
     src/core/ring.cpp
+    src/overlay/batch.h
+    src/overlay/batch.cpp
     src/overlay/gl.h
     src/overlay/gl.cpp
     src/overlay/gl_state.h

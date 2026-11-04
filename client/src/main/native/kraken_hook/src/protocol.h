@@ -1,4 +1,4 @@
-// The wire format shared with the Kraken client: protocol v9, little-endian. Every value here must match
+// The wire format shared with the Kraken client: protocol v10, little-endian. Every value here must match
 // NativeProtocol, NativeEventServer and GameSurface on the Java side, so change them together.
 // docs/developer/native-protocol.md describes the format, and docs/developer/in-game-drawing.md the
 // overlay surface.
@@ -12,7 +12,7 @@ namespace kraken {
 // Must match NativeEventServer.PORT on the Java side.
 inline constexpr unsigned short KRAKEN_PORT = 42069;
 
-inline constexpr uint32_t PROTOCOL_VERSION = 9;
+inline constexpr uint32_t PROTOCOL_VERSION = 10;
 inline constexpr int MAX_PLAN = 8;  // capture-plan entries per slot
 inline constexpr int CSTR_MAX = 64; // longest NUL-terminated string captured
 
@@ -56,6 +56,8 @@ inline constexpr int32_t DRAW_EVENT_ID = -10;
 // VISIBILITY commands are honoured. COMPONENTS: the pump is hooked and the handshake named the
 // interface store, so COMPONENTS commands are honoured. FRAME_SYNC: the present and the GL device's
 // endFrame are hooked and the handshake named the device's layout, so FRAME_SYNC is honoured.
+// DRAW_LIST: the present and endFrame are hooked and the handshake named the draw layout, so
+// DRAW_SPRITES and DRAW_LIST are honoured.
 inline constexpr uint64_t FEATURE_PUMP = 1;
 inline constexpr uint64_t FEATURE_PRESENT = 2;
 inline constexpr uint64_t FEATURE_FRAME_RATE = 4;
@@ -65,6 +67,7 @@ inline constexpr uint64_t FEATURE_KEYS = 32;
 inline constexpr uint64_t FEATURE_VISIBILITY = 64;
 inline constexpr uint64_t FEATURE_COMPONENTS = 128;
 inline constexpr uint64_t FEATURE_FRAME_SYNC = 256;
+inline constexpr uint64_t FEATURE_DRAW_LIST = 512;
 
 // Command frames (Java -> DLL): {u32 len, u8 type, body}, len counting the type byte and the body.
 inline constexpr uint8_t CMD_CALLS = 1;
@@ -77,6 +80,8 @@ inline constexpr uint8_t CMD_VISIBILITY = 7;
 inline constexpr uint8_t CMD_COMPONENTS = 8;
 inline constexpr uint8_t CMD_FRAME_SYNC = 9;
 inline constexpr uint8_t CMD_FRAME_DONE = 10;
+inline constexpr uint8_t CMD_DRAW_SPRITES = 11;
+inline constexpr uint8_t CMD_DRAW_LIST = 12;
 inline constexpr uint32_t MAX_FRAME_LIMIT = 1000; // a higher cap is no cap
 inline constexpr uint32_t MAX_FRAME = 4u << 20;   // bytes per command frame
 inline constexpr int MAX_ARGS = 8;                // arguments per call
@@ -216,6 +221,20 @@ inline constexpr int MAX_COMPONENT_TEXT = 4096; // bytes of a COMPONENT_SET_TEXT
 // MAX_FRAME_MISSES waits in a row run out, waits no more until Java catches up.
 inline constexpr uint32_t FRAME_WAIT_MS = 10;
 inline constexpr int MAX_FRAME_MISSES = 3;
+
+// The anchored draw list (docs/developer/in-game-drawing.md, "The Anchored Draw List").
+// DRAW_SPRITES {u16 n, n x {u16 x, u16 y, u16 w, u16 h, w*h x u32 premultiplied BGRA}} copies
+// sprites into the atlas and bumps its version. DRAW_LIST {u16 n, n x item} replaces the items and
+// draws their sprites once the atlas version it arrived at is uploaded; an item is {u8 kind, u8 anchor, u32 npc index, i32 spawn cycle, i32 dx, i32 dy,
+// i32 lift} then its body: DRAW_TILE_AREA {u16 size x, u16 size y, u32 stroke ARGB, u32 fill ARGB,
+// u16 stroke width in 1/16 canvas pixels}, DRAW_SPRITE {u16 atlas x, y, w, h, i16 offset x, y}.
+inline constexpr uint32_t DRAW_ATLAS_SIZE = 1024; // the atlas is this many pixels square
+inline constexpr uint32_t DRAW_ATLAS_WHITE = 4;   // its top-left corner this many pixels square is white
+inline constexpr int MAX_DRAW_ITEMS = 1024;
+inline constexpr uint8_t DRAW_TILE_AREA = 0;
+inline constexpr uint8_t DRAW_SPRITE = 1;
+inline constexpr uint8_t ANCHOR_NPC = 0;      // the NPC's fine position
+inline constexpr uint8_t ANCHOR_NPC_TILE = 1; // the centre of the NPC's server tile
 
 // Overlay surface layout (docs/developer/in-game-drawing.md, "The Overlay Surface").
 inline constexpr uint32_t SURFACE_MAGIC = 0x31564F4B; // "KOV1"

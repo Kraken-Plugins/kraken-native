@@ -6,6 +6,7 @@
 #include "core/hooks.h"
 #include "core/ring.h"
 #include "frames.h"
+#include "overlay/batch.h"
 #include "overlay/gl.h"
 #include "overlay/gl_state.h"
 #include "overlay/surface.h"
@@ -25,6 +26,7 @@ struct GlOverlay {
     int minor = 0;
     bool core = false;
     bool loaded = false;     // the entry points beyond GL 1.1 were looked up (broken if one is missing)
+    bool functions = false;  // every entry point was found, so the draw list's batches can draw
     bool built = false;      // the program and the VAO were built (broken if that failed)
     bool broken = false;     // this context can't draw the overlay (too old, a missing entry point, a shader error)
     GlFunctions fn{};
@@ -98,33 +100,9 @@ bool glAtLeast(int major, int minor) {
 }
 
 /**
- * Compiles one shader from a version line and a body.
- *
- * @param type   the shader type
- * @param header the {@code #version} line
- * @param body   the rest of the GLSL source
- * @return the shader, or 0 if it didn't compile
- */
-GLuint compileShader(GLenum type, const char *header, const char *body) {
-    GLuint shader = g_gl.fn.createShader(type);
-    if (shader == 0) {
-        return 0;
-    }
-    const char *sources[2] = {header, body};
-    g_gl.fn.shaderSource(shader, 2, sources, nullptr);
-    g_gl.fn.compileShader(shader);
-    GLint ok = 0;
-    g_gl.fn.getShaderiv(shader, KGL_COMPILE_STATUS, &ok);
-    if (!ok) {
-        g_gl.fn.deleteShader(shader);
-        return 0;
-    }
-    return shader;
-}
-
-/**
  * Looks up the entry points beyond GL 1.1 for the current context. Leaves g_gl.broken set when the
- * context is older than GL 3.0 or lacks one. Changes no GL state.
+ * context is older than GL 3.0 or lacks one, and g_gl.functions set when it has them all. Changes no
+ * GL state.
  */
 void loadGlFunctions() {
     g_gl.loaded = true;
@@ -134,7 +112,9 @@ void loadGlFunctions() {
     }
     if (!lookupGlFunctions(g_gl.fn, glAtLeast(3, 3))) {
         g_gl.broken = true;
+        return;
     }
+    g_gl.functions = true;
 }
 
 /**
@@ -146,7 +126,7 @@ void buildGl() {
     g_gl.built = true;
     GlFunctions &f = g_gl.fn;
     // A full-screen triangle from gl_VertexID; image rows are top-down, so the sample flips v.
-    const char *header = glAtLeast(3, 3) ? "#version 330 core\n" : glAtLeast(3, 2) ? "#version 150\n" : "#version 130\n";
+    const char *header = glslHeader(g_gl.major, g_gl.minor);
     const char *vertexBody =
             "out vec2 uv;\n"
             "void main() {\n"
@@ -161,8 +141,8 @@ void buildGl() {
             "void main() {\n"
             "    colour = texture(overlay, vec2(uv.x, 1.0 - uv.y));\n"
             "}\n";
-    GLuint vs = compileShader(KGL_VERTEX_SHADER, header, vertexBody);
-    GLuint fs = compileShader(KGL_FRAGMENT_SHADER, header, fragmentBody);
+    GLuint vs = compileShader(f, KGL_VERTEX_SHADER, header, vertexBody);
+    GLuint fs = compileShader(f, KGL_FRAGMENT_SHADER, header, fragmentBody);
     if (vs == 0 || fs == 0) {
         if (vs) f.deleteShader(vs);
         if (fs) f.deleteShader(fs);
@@ -310,30 +290,15 @@ void takeFrame(const SurfaceView &surface, uint32_t want) {
 }
 
 /**
- * The body of drawOverlay, between saving and restoring the client's state.
+ * Makes sure the overlay texture matches the surface and takes the frame for this present into it.
  *
  * @param surface the open surface
  * @param width   the window's client width
  * @param height  the window's client height
- * @param s       the saved state, whose draw buffer this fills in once framebuffer 0 is bound
  * @param want    the tag of the frame being presented, 0 for the newest
+ * @return true if the texture holds rows to show; an empty overlay costs no draw
  */
-void drawOverlayBody(const SurfaceView &surface, uint32_t width, uint32_t height, GlSaved &s, uint32_t want) {
-    GlFunctions &f = g_gl.fn;
-    if (!g_gl.built) {
-        buildGl();
-        if (g_gl.broken) {
-            return;
-        }
-    }
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-    glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
-    glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
-    f.bindBuffer(KGL_PIXEL_UNPACK_BUFFER, 0);
-    if (f.bindSampler) {
-        f.bindSampler(0, 0);
-    }
+bool uploadSurface(const SurfaceView &surface, uint32_t width, uint32_t height, uint32_t want) {
     if (g_gl.texture == 0) {
         glGenTextures(1, &g_gl.texture);
         g_gl.texWidth = 0;
@@ -360,8 +325,37 @@ void drawOverlayBody(const SurfaceView &surface, uint32_t width, uint32_t height
         g_gl.linear = linear;
     }
     takeFrame(surface, want);
-    if (!g_gl.texValid || g_gl.texBottom <= g_gl.texTop) {
-        return; // nothing to show: an empty overlay costs no draw
+    return g_gl.texValid && g_gl.texBottom > g_gl.texTop;
+}
+
+/**
+ * The body of drawOverlay, between saving and restoring the client's state: the draw list's batch
+ * first, then the surface's frame over it.
+ *
+ * @param surface the open surface, null for none
+ * @param width   the window's client width
+ * @param height  the window's client height
+ * @param s       the saved state, whose draw buffer this fills in once framebuffer 0 is bound
+ * @param want    the tag of the frame being presented, 0 for the newest
+ * @param items   whether the draw list's batch for this present has triangles
+ */
+void drawOverlayBody(const SurfaceView *surface, uint32_t width, uint32_t height, GlSaved &s, uint32_t want,
+                     bool items) {
+    GlFunctions &f = g_gl.fn;
+    if (surface != nullptr && !g_gl.built) {
+        buildGl();
+    }
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+    glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+    f.bindBuffer(KGL_PIXEL_UNPACK_BUFFER, 0);
+    if (f.bindSampler) {
+        f.bindSampler(0, 0);
+    }
+    bool image = surface != nullptr && !g_gl.broken && uploadSurface(*surface, width, height, want);
+    if (!image && !items) {
+        return;
     }
 
     f.bindFramebuffer(KGL_DRAW_FRAMEBUFFER, 0);
@@ -387,9 +381,15 @@ void drawOverlayBody(const SurfaceView &surface, uint32_t width, uint32_t height
     if (s.polygonMode[0] != GL_FILL) {
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
-    f.useProgram(g_gl.program);
-    f.bindVertexArray(g_gl.vao);
-    glDrawArrays(GL_TRIANGLES, 0, 3);
+    if (items) {
+        batch::draw(f, g_gl.major, g_gl.minor, width, height);
+    }
+    if (image) {
+        f.useProgram(g_gl.program);
+        f.bindVertexArray(g_gl.vao);
+        glBindTexture(GL_TEXTURE_2D, g_gl.texture);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+    }
 }
 
 /**
@@ -407,16 +407,18 @@ bool guardedSave(GlSaved &s) {
 /**
  * Runs the draw under an SEH guard.
  *
- * @param surface the open surface
+ * @param surface the open surface, null for none
  * @param width   the window's client width
  * @param height  the window's client height
  * @param s       the saved state
  * @param want    the tag of the frame being presented, 0 for the newest
+ * @param items   whether the draw list's batch for this present has triangles
  * @return false if it faulted
  */
-bool guardedDraw(const SurfaceView &surface, uint32_t width, uint32_t height, GlSaved &s, uint32_t want) {
+bool guardedDraw(const SurfaceView *surface, uint32_t width, uint32_t height, GlSaved &s, uint32_t want,
+                 bool items) {
     bool faulted = false;
-    GUARD_BEGIN drawOverlayBody(surface, width, height, s, want); GUARD_END
+    GUARD_BEGIN drawOverlayBody(surface, width, height, s, want, items); GUARD_END
     return !faulted;
 }
 
@@ -433,16 +435,17 @@ bool guardedRestore(const GlSaved &s) {
 }
 
 /**
- * Uploads the newest frame and draws the overlay over framebuffer 0. Saves the client's GL state
+ * Draws the draw list's batch and the surface's frame over framebuffer 0. Saves the client's GL state
  * first and restores it after, even when drawing faults.
  *
- * @param surface the open surface
+ * @param surface the open surface, null for none
  * @param width   the window's client width
  * @param height  the window's client height
  * @param want    the tag of the frame being presented, 0 for the newest
+ * @param items   whether the draw list's batch for this present has triangles
  * @return false if drawing faulted
  */
-bool drawOverlay(const SurfaceView &surface, uint32_t width, uint32_t height, uint32_t want) {
+bool drawOverlay(const SurfaceView *surface, uint32_t width, uint32_t height, uint32_t want, bool items) {
     if (!g_gl.loaded) {
         bool faulted = false;
         GUARD_BEGIN loadGlFunctions(); GUARD_END
@@ -450,14 +453,14 @@ bool drawOverlay(const SurfaceView &surface, uint32_t width, uint32_t height, ui
             return false;
         }
     }
-    if (g_gl.broken) {
+    if (!g_gl.functions) {
         return true;
     }
     GlSaved s{};
     if (!guardedSave(s)) {
         return false;
     }
-    bool drew = guardedDraw(surface, width, height, s, want);
+    bool drew = guardedDraw(surface, width, height, s, want, items);
     bool restored = guardedRestore(s);
     return drew && restored;
 }
@@ -494,13 +497,14 @@ bool publishFrameValue(std::atomic<uint32_t> &slot, uint32_t value) {
 }
 
 /**
- * The overlay's share of one present: track the framebuffer and context, take a new surface, and
- * draw the frame for this present, waking the writer thread when what FRAME reports changed. Present
- * thread only; never touches the ring.
+ * The overlay's share of one present: track the framebuffer and context, take a new surface and the
+ * draw list's batch, and draw them for this present, waking the writer thread when what FRAME
+ * reports changed. Present thread only; never touches the ring.
  *
- * @param want the tag of the frame being presented, 0 for the newest
+ * @param want  the tag of the frame being presented, 0 for the newest
+ * @param frame the frame object being presented, 0 without a render thread
  */
-void overlayFrame(uint32_t want) {
+void overlayFrame(uint32_t want, uint64_t frame) {
     adoptPendingSurface();
     HDC dc = wglGetCurrentDC();
     HGLRC rc = wglGetCurrentContext();
@@ -523,15 +527,20 @@ void overlayFrame(uint32_t want) {
         g_gl = GlOverlay();
         g_gl.context = rc;
         readGlVersion();
+        batch::reset();
     }
     bool changed = publishFrameValue(g_fbWidth, width);
     changed |= publishFrameValue(g_fbHeight, height);
     changed |= publishFrameValue(g_glVersion, (static_cast<uint32_t>(g_gl.major) << 16) | static_cast<uint32_t>(g_gl.minor));
 
+    bool took = batch::take(frame);
+    bool usable = !g_overlayFaulted && glAtLeast(3, 0) && width > 0 && height > 0;
+    bool image = usable && g_surface != nullptr && !g_gl.broken;
+    bool items = usable && took;
     uint32_t generation = 0;
-    if (g_surface != nullptr && !g_overlayFaulted && !g_gl.broken && glAtLeast(3, 0) && width > 0 && height > 0) {
-        if (drawOverlay(*g_surface, width, height, want)) {
-            generation = g_gl.broken ? 0 : g_surface->generation;
+    if (image || items) {
+        if (drawOverlay(image ? g_surface : nullptr, width, height, want, items)) {
+            generation = image && !g_gl.broken ? g_surface->generation : 0;
         } else {
             g_overlayFaulted = true;
         }
@@ -543,7 +552,8 @@ void overlayFrame(uint32_t want) {
 }
 
 /**
- * The present detour: draws the overlay for the frame being presented over it, then presents it.
+ * The present detour: draws the draw list's batch and the overlay for the frame being presented over
+ * it, then presents it.
  * With frame sync on, that is the overlay Java drew for the frame's tag, waited for if Java is still
  * drawing it. Otherwise it is the newest,
  * and while a surface is drawn the detour wakes the writer thread before presenting, so the writer
@@ -555,7 +565,7 @@ void __fastcall presentDetour(void *self) {
     g_presents.fetch_add(1, std::memory_order_relaxed);
     uint32_t want = frames::tagOf(self);
     frames::awaitOverlay(want);
-    overlayFrame(want);
+    overlayFrame(want, frames::presentingFrame(self));
     if (g_drawnGeneration.load(std::memory_order_relaxed) != 0 && !frames::syncing()) {
         ring::wakeWriter();
     }

@@ -1,9 +1,10 @@
 # In-Game Drawing
 
-Two features run inside the game's process through the native hook. Highlights make the game outline models and tiles
-in its own 3D scene: the DLL calls the client's highlight functions on the game thread. Overlays are Kraken's Java2D
-frames, which the DLL composites into the game's OpenGL frame just before it is shown. Both use the hook's loopback
-connection, described in [native-hook.md](native-hook.md) and [native-protocol.md](native-protocol.md). User-level
+Three features run inside the game's process through the native hook. Highlights make the game outline models and
+tiles in its own 3D scene: the DLL calls the client's highlight functions on the game thread. Overlays are Kraken's
+Java2D frames, which the DLL composites into the game's OpenGL frame just before it is shown. The anchored draw list
+is tile areas and sprites tied to NPCs, which the DLL places and draws in every frame from that frame's own state. All
+three use the hook's loopback connection, described in [native-hook.md](native-hook.md) and [native-protocol.md](native-protocol.md). User-level
 behaviour is in [the client guide](../client.md#overlays), [the API guide](../api.md#highlights) and
 [writing plugins](../writing-plugins.md#overlays).
 
@@ -56,6 +57,10 @@ flowchart LR
 | [`FpsOverlay.java`](../../client/src/main/java/com/kraken/client/ui/overlay/FpsOverlay.java) | The Game and Overlays frame rate rows |
 | [`FrameRates.java`](../../client/src/main/java/com/kraken/client/FrameRates.java) | The game's and the overlays' rates, and the unfocused cap |
 | [`DevToolManager.java`](../../client/src/main/java/com/kraken/client/ui/devtools/DevToolManager.java) | Registers the dev tool painter on the window |
+| [`DrawList.java`](../../api/src/main/java/com/kraken/api/draw/DrawList.java) | The draw list: layers, atlas placement, sending on change and on reconnect |
+| [`WorldLabels.java`](../../client/src/main/java/com/kraken/client/ui/overlay/WorldLabels.java) | Label images for the draw list, in the overlay's text style |
+| [`drawlist.cpp`](../../client/src/main/native/kraken_hook/src/drawlist.cpp) | The items and the atlas the commands send, resolving them at endFrame into a batch per frame |
+| [`batch.cpp`](../../client/src/main/native/kraken_hook/src/overlay/batch.cpp) | Draws a frame's batch at the present: program, vertex buffer, atlas texture |
 | [`protocol.h`](../../client/src/main/native/kraken_hook/src/protocol.h) | Every constant the two sides share |
 | [`calls.cpp`](../../client/src/main/native/kraken_hook/src/calls.cpp) | Queues the batches, runs them in the pump, sends CALLS_DONE |
 | [`pump.cpp`](../../client/src/main/native/kraken_hook/src/pump.cpp) | The `appUpdate` detour: frame cap, then calls |
@@ -648,6 +653,10 @@ flowchart TD
     wakeDraw --> orig
 ```
 
+The detour also takes the [draw list's](#the-anchored-draw-list) batch for the frame it presents, and draws when
+either the surface or the batch has something to show: the batch first, in the same save, draw and restore, then
+the surface's frame over it.
+
 What `drawOverlay` does, in order:
 
 - **Context.** When the GL context changes, `overlayFrame` starts over, because the old objects belong to the old
@@ -671,7 +680,7 @@ The client's GL state is saved first and restored after, under SEH guards. The t
 
 | Saved and restored | Set for the draw |
 |---|---|
-| Current program, vertex array binding | The overlay's program, its empty VAO |
+| Current program, vertex array binding, array buffer binding | The overlay's program, its empty VAO (the draw list's own program, VAO and buffer) |
 | Active texture unit, texture bound to unit 0, sampler on unit 0 | Texture on unit 0, sampler 0 unbound |
 | Draw and read framebuffer bindings, draw buffer (only when it isn't `GL_BACK`) | Framebuffer 0, `GL_BACK` |
 | Viewport | Full window |
@@ -737,6 +746,102 @@ moving works the same on the surface path and the window path. A drag or resize 
 `OverlayManager.saveOverlay` when the button is released. Only panels can be resized. Dynamic overlays, such as labels
 over NPCs, can't be moved.
 
+## The Anchored Draw List
+
+Overlays are drawn by Java, so a frame's overlay is only as current as Java's last read of the game. Frame sync makes
+the game wait for each one, and the wait costs frames. The draw list splits the work instead. Java says what to
+draw: tile areas and sprites, each tied to an NPC. In every frame, the DLL works out where they go, from the state
+that frame was recorded with, and draws them into the frame. Items stay on the scene while the camera, the player or
+the NPC moves, and the game never waits for Java. Java only sends the list again when it changes.
+
+```mermaid
+sequenceDiagram
+    participant Plugin
+    participant List as DrawList
+    participant Reader as DLL reader thread
+    participant Game as Game thread (endFrame detour)
+    participant Render as Render thread (present detour)
+    Plugin->>List: layer.set(items)
+    List->>Reader: DRAW_SPRITES (new images), then DRAW_LIST
+    Reader->>Reader: copy sprites into the atlas, stage the items
+    loop every frame
+        Game->>Game: take staged items, read the camera, the NPCs and the ground
+        Game->>Game: project, build triangles, publish the batch keyed by the frame object
+        Game->>Render: original endFrame queues the frame
+        Render->>Render: take the batch for the frame it presents, upload changed atlas rows, draw
+    end
+```
+
+### The Java Side
+
+[`DrawList`](../../api/src/main/java/com/kraken/api/draw/DrawList.java) is `Client.getDrawList()`. It follows the
+shape of [entity visibility](entity-visibility.md): plugins hold layers, the list is sent whole when it changes and
+when the hook connects, and `GameSession.flushWrites()` flushes it at the end of each pass of the client thread.
+
+| Type | Role |
+|---|---|
+| `DrawLayer` | One plugin's items. `set` replaces them (setting the same items sends nothing), `clear` empties the layer, `close` removes it |
+| `Anchor` | An NPC by index and creation cycle: `npc` (its fine position, the centre of its footprint) or `npcTile` (the centre of the tile the server put it on, its south-west tile for a large NPC). `offset` shifts the point along the ground and `lift` raises it, in local units |
+| `DrawItem.TileArea` | A rectangle of 1 to 64 tiles centred on the anchor, its corners on the ground: an outline of a given width in canvas pixels, then a fill over it |
+| `DrawItem.Sprite` | An image placed at the projected anchor, pixel for pixel, with an offset in framebuffer pixels |
+
+Layers draw in the order they were taken, at most 1,024 items in all (a warning is logged once, and the rest are left
+out). Images are matched by identity. The first time one is used, `AtlasPacker` gives it a place in the atlas: shelf by
+shelf, a pixel apart, below the white corner. Its pixels go out premultiplied, before the list that uses them. Space
+isn't reused while the hook stays connected. Once the atlas is full, a warning is logged and sprites that don't fit
+are left out. A reconnect forgets every placement and sends everything again. A send that fails does the same at the
+next pass, since the hook's state is then unknown.
+
+A plugin draws text by turning it into an image.
+[`WorldLabels`](../../client/src/main/java/com/kraken/client/ui/overlay/WorldLabels.java) draws a label the way
+`OverlayUtil.renderTextLocation` does, at framebuffer scale, and places it as `getCanvasTextLocation` would. It keeps
+the image, so the same label is the same image.
+
+### Resolving Items in the Frame
+
+`drawlist::resolve` runs at the start of the endFrame detour, on the game thread, for every frame, before the frame is
+queued. That is the moment frame sync reads the game from, so the state is the frame's own. Without a render thread
+the present runs inside endFrame, and the batch is ready by then too.
+
+1. It takes the items the last `DRAW_LIST` staged, if the reader thread isn't holding them (a try-lock, as
+   [visibility](entity-visibility.md) does).
+2. It reads the top-level world, its scene and plane, and the camera: the same reads as `Client.getCameraProjection`.
+3. For each item, it looks the NPC up by index in the world's NPC hash map (as `StructReader.hashGet` does) and checks
+   its creation cycle. It takes the anchor point (`Actor.fineX/fineZ`, or `Actor.pathX/pathZ` for the server tile),
+   adds the shift and skips a point outside the scene (`World.width/height`).
+4. A tile area's four corners take the ground height just inside the scene, as `Perspective.getCanvasTileAreaPoly`
+   does. The ground height is `ActorReader`'s: bilinear between the tile's corner heights, from the level above under
+   a bridge. Each corner is projected with `CameraProjection.project`'s arithmetic, kept in floats rather than
+   truncated, so items move smoothly. An item with a corner behind the camera is left out.
+5. It builds triangles in window pixels. The outline is a miter-joined band one pixel wider than the line on each
+   side, with each vertex's distance across it, so the shader can fade the edge. The fill goes over it, then every
+   sprite over all the tile areas.
+6. It publishes the batch, with the window size and the atlas version its sprites need, into the oldest of four slots,
+   keyed by the frame object at `[device + GlDevice.recordingFrame]`. A frame with nothing to draw publishes an empty
+   batch, so items that were cleared don't stay on screen.
+
+Every read goes through the DLL's guarded reads; a bad pointer leaves the item out.
+
+### Drawing at the Present
+
+The present detour looks up the frame object at `[device + GlDevice.renderingFrame]` (`frames::presentingFrame`) and
+takes the batch keyed by it, or the newest one if none is. Slots older than the one taken are dropped, since their
+frames won't be presented. [`overlay/batch.cpp`](../../client/src/main/native/kraken_hook/src/overlay/batch.cpp) then
+draws it inside the same save, draw and restore as the overlay surface, before the surface's frame, so panels go over
+it:
+
+* **Atlas.** A 1024 × 1024 `RGBA8` texture with linear filtering. The rows sprites changed are copied out of the
+  DLL's copy under a try-lock, then uploaded. A new GL context uploads the whole atlas. A batch's sprites are drawn
+  once the texture holds the atlas version the batch needs, and only its tile areas until then.
+* **Shader.** One program (GLSL 330, 150 or 130, as the surface's). Positions are scaled from window to framebuffer
+  pixels by a uniform. A sprite's corners put its anchor on a whole pixel and add their offset, so labels draw texel
+  for pixel. The colour is `texture × vertex colour × coverage`, where the coverage fades a stroke over the pixel past
+  its half width. Untextured triangles sample the atlas's white corner.
+* **State.** Its own VAO and vertex buffer, streamed with `glBufferData` each frame, and the atlas on texture unit 0.
+  The saved and restored state now includes the `GL_ARRAY_BUFFER` binding.
+
+The DLL keeps the atlas when the connection drops and drops the items, so the next frame draws nothing.
+
 ## Failure Handling and Fallbacks
 
 | Condition | What happens | Log |
@@ -757,6 +862,10 @@ over NPCs, can't be moved.
 | One overlay throws | That overlay is skipped, the others draw | `Overlay <name> failed to draw` (WARNING, once until it draws again) |
 | Window painter throws | That painter is skipped for the frame | `Overlay painter failed` (WARNING) |
 | Native hook connection fails | The connection is dropped and the hook reconnects. Calls queued are dropped | `Native event hook connection failed` (WARNING) |
+| Mapping lacks a draw block key | No draw block, so no `FEATURE_DRAW_LIST`: `DrawList.isAvailable` stays false, and NPC Indicators draws on the overlay | `Native event hook: no scene or camera layout in mapping <version>; the draw list isn't drawn in the game.` (INFO) |
+| More than 1,024 draw list items | The rest are left out | `More than 1024 draw list items; the rest aren't drawn` (WARNING, once) |
+| Draw list atlas full | Sprites that don't fit are left out until the hook reconnects | `The draw list's sprite atlas is full; new sprites aren't drawn until the native hook reconnects` (WARNING, once) |
+| The draw list's shader doesn't compile | Batches aren't drawn for that GL context; the overlay surface is unaffected | None |
 
 Under MinGW the SEH guards are no-ops ([`guard.h`](../../client/src/main/native/kraken_hook/src/core/guard.h)). A fault in
 a client call or a GL draw then crashes the game instead of turning the feature off. Build with MSVC for anything beyond
@@ -785,6 +894,10 @@ local testing.
 | 65535 bytes | `NativeCall.MAX_DATA` | Data block per call |
 | 16384 | `protocol.h` `SURFACE_MAX_SIDE` | Largest surface side the DLL opens |
 | 1000 | `protocol.h` `MAX_FRAME_LIMIT` | Cap above this means no cap |
+| 1024 | `protocol.h` `MAX_DRAW_ITEMS`, `WireDrawList.MAX_ITEMS` | Draw list items |
+| 1024 × 1024 | `protocol.h` `DRAW_ATLAS_SIZE`, `WireDrawList.ATLAS_SIZE` | The draw list's sprite atlas, 4 MB |
+| 4 | `drawlist.cpp` `SLOTS` | Resolved batches waiting for their present |
+| 64 | `DrawItem.TileArea.MAX_SIZE` | Tiles a tile area spans along each side |
 | 1000 ms | `ring.cpp` `waitForData` | Writer wakes at least once a second |
 
 ## Testing
@@ -795,7 +908,11 @@ Java tests, run with `./gradlew :api:test` and `./gradlew :client:test`:
 |---|---|
 | [`HighlightsTest`](../../api/src/test/java/com/kraken/api/highlight/HighlightsTest.java) | Channel allocation, every style field's offset, each target's arguments, diffs in `set`, names as short strings, reconnect re-apply, broken connections, `releaseAll`, a mapping without the keys |
 | [`NativeCallTest`](../../api/src/test/java/com/kraken/api/internal/invoke/NativeCallTest.java) | Aligned data copies in one block, scratch offsets, packing of indirect offsets, value semantics, the eight-argument limit |
-| [`NativeProtocolTest`](../../client/src/test/java/com/kraken/client/callback/NativeProtocolTest.java) | The byte framing of `CALLS`, `SURFACE`, `FRAME_LIMIT` and the script block, and parsing of raised and script events |
+| [`NativeProtocolTest`](../../client/src/test/java/com/kraken/client/callback/NativeProtocolTest.java) | The byte framing of `CALLS`, `SURFACE`, `FRAME_LIMIT`, `DRAW_SPRITES` (split under the frame limit), `DRAW_LIST`, the script block and the draw block (against every bundled mapping), and parsing of raised and script events |
+| [`DrawListTest`](../../api/src/test/java/com/kraken/api/draw/DrawListTest.java) | Anchors, sending on connect and reconnect and not when unchanged, layer order and closing, images placed once, premultiplied and sent before the list, resending after a failed send, the atlas-full and item caps |
+| [`AtlasPackerTest`](../../api/src/test/java/com/kraken/api/internal/draw/AtlasPackerTest.java) | Shelves, gaps, the reserved rows, a full atlas, reset |
+| [`WorldLabelsTest`](../../client/src/test/java/com/kraken/client/ui/overlay/WorldLabelsTest.java) | A label's place on its anchor, its colours and shadow, framebuffer scale, the same image for the same label |
+| [`NpcDrawItemsTest`](../../client/src/test/java/com/kraken/client/plugins/npchighlight/NpcDrawItemsTest.java) | The tile areas NPC Indicators sends for each tile style |
 | [`GameSurfaceTest`](../../client/src/test/java/com/kraken/client/ui/overlay/GameSurfaceTest.java) | GL 3 and framebuffer requirements, the first frame, slot choice, slot reuse clearing rows, a new size making a new generation, the 2 s refusal, a disconnect closing the mapping, draw requests, frame sync changes, `finish`, slot tags and sequences, leaving a slot the DLL starts reading. Uses a fake `RegionFactory`, not Win32 |
 | [`OverlayRendererTest`](../../client/src/test/java/com/kraken/client/ui/overlay/OverlayRendererTest.java) | Finding the rows with pixels, the frame schedule at poll and game frame rates, the cap, restarts, clearing rows |
 | [`OverlayCompositorTest`](../../client/src/test/java/com/kraken/client/ui/overlay/OverlayCompositorTest.java) | Anchors and stacks, layers and priorities, failing overlays, editing outlines, the shared top-right stack |
@@ -810,7 +927,8 @@ Updater tests, run from `updater/` with `uv run python -m unittest discover -s t
 - `tests/test_golden.py` checks the accepted 241.3 values in [`241.3.golden.json`](../../updater/corpus/241.3.golden.json).
   It skips unless the build's binary and `program.db` are cached. A skip isn't a pass.
 
-Not covered by any automated test: the DLL (there are no C++ tests), the GL draw, the present hook, the Win32 mapping
+Not covered by any automated test: the DLL (there are no C++ tests, so the draw list's resolving and drawing too), the
+GL draw, the present hook, the Win32 mapping
 calls in `MappedRegion`, `GameOverlay`'s click-through window, `FpsOverlay`, and the Alt editor's window. To test a new
 surface behaviour, pass a fake `RegionFactory` and a clock to `GameSurface`, as `GameSurfaceTest` does.
 
@@ -855,3 +973,12 @@ Live checks still pending. Each of these needs a running client, and none is cov
   and a dragged overlay stays under the pointer with UI scaling.
 - The refusal path: a DLL that doesn't draw should produce the refusal line after 2 s and bring the overlay back in the
   window.
+- Draw list: with "Draw world overlays in the game's frame" and "Compare with the overlay" on, NPC Indicators' tiles
+  and names stay on the scene while the camera turns, zooms and the player walks, while the magenta ones trail. The
+  magenta ones also move in whole canvas pixels, so they step at UI scaling.
+- Draw list: a walking NPC's tile against its model. A tile that steps while the model glides would mean the client
+  smooths models between client cycles and `Actor.fineX/fineZ` change only once a cycle.
+- Draw list: the game's frame rate with the native path and with the overlay, with "Keep in step with the game" off
+  (the respawn overlay is always added, so frame sync would otherwise run in both).
+- Draw list: resize, stretched mode and UI scaling; login, logout and world hops; an NPC despawning (its items go the
+  same frame); about 50 highlighted NPCs; a hook reconnect (sprites and items sent again).

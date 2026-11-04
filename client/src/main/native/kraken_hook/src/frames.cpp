@@ -8,6 +8,7 @@
 #include "core/memory.h"
 #include "core/process.h"
 #include "core/ring.h"
+#include "drawlist.h"
 #include "overlay/overlay.h"
 #include "protocol.h"
 
@@ -144,22 +145,24 @@ void holdGame(uint32_t tag) {
 }
 
 /**
- * The endFrame detour. While frame sync is on and the overlay draws a surface, it tags the frame being
- * queued and asks Java to draw its overlay, queues the frame (so the render thread starts on it while
- * Java draws), then holds the game thread, whose state Java is reading, until Java is done. Game
- * thread.
+ * The endFrame detour. First it resolves the draw list against the state the frame was recorded from,
+ * keyed by the frame object being queued. While frame sync is on and the overlay draws a surface, it
+ * then tags the frame and asks Java to draw its overlay, queues the frame (so the render thread starts
+ * on it while Java draws), and holds the game thread, whose state Java is reading, until Java is done.
+ * Game thread.
  *
  * @param device the GL device
  * @param task   endFrame's second argument, passed through
  */
 void __fastcall endFrameDetour(void *device, void *task) {
     using Fn = void(__fastcall *)(void *, void *);
+    uint64_t frame = 0;
+    memory::readPointer(reinterpret_cast<uint64_t>(device) + g_layout.recording, &frame);
+    drawlist::resolve(frame);
     if (!g_sync.load(std::memory_order_acquire) || !overlay::drawing()) {
         reinterpret_cast<Fn>(g_trampoline)(device, task);
         return;
     }
-    uint64_t frame = 0;
-    memory::readPointer(reinterpret_cast<uint64_t>(device) + g_layout.recording, &frame);
     uint32_t tag = ++g_nextTag;
     if (tag == 0) {
         tag = ++g_nextTag; // 0 means untagged
@@ -230,6 +233,16 @@ void clear() {
 
 uint32_t requested() {
     return g_requested.load(std::memory_order_acquire);
+}
+
+uint64_t presentingFrame(const void *context) {
+    if (!g_ready.load(std::memory_order_acquire) || context == nullptr) {
+        return 0;
+    }
+    uint64_t device = reinterpret_cast<uint64_t>(context) - g_layout.context;
+    uint64_t frame = 0;
+    memory::readPointer(device + g_layout.rendering, &frame);
+    return frame;
 }
 
 uint32_t tagOf(const void *context) {

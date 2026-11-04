@@ -252,6 +252,38 @@ public interface KrakenConfig extends Config {
     }
 
     /**
+     * Whether plugins that can draw their world overlays (tiles and names that follow NPCs) inside the game's own
+     * frames do so: the native hook places them anew in every frame, from that frame's camera and positions, and the
+     * game never waits for them. NPC Indicators can. Needs the native hook.
+     *
+     * @return true to draw world overlays in the game's frames
+     */
+    @ConfigItem(keyName = "worldOverlaysInFrame", name = "Draw world overlays in the game's frame",
+            description = "Plugins that support it (NPC Indicators) draw their tiles and names inside the game's own "
+                    + "frames. They're placed in every frame from that frame's camera and positions, so they stay on "
+                    + "what they mark while the camera, the player or an NPC moves, and the game never waits for "
+                    + "them. Experimental. Needs the native hook.",
+            position = 36, section = overlays)
+    default boolean worldOverlaysInFrame() {
+        return false;
+    }
+
+    /**
+     * Whether plugins drawing their world overlays in the game's frames also draw them the old way, in magenta, to
+     * compare the two.
+     *
+     * @return true to draw both
+     */
+    @ShowIf(key = "worldOverlaysInFrame", values = {"true"})
+    @ConfigItem(keyName = "compareWorldOverlays", name = "Compare with the overlay",
+            description = "Also draw the same tiles and names the old way, on the overlay, in magenta, to compare "
+                    + "the two side by side.",
+            position = 37, section = overlays)
+    default boolean compareWorldOverlays() {
+        return false;
+    }
+
+    /**
      * Whether a mouse click goes before each action a plugin sends, and where it lands.
      *
      * @return the click policy: {@link ClickPolicy#ON_SCREEN} by default

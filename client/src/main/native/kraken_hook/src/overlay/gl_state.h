@@ -41,6 +41,7 @@ struct GlSaved {
     GLint unpackSkipRows;
     GLint unpackSkipPixels;
     GLint unpackBuffer;
+    GLint arrayBuffer;
 };
 
 /**

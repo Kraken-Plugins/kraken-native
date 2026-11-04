@@ -1,10 +1,12 @@
-// The OpenGL the overlay needs beyond GL 1.1's gl.h: the constants, and the entry points it looks up
-// per context through wglGetProcAddress.
+// The OpenGL the overlay and the draw list need beyond GL 1.1's gl.h: the constants, the entry points
+// looked up per context through wglGetProcAddress, and the shader helpers both use.
 #pragma once
 
 #include <windows.h>
 
 #include <GL/gl.h>
+
+#include <cstddef>
 
 // gl.h stops at GL 1.1, but a newer one may define these two.
 #ifndef GL_BGRA
@@ -47,8 +49,12 @@ inline constexpr GLenum KGL_FRAGMENT_SHADER = 0x8B30;
 inline constexpr GLenum KGL_COMPILE_STATUS = 0x8B81;
 inline constexpr GLenum KGL_LINK_STATUS = 0x8B82;
 inline constexpr GLenum KGL_SAMPLE_ALPHA_TO_COVERAGE = 0x809E;
+inline constexpr GLenum KGL_ARRAY_BUFFER = 0x8892;
+inline constexpr GLenum KGL_ARRAY_BUFFER_BINDING = 0x8894;
+inline constexpr GLenum KGL_STREAM_DRAW = 0x88E0;
 
 using KGLchar = char;
+using KGLsizeiptr = ptrdiff_t;
 using PFN_CreateShader = GLuint (APIENTRY *)(GLenum);
 using PFN_ShaderSource = void (APIENTRY *)(GLuint, GLsizei, const KGLchar *const *, const GLint *);
 using PFN_CompileShader = void (APIENTRY *)(GLuint);
@@ -71,6 +77,12 @@ using PFN_BindFramebuffer = void (APIENTRY *)(GLenum, GLuint);
 using PFN_BindSampler = void (APIENTRY *)(GLuint, GLuint);
 using PFN_BlendFuncSeparate = void (APIENTRY *)(GLenum, GLenum, GLenum, GLenum);
 using PFN_BlendEquationSeparate = void (APIENTRY *)(GLenum, GLenum);
+using PFN_GenBuffers = void (APIENTRY *)(GLsizei, GLuint *);
+using PFN_BufferData = void (APIENTRY *)(GLenum, KGLsizeiptr, const void *, GLenum);
+using PFN_VertexAttribPointer = void (APIENTRY *)(GLuint, GLint, GLenum, GLboolean, GLsizei, const void *);
+using PFN_EnableVertexAttribArray = void (APIENTRY *)(GLuint);
+using PFN_BindAttribLocation = void (APIENTRY *)(GLuint, GLuint, const KGLchar *);
+using PFN_Uniform2f = void (APIENTRY *)(GLint, GLfloat, GLfloat);
 
 /**
  * The GL entry points beyond GL 1.1, loaded per context through wglGetProcAddress.
@@ -98,6 +110,12 @@ struct GlFunctions {
     PFN_BindSampler bindSampler;         // GL 3.3; null below
     PFN_BlendFuncSeparate blendFuncSeparate;
     PFN_BlendEquationSeparate blendEquationSeparate;
+    PFN_GenBuffers genBuffers;
+    PFN_BufferData bufferData;
+    PFN_VertexAttribPointer vertexAttribPointer;
+    PFN_EnableVertexAttribArray enableVertexAttribArray;
+    PFN_BindAttribLocation bindAttribLocation;
+    PFN_Uniform2f uniform2f;
 };
 
 /**
@@ -108,5 +126,25 @@ struct GlFunctions {
  * @return false if one is missing
  */
 bool lookupGlFunctions(GlFunctions &f, bool samplers);
+
+/**
+ * The GLSL version line for a context: 330 core on GL 3.3 and up, 150 on 3.2, 130 on 3.0 and 3.1.
+ *
+ * @param major the context's major version
+ * @param minor its minor version
+ * @return the {@code #version} line, newline included
+ */
+const char *glslHeader(int major, int minor);
+
+/**
+ * Compiles one shader from a version line and a body.
+ *
+ * @param f      the context's entry points
+ * @param type   the shader type
+ * @param header the {@code #version} line
+ * @param body   the rest of the GLSL source
+ * @return the shader, or 0 if it didn't compile
+ */
+GLuint compileShader(const GlFunctions &f, GLenum type, const char *header, const char *body);
 
 } // namespace kraken::overlay

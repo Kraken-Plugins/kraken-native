@@ -17,6 +17,7 @@ import com.kraken.api.definition.ItemComposition;
 import com.kraken.api.definition.NPCComposition;
 import com.kraken.api.definition.ObjectComposition;
 import com.kraken.api.definition.VarbitComposition;
+import com.kraken.api.draw.DrawList;
 import com.kraken.api.gameval.InterfaceID;
 import com.kraken.api.highlight.Highlights;
 import com.kraken.api.menu.MenuEdits;
@@ -76,8 +77,8 @@ import java.util.function.Consumer;
  * {@link #openWorldHopper} and {@link #hopToWorld} make of them, and the interaction methods such as
  * {@code npc.interact("Attack")} and the services such as {@link #getInventory()} built on them), the rows of the
  * right-click menu ({@link #getMenuEdits()}, {@link #createMenuEntry}, {@link #setMenuEntries} and the
- * {@link MenuEntry} setters), which entities it draws ({@link #getEntityVisibility()}), and a few fields of interface
- * components (the {@link Widget} setters). Reads are tolerant: an unreadable or logged-out state gives -1, false, "",
+ * {@link MenuEntry} setters), which entities it draws ({@link #getEntityVisibility()}), what it draws over them
+ * ({@link #getDrawList()}), and a few fields of interface components (the {@link Widget} setters). Reads are tolerant: an unreadable or logged-out state gives -1, false, "",
  * null or an empty list rather than an exception.
  *
  * <p>It keeps one handle per actor ({@link #npc}, {@link #player}), so asking twice for the same actor gives the same
@@ -198,6 +199,13 @@ public final class Client extends GameReader {
      */
     @Getter
     private final EntityVisibility entityVisibility;
+
+    /**
+     * Items the client's native hook draws in the game's own frames, each following an NPC, from the state each frame
+     * was drawn with.
+     */
+    @Getter
+    private final DrawList drawList;
 
     /**
      * The rules behind the interaction methods ({@code npc.interact}, {@code widget.useOn} and the rest), and the
@@ -346,6 +354,7 @@ public final class Client extends GameReader {
         this.actions = new Actions(this, mapping);
         this.menuEdits = new MenuEdits(this, mapping);
         this.entityVisibility = new EntityVisibility(this, mapping);
+        this.drawList = new DrawList();
         this.interactions = new Interactions(this);
         this.movement = new Movement(this);
         this.dialogue = new Dialogue(this);

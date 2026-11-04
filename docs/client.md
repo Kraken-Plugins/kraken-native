@@ -234,6 +234,8 @@ Changes apply at once and are saved. **Reset** at the bottom puts every setting 
 | Font | Regular | The font overlay panels use: **Regular**, **Bold** or **Monospaced** |
 | Font size | 12 px | The size of overlay text |
 | Panel background | Translucent dark brown | The colour behind overlay panels |
+| Draw world overlays in the game's frame | Off | Plugins that support it (NPC Indicators) draw their tiles and names inside the game's own frames, placed in every frame from that frame's camera and positions, so they stay on what they mark while the camera, the player or an NPC moves, and the game never waits for them. Experimental. Needs the native hook |
+| Compare with the overlay | Off | Shown while the above is on. Also draws the same tiles and names the old way, on the overlay, in magenta, to compare the two |
 
 **Actions**
 

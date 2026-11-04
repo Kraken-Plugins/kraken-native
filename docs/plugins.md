@@ -58,6 +58,10 @@ Highlights the NPCs whose names you list, and can show when and where they respa
 The game draws hulls and outlines through walls. Without the native hook, NPCs with those styles get their tiles
 outlined instead.
 
+With **Draw world overlays in the game's frame** on in Kraken's Settings (Overlays), the tiles and names are drawn
+inside the game's frames instead of on the overlay, and stay on the NPC while the camera, you or the NPC moves.
+**Compare with the overlay** also draws them the old way, in magenta, so you can see the difference.
+
 Hold Shift and right-click an NPC for these options, just above its **Examine**:
 
 | Option | What it does |

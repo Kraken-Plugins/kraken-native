@@ -10,6 +10,9 @@ import com.kraken.api.actor.NPC;
 import com.kraken.api.actor.Player;
 import com.kraken.api.coords.WorldPoint;
 import com.kraken.api.definition.NPCComposition;
+import com.kraken.api.draw.Anchor;
+import com.kraken.api.draw.DrawItem;
+import com.kraken.api.draw.DrawLayer;
 import com.kraken.api.eventbus.Subscribe;
 import com.kraken.api.events.ClientTick;
 import com.kraken.api.events.GameStateChanged;
@@ -28,6 +31,7 @@ import com.kraken.api.menu.MenuRow;
 import com.kraken.api.menu.MenuRule;
 import com.kraken.api.menu.ShiftState;
 import com.kraken.api.scene.GraphicsObject;
+import com.kraken.client.KrakenConfig;
 import com.kraken.client.callback.ClientThread;
 import com.kraken.client.events.ConfigChanged;
 import com.kraken.client.game.NpcUtil;
@@ -39,6 +43,8 @@ import com.kraken.client.plugins.config.ConfigManager;
 import com.kraken.client.plugins.config.Keybind;
 import com.kraken.client.ui.Prompts;
 import com.kraken.client.ui.overlay.OverlayManager;
+import com.kraken.client.ui.overlay.OverlayUtil;
+import com.kraken.client.ui.overlay.WorldLabels;
 import com.kraken.client.util.ColorUtil;
 import com.kraken.client.util.Text;
 import com.kraken.client.util.WildcardMatcher;
@@ -61,6 +67,9 @@ import java.util.function.Consumer;
  * Highlights NPCs by name, with wildcards, or by index (tagged NPCs), and shows when and where highlighted NPCs that
  * died will respawn. The game draws the hull and outline styles itself, on NPC highlight channels the plugin holds
  * while it runs ({@link NpcHighlightChannels}); its overlays draw the tile styles, the names and the respawn timers.
+ * With Kraken's "Draw world overlays in the game's frame" setting on, the tiles and names go to a draw list layer
+ * instead ({@code Client.getDrawList()}), which the native hook places in every frame; its compare option keeps the
+ * overlay drawing them too, in magenta.
  *
  * <p>Shift + right-click an NPC to Tag or Un-tag it, Tag-All or Un-tag-All its name, and set its NPC id's own colour
  * and style ({@link NpcTagMenu}). The rows are rules the native hook applies as the client rebuilds the menu
@@ -123,6 +132,12 @@ public class NpcIndicatorsPlugin extends Plugin {
 
     @Inject
     private Prompts prompts;
+
+    @Inject
+    private KrakenConfig krakenConfig;
+
+    @Inject
+    private WorldLabels worldLabels;
 
     /**
      * The NPCs highlighted now, with how. Client thread only.
@@ -189,6 +204,16 @@ public class NpcIndicatorsPlugin extends Plugin {
     private volatile NpcHighlightChannels channels;
 
     /**
+     * The tiles and names drawn in the game's frames, held from {@code startUp} to {@code shutDown}.
+     */
+    private volatile DrawLayer drawLayer;
+
+    /**
+     * Whether {@link #overlay} is added now; it is left out while the draw list draws the tiles and names alone.
+     */
+    private volatile boolean overlayAdded;
+
+    /**
      * The ids of the rules adding the menu rows next to each Examine row, by the row's identity. Client thread only.
      */
     private final Map<MenuMatch, List<Integer>> menuRows = new LinkedHashMap<>();
@@ -220,7 +245,9 @@ public class NpcIndicatorsPlugin extends Plugin {
     @Override
     protected void startUp() {
         channels = new NpcHighlightChannels(client.getHighlights());
+        drawLayer = client.getDrawList().createLayer();
         overlayManager.add(overlay);
+        overlayAdded = true;
         overlayManager.add(respawnOverlay);
         keyManager.registerHotkeyListener(shiftListener);
         clientThread.invoke(() -> {
@@ -233,11 +260,17 @@ public class NpcIndicatorsPlugin extends Plugin {
     protected void shutDown() {
         keyManager.unregisterHotkeyListener(shiftListener);
         overlayManager.remove(overlay);
+        overlayAdded = false;
         overlayManager.remove(respawnOverlay);
         NpcHighlightChannels held = channels;
         channels = null;
         if (held != null) {
             held.release();
+        }
+        DrawLayer layer = drawLayer;
+        drawLayer = null;
+        if (layer != null) {
+            layer.close();
         }
         clientThread.invoke(() -> {
             deadNpcsToDisplay.clear();
@@ -258,6 +291,24 @@ public class NpcIndicatorsPlugin extends Plugin {
      */
     boolean isDrawnInGame() {
         return client.getHighlights().isAvailable();
+    }
+
+    /**
+     * Whether the tiles and names are drawn in the game's frames, from the draw list, rather than on the overlay.
+     *
+     * @return true while Kraken's setting asks for it and the native hook draws the list
+     */
+    boolean isDrawnInFrame() {
+        return krakenConfig.worldOverlaysInFrame() && client.getDrawList().isAvailable();
+    }
+
+    /**
+     * Whether the overlay draws the tiles and names too, in magenta, next to the draw list's.
+     *
+     * @return true while comparing the two
+     */
+    boolean isComparing() {
+        return isDrawnInFrame() && krakenConfig.compareWorldOverlays();
     }
 
     @Subscribe
@@ -341,6 +392,7 @@ public class NpcIndicatorsPlugin extends Plugin {
     @Subscribe
     public void onClientTick(ClientTick event) {
         syncChannels();
+        syncDrawLayer();
     }
 
     @Subscribe
@@ -610,6 +662,107 @@ public class NpcIndicatorsPlugin extends Plugin {
             }
         }
         held.sync(NpcHighlightChannels.group(lit));
+    }
+
+    /**
+     * Gives the draw list the tiles and names of the NPCs shown now while it draws them, none during a cutscene, and
+     * adds the overlay while it has them to draw. Client thread only.
+     */
+    private void syncDrawLayer() {
+        DrawLayer layer = drawLayer;
+        if (layer == null) {
+            return;
+        }
+        boolean inFrame = isDrawnInFrame();
+        showOverlay(!inFrame || krakenConfig.compareWorldOverlays());
+        if (!inFrame || highlightedNpcs.isEmpty() || client.getVarbitValue(VarbitID.CUTSCENE_STATUS) == 1) {
+            layer.clear();
+            return;
+        }
+        double scale = WorldLabels.pixelScale(client);
+        List<DrawItem> items = new ArrayList<>();
+        for (HighlightedNpc highlighted : highlightedNpcs.values()) {
+            if (isDrawable(highlighted)) {
+                addDrawItems(items, highlighted, scale);
+            }
+        }
+        layer.set(items);
+    }
+
+    /**
+     * Adds an NPC's tiles and name to the draw list's items, the shapes the overlay draws for the same styles.
+     *
+     * @param items       the items
+     * @param highlighted the NPC's highlight
+     * @param scale       framebuffer pixels per canvas pixel, for the name's image
+     */
+    private void addDrawItems(List<DrawItem> items, HighlightedNpc highlighted, double scale) {
+        NPC npc = highlighted.getNpc();
+        Color stroke = highlighted.getHighlightColor();
+        Color fill = highlighted.getFillColor();
+        float width = highlighted.getBorderWidth();
+        int size = npc.getFootprintSize();
+        Anchor drawn = Anchor.npc(npc);
+        Anchor server = Anchor.npcTile(npc);
+        items.addAll(tileItems(highlighted, drawn, server, size, stroke, fill, width));
+        if (highlighted.isName()) {
+            DrawItem.Sprite label = worldLabels.label(drawn.lift(OverlayUtil.ACTOR_OVERHEAD_OFFSET),
+                    Text.removeTags(npc.getName()), stroke, scale);
+            if (label != null) {
+                items.add(label);
+            }
+        }
+    }
+
+    /**
+     * The tile areas a highlight's tile styles draw: the tiles the NPC is drawn on, the tiles the server has it on
+     * (centred (size - 1) half tiles in from its south-west tile), and the south-west tile of each.
+     *
+     * @param highlighted the NPC's highlight
+     * @param drawn       the anchor on where the NPC is drawn
+     * @param server      the anchor on the centre of its server tile
+     * @param size        the NPC's size in tiles
+     * @param stroke      the outline colour
+     * @param fill        the fill colour
+     * @param width       the outline width
+     * @return the tile areas
+     */
+    static List<DrawItem.TileArea> tileItems(HighlightedNpc highlighted, Anchor drawn, Anchor server, int size,
+                                             Color stroke, Color fill, float width) {
+        int span = Math.max(1, Math.min(size, DrawItem.TileArea.MAX_SIZE));
+        int toCentre = 128 * (span - 1) / 2;
+        List<DrawItem.TileArea> areas = new ArrayList<>();
+        if (highlighted.isTile()) {
+            areas.add(new DrawItem.TileArea(drawn, span, span, stroke, fill, width));
+        }
+        if (highlighted.isTrueTile()) {
+            areas.add(new DrawItem.TileArea(server.offset(toCentre, toCentre), span, span, stroke, fill, width));
+        }
+        if (highlighted.isSwTile()) {
+            areas.add(new DrawItem.TileArea(drawn.offset(-toCentre, -toCentre), 1, 1, stroke, fill, width));
+        }
+        if (highlighted.isSwTrueTile()) {
+            areas.add(new DrawItem.TileArea(server, 1, 1, stroke, fill, width));
+        }
+        return areas;
+    }
+
+    /**
+     * Adds or removes the overlay. Its tiles and names come from the draw list while it draws them, so it is only
+     * needed then for the comparison.
+     *
+     * @param wanted whether the overlay should be drawn
+     */
+    private void showOverlay(boolean wanted) {
+        if (wanted == overlayAdded) {
+            return;
+        }
+        overlayAdded = wanted;
+        if (wanted) {
+            overlayManager.add(overlay);
+        } else {
+            overlayManager.remove(overlay);
+        }
     }
 
     /**

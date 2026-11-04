@@ -2,6 +2,7 @@ package com.kraken.api;
 
 import com.kraken.api.eventbus.EventBus;
 import com.kraken.api.internal.GameFocus;
+import com.kraken.api.internal.draw.DrawHook;
 import com.kraken.api.internal.event.EventSource;
 import com.kraken.api.internal.event.NativeEvent;
 import com.kraken.api.internal.event.ScriptHook;
@@ -50,8 +51,9 @@ import java.util.logging.Logger;
  * game thread: the client's highlights ({@link Client#getHighlights()}) and the menu actions it runs
  * ({@link Client#getActions()}) by calling the game's own functions ({@link #setNativeInvoker}), the right-click
  * menu's rows ({@link Client#getMenuEdits()}) as the game rebuilds the menu ({@link #setMenuHook}), which entities are
- * drawn ({@link Client#getEntityVisibility()}, {@link #setVisibilityHook}), and interface components' fields (the
- * {@code Widget} setters, {@link #setComponentHook}).
+ * drawn ({@link Client#getEntityVisibility()}, {@link #setVisibilityHook}), what it draws over them
+ * ({@link Client#getDrawList()}, {@link #setDrawHook}), and interface components' fields (the {@code Widget} setters,
+ * {@link #setComponentHook}).
  */
 public final class GameSession implements AutoCloseable {
 
@@ -451,6 +453,17 @@ public final class GameSession implements AutoCloseable {
     }
 
     /**
+     * Hands the API a connection to a native hook that draws the draw list, or takes it away. While it is set, the
+     * items of {@link Client#getDrawList()} are sent to it, all of them at once. Internal: the client's native hook
+     * calls this as its connection comes up and drops. Safe to call from any thread.
+     *
+     * @param hook the connection, or null while there is none
+     */
+    public void setDrawHook(DrawHook hook) {
+        client.getDrawList().setHook(hook);
+    }
+
+    /**
      * Hands the API a connection to a native hook that writes interface components, or takes it away. While it is
      * set, the writes the {@code Widget} setters make are sent to it at the end of each pass of the client thread;
      * without it they are dropped. Internal: the client's native hook calls this as its connection comes up and
@@ -610,11 +623,13 @@ public final class GameSession implements AutoCloseable {
     }
 
     /**
-     * Sends what the pass changed to the native hook: the menu edits, the visibility rules and the component writes.
+     * Sends what the pass changed to the native hook: the menu edits, the visibility rules, the draw list and the
+     * component writes.
      */
     private void flushWrites() {
         client.getMenuEdits().flush();
         client.getEntityVisibility().flush();
+        client.getDrawList().flush();
         client.getComponentWrites().flush();
     }
 

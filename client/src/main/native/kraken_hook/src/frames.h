@@ -6,7 +6,8 @@
 // the surface (FRAME_DONE), for at most FRAME_WAIT_MS. Java draws while the game is held, so the
 // overlay comes from the same state the frame was recorded from, and the render thread runs the frame
 // meanwhile. The present detour looks up the tag of the frame it presents, waits for that overlay if
-// Java is still drawing it, and draws the slot Java filled for it.
+// Java is still drawing it, and draws the slot Java filled for it. Whether or not frame sync is on,
+// the endFrame detour first has the draw list (drawlist.h) resolve its items for the frame it queues.
 #pragma once
 
 #include <cstdint>
@@ -74,6 +75,15 @@ void clear();
  * @return the tag, 0 before the first
  */
 uint32_t requested();
+
+/**
+ * The frame object the GL device is presenting, which the draw list keyed its batch by at endFrame.
+ * Present thread.
+ *
+ * @param context present's argument, the device's GlContext
+ * @return the frame object, 0 without a render thread or before the layout is known
+ */
+uint64_t presentingFrame(const void *context);
 
 /**
  * The tag of the frame the GL device is presenting. Present thread.

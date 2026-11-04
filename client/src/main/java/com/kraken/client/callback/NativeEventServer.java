@@ -4,6 +4,9 @@ import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import com.google.inject.name.Named;
 import com.kraken.api.GameSession;
+import com.kraken.api.internal.draw.DrawHook;
+import com.kraken.api.internal.draw.WireDrawList;
+import com.kraken.api.internal.draw.WireSprite;
 import com.kraken.api.internal.event.NativeEvent;
 import com.kraken.api.internal.event.ScriptHook;
 import com.kraken.api.internal.invoke.NativeCall;
@@ -285,6 +288,11 @@ public final class NativeEventServer {
             log.info("Native event hook: no interface store layout in mapping " + mapping.version()
                     + "; widgets can't be written.");
         }
+        byte[] draw = NativeProtocol.drawLayout(mapping);
+        if (draw.length == 0) {
+            log.info("Native event hook: no scene or camera layout in mapping " + mapping.version()
+                    + "; the draw list isn't drawn in the game.");
+        }
         if (build.slots.isEmpty() && drawing.pumpFn() == 0 && drawing.presentFn() == 0 && scripts.length == 0
                 && menu.length == 0 && keys.length == 0) {
             log.warning("Native event hook: mapping " + mapping.version()
@@ -293,7 +301,7 @@ public final class NativeEventServer {
             return;
         }
         byte[] handshake = NativeProtocol.handshake(build.slots, drawing, scripts, menu, keys, visibility,
-                components, frames);
+                components, frames, draw);
         ServerSocket server = null;
         try {
             server = new ServerSocket();
@@ -500,6 +508,7 @@ public final class NativeEventServer {
                     session.setScriptHook(null);
                     session.setMenuHook(null);
                     session.setVisibilityHook(null);
+                    session.setDrawHook(null);
                     session.setComponentHook(null);
                     keyManager.setKeyHook(null);
                     surface.disconnected();
@@ -605,7 +614,8 @@ public final class NativeEventServer {
                         + ((features & NativeProtocol.FEATURE_KEYS) != 0) + ", visibility "
                         + ((features & NativeProtocol.FEATURE_VISIBILITY) != 0) + ", components "
                         + ((features & NativeProtocol.FEATURE_COMPONENTS) != 0) + ", frame sync "
-                        + ((features & NativeProtocol.FEATURE_FRAME_SYNC) != 0) + ").");
+                        + ((features & NativeProtocol.FEATURE_FRAME_SYNC) != 0) + ", draw list "
+                        + ((features & NativeProtocol.FEATURE_DRAW_LIST) != 0) + ").");
                 if ((features & NativeProtocol.FEATURE_CALLS) != 0) {
                     session.setNativeInvoker(batch -> sendCalls(open, batch));
                 }
@@ -623,6 +633,9 @@ public final class NativeEventServer {
                 }
                 if ((features & NativeProtocol.FEATURE_COMPONENTS) != 0) {
                     session.setComponentHook(ops -> send(open, NativeProtocol.components(ops)));
+                }
+                if ((features & NativeProtocol.FEATURE_DRAW_LIST) != 0) {
+                    session.setDrawHook(drawHook(open));
                 }
                 if ((features & NativeProtocol.FEATURE_OVERLAY) != 0) {
                     surface.connected(surfaceLink(open), pid, (features & NativeProtocol.FEATURE_FRAME_SYNC) != 0);
@@ -680,6 +693,29 @@ public final class NativeEventServer {
         synchronized (this) {
             lastSent = batch;
         }
+    }
+
+    /**
+     * The draw list's connection to the DLL: sprites go out as one or more DRAW_SPRITES commands, the items as one
+     * DRAW_LIST.
+     *
+     * @param open the connection
+     * @return the hook
+     */
+    private static DrawHook drawHook(Connection open) {
+        return new DrawHook() {
+            @Override
+            public void sprites(List<WireSprite> sprites) {
+                for (byte[] command : NativeProtocol.drawSprites(sprites)) {
+                    send(open, command);
+                }
+            }
+
+            @Override
+            public void list(WireDrawList list) {
+                send(open, NativeProtocol.drawList(list));
+            }
+        };
     }
 
     /**

@@ -2,6 +2,8 @@ package com.kraken.client.callback;
 
 import com.kraken.api.internal.ScriptComponents;
 import com.kraken.api.internal.ScriptStack;
+import com.kraken.api.internal.draw.WireDrawList;
+import com.kraken.api.internal.draw.WireSprite;
 import com.kraken.api.internal.event.NativeEvent;
 import com.kraken.api.internal.event.ScriptRequest;
 import com.kraken.api.internal.event.ScriptRun;
@@ -32,25 +34,25 @@ import java.util.Set;
 import java.util.function.IntFunction;
 
 /**
- * The wire format between {@link NativeEventServer} and {@code kraken_hook.dll} (protocol v9, little-endian). Java
+ * The wire format between {@link NativeEventServer} and {@code kraken_hook.dll} (protocol v10, little-endian). Java
  * sends one handshake naming the raise functions to hook, their event ids and a capture plan per slot, then the
  * functions the drawing needs, then the script runtime's functions and layout, the minimenu's functions and layout,
- * the game window's procedure, where the entities and their visibility flags are, the interface store's layout and
- * the GL device's frame queue;
+ * the game window's procedure, where the entities and their visibility flags are, the interface store's layout, the
+ * GL device's frame queue and what the draw list reads;
  * the DLL sends one message per raise with the id, the argument registers and the captured values, one per script
  * event it was asked for, one per click on a menu row of a plugin's own and per key it handled, and status messages
  * with reserved ids. After the handshake Java sends commands: batches of calls for the game thread, the overlay
  * surface to draw, the frame cap, which script events to send, the menu rules, the key remapping, the visibility rules,
- * component writes, frame sync and the overlay frames done for it. Every field and op code here matches the constants
+ * component writes, frame sync and the overlay frames done for it, and the draw list's sprites and items. Every field and op code here matches the constants
  * in the DLL's {@code src/protocol.h}; {@code docs/developer/native-protocol.md} describes the format.
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 final class NativeProtocol {
 
     /**
-     * Handshake magic: identifies protocol v9.
+     * Handshake magic: identifies protocol v10.
      */
-    static final byte[] MAGIC = {'K', 'R', 'K', '9'};
+    static final byte[] MAGIC = {'K', 'R', 'K', 'A'};
 
     /**
      * Capture-plan ops: how the DLL reads the argument register a plan entry names.
@@ -163,6 +165,12 @@ final class NativeProtocol {
     static final long FEATURE_FRAME_SYNC = 256;
 
     /**
+     * STATUS feature bit: the present and the GL device's endFrame are hooked and the handshake's draw block was
+     * complete, so {@link #COMMAND_DRAW_SPRITES} and {@link #COMMAND_DRAW_LIST} are honoured.
+     */
+    static final long FEATURE_DRAW_LIST = 512;
+
+    /**
      * Each STATUS feature bit and its name, in bit order.
      */
     private static final List<Map.Entry<Long, String>> FEATURE_NAMES = List.of(
@@ -174,7 +182,8 @@ final class NativeProtocol {
             Map.entry(FEATURE_KEYS, "keys"),
             Map.entry(FEATURE_VISIBILITY, "visibility"),
             Map.entry(FEATURE_COMPONENTS, "components"),
-            Map.entry(FEATURE_FRAME_SYNC, "frame sync"));
+            Map.entry(FEATURE_FRAME_SYNC, "frame sync"),
+            Map.entry(FEATURE_DRAW_LIST, "draw list"));
 
     /**
      * Command type: a batch of calls.
@@ -225,6 +234,35 @@ final class NativeProtocol {
      * Command type: the overlay for a frame is in the surface.
      */
     static final int COMMAND_FRAME_DONE = 10;
+
+    /**
+     * Command type: sprites to copy into the draw list's atlas.
+     */
+    static final int COMMAND_DRAW_SPRITES = 11;
+
+    /**
+     * Command type: the draw list's items, replacing the ones the DLL holds.
+     */
+    static final int COMMAND_DRAW_LIST = 12;
+
+    /**
+     * The most bytes the DLL reads in one command frame, its type byte included.
+     */
+    static final int MAX_FRAME = 4 << 20;
+
+    /**
+     * The mapping keys of the handshake's draw block, in the order the DLL reads them: the top-level world, its scene
+     * and NPCs, the eastl hash map layout, an NPC's identity and position, the scene's ground, and the camera and
+     * viewport the projection reads. Every one is required.
+     */
+    private static final String[] DRAW_OFFSETS = {"Client.topLevelWorld", "World.scene", "World.plane", "World.width",
+            "World.height", "World.npcs", "container:hash_map.buckets", "container:hash_map.bucketCount",
+            "container:hash_map.node.key", "container:hash_map.node.value", "container:hash_map.node.next",
+            "Npc.spawnCycle", "Actor.fineX", "Actor.fineZ", "Actor.pathX", "Actor.pathZ", "Scene.sizeX",
+            "Scene.sizeZ", "Scene.tileSettings", "Scene.heights", "Scene.cameraTrig", "Client.camera.pos",
+            "Client.zoomA", "Client.renderer", "Renderer.viewport", "Viewport.centerX", "Viewport.centerY",
+            "Viewport.offsetX", "Viewport.offsetY", "Renderer.canvasWidth", "Renderer.canvasHeight",
+            "Renderer.screenWidth", "Renderer.screenHeight"};
 
     /**
      * The mapping keys of the handshake's frame block, after the endFrame RVA, in order.
@@ -497,8 +535,8 @@ final class NativeProtocol {
 
     /**
      * Builds the handshake: magic, a slot count, then each slot's rva, id configuration, argument count and plan, then
-     * the drawing functions, then six length-prefixed blocks (a u16 length each): the script block, the menu block,
-     * the key block, the visibility block, the component block and the frame block.
+     * the drawing functions, then seven length-prefixed blocks (a u16 length each): the script block, the menu block,
+     * the key block, the visibility block, the component block, the frame block and the draw block.
      *
      * @param slots      the slots to install
      * @param drawing    the client pointer, the pump and the present function
@@ -508,12 +546,13 @@ final class NativeProtocol {
      * @param visibility the visibility block ({@link #visibilityLayout}), empty for no entity hiding
      * @param components the component block ({@link #componentLayout}), empty for no component writes
      * @param frames     the frame block ({@link #frameLayout}), empty for no frame sync
+     * @param draw       the draw block ({@link #drawLayout}), empty for no draw list
      * @return the handshake bytes
      */
     static byte[] handshake(List<Slot> slots, Drawing drawing, byte[] scripts, byte[] menu, byte[] keys,
-                            byte[] visibility, byte[] components, byte[] frames) {
+                            byte[] visibility, byte[] components, byte[] frames, byte[] draw) {
         int size = MAGIC.length + 2 + 3 * 8 + 2 + scripts.length + 2 + menu.length + 2 + keys.length + 2
-                + visibility.length + 2 + components.length + 2 + frames.length;
+                + visibility.length + 2 + components.length + 2 + frames.length + 2 + draw.length;
         for (Slot slot : slots) {
             size += 8 + 4 + 1 + 1 + 1 + slot.plan().size() * 2;
         }
@@ -546,6 +585,117 @@ final class NativeProtocol {
         buf.put(components);
         buf.putShort((short) frames.length);
         buf.put(frames);
+        buf.putShort((short) draw.length);
+        buf.put(draw);
+        return buf.array();
+    }
+
+    /**
+     * Builds the handshake's draw block from a mapping: the offsets of {@link #DRAW_OFFSETS} ({@code u32} each).
+     *
+     * @param mapping the attached build's mapping
+     * @return the block, or an empty array if the mapping lacks a key (no draw list)
+     */
+    static byte[] drawLayout(Mapping mapping) {
+        ByteBuffer buf = ByteBuffer.allocate(DRAW_OFFSETS.length * 4).order(ByteOrder.LITTLE_ENDIAN);
+        for (String key : DRAW_OFFSETS) {
+            int value = layoutValue(mapping, key);
+            if (value < 0) {
+                return new byte[0];
+            }
+            buf.putInt(value);
+        }
+        return buf.array();
+    }
+
+    /**
+     * Frames the sprites for the draw list's atlas: {@code {u32 len, u8 11, u16 count, count x {u16 x, u16 y, u16 w,
+     * u16 h, w x h x u32 premultiplied ARGB}}}, as many commands as it takes to keep each under {@link #MAX_FRAME}.
+     * The length counts the bytes after it.
+     *
+     * @param sprites the sprites
+     * @return the framed commands, in order
+     */
+    static List<byte[]> drawSprites(List<WireSprite> sprites) {
+        List<byte[]> commands = new ArrayList<>();
+        int start = 0;
+        while (start < sprites.size()) {
+            int body = 1 + 2;
+            int end = start;
+            while (end < sprites.size() && end - start < 0xffff) {
+                int size = 8 + sprites.get(end).pixels().length * 4;
+                if (end > start && body + size > MAX_FRAME) {
+                    break;
+                }
+                body += size;
+                end++;
+            }
+            if (body > MAX_FRAME) {
+                throw new IllegalArgumentException("A sprite doesn't fit one command: " + sprites.get(start));
+            }
+            ByteBuffer buf = ByteBuffer.allocate(4 + body).order(ByteOrder.LITTLE_ENDIAN);
+            buf.putInt(body);
+            buf.put((byte) COMMAND_DRAW_SPRITES);
+            buf.putShort((short) (end - start));
+            for (WireSprite sprite : sprites.subList(start, end)) {
+                buf.putShort((short) sprite.x());
+                buf.putShort((short) sprite.y());
+                buf.putShort((short) sprite.width());
+                buf.putShort((short) sprite.height());
+                for (int pixel : sprite.pixels()) {
+                    buf.putInt(pixel);
+                }
+            }
+            commands.add(buf.array());
+            start = end;
+        }
+        return commands;
+    }
+
+    /**
+     * Frames the draw list's items: {@code {u32 len, u8 12, u16 count, count x {u8 kind, u8 anchor, u32 index,
+     * i32 spawn cycle, i32 dx, i32 dy, i32 lift, body}}}, where a tile area's body is {@code {u16 size x, u16 size y,
+     * u32 stroke, u32 fill, u16 stroke width}} and a sprite's {@code {u16 atlas x, u16 atlas y, u16 w, u16 h,
+     * i16 offset x, i16 offset y}}. The length counts the bytes after it.
+     *
+     * @param list the items
+     * @return the framed command
+     */
+    static byte[] drawList(WireDrawList list) {
+        if (list.items().size() > WireDrawList.MAX_ITEMS) {
+            throw new IllegalArgumentException("too many draw list items: " + list.items().size());
+        }
+        int body = 1 + 2;
+        for (WireDrawList.Item item : list.items()) {
+            body += 22 + (item.kind() == WireDrawList.TILE_AREA ? 14 : 12);
+        }
+        ByteBuffer buf = ByteBuffer.allocate(4 + body).order(ByteOrder.LITTLE_ENDIAN);
+        buf.putInt(body);
+        buf.put((byte) COMMAND_DRAW_LIST);
+        buf.putShort((short) list.items().size());
+        for (WireDrawList.Item item : list.items()) {
+            buf.put((byte) item.kind());
+            buf.put((byte) item.anchor());
+            buf.putInt(item.index());
+            buf.putInt(item.spawnCycle());
+            buf.putInt(item.dx());
+            buf.putInt(item.dy());
+            buf.putInt(item.lift());
+            if (item.kind() == WireDrawList.TILE_AREA) {
+                buf.putShort((short) item.sizeX());
+                buf.putShort((short) item.sizeY());
+                buf.putInt(item.stroke());
+                buf.putInt(item.fill());
+                buf.putShort((short) item.strokeWidth());
+            } else {
+                buf.putShort((short) item.atlasX());
+                buf.putShort((short) item.atlasY());
+                buf.putShort((short) item.width());
+                buf.putShort((short) item.height());
+                buf.putShort((short) item.offsetX());
+                buf.putShort((short) item.offsetY());
+            }
+        }
         return buf.array();
     }
 

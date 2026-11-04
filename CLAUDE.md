@@ -106,7 +106,9 @@ consensus verdicts (`consensus.py`, `carry.py`) → invariants (`verify.py`) →
   `docs/developer/menu-actions.md`); the menu rules the DLL applies as the client rebuilds the right-click menu (`com.kraken.api.menu`,
   `Client.getMenuEdits()`, `createMenuEntry`, `setMenuEntries`, the `MenuEntry` setters; `docs/developer/menu-edits.md`);
   the visibility rules the DLL applies to every entity each frame (`com.kraken.api.render`,
-  `Client.getEntityVisibility()`; `docs/developer/entity-visibility.md`); and component writes the DLL makes after
+  `Client.getEntityVisibility()`; `docs/developer/entity-visibility.md`); the draw list the DLL resolves at every
+  endFrame and draws at that frame's present (tile areas and sprites anchored to NPCs; `com.kraken.api.draw`,
+  `Client.getDrawList()`; `docs/developer/in-game-drawing.md`); and component writes the DLL makes after
   looking the component up by id (the `Widget` text, drag and mouse-repeat setters; text through the client's own
   string assignment and invalidate; `docs/developer/widget-writes.md`).
   Other Lua functions that change the client (camera) are out of scope.

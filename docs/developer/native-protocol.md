@@ -1,6 +1,6 @@
 # The Native Protocol
 
-The Kraken client and `kraken_hook.dll` talk over one TCP connection on the loopback interface, using protocol v9.
+The Kraken client and `kraken_hook.dll` talk over one TCP connection on the loopback interface, using protocol v10.
 This page is the byte-level reference. [The native hook](native-hook.md) explains what each side does with the
 messages.
 
@@ -10,7 +10,8 @@ messages.
 * **Byte order.** Little-endian throughout. `u8`/`u16`/`u32`/`u64` are unsigned, `i32`/`i64` signed.
 * **Framing.** After the handshake, everything is length-framed: a `u32` length, then that many bytes.
 * **Shared memory.** Overlay pixels don't go over the socket. A `SURFACE` command names a file mapping both processes
-  map; its layout is in [In-game drawing](in-game-drawing.md).
+  map; its layout is in [In-game drawing](in-game-drawing.md). The draw list's sprites are small and go over the
+  socket (`DRAW_SPRITES`).
 
 ## A Session
 
@@ -19,9 +20,9 @@ sequenceDiagram
     participant J as NativeEventServer (Java)
     participant D as kraken_hook.dll
     D->>J: connect to 127.0.0.1:42069
-    J->>D: handshake (KRK9, slots, drawing RVAs, script, menu, key, visibility, component and frame blocks)
+    J->>D: handshake (KRKA, slots, drawing RVAs, script, menu, key, visibility, component, frame and draw blocks)
     D->>D: install the hooks it names
-    D->>J: STATUS (installed, requested, features, version 8)
+    D->>J: STATUS (installed, requested, features, version 10)
     J->>D: FRAME_LIMIT (if the DLL paces frames)
     loop while connected
         D-->>J: raise messages (event id, registers, captured values)
@@ -40,10 +41,12 @@ sequenceDiagram
         D-->>J: KEY (a key message handled)
         J->>D: VISIBILITY (what to hide, applied every frame)
         J->>D: COMPONENTS (component writes for the next frame)
+        J->>D: DRAW_SPRITES (sprites for the draw list's atlas)
+        J->>D: DRAW_LIST (the items to draw in every frame)
         D-->>J: FPS (about once a second)
     end
     Note over J,D: socket drops
-    D->>D: drop queued calls and component writes, stop the overlay and script capture, drop the menu rules and key table, show what it hid, lift the frame cap
+    D->>D: drop queued calls and component writes, stop the overlay and script capture, drop the menu rules, key table and draw list items, show what it hid, lift the frame cap
     D->>J: reconnect after 1 s, and the handshake starts again
 ```
 
@@ -54,7 +57,7 @@ field.
 
 | Field | Type | Meaning |
 |---|---|---|
-| magic | 4 bytes | `KRK9`. Any other value makes the DLL drop the connection |
+| magic | 4 bytes | `KRKA`. Any other value makes the DLL drop the connection |
 | slot count | `u16` | The number of raise slots that follow |
 | slots | | Each as below |
 | client global | `u64` | RVA of the global holding the `Client*`, for `CLIENT` and `INDIRECT` call arguments; 0 for none |
@@ -72,6 +75,8 @@ field.
 | component block | bytes | See [The Component Block](#the-component-block) |
 | frame block length | `u16` | 0 for no frame sync |
 | frame block | bytes | See [The Frame Block](#the-frame-block) |
+| draw block length | `u16` | 0 for no draw list |
+| draw block | bytes | See [The Draw Block](#the-draw-block) |
 
 An **RVA** is an address relative to the start of the loaded `osclient.exe`; the DLL adds the module base to it.
 
@@ -279,6 +284,51 @@ The DLL refuses an RVA outside the image, an offset of `0x100000` or more, or th
 handshake with a complete block hooks endFrame and fixes the layout. FRAME_SYNC takes effect while endFrame and the
 present are hooked (`FEATURE_FRAME_SYNC`).
 
+### The Draw Block
+
+132 bytes of `u32` offsets, built by `NativeProtocol.drawLayout` and parsed by `install` in `drawlist.cpp`
+([In-game drawing](in-game-drawing.md#the-anchored-draw-list)). Every key is required: the Java side sends an empty
+block if the mapping lacks one.
+
+| Offset | Field | Mapping key |
+|---|---|---|
+| 0 | topLevelWorld | `Client.topLevelWorld` |
+| 4 | scene | `World.scene` |
+| 8 | plane | `World.plane` |
+| 12 | width | `World.width` |
+| 16 | height | `World.height` |
+| 20 | npcs | `World.npcs` |
+| 24 | mapBuckets | `containers.hash_map.buckets` |
+| 28 | mapBucketCount | `containers.hash_map.bucketCount` |
+| 32 | nodeKey | `containers.hash_map.node.key` |
+| 36 | nodeValue | `containers.hash_map.node.value` |
+| 40 | nodeNext | `containers.hash_map.node.next` |
+| 44 | spawnCycle | `Npc.spawnCycle` |
+| 48 | fineX | `Actor.fineX` |
+| 52 | fineZ | `Actor.fineZ` |
+| 56 | pathX | `Actor.pathX` |
+| 60 | pathZ | `Actor.pathZ` |
+| 64 | sizeX | `Scene.sizeX` |
+| 68 | sizeZ | `Scene.sizeZ` |
+| 72 | tileSettings | `Scene.tileSettings` |
+| 76 | heights | `Scene.heights` |
+| 80 | cameraTrig | `Scene.cameraTrig` |
+| 84 | cameraPos | `Client.camera.pos` |
+| 88 | scale | `Client.zoomA` |
+| 92 | renderer | `Client.renderer` |
+| 96 | viewport | `Renderer.viewport` |
+| 100 | centerX | `Viewport.centerX` |
+| 104 | centerY | `Viewport.centerY` |
+| 108 | offsetX | `Viewport.offsetX` |
+| 112 | offsetY | `Viewport.offsetY` |
+| 116 | canvasWidth | `Renderer.canvasWidth` |
+| 120 | canvasHeight | `Renderer.canvasHeight` |
+| 124 | screenWidth | `Renderer.screenWidth` |
+| 128 | screenHeight | `Renderer.screenHeight` |
+
+The first handshake with a complete block fixes the layout. DRAW_SPRITES and DRAW_LIST take effect while the layout is
+known and endFrame and the present are hooked (`FEATURE_DRAW_LIST`), which needs the frame block too.
+
 ## Messages
 
 DLL → Java. Each is `{u32 length, body}`; the body is:
@@ -301,7 +351,7 @@ came.
 
 | Id | Name | RCX | RDX | R8 | R9 | Sent |
 |---|---|---|---|---|---|---|
-| -2 | `STATUS` | Slots installed (total) | Slots requested by this handshake | Feature bits | Protocol version (9) | Once per handshake |
+| -2 | `STATUS` | Slots installed (total) | Slots requested by this handshake | Feature bits | Protocol version (10) | Once per handshake |
 | -3 | `FRAME` | Framebuffer width | Height | GL version, `major << 16 \| minor` | Surface generation drawn, 0 for none | When any of them changes |
 | -4 | `CALLS_DONE` | Batch id | Calls run | Calls skipped or faulted | Last call's return value | After each batch |
 | -5 | `FPS` | Frames since the last FPS | Microseconds since it | Frame cap in force | 1 if presents were counted, 0 for frame steps | About once a second |
@@ -324,6 +374,7 @@ Feature bits in STATUS:
 | 64 | `FEATURE_VISIBILITY` | `FEATURE_VISIBILITY` | The pump is hooked and the visibility block was complete: `VISIBILITY` is honoured |
 | 128 | `FEATURE_COMPONENTS` | `FEATURE_COMPONENTS` | The pump is hooked and the component block was complete: `COMPONENTS` is honoured |
 | 256 | `FEATURE_FRAME_SYNC` | `FEATURE_FRAME_SYNC` | endFrame and the present are hooked and the frame block was complete: `FRAME_SYNC` is honoured |
+| 512 | `FEATURE_DRAW_LIST` | `FEATURE_DRAW_LIST` | endFrame and the present are hooked and the draw block was complete: `DRAW_SPRITES` and `DRAW_LIST` are honoured |
 
 ### The SCRIPT Payload
 
@@ -374,6 +425,8 @@ older DLL.
 | 8 | `COMPONENTS` | A batch of component writes for the next frame |
 | 9 | `FRAME_SYNC` | Whether the game waits for each frame's overlay |
 | 10 | `FRAME_DONE` | The overlay for a tagged frame is in the surface |
+| 11 | `DRAW_SPRITES` | Sprites to copy into the draw list's atlas |
+| 12 | `DRAW_LIST` | The draw list's items, replacing the ones held |
 
 ### CALLS
 
@@ -559,6 +612,44 @@ connection turns it off.
 Java sends one for each `DRAW` with RDX 1, whether or not it drew anything for it, so the game never waits out the
 limit for a frame Java skipped.
 
+### DRAW_SPRITES
+
+| Field | Type | Meaning |
+|---|---|---|
+| count | `u16` | Sprites that follow |
+| sprites | count × `{u16 x, u16 y, u16 w, u16 h, w × h × u32}` | Where each goes in the atlas, then its pixels: premultiplied ARGB ints, top row first (B, G, R, A in memory) |
+
+The DLL copies each sprite into its atlas, `DRAW_ATLAS_SIZE` (1024) pixels square, and bumps the atlas version once per
+command. A sprite that doesn't fit the atlas, overlaps its white top-left corner (`DRAW_ATLAS_WHITE`, 4 pixels square)
+or runs past the frame ends the command, keeping the sprites before it. Java places the sprites
+(`AtlasPacker`) and splits them over as many commands as it takes to keep each under the 4 MiB frame limit. Ignored
+until `FEATURE_DRAW_LIST`. The atlas outlives the connection; Java places and sends everything again after a
+reconnect.
+
+### DRAW_LIST
+
+| Field | Type | Meaning |
+|---|---|---|
+| count | `u16` | Items that follow, at most `MAX_DRAW_ITEMS` (1,024); more makes the command change nothing |
+| items | count × item | Drawn in order: every tile area, then every sprite over them |
+
+Each item:
+
+| Field | Type | Meaning |
+|---|---|---|
+| kind | `u8` | `DRAW_TILE_AREA` (0) or `DRAW_SPRITE` (1) |
+| anchor | `u8` | `ANCHOR_NPC` (0): the NPC's fine position. `ANCHOR_NPC_TILE` (1): the centre of its server tile |
+| index | `u32` | The NPC's index in the top-level world |
+| spawn cycle | `i32` | The cycle it was created on; another NPC at the index draws nothing |
+| dx, dy | `i32` each | The shift from the anchor along the ground, in local units |
+| lift | `i32` | How far above the ground, in local units |
+| body | | A tile area's `{u16 size x, u16 size y, u32 stroke ARGB, u32 fill ARGB, u16 stroke width}` (sizes 1 to 64 tiles, the width in sixteenths of a canvas pixel, 0 colours for none), or a sprite's `{u16 atlas x, u16 atlas y, u16 w, u16 h, i16 offset x, i16 offset y}` (the offset in framebuffer pixels from the projected anchor) |
+
+The items replace the ones held from the next frame on, and are resolved and drawn in every frame
+([In-game drawing](in-game-drawing.md#the-anchored-draw-list)). A list's sprites are drawn once the atlas holds every
+`DRAW_SPRITES` sent before it. A malformed command changes nothing. Ignored until `FEATURE_DRAW_LIST`. A dropped
+connection drops the items.
+
 ## Ordering and Delivery
 
 * Every ring message takes a sequence number from one counter. The writer's own messages (`STATUS`, `FRAME`, `FPS`,
@@ -576,7 +667,7 @@ limit for a frame Java skipped.
 
 ## Versioning
 
-The protocol version lives in two places: the handshake magic (`KRK9`) and `PROTOCOL_VERSION` (9), which STATUS
+The protocol version lives in two places: the handshake magic (`KRKA`) and `PROTOCOL_VERSION` (10), which STATUS
 reports and the client logs. A DLL that gets a magic it doesn't know drops the connection, and reconnects a second
 later to the same result, so a client and DLL of different versions never talk. The client always starts a fresh game and
 injects the DLL it was built with, so they only disagree when `-Dkraken.hook.dll` points at a DLL built from other
@@ -596,13 +687,16 @@ To change the format:
 | What | DLL (`protocol.h` unless noted) | Java |
 |---|---|---|
 | Port | `KRAKEN_PORT` = 42069 | `NativeEventServer.PORT` |
-| Magic | `"KRK9"` in `connection.cpp` | `NativeProtocol.MAGIC` |
+| Magic | `"KRKA"` in `connection.cpp` | `NativeProtocol.MAGIC` |
 | Capture-plan ops | `OP_RAW` … `OP_CSTR` | `NativeProtocol.OP_*` |
 | Plan length | `MAX_PLAN` = 8 | `NativeEvents` plans stay within it |
 | Reserved ids | `STATUS_EVENT_ID` … `DRAW_EVENT_ID` | `NativeProtocol.*_EVENT_ID` |
-| Feature bits | `FEATURE_PUMP`, `FEATURE_PRESENT`, `FEATURE_FRAME_RATE`, `FEATURE_SCRIPTS`, `FEATURE_MENU`, `FEATURE_KEYS`, `FEATURE_VISIBILITY`, `FEATURE_COMPONENTS`, `FEATURE_FRAME_SYNC` | `FEATURE_CALLS`, `FEATURE_OVERLAY`, `FEATURE_FRAME_RATE`, `FEATURE_SCRIPTS`, `FEATURE_MENU`, `FEATURE_KEYS`, `FEATURE_VISIBILITY`, `FEATURE_COMPONENTS`, `FEATURE_FRAME_SYNC` |
-| Command types | `CMD_CALLS` … `CMD_FRAME_DONE` | `NativeProtocol.COMMAND_*` |
+| Feature bits | `FEATURE_PUMP`, `FEATURE_PRESENT`, `FEATURE_FRAME_RATE`, `FEATURE_SCRIPTS`, `FEATURE_MENU`, `FEATURE_KEYS`, `FEATURE_VISIBILITY`, `FEATURE_COMPONENTS`, `FEATURE_FRAME_SYNC`, `FEATURE_DRAW_LIST` | `FEATURE_CALLS`, `FEATURE_OVERLAY`, `FEATURE_FRAME_RATE`, `FEATURE_SCRIPTS`, `FEATURE_MENU`, `FEATURE_KEYS`, `FEATURE_VISIBILITY`, `FEATURE_COMPONENTS`, `FEATURE_FRAME_SYNC`, `FEATURE_DRAW_LIST` |
+| Command types | `CMD_CALLS` … `CMD_DRAW_LIST` | `NativeProtocol.COMMAND_*` |
 | Frame block order | `install` in `frames.cpp` | `frameLayout`, `FRAME_OFFSETS` |
+| Draw block order | `Layout` and `install` in `drawlist.cpp` | `DRAW_OFFSETS` |
+| Draw list constants | `DRAW_ATLAS_SIZE`, `DRAW_ATLAS_WHITE`, `MAX_DRAW_ITEMS`, `DRAW_TILE_AREA`, `DRAW_SPRITE`, `ANCHOR_NPC`, `ANCHOR_NPC_TILE` | `WireDrawList.ATLAS_SIZE`, `ATLAS_WHITE`, `MAX_ITEMS`, `TILE_AREA`, `SPRITE`, `ANCHOR_NPC`, `ANCHOR_NPC_TILE` |
+| Frame limit | `MAX_FRAME` (4 MiB) | `NativeProtocol.MAX_FRAME` |
 | Argument kinds | `ARG_IMM` … `ARG_INDIRECT` | `NativeCall.Kind` ordinals |
 | Call limits | `MAX_ARGS` = 8, `SCRATCH_SIZE` = 4096 | `NativeCall.MAX_ARGS`, `NativeCall.SCRATCH_SIZE`, `NativeCall.MAX_DATA` |
 | Script capture bits | `SCRIPT_CAPTURE_PRE`, `_POST`, `_ROOTS` | `NativeProtocol.scriptCapture` |

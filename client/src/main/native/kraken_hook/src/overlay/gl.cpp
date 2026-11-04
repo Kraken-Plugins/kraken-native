@@ -45,11 +45,43 @@ bool lookupGlFunctions(GlFunctions &f, bool samplers) {
     f.bindSampler = samplers ? reinterpret_cast<PFN_BindSampler>(glProc("glBindSampler")) : nullptr;
     f.blendFuncSeparate = reinterpret_cast<PFN_BlendFuncSeparate>(glProc("glBlendFuncSeparate"));
     f.blendEquationSeparate = reinterpret_cast<PFN_BlendEquationSeparate>(glProc("glBlendEquationSeparate"));
+    f.genBuffers = reinterpret_cast<PFN_GenBuffers>(glProc("glGenBuffers"));
+    f.bufferData = reinterpret_cast<PFN_BufferData>(glProc("glBufferData"));
+    f.vertexAttribPointer = reinterpret_cast<PFN_VertexAttribPointer>(glProc("glVertexAttribPointer"));
+    f.enableVertexAttribArray = reinterpret_cast<PFN_EnableVertexAttribArray>(glProc("glEnableVertexAttribArray"));
+    f.bindAttribLocation = reinterpret_cast<PFN_BindAttribLocation>(glProc("glBindAttribLocation"));
+    f.uniform2f = reinterpret_cast<PFN_Uniform2f>(glProc("glUniform2f"));
     return f.createShader && f.shaderSource && f.compileShader && f.getShaderiv && f.deleteShader
            && f.createProgram && f.attachShader && f.bindFragDataLocation && f.linkProgram && f.getProgramiv
            && f.deleteProgram && f.useProgram && f.getUniformLocation && f.uniform1i && f.genVertexArrays
            && f.bindVertexArray && f.bindBuffer && f.activeTexture && f.bindFramebuffer
-           && f.blendFuncSeparate && f.blendEquationSeparate && (!samplers || f.bindSampler);
+           && f.blendFuncSeparate && f.blendEquationSeparate && (!samplers || f.bindSampler) && f.genBuffers
+           && f.bufferData && f.vertexAttribPointer && f.enableVertexAttribArray && f.bindAttribLocation
+           && f.uniform2f;
+}
+
+const char *glslHeader(int major, int minor) {
+    if (major > 3 || (major == 3 && minor >= 3)) {
+        return "#version 330 core\n";
+    }
+    return major == 3 && minor == 2 ? "#version 150\n" : "#version 130\n";
+}
+
+GLuint compileShader(const GlFunctions &f, GLenum type, const char *header, const char *body) {
+    GLuint shader = f.createShader(type);
+    if (shader == 0) {
+        return 0;
+    }
+    const char *sources[2] = {header, body};
+    f.shaderSource(shader, 2, sources, nullptr);
+    f.compileShader(shader);
+    GLint ok = 0;
+    f.getShaderiv(shader, KGL_COMPILE_STATUS, &ok);
+    if (!ok) {
+        f.deleteShader(shader);
+        return 0;
+    }
+    return shader;
 }
 
 } // namespace kraken::overlay

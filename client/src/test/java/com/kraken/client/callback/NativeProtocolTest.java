@@ -1,6 +1,8 @@
 package com.kraken.client.callback;
 
 import com.kraken.api.internal.ScriptComponents;
+import com.kraken.api.internal.draw.WireDrawList;
+import com.kraken.api.internal.draw.WireSprite;
 import com.kraken.api.internal.event.NativeEvent;
 import com.kraken.api.internal.event.ScriptRequest;
 import com.kraken.api.internal.event.ScriptRun;
@@ -59,12 +61,13 @@ class NativeProtocolTest {
         byte[] visibility = {3, 2};
         byte[] components = {1};
         byte[] frames = {0, 11};
+        byte[] draw = {12, 13, 14};
         ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.handshake(slots, drawing, scripts, menu, keys, visibility,
-                components, frames)).order(ByteOrder.LITTLE_ENDIAN);
+                components, frames, draw)).order(ByteOrder.LITTLE_ENDIAN);
 
         byte[] magic = new byte[4];
         buf.get(magic);
-        assertArrayEquals("KRK9".getBytes(StandardCharsets.US_ASCII), magic);
+        assertArrayEquals("KRKA".getBytes(StandardCharsets.US_ASCII), magic);
         assertEquals(2, buf.getShort(), "slot count");
 
         assertEquals(0xc44d0L, buf.getLong());
@@ -104,13 +107,17 @@ class NativeProtocolTest {
         assertEquals(2, buf.getShort(), "the frame block's length");
         assertEquals(0, buf.get());
         assertEquals(11, buf.get());
+        assertEquals(3, buf.getShort(), "the draw block's length");
+        assertEquals(12, buf.get());
+        assertEquals(13, buf.get());
+        assertEquals(14, buf.get());
         assertEquals(0, buf.remaining(), "no trailing bytes");
     }
 
     @Test
     void aHandshakeWithoutDrawingOrScriptsEndsInZeros() {
         ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.handshake(List.of(), Drawing.NONE, new byte[0], new byte[0],
-                new byte[0], new byte[0], new byte[0], new byte[0])).order(ByteOrder.LITTLE_ENDIAN);
+                new byte[0], new byte[0], new byte[0], new byte[0], new byte[0])).order(ByteOrder.LITTLE_ENDIAN);
         buf.position(4);
         assertEquals(0, buf.getShort());
         assertEquals(0, buf.getLong());
@@ -122,6 +129,7 @@ class NativeProtocolTest {
         assertEquals(0, buf.getShort(), "no visibility block");
         assertEquals(0, buf.getShort(), "no component block");
         assertEquals(0, buf.getShort(), "no frame block");
+        assertEquals(0, buf.getShort(), "no draw block");
         assertEquals(0, buf.remaining());
     }
 
@@ -405,6 +413,113 @@ class NativeProtocolTest {
     }
 
     @Test
+    void theDrawBlockFollowsTheMappingInTheDllsOrder() throws IOException {
+        for (String version : new String[]{"241.3", "241.4", "242.1"}) {
+            Mapping mapping = Mapping.bundled(version);
+            ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.drawLayout(mapping)).order(ByteOrder.LITTLE_ENDIAN);
+
+            for (String key : new String[]{"Client.topLevelWorld", "World.scene", "World.plane", "World.width",
+                    "World.height", "World.npcs"}) {
+                assertEquals(mapping.offset(key), buf.getInt(), version + " " + key);
+            }
+            for (String key : new String[]{"hash_map.buckets", "hash_map.bucketCount", "hash_map.node.key",
+                    "hash_map.node.value", "hash_map.node.next"}) {
+                assertEquals(mapping.container(key), buf.getInt(), version + " " + key);
+            }
+            for (String key : new String[]{"Npc.spawnCycle", "Actor.fineX", "Actor.fineZ", "Actor.pathX",
+                    "Actor.pathZ", "Scene.sizeX", "Scene.sizeZ", "Scene.tileSettings", "Scene.heights",
+                    "Scene.cameraTrig", "Client.camera.pos", "Client.zoomA", "Client.renderer", "Renderer.viewport",
+                    "Viewport.centerX", "Viewport.centerY", "Viewport.offsetX", "Viewport.offsetY",
+                    "Renderer.canvasWidth", "Renderer.canvasHeight", "Renderer.screenWidth",
+                    "Renderer.screenHeight"}) {
+                assertEquals(mapping.offset(key), buf.getInt(), version + " " + key);
+            }
+            assertEquals(0, buf.remaining(), "132 bytes, as the DLL reads them");
+        }
+    }
+
+    @Test
+    void drawListFramesEachItemWithItsKindsBody() {
+        WireDrawList list = new WireDrawList(List.of(
+                WireDrawList.Item.tileArea(WireDrawList.ANCHOR_NPC, 5, 1000, -64, 64, 0, 2, 3, 0xff00ffff,
+                        0x1400ffff, 32),
+                WireDrawList.Item.sprite(WireDrawList.ANCHOR_NPC_TILE, 6, 1001, 0, 0, 240, 10, 20, 30, 12, -15,
+                        -9)));
+        byte[] command = NativeProtocol.drawList(list);
+        ByteBuffer buf = ByteBuffer.wrap(command).order(ByteOrder.LITTLE_ENDIAN);
+
+        assertEquals(command.length - 4, buf.getInt(), "the length counts the bytes after it");
+        assertEquals(NativeProtocol.COMMAND_DRAW_LIST, buf.get());
+        assertEquals(2, buf.getShort(), "item count");
+
+        assertEquals(WireDrawList.TILE_AREA, buf.get());
+        assertEquals(WireDrawList.ANCHOR_NPC, buf.get());
+        assertEquals(5, buf.getInt(), "index");
+        assertEquals(1000, buf.getInt(), "spawn cycle");
+        assertEquals(-64, buf.getInt(), "dx");
+        assertEquals(64, buf.getInt(), "dy");
+        assertEquals(0, buf.getInt(), "lift");
+        assertEquals(2, buf.getShort(), "size x");
+        assertEquals(3, buf.getShort(), "size y");
+        assertEquals(0xff00ffff, buf.getInt(), "stroke");
+        assertEquals(0x1400ffff, buf.getInt(), "fill");
+        assertEquals(32, buf.getShort(), "stroke width in sixteenths");
+
+        assertEquals(WireDrawList.SPRITE, buf.get());
+        assertEquals(WireDrawList.ANCHOR_NPC_TILE, buf.get());
+        assertEquals(6, buf.getInt());
+        assertEquals(1001, buf.getInt());
+        assertEquals(0, buf.getInt());
+        assertEquals(0, buf.getInt());
+        assertEquals(240, buf.getInt(), "lift");
+        assertEquals(10, buf.getShort(), "atlas x");
+        assertEquals(20, buf.getShort(), "atlas y");
+        assertEquals(30, buf.getShort(), "width");
+        assertEquals(12, buf.getShort(), "height");
+        assertEquals(-15, buf.getShort(), "offset x");
+        assertEquals(-9, buf.getShort(), "offset y");
+        assertEquals(0, buf.remaining());
+    }
+
+    @Test
+    void drawSpritesFramesEachSpritesPlaceAndPixels() {
+        WireSprite sprite = new WireSprite(4, 5, 2, 1, new int[]{0x80402010, 0xff000000});
+        List<byte[]> commands = NativeProtocol.drawSprites(List.of(sprite));
+        assertEquals(1, commands.size());
+        ByteBuffer buf = ByteBuffer.wrap(commands.get(0)).order(ByteOrder.LITTLE_ENDIAN);
+
+        assertEquals(commands.get(0).length - 4, buf.getInt());
+        assertEquals(NativeProtocol.COMMAND_DRAW_SPRITES, buf.get());
+        assertEquals(1, buf.getShort(), "sprite count");
+        assertEquals(4, buf.getShort(), "x");
+        assertEquals(5, buf.getShort(), "y");
+        assertEquals(2, buf.getShort(), "width");
+        assertEquals(1, buf.getShort(), "height");
+        assertEquals(0x80402010, buf.getInt(), "pixels as little-endian ARGB, so B, G, R, A in memory");
+        assertEquals(0xff000000, buf.getInt());
+        assertEquals(0, buf.remaining());
+    }
+
+    @Test
+    void drawSpritesSplitsBatchesThatWouldPassTheFrameLimit() {
+        int side = 600;
+        List<WireSprite> sprites = List.of(new WireSprite(0, 8, side, side, new int[side * side]),
+                new WireSprite(0, 8 + side, side, side, new int[side * side]),
+                new WireSprite(side, 8, side, side, new int[side * side]));
+        List<byte[]> commands = NativeProtocol.drawSprites(sprites);
+
+        assertEquals(2, commands.size(), "two 1.4 MB sprites fit one command, a third doesn't");
+        int total = 0;
+        for (byte[] command : commands) {
+            ByteBuffer buf = ByteBuffer.wrap(command).order(ByteOrder.LITTLE_ENDIAN);
+            assertTrue(buf.getInt() <= NativeProtocol.MAX_FRAME);
+            assertEquals(NativeProtocol.COMMAND_DRAW_SPRITES, buf.get());
+            total += buf.getShort();
+        }
+        assertEquals(3, total, "every sprite is sent once");
+    }
+
+    @Test
     void aMappingWithoutActorFlagsHasNoVisibilityOrComponentBlock() throws IOException {
         Path file = Files.createTempFile("mapping", ".json");
         try {
@@ -413,6 +528,7 @@ class NativeProtocolTest {
             assertEquals(0, NativeProtocol.visibilityLayout(Mapping.load(file)).length);
             assertEquals(0, NativeProtocol.componentLayout(Mapping.load(file)).length);
             assertEquals(0, NativeProtocol.frameLayout(Mapping.load(file)).length);
+            assertEquals(0, NativeProtocol.drawLayout(Mapping.load(file)).length);
         } finally {
             Files.delete(file);
         }
@@ -774,7 +890,7 @@ class NativeProtocolTest {
         assertEquals(List.of("calls", "keys"),
                 NativeProtocol.featureNames(NativeProtocol.FEATURE_KEYS | NativeProtocol.FEATURE_CALLS | 1L << 40));
         assertEquals(List.of("calls", "overlay", "frame rate", "scripts", "menu", "keys", "visibility", "components",
-                "frame sync"), NativeProtocol.featureNames(0x1ff), "every known bit, in bit order");
+                "frame sync", "draw list"), NativeProtocol.featureNames(0x3ff), "every known bit, in bit order");
     }
 
     /**
