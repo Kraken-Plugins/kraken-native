@@ -59,7 +59,6 @@ Two features cross every part: [drawing in the game](in-game-drawing.md) and [me
 | `client/src/main/native/kraken_hook/` | The DLL's CMake project |
 | `updater/src/native_updater/` | The updater: pipeline, analysis, strategies, feature modules, and the key specs in `spec/*.yaml` |
 | `updater/corpus/` | Accepted values per game version, for the golden tests |
-| `debug/` | Symbol, string and constant dumps of a macOS debug build of the client (216), for real class and member names |
 | `docs/` | User guides; `docs/developer/` is this documentation |
 
 ## The Mapping Contract

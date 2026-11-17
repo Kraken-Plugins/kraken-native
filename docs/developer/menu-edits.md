@@ -3,7 +3,7 @@
 Menu edits change the right-click menu the client builds: which option is the left click, what a row says, which rows
 show, and rows of a plugin's own. The client rebuilds the menu every client cycle while it is closed, and handles the
 cycle's left click after the rebuild, so an edit has to be in place inside that same cycle. A round trip to Java is
-too slow for that, so the native hook holds **rules** the Kraken client sends and applies them itself, right after each
+too slow for that, so the native hook holds rules the Kraken client sends and applies them itself, right after each
 rebuild. This page covers the client's menu, the hooks and what they do, the rule model, the Java side, the clicks and
 expiries that come back, and the updater recipes that find the functions.
 
@@ -95,7 +95,7 @@ A click on one goes through the run hook: the path names the row and, for a sub 
 ## Rules
 
 A rule is one of three kinds, each with a `MenuMatch` naming the rows it is about, a shift state (any, held, not
-held) and whether it is **scoped** (expires once nothing matches it):
+held) and whether it is scoped (expires once nothing matches it):
 
 | Kind | What it does |
 |---|---|

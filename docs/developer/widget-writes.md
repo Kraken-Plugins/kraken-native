@@ -90,8 +90,8 @@ skips the write. Each write and each call runs under an SEH guard.
 
 ## The Active Component
 
-`cc_*` ops act on the engine's **active component**, which `cc_find` and `cc_create` point elsewhere, and `.cc_*` ops on
-the **dot component**. The handlers get theirs from `0x19c360`, which for a `cc_*` op returns
+`cc_*` ops act on the engine's active component, which `cc_find` and `cc_create` point elsewhere, and `.cc_*` ops on
+the dot component. The handlers get theirs from `0x19c360`, which for a `cc_*` op returns
 `runner + 0xded8 + dot * 16`: two shared pointers in the static runner, `ScriptRunner.activeComponent` (`0xded8`) and
 `ScriptRunner.dotComponent` (`0xdee8`). The engine keeps them between scripts, so when a script that draws one item
 slot returns, the active component is still that slot.

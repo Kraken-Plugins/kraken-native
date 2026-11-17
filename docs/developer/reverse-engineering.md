@@ -483,7 +483,7 @@ displacement belongs to.
 
 [`provenance.py`](../../updater/src/native_updater/analysis/provenance.py) runs a forward interpretation of one function
 and records what each load, store, call, compare and return uses. Set it up from the Windows Python, with `updater\src`
-on the path (no `uv` and no venv):
+on the path (no `uv` and no venv). Replace `<repo>` with the path to your checkout:
 
 ```python
 import sys
@@ -545,29 +545,6 @@ amount.
 For each key still FAILED or NEEDS_REVIEW, the run writes `cache/<sha256>/repair/<key>.md`. The file has the old
 function around the evidence (12 instructions either side) and the first 60 instructions of the matched new function.
 Compare the two with the sql queries above.
-
-### debug/ Symbol Dumps
-
-The `debug/` folder holds dumps of a macOS debug build of client 216, which is a different platform and version.
-
-| File | Holds |
-|---|---|
-| `symbols_table_demangled.txt` (83 MB) | `address<TAB>demangled name` |
-| `symbols_table.txt` (32 MB) | `address<TAB>mangled name` |
-| `symbols.txt` (4.5 MB) | Demangled names, mostly without addresses |
-| `constants.txt` (190 KB) | Data symbols, with `s` (local) or `S` (global) and imported `U` symbols |
-| `strings.txt` (1.7 MB) | Section entries with string and base64 data |
-
-Names carry over between builds, and offsets do not. The 216 names give you the class and member names to search for in
-241.3, and the 241.3 code gives you the offsets:
-
-```bash
-grep -m 12 "jag::game::Entity::" debug/symbols_table_demangled.txt | cut -f2 | cut -c1-120
-grep -m 10 "NotifyInteracted" debug/symbols.txt
-```
-
-Addresses in `symbols_table_demangled.txt` are unreliable. Seven `jag::game::Entity::` lines list the same address,
-`0x100009e70`, so read the names and ignore the addresses.
 
 ### Prior Notes in findings/
 
@@ -651,8 +628,8 @@ flowchart TB
     `analysis.json`. Use a scratch `--out` directory while you experiment.
 11. **One venv per platform.** `updater/.venv` belongs to one platform. Running `uv` from the other one rebuilds it, so
     use the WSL shell function from [`updater/README.md`](../../updater/README.md) for WSL runs.
-12. **Old notes.** The `findings/` event ids are one higher than `enums.events`, and the `debug/` addresses repeat across
-    unrelated names. Use the notes and dumps for names and ideas, and check every value against the current build.
+12. **Old notes.** The `findings/` event ids are one higher than `enums.events`. Use the notes for names and ideas, and
+    check every value against the current build.
 
 ## See Also
 

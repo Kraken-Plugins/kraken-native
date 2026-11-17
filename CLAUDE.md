@@ -175,11 +175,9 @@ consensus verdicts (`consensus.py`, `carry.py`) → invariants (`verify.py`) →
 
 ## Reference
 
-- `debug/`: a macOS debug build of the client (216) with symbol, string and constant dumps
-  (`symbols_table_demangled.txt` is ~80 MB). Grep them for real class and member names.
 - How each part works: `docs/developer/` (start at `architecture.md`; `cookbook.md` has step lists for common changes).
   User guides are in `docs/`. The older design docs (`updater-design`, `event-hooks-design`, `event-backlog`,
-  `in-game-drawing`, `menu-actions`, `ghidra-walkthrough`) are in git history: `git show ffc8ed8^:docs/<name>.md`.
+  `in-game-drawing`, `menu-actions`, `ghidra-walkthrough`) are in git history: `git show fdc6daf^:docs/<name>.md`.
 
 ## Conventions
 
