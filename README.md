@@ -29,12 +29,12 @@ Use at your own risk. The developers are not responsible for any consequences re
 
 ## What's Inside
 
-| Part | Status | What it does |
-|---|---|---|
-| [Client](docs/client.md) (`client/`) | Proof of concept | Launches the game, embeds its window and hosts the plugins, overlays and [dev tools](docs/dev-tools.md) |
-| [API](docs/api.md) (`api/`) | In progress | Reads the game from outside its process: players, NPCs, objects, inventories, interfaces, [events](docs/events.md) and more |
-| [Updater](docs/updater.md) (`updater/`) | Working | Maps each new game build, so the API knows where to find everything in memory |
-| [Native hook](docs/client.md#the-native-hook) (`kraken_hook.dll`) | Working | Loaded into the game by the client, to report events as they happen, draw in the game and run menu actions |
+| Part                                                              | Status           | What it does                                                                                                                |
+|-------------------------------------------------------------------|------------------|-----------------------------------------------------------------------------------------------------------------------------|
+| [Client](docs/client.md) (`client/`)                              | Proof of concept | Launches the game, embeds its window and hosts the plugins, overlays and [dev tools](docs/dev-tools.md)                     |
+| [API](docs/api.md) (`api/`)                                       | In progress      | Reads the game from outside its process: players, NPCs, objects, inventories, interfaces, [events](docs/events.md) and more |
+| [Updater](docs/updater.md) (`updater/`)                           | Working          | Maps each new game build, so the API knows where to find everything in memory                                               |
+| [Native hook](docs/client.md#the-native-hook) (`kraken_hook.dll`) | Working          | Loaded into the game by the client, to report events as they happen, draw in the game and run menu actions                  |
 
 The repository includes the mapping for game version 241.3. When the game updates, [run the updater](docs/updater.md)
 to make one for the new build.

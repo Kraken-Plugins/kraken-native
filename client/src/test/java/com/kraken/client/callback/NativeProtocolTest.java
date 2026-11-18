@@ -414,7 +414,7 @@ class NativeProtocolTest {
 
     @Test
     void theDrawBlockFollowsTheMappingInTheDllsOrder() throws IOException {
-        for (String version : new String[]{"241.3", "241.4", "242.1"}) {
+        for (String version : new String[]{"241.3", "241.4", "242.1", "242.3"}) {
             Mapping mapping = Mapping.bundled(version);
             ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.drawLayout(mapping)).order(ByteOrder.LITTLE_ENDIAN);
 
