@@ -182,18 +182,8 @@ public final class ObjectDecoder {
             case 73 -> t.obstructsGround = true;
             case 74 -> t.hollow = true;
             case 75 -> t.supportItems = in.g1();
-            case 77, 92 -> {
-                t.multiVarbit = minusOne(in.g2());
-                t.multiVarp = minusOne(in.g2());
-                int fallback = opcode == 92 ? minusOne(in.g2()) : -1;
-                int n = in.g1();
-                int[] children = new int[n + 2];
-                for (int i = 0; i <= n; i++) {
-                    children[i] = minusOne(in.g2());
-                }
-                children[n + 1] = fallback;
-                t.multiChildren = children;
-            }
+            case 77, 92 -> readMultiChildren(t, in, opcode == 92, false);
+            case 97, 98 -> readMultiChildren(t, in, opcode == 98, true);
             case 78 -> {
                 t.ambientSoundId = in.g2();
                 t.ambientSoundDistance = in.g1();
@@ -225,6 +215,40 @@ public final class ObjectDecoder {
             default -> throw new ConfigFormatException("Loc " + t.id + ": unknown opcode " + opcode
                     + " at " + (in.position() - 1));
         }
+    }
+
+    /**
+     * Reads a multi-loc's transforms: a varbit and a varp (0xFFFF for none), for opcodes 92 and 98 a fallback id, then
+     * a count and count + 1 child ids, with the fallback (-1 without one) appended last. Opcodes 77 and 92 carry 16-bit
+     * ids (0xFFFF for none); 97 and 98 carry signed 24-bit ids (0xFFFFFF for none; handler at 0x5ff3c9 in 243.1).
+     *
+     * @param t            the type being decoded, updated in place
+     * @param in           the file, positioned after the opcode
+     * @param withFallback whether a fallback id follows the varp
+     * @param wideIds      whether the ids are 24-bit rather than 16-bit
+     */
+    private static void readMultiChildren(Builder t, ConfigBuffer in, boolean withFallback, boolean wideIds) {
+        t.multiVarbit = minusOne(in.g2());
+        t.multiVarp = minusOne(in.g2());
+        int fallback = withFallback ? childId(in, wideIds) : -1;
+        int n = in.g1();
+        int[] children = new int[n + 2];
+        for (int i = 0; i <= n; i++) {
+            children[i] = childId(in, wideIds);
+        }
+        children[n + 1] = fallback;
+        t.multiChildren = children;
+    }
+
+    /**
+     * Reads one multi-loc child id.
+     *
+     * @param in      the file
+     * @param wideIds whether the id is signed 24-bit rather than 16-bit
+     * @return the id, -1 for none
+     */
+    private static int childId(ConfigBuffer in, boolean wideIds) {
+        return wideIds ? in.g3s() : minusOne(in.g2());
     }
 
     /**

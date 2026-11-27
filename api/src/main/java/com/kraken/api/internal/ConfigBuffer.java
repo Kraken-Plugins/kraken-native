@@ -120,6 +120,16 @@ public final class ConfigBuffer {
     }
 
     /**
+     * Reads a signed 24-bit value (values above 0x7FFFFF wrap below 0, so 0xFFFFFF is -1).
+     *
+     * @return the value, -8388608 to 8388607
+     */
+    public int g3s() {
+        int value = g3();
+        return value > 0x7fffff ? value - 0x1000000 : value;
+    }
+
+    /**
      * Reads a signed 32-bit value.
      *
      * @return the value

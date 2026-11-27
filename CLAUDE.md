@@ -44,7 +44,15 @@ uv run native-updater lint                                # validate spec YAML
 uv run native-updater run --binary <osclient.exe> [--previous ../api/src/main/resources/mappings/<old>.json]
 uv run native-updater bindings --binary <osclient.exe> --table osrs.IfType
 uv run native-updater sql --binary <osclient.exe> "<SQL over program.db>"
+uv run native-updater fetch --dest <dir> [--environment production-last | --catalog <id>]   # a build from the Jagex CDN
+uv run native-updater report --mapping <new>.json --previous <old>.json --exit-code <code>  # a run as a PR description
 ```
+
+`.github/workflows/native-mappings.yml` maps new builds on its own: the n8n Native Client Watch (kube-services) polls the
+Jagex CDN's `osrs-win/alias.json` and dispatches it with the new production catalog; it fetches the build, runs Ghidra
+and `run --previous` on ubuntu-latest, keeps each build's binary, export and `analysis.json` in the Actions cache for
+the next build's carry-forward, and opens a `native-mappings/<version>` pull request with the `report`
+(`docs/developer/mapping-ci.md`, including seeding that cache from a local run).
 
 `run` exits 0 if every P0 key is PROVEN/ANCHORED and none is FAILED/NEEDS_REVIEW, 1 on acquisition failure or crash, 2
 if the mapping was written with keys left out or a P0 key only INFERRED. Other subcommands: `updater/README.md`.

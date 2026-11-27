@@ -55,6 +55,8 @@ uv run native-updater run --binary <new.exe> --previous ../api/src/main/resource
 uv run native-updater bindings --binary <osclient.exe> --table osrs.IfType       # dump a Lua binding table
 uv run native-updater sql --binary <osclient.exe> "SELECT i.rva, i.text FROM operand o JOIN insn i USING(rva) WHERE o.kind='mem' AND o.disp=0xcc70"
 uv run native-updater probe --mapping ../api/src/main/resources/mappings/<version>.json --display-name <name>   # read-only live check
+uv run native-updater fetch --dest <dir> [--environment production-last | --catalog <id>]   # osclient.exe from the Jagex CDN, as JSON
+uv run native-updater report --mapping <new>.json --previous <old>.json --exit-code <code>   # the run as a pull request description
 uv run python -m unittest discover -s tests -t .                  # unit + golden tests (golden skip without the cached model)
 ```
 
@@ -131,6 +133,9 @@ reads it for carry-forward. Repair bundles (`repair/<key>.md`) go in the same fo
 | `src/native_updater/winpaths.py` | Windows paths for WSL: `C:\` to `/mnt/c`, and the Windows profile for the default cache |
 | `src/native_updater/emit.py` | `mappings/<version>.json`, `analysis.json`, the run summary and the diff |
 | `src/native_updater/probe.py` | Read-only live checks of a mapping against the running client (PASS/FAIL/SKIP per `live:` check) |
+| `src/native_updater/cdn.py` | Builds from the Jagex CDN the launcher installs from: the environment aliases, catalogs, metafiles and digest-checked pieces |
+| `src/native_updater/mappings.py` | The mappings already written: the one made from a binary, and the one a new build carries forward from |
+| `src/native_updater/report.py` | A run as Markdown for the Native mappings workflow's pull request: verdicts against the previous build, keys left out or inferred, struct shift bands and outliers, every changed value |
 | `tests/` | `test_units.py` (unit tests on fixtures from `fake_model.py`) and `test_golden.py` (the corpus builds, when cached) |
 | `corpus/<version>.golden.json` | Accepted values per client version for the golden tests |
 

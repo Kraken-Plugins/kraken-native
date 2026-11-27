@@ -35,7 +35,9 @@ live check prove a value is right.
 
 ## Mapping a New Game Build
 
-The user-level steps are in [Mapping a new game build](../updater.md). As a contributor, also:
+The [Native mappings](mapping-ci.md) workflow usually does steps 1 to 3 on its own and opens a pull request with the
+mapping and its report; start from that, at step 4 for anything it left out. The user-level steps are in
+[Mapping a new game build](../updater.md). As a contributor, also:
 
 1. **Export once, from Windows.** Run the Ghidra export from Windows (`native-updater export`, or `run` with
    `GHIDRA_INSTALL_DIR` set). WSL then reuses it from the shared cache.

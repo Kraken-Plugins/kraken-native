@@ -4,6 +4,7 @@ import com.kraken.api.Client;
 import com.kraken.api.actor.Player;
 import com.kraken.api.coords.LocalPoint;
 import com.kraken.api.coords.WorldPoint;
+import com.kraken.api.definition.ObjectComposition;
 import com.kraken.api.scene.DecorativeObject;
 import com.kraken.api.scene.GameObject;
 import com.kraken.api.scene.GroundObject;
@@ -99,10 +100,11 @@ final class Scenery {
      *
      * @param client the client
      * @param id     the object type's id
-     * @return the name, or "" if it has none
+     * @return the name, or "" if it has none or its definition can't be read
      */
     static String name(Client client, int id) {
-        return Objects.requireNonNullElse(client.getObjectDefinition(id).getName(), "");
+        ObjectComposition type = client.getObjectDefinition(id);
+        return type == null ? "" : Objects.requireNonNullElse(type.getName(), "");
     }
 
     /**
@@ -110,10 +112,11 @@ final class Scenery {
      *
      * @param client the client
      * @param id     the object type's id
-     * @return e.g. "Chop down, Examine"
+     * @return e.g. "Chop down, Examine", or "" if its definition can't be read
      */
     static String ops(Client client, int id) {
-        String[] actions = client.getObjectDefinition(id).getActions();
+        ObjectComposition type = client.getObjectDefinition(id);
+        String[] actions = type == null ? null : type.getActions();
         return actions == null ? "" : String.join(", ",
                 Arrays.stream(actions).filter(op -> op != null && !op.isEmpty()).toList());
     }

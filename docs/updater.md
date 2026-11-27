@@ -21,6 +21,10 @@ The console says why: either there's no `241.4.json` at all, or the file was mad
 (Jagex sometimes ships a new binary without changing the version number). Kraken checks the binary's SHA-256 against
 the mapping, so it never reads a build with offsets meant for another.
 
+Check the repository's pull requests first: when Jagex releases a build, the
+[Native mappings](developer/mapping-ci.md) workflow maps it and opens a pull request named
+`chore(mappings): map native client <version>`, usually within an hour.
+
 ## What You Need
 
 * [uv](https://docs.astral.sh/uv/getting-started/installation/), which installs the right Python (3.12) and the
@@ -58,6 +62,16 @@ uv run native-updater run --previous ../api/src/main/resources/mappings/241.3.js
 It reuses what it learned about the old build to find values that moved, and prints every value that changed. This
 works best when the old build was mapped on the same machine, so its analysis is in the cache: map the current build
 once before the game updates.
+
+To map a build the launcher hasn't installed, download it from the Jagex CDN the launcher uses:
+
+```powershell
+uv run native-updater fetch --dest D:\builds\new                                 # the build the launcher installs now
+uv run native-updater fetch --environment production-last --dest D:\builds\old   # the one before it
+uv run native-updater run --binary D:\builds\new\osclient.exe --previous ../api/src/main/resources/mappings/241.3.json
+```
+
+`fetch` prints the build's version and SHA-256, and which bundled mapping, if any, was made from it.
 
 ## Reading the Result
 
@@ -167,4 +181,5 @@ Run the Ghidra export and `probe` from Windows.
 ## More
 
 The updater has more commands for people improving it: `lint` checks the key definitions, `bindings` lists the game's
-Lua bindings, and `sql` queries a build's `program.db`. See [`updater/README.md`](../updater/README.md).
+Lua bindings, `sql` queries a build's `program.db`, and `report` writes the Markdown summary of a run that the
+workflow's pull requests carry. See [`updater/README.md`](../updater/README.md).

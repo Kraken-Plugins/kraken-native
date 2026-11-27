@@ -31,6 +31,18 @@ class ObjectDecoderTest {
     private static final String MULTI = "13015c2bf2ffffd5ca00d5c900";
 
     /**
+     * A multi-loc with 24-bit ids and no fallback (opcode 97, from 243.1's cache): varbit -1, varp 0, three children
+     * with none (0xFFFFFF) before 15596.
+     */
+    private static final String WIDE_MULTI_VARP = "130161ffff000003ffffffffffffffffff003cec00";
+
+    /**
+     * A multi-loc with 24-bit ids and a fallback (opcode 98, from 243.1's cache): 2x2, animated, varbit 9578 picks
+     * 14513 or 34826, anything else 14513.
+     */
+    private static final String WIDE_MULTI = "0e020f021801f84400041b13011262256affff0038b1010038b100880a00";
+
+    /**
      * Hollow (opcode 74) after interact type 1 (opcode 27): ends up blocking neither movement nor projectiles.
      */
     private static final String HOLLOW = "13001b4a1206010000290d0900";
@@ -91,6 +103,26 @@ class ObjectDecoderTest {
         assertEquals(11250, multi.getVarbitId());
         assertEquals(-1, multi.getVarPlayerId());
         assertArrayEquals(new int[]{54729, 54730}, multi.getImpostorIds());
+    }
+
+    @Test
+    void decodesWideMultiLocWithoutFallback() {
+        ObjectComposition multi = decode(0, WIDE_MULTI_VARP);
+        assertEquals(-1, multi.getVarbitId());
+        assertEquals(0, multi.getVarPlayerId());
+        assertArrayEquals(new int[]{-1, -1, -1, 15596, -1}, multi.getImpostorIds());
+    }
+
+    @Test
+    void decodesWideMultiLocWithFallback() {
+        ObjectComposition multi = decode(1729, WIDE_MULTI);
+        assertEquals(2, multi.getSizeX());
+        assertEquals(2, multi.getSizeY());
+        assertEquals(504, multi.getAnimationId());
+        assertFalse(multi.blocksRange());
+        assertEquals(9578, multi.getVarbitId());
+        assertEquals(-1, multi.getVarPlayerId());
+        assertArrayEquals(new int[]{14513, 34826, 14513}, multi.getImpostorIds());
     }
 
     @Test

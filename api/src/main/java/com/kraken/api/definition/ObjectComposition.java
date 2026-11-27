@@ -421,7 +421,7 @@ public final class ObjectComposition {
 
     /**
      * The object ids this one can show as, indexed by the {@link #getVarbitId()}/{@link #getVarPlayerId()} value; the
-     * last entry is the fallback for values past the end (opcode 92; -1 for 77).
+     * last entry is the fallback for values past the end (opcodes 92 and 98; -1 for 77 and 97).
      *
      * @return a copy of the child object ids (-1 = nothing); empty if the object doesn't transform
      */

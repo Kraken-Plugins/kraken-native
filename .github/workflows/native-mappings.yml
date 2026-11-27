@@ -1,0 +1,437 @@
+# Maps each new build of the native client (osclient.exe) and opens a pull request with its mapping and a report on it.
+# The Kraken Update Pipeline n8n workflow dispatches it with the catalog id when the Jagex CDN's osrs-win production
+# alias changes. The scheduled runs map a build n8n missed and keep the build cache warm: GitHub drops a cache entry
+# nobody has read for 7 days, and carry-forward needs the previous build's entry. docs/developer/mapping-ci.md has
+# the details, including seeding the cache from a local run.
+#
+# Requires the NATIVE_MAPPINGS_TOKEN secret: a fine-grained token for Kraken-Plugins/kraken-native with Contents and
+# Pull requests read/write. GITHUB_TOKEN may not open pull requests here, and one it opened would not run build.yml.
+name: Native mappings
+
+on:
+  workflow_dispatch:
+    inputs:
+      catalog:
+        description: Jagex CDN catalog id of the osrs-win build to map (empty for the current production build)
+        required: false
+        type: string
+      force:
+        description: Map the build even when a mapping or an open pull request already has it
+        required: false
+        default: false
+        type: boolean
+      seed_release:
+        description: Seed the build cache from this draft release's .tar.gz instead of mapping (see the docs)
+        required: false
+        type: string
+  schedule:
+    # Mondays and Thursdays, so no cache entry goes 7 days unread
+    - cron: '23 14 * * 1,4'
+
+# One run at a time per build: a second dispatch for it waits. GitHub keeps one pending run per group and cancels an
+# older pending one, so other catalogs, the scheduled runs and the seed each get their own group and never cancel a
+# queued dispatch.
+concurrency:
+  group: native-mappings-${{ inputs.seed_release != '' && 'seed' || inputs.catalog || 'production' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  MAPPINGS: api/src/main/resources/mappings
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  map:
+    name: Map the build
+    if: github.event_name != 'workflow_dispatch' || inputs.seed_release == ''
+    runs-on: ubuntu-latest
+    # On 2 cores Ghidra took 8 minutes and the updater 3 (peaking at 3 GB); there is room for a slow runner
+    timeout-minutes: 90
+    env:
+      CATALOG: ${{ inputs.catalog }}
+      FORCE: ${{ inputs.force }}
+      GHIDRA_URL: https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.4_build/ghidra_12.1.4_PUBLIC_20260921.zip
+      GHIDRA_SHA256: ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db
+      # Ghidra's heap. It peaks under 2 GB on this binary; the runner has 8 GB
+      MAXMEM: 6G
+      BOT_NAME: github-actions[bot]
+      BOT_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.NATIVE_MAPPINGS_TOKEN || github.token }}
+
+      - uses: astral-sh/setup-uv@v10
+
+      # Downloads osclient.exe and decides the mode: new (map it and open a pull request), mapped (the default branch
+      # has its mapping) or proposed (an open pull request branch has it)
+      - name: Pick the build
+        id: build
+        working-directory: updater
+        run: |
+          echo "KRAKEN_NATIVE_HOME=$RUNNER_TEMP/kraken-native" >> "$GITHUB_ENV"
+          if [ -n "$CATALOG" ] && [[ ! "$CATALOG" =~ ^[0-9a-f]{40,64}$ ]]; then
+            echo "::error::'$CATALOG' is not a catalog id (lower-case hex, as alias.json lists them)"
+            exit 1
+          fi
+          args=(--dest "$RUNNER_TEMP/download")
+          if [ -n "$CATALOG" ]; then args+=(--catalog "$CATALOG"); fi
+          release="$RUNNER_TEMP/release.json"
+          uv run native-updater fetch "${args[@]}" > "$release"
+          cat "$release"
+
+          sha=$(jq -r .sha256 "$release")
+          version=$(jq -r .version "$release")
+          branch="native-mappings/$version"
+          mode=new
+          if [ -n "$(jq -r '.mapping.version // empty' "$release")" ]; then
+            mode=mapped
+            echo "$version ($sha) is mapped in $MAPPINGS/$version.json"
+          elif git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
+            git fetch --depth=1 origin "$branch"
+            if [ "$(git show "FETCH_HEAD:$MAPPINGS/$version.json" 2> /dev/null | jq -r .sha256 || true)" = "$sha" ]; then
+              mode=proposed
+              echo "$branch already proposes the mapping for $version ($sha)"
+            fi
+          fi
+          if [ "$FORCE" = true ]; then mode=new; fi
+          {
+            echo "sha=$sha"
+            echo "version=$version"
+            echo "branch=$branch"
+            echo "mode=$mode"
+            echo "prev-sha=$(jq -r '.previous.sha256 // empty' "$release")"
+            echo "prev-version=$(jq -r '.previous.version // empty' "$release")"
+          } >> "$GITHUB_OUTPUT"
+
+      # Each entry holds a build's binary, Ghidra export and analysis.json. Keys end in the run id because an entry
+      # can't be replaced; the prefix restores the newest
+      - name: Restore this build's cache
+        id: this-cache
+        uses: actions/cache/restore@v6
+        with:
+          key: native-build-${{ steps.build.outputs.sha }}
+          restore-keys: native-build-${{ steps.build.outputs.sha }}-
+          path: |
+            ${{ runner.temp }}/kraken-native/store/${{ steps.build.outputs.sha }}
+            ${{ runner.temp }}/kraken-native/cache/${{ steps.build.outputs.sha }}/export
+            ${{ runner.temp }}/kraken-native/cache/${{ steps.build.outputs.sha }}/analysis.json
+
+      - name: Restore the previous build's cache
+        id: prev-cache
+        if: steps.build.outputs.prev-sha != ''
+        uses: actions/cache/restore@v6
+        with:
+          key: native-build-${{ steps.build.outputs.prev-sha }}
+          restore-keys: native-build-${{ steps.build.outputs.prev-sha }}-
+          path: |
+            ${{ runner.temp }}/kraken-native/store/${{ steps.build.outputs.prev-sha }}
+            ${{ runner.temp }}/kraken-native/cache/${{ steps.build.outputs.prev-sha }}/export
+            ${{ runner.temp }}/kraken-native/cache/${{ steps.build.outputs.prev-sha }}/analysis.json
+
+      - name: Decide what to run
+        id: plan
+        env:
+          MODE: ${{ steps.build.outputs.mode }}
+          SHA: ${{ steps.build.outputs.sha }}
+          VERSION: ${{ steps.build.outputs.version }}
+          HIT: ${{ steps.this-cache.outputs.cache-matched-key }}
+          PREV_VERSION: ${{ steps.build.outputs.prev-version }}
+          PREV_HIT: ${{ steps.prev-cache.outputs.cache-matched-key }}
+          HAS_TOKEN: ${{ secrets.NATIVE_MAPPINGS_TOKEN != '' }}
+        run: |
+          run=false pr=false
+          if [ "$MODE" = new ]; then
+            run=true pr=true
+            if [ "$HAS_TOKEN" != true ]; then
+              echo "::error::$VERSION needs a pull request: add a NATIVE_MAPPINGS_TOKEN secret that can push to and open pull requests on $GITHUB_REPOSITORY"
+              exit 1
+            fi
+          elif [ -z "$HIT" ]; then
+            run=true
+            echo "No cache entry for $VERSION: mapping it again to make one, so the next build can carry forward from it." \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Nothing to map: $VERSION is $MODE and its cache entry $HIT is warm." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "$run" = true ] && [ -n "$PREV_VERSION" ] && [ -z "$PREV_HIT" ]; then
+            echo "::warning::No cache entry for $PREV_VERSION, so carry-forward runs as delta propagation only."
+          fi
+          ghidra=false
+          if [ "$run" = true ] && [ ! -f "$KRAKEN_NATIVE_HOME/cache/$SHA/export/insns.tsv.gz" ]; then ghidra=true; fi
+          {
+            echo "run=$run"
+            echo "pr=$pr"
+            echo "ghidra=$ghidra"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v6
+        if: steps.plan.outputs.ghidra == 'true'
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install Ghidra
+        if: steps.plan.outputs.ghidra == 'true'
+        run: |
+          curl -sSfL --retry 3 -o "$RUNNER_TEMP/ghidra.zip" "$GHIDRA_URL"
+          echo "$GHIDRA_SHA256  $RUNNER_TEMP/ghidra.zip" | sha256sum --check --strict
+          unzip -q "$RUNNER_TEMP/ghidra.zip" -d "$RUNNER_TEMP/ghidra"
+          rm "$RUNNER_TEMP/ghidra.zip"
+          dirs=("$RUNNER_TEMP"/ghidra/ghidra_*)
+          echo "GHIDRA_INSTALL_DIR=${dirs[0]}" >> "$GITHUB_ENV"
+
+      # Runs the Ghidra export first when the cache had none for this build
+      - name: Build this build's model
+        if: steps.plan.outputs.run == 'true'
+        working-directory: updater
+        run: uv run native-updater export --binary "$RUNNER_TEMP/download/osclient.exe"
+
+      - name: Build the previous build's model
+        if: steps.plan.outputs.run == 'true' && steps.prev-cache.outputs.cache-matched-key != ''
+        working-directory: updater
+        env:
+          PREV_SHA: ${{ steps.build.outputs.prev-sha }}
+        run: uv run native-updater build-model --binary "$KRAKEN_NATIVE_HOME/store/$PREV_SHA/osclient.exe"
+
+      # Exit 2 means the mapping and analysis were written but some key failed, needs review or is a P0 key only
+      # inferred: the pull request still opens, as a draft. Any other failure stops here.
+      - name: Map the build
+        id: map
+        if: steps.plan.outputs.run == 'true'
+        working-directory: updater
+        env:
+          SHA: ${{ steps.build.outputs.sha }}
+          PREV_VERSION: ${{ steps.build.outputs.prev-version }}
+        run: |
+          out="$RUNNER_TEMP/out"
+          mkdir -p "$out"
+          args=(--binary "$KRAKEN_NATIVE_HOME/store/$SHA/osclient.exe" --out "$out")
+          if [ -n "$PREV_VERSION" ]; then args+=(--previous "../$MAPPINGS/$PREV_VERSION.json"); fi
+          set +e
+          uv run native-updater run "${args[@]}" 2>&1 | tee "$out/updater.log"
+          code=${PIPESTATUS[0]}
+          set -e
+          echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+          case "$code" in
+            0) ;;
+            2) echo "::warning::A key failed, needs review or is a P0 key only inferred; see the report." ;;
+            *) echo "::error::native-updater run exited $code"; exit "$code" ;;
+          esac
+
+      - name: Save this build's cache
+        if: steps.map.outputs.exit-code == '0' || steps.map.outputs.exit-code == '2'
+        uses: actions/cache/save@v6
+        with:
+          key: native-build-${{ steps.build.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/kraken-native/store/${{ steps.build.outputs.sha }}
+            ${{ runner.temp }}/kraken-native/cache/${{ steps.build.outputs.sha }}/export
+            ${{ runner.temp }}/kraken-native/cache/${{ steps.build.outputs.sha }}/analysis.json
+
+      - name: Write the report
+        if: steps.map.outputs.exit-code == '0' || steps.map.outputs.exit-code == '2'
+        working-directory: updater
+        env:
+          VERSION: ${{ steps.build.outputs.version }}
+          PREV_VERSION: ${{ steps.build.outputs.prev-version }}
+          EXIT_CODE: ${{ steps.map.outputs.exit-code }}
+        run: |
+          args=(--mapping "$RUNNER_TEMP/out/$VERSION.json" --exit-code "$EXIT_CODE" --release "$RUNNER_TEMP/release.json"
+                --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --commit "$GITHUB_SHA"
+                --output "$RUNNER_TEMP/out/report.md")
+          if [ -n "$PREV_VERSION" ]; then args+=(--previous "../$MAPPINGS/$PREV_VERSION.json"); fi
+          uv run native-updater report "${args[@]}"
+          cat "$RUNNER_TEMP/out/report.md" >> "$GITHUB_STEP_SUMMARY"
+
+      # A run that only rebuilt the cache entry for a mapped build says whether it reproduced the committed mapping
+      - name: Compare with the committed mapping
+        if: steps.build.outputs.mode == 'mapped' && (steps.map.outputs.exit-code == '0' || steps.map.outputs.exit-code == '2')
+        env:
+          VERSION: ${{ steps.build.outputs.version }}
+        run: |
+          if diff <(jq -S . "$MAPPINGS/$VERSION.json") <(jq -S . "$RUNNER_TEMP/out/$VERSION.json") > "$RUNNER_TEMP/out/committed.diff"; then
+            echo "This run reproduced $MAPPINGS/$VERSION.json." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::This run's mapping differs from $MAPPINGS/$VERSION.json (committed.diff in the artifact). The cache entry now holds this run's analysis; seed it from the local run to keep that run's carry-forward."
+          fi
+
+      - name: Upload the run's files
+        if: always() && steps.plan.outputs.run == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-mapping-${{ steps.build.outputs.version }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/out/
+            ${{ runner.temp }}/release.json
+            ${{ runner.temp }}/kraken-native/cache/${{ steps.build.outputs.sha }}/analysis.json
+            ${{ runner.temp }}/kraken-native/cache/${{ steps.build.outputs.sha }}/repair/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Open or update the pull request
+        if: steps.plan.outputs.pr == 'true' && (steps.map.outputs.exit-code == '0' || steps.map.outputs.exit-code == '2')
+        env:
+          GH_TOKEN: ${{ secrets.NATIVE_MAPPINGS_TOKEN }}
+          VERSION: ${{ steps.build.outputs.version }}
+          BRANCH: ${{ steps.build.outputs.branch }}
+          BASE: ${{ github.event.repository.default_branch }}
+          EXIT_CODE: ${{ steps.map.outputs.exit-code }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Add a NATIVE_MAPPINGS_TOKEN secret that can push to and open pull requests on $GITHUB_REPOSITORY"
+            exit 1
+          fi
+          title="chore(mappings): map native client $VERSION"
+          # Draft pull requests need a paid plan in a private repository, so the title says it too
+          if [ "$EXIT_CODE" = 2 ]; then title="$title (needs review)"; fi
+          cp "$RUNNER_TEMP/out/$VERSION.json" "$MAPPINGS/$VERSION.json"
+          git add "$MAPPINGS/$VERSION.json"
+          if git diff --cached --quiet; then
+            echo "This branch already has this mapping for $VERSION; no pull request needed." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # A re-run replaces the branch, so refuse when anyone else has committed to it rather than lose hand fixes
+          if git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null; then
+            git fetch --depth=1 origin "$BRANCH"
+            committer=$(git log -1 --format=%cn FETCH_HEAD)
+            if [ "$committer" != "$BOT_NAME" ]; then
+              echo "::error::$BRANCH has a commit from $committer. Delete the branch to regenerate it, or update it by hand."
+              exit 1
+            fi
+          fi
+
+          git config user.name "$BOT_NAME"
+          git config user.email "$BOT_EMAIL"
+          git switch --create "$BRANCH"
+          git commit --message "$title"
+          git push --force origin "$BRANCH"
+
+          body="$RUNNER_TEMP/out/report.md"
+          pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          create=(gh pr create --repo "$GITHUB_REPOSITORY" --base "$BASE" --head "$BRANCH" --title "$title" --body-file "$body")
+          if [ -z "$pr" ]; then
+            if [ "$EXIT_CODE" != 2 ]; then
+              url=$("${create[@]}")
+            elif ! url=$("${create[@]}" --draft 2> "$RUNNER_TEMP/draft.err"); then
+              cat "$RUNNER_TEMP/draft.err"
+              echo "::warning::Could not open a draft pull request (a private repository needs a paid plan for drafts); opening a regular one."
+              url=$("${create[@]}")
+            fi
+          else
+            gh pr edit "$pr" --repo "$GITHUB_REPOSITORY" --title "$title" --body-file "$body"
+            # Turns it back into a draft when keys are left out, but never marks a draft ready: that stays a human call
+            if [ "$EXIT_CODE" = 2 ]; then
+              gh pr ready "$pr" --repo "$GITHUB_REPOSITORY" --undo || echo "::warning::Could not mark #$pr as a draft."
+            fi
+            url=$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json url --jq .url)
+          fi
+          echo "Pull request: $url" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # Loads a build cache made by a local run (store/<sha>/osclient.exe, cache/<sha>/export/ and cache/<sha>/analysis.json
+  # from ~/.kraken-native) into the workflow's cache, so the next build carries forward from that run, then deletes
+  # the draft release it came in
+  seed:
+    name: Seed the build cache
+    if: github.event_name == 'workflow_dispatch' && inputs.seed_release != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      SEED_RELEASE: ${{ inputs.seed_release }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Unpack the seed
+        id: seed
+        run: |
+          if [[ ! "$SEED_RELEASE" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::'$SEED_RELEASE' is not a release tag"
+            exit 1
+          fi
+          release=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq "[.[] | select(.draft and .tag_name == \"$SEED_RELEASE\")][0] // empty")
+          if [ -z "$release" ]; then
+            echo "::error::No draft release $SEED_RELEASE"
+            exit 1
+          fi
+          asset=$(jq -r '[.assets[] | select(.name | endswith(".tar.gz"))][0].id // empty' <<< "$release")
+          if [ -z "$asset" ]; then
+            echo "::error::Draft release $SEED_RELEASE has no .tar.gz"
+            exit 1
+          fi
+          echo "release-id=$(jq -r .id <<< "$release")" >> "$GITHUB_OUTPUT"
+          archive="$RUNNER_TEMP/seed.tar.gz"
+          gh api -H "Accept: application/octet-stream" "repos/$GITHUB_REPOSITORY/releases/assets/$asset" > "$archive"
+
+          # Only regular files and folders, and only the files a build cache entry holds
+          types=$(tar -tvzf "$archive" | cut -c1)
+          names=$(tar -tzf "$archive")
+          if grep -qv '^[-d]$' <<< "$types"; then
+            echo "::error::The seed holds links or special files"
+            exit 1
+          fi
+          sha_dir='[0-9a-f]{64}'
+          allowed="^\./$|^(\./)?((store|cache)/?|store/$sha_dir/?|store/$sha_dir/osclient\.exe|cache/$sha_dir/?|cache/$sha_dir/export/?|cache/$sha_dir/export/(meta\.tsv|functions\.tsv\.gz|insns\.tsv\.gz)|cache/$sha_dir/analysis\.json)$"
+          if grep -qvE "$allowed" <<< "$names"; then
+            echo "::error::The seed holds files a build cache entry doesn't:"
+            grep -vE "$allowed" <<< "$names"
+            exit 1
+          fi
+          home="$RUNNER_TEMP/kraken-native"
+          mkdir -p "$home"
+          tar -xzf "$archive" -C "$home" --no-same-owner --no-same-permissions
+
+          shas=("$home"/store/*/)
+          if [ "${#shas[@]}" != 1 ]; then
+            echo "::error::The seed must hold exactly one build"
+            exit 1
+          fi
+          sha=$(basename "${shas[0]}")
+          if [ "$(sha256sum "$home/store/$sha/osclient.exe" | cut -d' ' -f1)" != "$sha" ]; then
+            echo "::error::store/$sha/osclient.exe does not have that SHA-256"
+            exit 1
+          fi
+          for f in export/meta.tsv export/functions.tsv.gz export/insns.tsv.gz analysis.json; do
+            if [ ! -f "$home/cache/$sha/$f" ]; then
+              echo "::error::The seed has no cache/$sha/$f"
+              exit 1
+            fi
+          done
+          if [ "$(jq -r .sha256 "$home/cache/$sha/analysis.json")" != "$sha" ]; then
+            echo "::error::cache/$sha/analysis.json is for another build"
+            exit 1
+          fi
+          mapped=""
+          for m in "$MAPPINGS"/*.json; do
+            if [ "$(jq -r .sha256 "$m")" = "$sha" ]; then mapped="$m"; fi
+          done
+          if [ -z "$mapped" ]; then
+            echo "::error::No mapping in $MAPPINGS was made from build $sha"
+            exit 1
+          fi
+          echo "Seeding the cache for $mapped ($sha)" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Save the build's cache
+        uses: actions/cache/save@v6
+        with:
+          key: native-build-${{ steps.seed.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/kraken-native/store/${{ steps.seed.outputs.sha }}
+            ${{ runner.temp }}/kraken-native/cache/${{ steps.seed.outputs.sha }}/export
+            ${{ runner.temp }}/kraken-native/cache/${{ steps.seed.outputs.sha }}/analysis.json
+
+      - name: Delete the draft release
+        env:
+          RELEASE_ID: ${{ steps.seed.outputs.release-id }}
+        run: gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID"

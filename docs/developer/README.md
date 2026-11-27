@@ -13,6 +13,7 @@ and links to the deep dives below.
 | [Architecture](architecture.md) | The pieces, the mapping contract, the process boundary, a session end to end, data flows, threads, every place Kraken touches the game, design rules, glossary |
 | [Cookbook](cookbook.md) | Step-by-step recipes: tests, a new game build, a mapping key, a Lua-backed read, an event, a hook, a DLL command, a dev tool, a setting |
 | [Releasing](releasing.md) | The Build workflow, what a release holds, cutting one, and packaging `Kraken.exe` with `jpackage` |
+| [Mapping CI](mapping-ci.md) | How a new game build gets mapped on its own: the n8n watch on the Jagex CDN, the Native mappings workflow, its build cache and its pull request |
 
 ## The Parts
 
@@ -45,7 +46,7 @@ and links to the deep dives below.
 | You want to… | Read |
 |---|---|
 | Get oriented | [Architecture](architecture.md), then the page for the part you're touching |
-| Support a new game build | [Mapping a new game build](../updater.md), then [Cookbook](cookbook.md#mapping-a-new-game-build) and [Updater](updater.md) |
+| Support a new game build | The pull request [Mapping CI](mapping-ci.md) opens; else [Mapping a new game build](../updater.md), then [Cookbook](cookbook.md#mapping-a-new-game-build) and [Updater](updater.md) |
 | Fix a value the updater got wrong | [Reverse engineering](reverse-engineering.md), [Updater](updater.md) |
 | Read something new from the game | [Cookbook](cookbook.md#adding-a-lua-backed-read), [API internals](api.md), [Reverse engineering](reverse-engineering.md) |
 | Add or debug an event | [Events](events.md), [Cookbook](cookbook.md#adding-an-event) |

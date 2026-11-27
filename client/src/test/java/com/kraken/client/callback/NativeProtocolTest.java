@@ -20,6 +20,8 @@ import com.kraken.client.input.KeyReport;
 import com.kraken.client.callback.NativeProtocol.Drawing;
 import com.kraken.client.callback.NativeProtocol.Plan;
 import com.kraken.client.callback.NativeProtocol.Slot;
+import io.github.classgraph.ClassGraph;
+import io.github.classgraph.ScanResult;
 import org.junit.jupiter.api.Test;
 
 import java.awt.event.KeyEvent;
@@ -29,6 +31,8 @@ import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
@@ -414,7 +418,9 @@ class NativeProtocolTest {
 
     @Test
     void theDrawBlockFollowsTheMappingInTheDllsOrder() throws IOException {
-        for (String version : new String[]{"241.3", "241.4", "242.1", "242.3", "243.1"}) {
+        List<String> versions = bundledVersions();
+        assertTrue(versions.contains("241.3"), "the bundled mappings are on the classpath: " + versions);
+        for (String version : versions) {
             Mapping mapping = Mapping.bundled(version);
             ByteBuffer buf = ByteBuffer.wrap(NativeProtocol.drawLayout(mapping)).order(ByteOrder.LITTLE_ENDIAN);
 
@@ -436,6 +442,30 @@ class NativeProtocolTest {
             }
             assertEquals(0, buf.remaining(), "132 bytes, as the DLL reads them");
         }
+    }
+
+    /**
+     * Versions of every mapping bundled with the API, so a mapping is checked here as soon as it is added.
+     *
+     * @return the versions, such as {@code "241.3"}, oldest first
+     */
+    private static List<String> bundledVersions() {
+        try (ScanResult scan = new ClassGraph().acceptPathsNonRecursive(Mapping.RESOURCE_DIR).scan()) {
+            return scan.getResourcesWithExtension("json").getPaths().stream()
+                    .map(path -> path.substring(Mapping.RESOURCE_DIR.length(), path.length() - ".json".length()))
+                    .sorted(Comparator.comparing(NativeProtocolTest::versionParts, Arrays::compare))
+                    .toList();
+        }
+    }
+
+    /**
+     * A version's numbers, for sorting {@code "242.10"} after {@code "242.9"}.
+     *
+     * @param version a mapping version, such as {@code "241.3"}
+     * @return its dot-separated numbers
+     */
+    private static int[] versionParts(String version) {
+        return Arrays.stream(version.split("\\.")).mapToInt(Integer::parseInt).toArray();
     }
 
     @Test
