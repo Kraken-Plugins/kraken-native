@@ -106,7 +106,7 @@ def menu_ops(session, p):
             if body in shared:
                 continue
             sender = _sender(session, body, lookup)
-            if sender is not None and _hands_captures(session, body, sender, fields):
+            if sender is not None and _hands_captures(session, body, sender, fields, lookup):
                 found.append((body, sender, lea, adder))
         if len(found) != 1:
             session.notes.append(f"menu ops: {len(found)} {kind} row bodies look like the op sender")
@@ -266,22 +266,34 @@ def _packet_creates(session, fn):
     return []
 
 
-def _hands_captures(session, body, sender, fields):
+def _hands_captures(session, body, sender, fields, lookup=None):
     """Whether the body passes its captures (Arg 1) on as expected: the fields at the given offsets, in order, among
-    the arguments of its call to the sender (or the sender is the body and takes the captures itself)."""
+    the arguments of its call to the sender (or the sender is the body and takes the captures itself). With a lookup,
+    the body may instead hand the leading fields to the lookup before the sender call and the rest to the sender: the
+    player body looks the player up by its index and passes the sender the Player and the op."""
     if sender == body:
         return True
     model = session.model
-    for c in session.prov.facts(body).calls:
-        if c.target is not None and model.resolve(c.target) == sender:
-            offs = [a.off for a in c.args if isinstance(a, Deref) and a.base == Arg(1) and a.index is None]
-            return offs == list(fields)
+    calls = [c for c in session.prov.facts(body).calls if c.target is not None]
+    for c in calls:
+        if model.resolve(c.target) == sender:
+            offs = _capture_offs(c)
+            if offs == list(fields) or lookup is None:
+                return offs == list(fields)
+            looked = [off for l in calls if l.rva < c.rva and model.resolve(l.target) == lookup
+                      for off in _capture_offs(l)]
+            return bool(looked) and looked + offs == list(fields)
     insns = model.insns(body)
     if insns and insns[-1].is_jump:            # a tail call: the arguments were set up before the jump
         offs = sorted(l.value.off for l in session.prov.facts(body).loads
                       if isinstance(l.value, Deref) and l.value.base == Arg(1) and l.value.index is None)
         return offs == sorted(fields)
     return False
+
+
+def _capture_offs(call):
+    """The capture fields (Deref Arg 1 offsets) among a call's arguments, in argument order."""
+    return [a.off for a in call.args if isinstance(a, Deref) and a.base == Arg(1) and a.index is None]
 
 
 def _packet_helpers(session, sender, client):

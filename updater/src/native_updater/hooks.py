@@ -29,11 +29,11 @@ def obj_pile_ops(session, p):
     stores_id, stores_count = with_op(id_off, "MOV"), with_op(count_off, "MOV")
     cmps_id, cmps_count = with_op(id_off, "CMP"), with_op(count_off, "CMP")
     allocating = set(model.callers(new_fn))
-    ticking = {fn for _, fn in model.insns_with_disp(tick_off) if fn is not None}
+    ticking = {fn for _, fn in model.insns_with_disp(tick_off) if fn is not None and _loads(model, fn, tick_off)}
 
     adds = sorted(stores_id & stores_count & allocating & ticking)
     if len(adds) != 1:
-        session.notes.append(f"obj_pile_ops: {len(adds)} functions store GroundItem.id and .count, allocate and read tickCount")
+        session.notes.append(f"obj_pile_ops: {len(adds)} functions store GroundItem.id and .count, allocate and load tickCount")
         return {}
     add = adds[0]
     siblings = set(model.callers(add))
@@ -116,6 +116,17 @@ def _op_rva(model, fn, off, mnem, store=False):
             if op.kind == "mem" and op.disp == off and op.base not in (None, "RSP", "RIP") and op.size in (0, 4):
                 return insn.rva
     return None
+
+
+def _loads(model, fn, off):
+    """Whether fn reads the 4-byte field at off as the source of a MOV or ADD. The zone-update dispatcher increments
+    Client.tickCount and other functions take addresses near it, so neither counts as reading it."""
+    for insn in model.insns(fn):
+        if insn.mnem in ("MOV", "ADD") and len(insn.ops) == 2:
+            op = insn.ops[1]
+            if op.kind == "mem" and op.disp == off and op.base not in (None, "RSP", "RIP") and op.size in (0, 4):
+                return True
+    return False
 
 
 def _slots_before(model, handler, callee):

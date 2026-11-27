@@ -27,6 +27,36 @@ by Jagex.
 
 Use at your own risk. The developers are not responsible for any consequences resulting from the use of this software.
 
+## Screenshots
+
+The game runs in the Kraken window with its sidebar on the right. The **Kraken** tab shows the client, game and API
+status at a glance.
+
+<p align="center">
+  <img src="docs/images/client.png" alt="Kraken window with the game embedded, the Kraken status page open in the sidebar, and the Object Markers plugin in the console">
+</p>
+
+The **Plugins** tab lists every plugin with a switch to turn it on or off, and a gear for its settings. The console
+below the game logs what starts and stops.
+
+<p align="center">
+  <img src="docs/images/plugins.png" alt="Plugins tab listing Kraken's plugins with their on and off switches">
+</p>
+
+**Dev Tools** read the game's state live: actors, client state, inventories, scene objects and map data. Here the
+Inventories tool lists the backpack and worn items.
+
+<p align="center">
+  <img src="docs/images/dev_tools.png" alt="Dev Tools tab with the Inventories window open over the game">
+</p>
+
+The **World Hopper** is built into the sidebar. It lists the game's worlds with player counts, regions and activities,
+and hops between them.
+
+<p align="center">
+  <img src="docs/images/hopper.png" alt="World Hopper tab listing worlds with player counts, regions and activities">
+</p>
+
 ## What's Inside
 
 | Part                                                              | Status           | What it does                                                                                                                |
@@ -36,8 +66,8 @@ Use at your own risk. The developers are not responsible for any consequences re
 | [Updater](docs/updater.md) (`updater/`)                           | Working          | Maps each new game build, so the API knows where to find everything in memory                                               |
 | [Native hook](docs/client.md#the-native-hook) (`kraken_hook.dll`) | Working          | Loaded into the game by the client, to report events as they happen, draw in the game and run menu actions                  |
 
-The repository includes the mapping for game version 241.3. When the game updates, [run the updater](docs/updater.md)
-to make one for the new build.
+The repository includes the mappings for game versions 241.3, 241.4, 242.1, 242.3 and 243.1. When the game updates,
+[run the updater](docs/updater.md) to make one for the new build.
 
 ## Download
 

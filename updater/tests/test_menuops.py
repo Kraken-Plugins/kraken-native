@@ -127,6 +127,35 @@ class MenuOpsTests(unittest.TestCase):
         self.assertFalse(menuops._hands_captures(s, self.BODY, self.SENDER, (4, 0xc)))
         self.assertIsNone(menuops._sender(s, self.TRAMPOLINE, None), "a body that builds no packets has no sender")
 
+    PLAYER_BUILDER, PLAYER_SETTER, PLAYER_ADDER, PLAYER_BODY, PLAYER_LOOKUP = 0x1200, 0x2100, 0x3100, 0x4100, 0x5200
+
+    def player_program(self):
+        """A player builder whose row body looks the player up by [captures] itself, then calls the sender with the
+        Player and [captures + 4]."""
+        return {
+            self.PLAYER_BUILDER: [f"CALL {self.IMAGE + self.PLAYER_SETTER:#x}", f"CALL {self.IMAGE + self.PLAYER_ADDER:#x}",
+                                  "RET"],
+            self.PLAYER_SETTER: ["MOV byte ptr [RCX + 0x146],0x6", "RET"],
+            self.PLAYER_ADDER: [f"LEA RAX,[{self.IMAGE + self.PLAYER_BODY:#x}]", "RET"],
+            self.PLAYER_BODY: ["MOV R14,RDX", "MOV EDX,dword ptr [RDX]", "MOV R8,qword ptr [0x140e98c18]",
+                               "ADD R8,0xc9f8", "LEA RCX,[RSP + 0x20]", f"CALL {self.IMAGE + self.PLAYER_LOOKUP:#x}",
+                               "MOV RDX,qword ptr [RAX + 0x8]", "MOV R8D,dword ptr [R14 + 0x4]", "MOV R9B,0x1",
+                               f"CALL {self.IMAGE + self.SENDER:#x}", "RET"],
+            self.PLAYER_LOOKUP: ["RET"],
+        }
+
+    def test_a_player_body_hands_the_index_to_the_lookup_and_the_op_to_the_sender(self):
+        s = self.session()
+        s.model = FakeModel({**self.program(), **self.player_program()}, data=s.model.pe.data)
+        s.prov = Provenance(s.model)
+        s.values["functions.playerLookup"] = self.PLAYER_LOOKUP
+        self.assertTrue(menuops._hands_captures(s, self.PLAYER_BODY, self.SENDER, (0, 4), self.PLAYER_LOOKUP))
+        self.assertFalse(menuops._hands_captures(s, self.PLAYER_BODY, self.SENDER, (0, 4)), "the sender alone gets the op")
+        self.assertFalse(menuops._hands_captures(s, self.PLAYER_BODY, self.SENDER, (4, 0), self.PLAYER_LOOKUP))
+        out = {k: v[0] for k, v in menuops.menu_ops(s, {}).items()}
+        self.assertEqual(out["functions.menuPlayerOp"], self.PLAYER_BODY)
+        self.assertEqual(out["functions.menuNpcOp"], self.BODY)
+
     def test_the_walk_body_is_the_stub_a_builder_takes_the_address_of(self):
         s = self.session()
         row, rva, fn = menuops._walk_body(s, self.CREATE)

@@ -496,6 +496,10 @@ class HookTargetTests(unittest.TestCase):
             0x4000: ["CALL 0x140001000", "CALL 0x140002000", "CALL 0x140003000", "CALL 0x140003100", "RET"],
             0x5000: ["CMP dword ptr [RCX + 0x20],EDI", "CMP dword ptr [RCX + 0x24],EAX", "MOV dword ptr [RCX + 0x24],EAX", "RET"],
             0x6000: ["CALL 0x140005000", "RET"],                                                            # not a sibling
+            0x7000: ["CALL 0x140009000", "MOV dword ptr [RBP + 0x24],EAX", "MOV dword ptr [RBP + 0x20],EAX",
+                     "INC dword ptr [R13 + 0x3198]", "CALL 0x140001000", "RET"],      # dispatcher: increments the tick
+            0x7100: ["CALL 0x140009000", "MOV dword ptr [RBX + 0x20],EAX", "MOV dword ptr [RBX + 0x24],EAX",
+                     "LEA RAX,[RBP + 0x3198]", "RET"],                                # takes an address, reads nothing
             0x9000: ["RET"], 0xa000: ["RET"],
         }, {"GroundItem.id": 0x20, "GroundItem.count": 0x24, "Client.tickCount": 0x3198},
             {"@OperatorNew": 0x9000, "@ConfigLoader.10": 0xa000})
