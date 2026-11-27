@@ -6,18 +6,20 @@ Java, Gradle or a checkout.
 ## What the Workflow Does
 
 [`.github/workflows/build.yml`](../../.github/workflows/build.yml) runs on every push to `master`, every pull request,
-every `v*` tag, and on demand (**Actions** > **Build** > **Run workflow**). Its first job runs on a Windows runner,
-which has Visual Studio's C++ tools, CMake and WiX Toolset 3, with Temurin 21:
+and on demand (**Actions** > **Build** > **Run workflow**). It has three jobs:
 
-1. `gradlew.bat build` runs the API's and the client's tests and builds `kraken_hook.dll` with the `msvc` preset,
-   which the client jar carries.
-2. `:client:packageRelease` packages the app (see [Packaging](#packaging)) into `client/build/release/`.
-3. Those files are uploaded as the run's artifact, `kraken-<version>-windows-x64`, kept for 14 days (90 for a tag).
-   Download it from the run's summary page to try a build before releasing it. If a test fails, the test reports are
-   uploaded as `test-reports` instead.
-
-On a tag, a second job on Linux downloads the files, writes `SHA256SUMS.txt` and publishes the GitHub release. It
-runs only once the first job has passed, so a release always carries files that passed the tests.
+1. **Pick the version** works out the version from [`version.txt`](../../version.txt) and the release tags (see
+   [Versions](#versions)).
+2. **Test and package** runs on a Windows runner, which has Visual Studio's C++ tools, CMake and WiX Toolset 3, with
+   Temurin 21. `gradlew.bat build` runs the API's and the client's tests and builds `kraken_hook.dll` with the `msvc`
+   preset, which the client jar carries. `:client:packageRelease` then packages the app (see [Packaging](#packaging))
+   into `client/build/release/`, and those files are uploaded as the run's artifact, `kraken-<version>-windows-x64`,
+   kept for 14 days. Download it from the run's summary page to try a pull request's build. If a test fails, the test
+   reports are uploaded as `test-reports` instead.
+3. **Publish the release** runs only for `master`, and only once the build has passed, so a release always carries
+   files that passed the tests. On Linux, it downloads the files, writes `SHA256SUMS.txt`, writes the release notes
+   (also shown on the run's summary page) and publishes the GitHub release, which tags the built commit
+   `v<version>`.
 
 ## What a Release Holds
 
@@ -28,33 +30,51 @@ runs only once the first job has passed, so a release always carries files that 
 | `kraken-api-<version>.jar` | The API on its own |
 | `SHA256SUMS.txt` | The SHA-256 checksum of each file |
 
-The release notes say how to install, list the game versions the bundled mappings cover, and end with the notes
-GitHub generates from the pull requests and commits since the last release. Edit them on the release page afterwards
-if needed.
+[`.github/scripts/release-notes.sh`](../../.github/scripts/release-notes.sh) writes the notes: how to install Kraken
+and get started, links to the user guides at the release's tag, the game versions the bundled mappings cover, and the
+commits since the previous release tag. Commits are grouped by their [conventional commit](https://www.conventionalcommits.org/)
+type: `feat` under Features, `fix` and `perf` under Fixes, everything else (including commits with no type) under
+Other Changes, with the scope in bold and a `!` breaking change marked **Breaking:**. Merge commits are left out; the commits they bring in are listed. Edit the notes
+on the release page afterwards if needed.
+
+## Versions
+
+`version.txt` holds the release line, such as `0.1.0`.
+[`.github/scripts/release-version.sh`](../../.github/scripts/release-version.sh) turns it into the version of each
+build:
+
+* The first release of a line is the version as written. Each release after it is the next patch above the highest
+  `v<major>.<minor>.*` tag: with `2.1.0` in the file, pushes release 2.1.0, 2.1.1, 2.1.2 and so on.
+* To start a new line, change the file to `2.2.0` or `3.0.0` and push. That push releases 2.2.0 (or 3.0.0), and the
+  ones after it 2.2.1, 2.2.2 and so on. A patch other than 0 works too: `2.2.5` releases 2.2.5, then 2.2.6.
+* A commit that already has a release tag keeps its version. Running the workflow again for it, by re-running the run
+  or with **Run workflow** on `master`, republishes that release's files and notes rather than making a new one.
+* Only `master`'s newest commit is released. A run for an older commit that was never released, such as a re-run of a
+  failed run after more pushes, builds it as a `-SNAPSHOT` and leaves the release to the newest commit's run.
+* Builds that aren't released, pull requests and other branches, get the version `master` would release next with
+  `-SNAPSHOT` appended, such as `2.1.3-SNAPSHOT`. Local builds get `version.txt`'s version with `-SNAPSHOT`
+  (`settings.gradle` sets it unless `-Pversion` is passed).
+
+The workflow passes the version to Gradle as `-Pversion`, so the file names and the version on the **Kraken** tab show
+it. `version.txt` must hold three numbers without leading zeros; the workflow fails on anything else.
 
 ## Cutting a Release
 
-1. Check that `master`'s latest Build run passed.
-2. Tag the commit and push the tag:
+Push or merge to `master`. When the run passes, the release appears under **Releases**, marked as the latest. To push
+without releasing, put `[skip ci]` in the commit message: GitHub then runs no workflow for that push, and the next push
+that runs one lists its commits as well.
 
-   ```bash
-   git tag v0.2.0
-   git push origin v0.2.0
-   ```
+`master`'s runs go one at a time, so each one sees the tag of the release before it. If several pushes arrive while a
+run is going, GitHub runs only the newest of the waiting ones, whose release lists the skipped pushes' commits too.
 
-3. The Build workflow runs for the tag. When it passes, the release appears under **Releases**.
-
-Tags look like `v1.2.3`, or `v1.2.3-beta.1` for a pre-release, which GitHub marks as one. The workflow fails on any
-other tag. It passes the tag without the `v` to Gradle as `-Pversion`, so the file names and the version on the
-**Kraken** tab show it. Every other build takes its version from `gradle.properties`.
-
-Re-running a tag's workflow uploads its files over the existing release's.
-
-Windows Installer reads only the numbers of a version, so `1.2.0-beta.1` and `1.2.0` both install as 1.2.0. Give
-each release its own numbers; testers of a beta may have to uninstall it before installing the final release.
+If a release's run fails, fix the cause and push again, or re-run the failed jobs. A run that stopped while uploading
+leaves a draft release, which the next run for the same version deletes before publishing its own. Publishing fails
+rather than replace the files of a release tagged on another commit, which happens if an old run's failed jobs are
+re-run after a newer commit took its version: run the workflow on `master` instead.
 
 Each release can read only the game versions it carries mappings for (`api/src/main/resources/mappings/`). When the
-game updates, add the new mapping (see [Mapping a new game build](../updater.md)) and cut a release, so players get it.
+game updates, merge the new mapping (see [Mapping a new game build](../updater.md) and the
+[Native mappings workflow](mapping-ci.md)): that merge releases it, so players get it.
 
 ## Packaging
 
@@ -98,7 +118,8 @@ Things to keep in mind when changing them:
   as a `NoClassDefFoundError` or a missing provider in the packaged app that `:client:run` doesn't have. Check a new
   dependency by running `packageImage` and starting `Kraken.exe`.
 * **The version.** `jpackage` and Windows Installer take up to three numbers, so the app version is the leading
-  numbers of the project version: `0.1.0-SNAPSHOT` packages as 0.1.0.
+  numbers of the project version: `0.1.0-SNAPSHOT` packages as 0.1.0. Windows Installer allows at most 255 for the
+  major and minor numbers and 65,535 for the patch.
 * **The upgrade UUID.** `upgradeUuid` tells Windows Installer that every Kraken installer is the same product, so a
   newer one replaces the installed version. Changing it makes new installers install beside the old one.
 * **The icon.** `client/src/packaging/kraken.ico` holds `client/src/main/resources/kraken.png` at 16 to 256 pixels.
@@ -113,8 +134,8 @@ Things to keep in mind when changing them:
 
 ## Before Players Can Download It
 
-* **Who can see it.** A release's files are visible to the people who can see the repository. While the repository is
-  private, players without access can't download them.
+* **Who can see it.** A release's files are visible to the people who can see the repository. The repository is
+  public, so anyone can download them; if it went private, players without access couldn't.
 * **Signing.** The launcher and the installer aren't code-signed, so Windows SmartScreen warns about an unknown
   publisher the first time they run, until the player chooses **More info** > **Run anyway**. Signing them needs a
   code-signing certificate and a `signtool` step after `packageImage` and after `packageInstaller`.

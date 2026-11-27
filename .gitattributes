@@ -1,0 +1,2 @@
+# The release scripts run with bash on Linux runners, which a carriage return breaks
+*.sh text eol=lf

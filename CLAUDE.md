@@ -27,8 +27,10 @@ From the repo root (Gradle provisions JDK 21):
 ./gradlew :client:packageZip                              # Kraken.exe + jlink'd Java 21 (jpackage), zipped; packageRelease adds the installer (WiX 3)
 ```
 
-The version is in `gradle.properties`. `.github/workflows/build.yml` tests and packages on every push and pull request
-(Windows runner); a `v*` tag also publishes a GitHub release (`docs/developer/releasing.md`). The packaged runtime has
+`version.txt` holds the release line (`settings.gradle` makes local builds its `-SNAPSHOT`). `.github/workflows/build.yml`
+tests and packages on every push and pull request (Windows runner), and every push to `master` publishes a GitHub
+release: the first of a line is `version.txt`'s version, then each is the next patch above the highest `v<major>.<minor>.*`
+tag (`.github/scripts/release-version.sh`, `docs/developer/releasing.md`). The packaged runtime has
 only the JDK modules jdeps finds plus `extraModules` in `client/packaging.gradle`: add one there when a dependency
 needs a module only by reflection.
 

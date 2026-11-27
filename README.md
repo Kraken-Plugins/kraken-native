@@ -142,8 +142,9 @@ game, the game's own highlights and menu actions aren't available, and events ar
 ./gradlew :client:packageZip
 ```
 
-This builds the downloadable app, `Kraken.exe` with its own Java, into `client/build/jpackage/`. Pushing a `v*` tag
-has GitHub Actions test, package and publish it as a release: see [Releasing](docs/developer/releasing.md).
+This builds the downloadable app, `Kraken.exe` with its own Java, into `client/build/jpackage/`. Every push to
+`master` has GitHub Actions test, package and publish it as a release, numbered from `version.txt`: see
+[Releasing](docs/developer/releasing.md).
 
 ## When the Game Updates
 

@@ -6,3 +6,12 @@ rootProject.name = 'kraken-api-native'
 
 include 'api'
 include 'client'
+
+// version.txt holds the release line. The Build workflow passes the version it releases as -Pversion; every other
+// build is that line's -SNAPSHOT. See docs/developer/releasing.md
+def releaseLine = file('version.txt').text.trim()
+gradle.beforeProject { project ->
+    if (project.version == Project.DEFAULT_VERSION) {
+        project.version = "${releaseLine}-SNAPSHOT"
+    }
+}

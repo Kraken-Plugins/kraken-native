@@ -1,11 +1,12 @@
 # Tests the API and client, builds kraken_hook.dll and packages Kraken for Windows on every push and pull request.
-# Pushing a tag such as v0.2.0 also publishes those files as a GitHub release. docs/developer/releasing.md has the steps.
+# Every push to master is also released: the version comes from version.txt and the release tags, the commit is tagged
+# v<version>, and the GitHub release carries the files, install steps and the commits since the last release.
+# docs/developer/releasing.md has the details.
 name: Build
 
 on:
   push:
     branches: [master]
-    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -14,17 +15,37 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  # A newer push replaces a branch's or pull request's running build; a tag's build always finishes
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+  # A newer push replaces a branch's or pull request's running build. master's runs go one at a time, so each release
+  # sees the tag of the one before it
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
+  version:
+    name: Pick the version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      release: ${{ steps.version.outputs.release }}
+    steps:
+      # The whole history, for the release tags
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Pick the version
+        id: version
+        env:
+          RELEASE: ${{ github.ref == 'refs/heads/master' }}
+        run: bash .github/scripts/release-version.sh >> "$GITHUB_OUTPUT"
+
   build:
     name: Test and package
+    needs: version
     # The DLL needs Visual Studio's C++ tools and the installer WiX Toolset 3; this image has both
     runs-on: windows-2025
     timeout-minutes: 30
-    outputs:
-      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
 
@@ -37,22 +58,6 @@ jobs:
         with:
           cache-provider: basic
 
-      - name: Pick the version
-        id: version
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            version="${GITHUB_REF_NAME#v}"
-            if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
-              echo "::error::Release tags look like v1.2.3 or v1.2.3-beta.1, not $GITHUB_REF_NAME"
-              exit 1
-            fi
-          else
-            version="$(sed -n 's/^version=//p' gradle.properties | tr -d '\r')"
-          fi
-          echo "Version $version"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
       - name: Put WiX on PATH
         shell: pwsh
         run: if ($env:WIX) { Join-Path $env:WIX 'bin' | Out-File -Append -Encoding utf8 $env:GITHUB_PATH }
@@ -61,18 +66,18 @@ jobs:
       - name: Test, build and package
         shell: pwsh
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: ./gradlew.bat build :client:packageRelease "-Pversion=$env:VERSION"
 
       - name: Upload the release files
         uses: actions/upload-artifact@v7
         with:
-          name: kraken-${{ steps.version.outputs.version }}-windows-x64
+          name: kraken-${{ needs.version.outputs.version }}-windows-x64
           path: client/build/release/
           if-no-files-found: error
           # The zip and the installer are compressed already
           compression-level: 0
-          retention-days: ${{ startsWith(github.ref, 'refs/tags/') && 90 || 14 }}
+          retention-days: 14
 
       - name: Upload the test reports
         if: failure()
@@ -86,54 +91,59 @@ jobs:
 
   release:
     name: Publish the release
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [version, build]
+    if: needs.version.outputs.release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
     steps:
+      # The whole history, for the commits since the last release
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: actions/download-artifact@v8
         with:
-          name: kraken-${{ needs.build.outputs.version }}-windows-x64
+          name: kraken-${{ needs.version.outputs.version }}-windows-x64
           path: release
 
       - name: Write the checksums
         working-directory: release
         run: sha256sum -- * > SHA256SUMS.txt
 
+      - name: Write the release notes
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          bash .github/scripts/release-notes.sh "$VERSION" > notes.md
+          cat notes.md >> "$GITHUB_STEP_SUMMARY"
+
+      # gh release create uploads the files to a draft, then publishes it, which tags the built commit. A draft for the
+      # tag is what an attempt that died uploading leaves behind, so it is deleted first. A run for a commit that is
+      # already released replaces that release's files and notes instead
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-          VERSION: ${{ needs.build.outputs.version }}
+          TAG: ${{ needs.version.outputs.tag }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
-          games="$(find api/src/main/resources/mappings -name '*.json' -printf '%f\n' | sed 's/\.json$//' | sort -V | paste -sd ' ' | sed 's/ /, /g')"
-          docs="https://github.com/$GITHUB_REPOSITORY/blob/$TAG/docs"
-          cat > notes.md <<EOF
-          ## Download
+          drafts="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq ".[] | select(.draft and .tag_name == \"$TAG\") | .id")"
+          for id in $drafts; do
+            echo "Deleting the draft release $id left for $TAG"
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$id"
+          done
 
-          - **Kraken-$VERSION-windows-x64-setup.exe** installs Kraken for your Windows account, with Start menu and desktop shortcuts.
-          - **Kraken-$VERSION-windows-x64.zip** is the same app without installing: unzip it anywhere and run **Kraken\\Kraken.exe**.
+          tagged="$(git rev-parse -q --verify "refs/tags/$TAG^{commit}" || true)"
+          if [[ -n "$tagged" && "$tagged" != "$GITHUB_SHA" ]]; then
+            echo "::error::$TAG is already released from $tagged; run the workflow for the newest master commit instead"
+            exit 1
+          fi
 
-          Both carry their own Java, so there's nothing else to install. Old School RuneScape must be installed through the Jagex Launcher.
-          Windows may warn that the app comes from an unknown publisher, since it isn't signed: choose **More info**, then **Run anyway**.
-
-          Game versions this release can read: $games. [Using the client]($docs/client.md) covers launch options, and
-          [Logging in with a Jagex account]($docs/jagex-accounts.md) covers logging in.
-
-          **kraken-api-$VERSION.jar** is the API on its own, and **SHA256SUMS.txt** lists the files' checksums.
-
-          EOF
-          if gh release view "$TAG" > /dev/null 2>&1; then
+          if [[ -n "$tagged" ]] && gh release view "$TAG" > /dev/null 2>&1; then
             gh release upload "$TAG" release/* --clobber
+            gh release edit "$TAG" --title "Kraken $VERSION" --notes-file notes.md
           else
-            flags=()
-            if [[ "$VERSION" == *-* ]]; then
-              flags+=(--prerelease)
-            fi
-            gh release create "$TAG" release/* --verify-tag --title "Kraken $VERSION" --notes-file notes.md \
-              --generate-notes "${flags[@]}"
+            gh release create "$TAG" release/* --target "$GITHUB_SHA" --title "Kraken $VERSION" --notes-file notes.md
           fi
