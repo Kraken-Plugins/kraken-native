@@ -37,11 +37,11 @@ import static com.formdev.flatlaf.FlatClientProperties.TITLE_BAR_SHOW_TITLE;
  * Kraken through the {@link ExitHandler}, after asking first if {@link KrakenConfig#confirmExit} says to. The Settings
  * page is built from {@link KrakenConfig}, and the window follows its settings as they change.
  *
- * <p>The window opens around the game at {@link KrakenConfig#gameSize}, centred, or, with
- * {@link KrakenConfig#rememberWindow} on, where it was last left: its last normal bounds, maximised if it was, with the
- * sidebar panel that was open. Saved bounds that no screen shows the top of are ignored. The window's state is saved a
- * second after it stops moving or resizing, and as it closes. Sizes in the settings are the game's own pixels, so on a
- * scaled display the window is sized by the display's scale.
+ * <p>The window opens around the game at {@link KrakenConfig#gameSize}, with the console and the sidebar panel as they
+ * were left: centred, or, with {@link KrakenConfig#rememberWindow} on, where it was last left, maximised if it was. A
+ * saved position that no screen shows the top of is ignored. The window's state is saved a second after it stops moving
+ * or resizing, and as it closes. Sizes in the settings are the game's own pixels, so on a scaled display the window is
+ * sized by the display's scale.
  */
 @Singleton
 public final class KrakenFrame extends JFrame {
@@ -154,25 +154,25 @@ public final class KrakenFrame extends JFrame {
     }
 
     /**
-     * Sizes and places the window, and reopens the sidebar panel that was open: at the saved bounds if they're wanted
-     * and on a screen, otherwise around the game at the game size, centred.
+     * Sizes the window around the game at the game size, with the sidebar panel that was open, and places it: where
+     * it was last left, maximised if it was, if that's wanted and a screen shows the top of its saved bounds,
+     * otherwise centred. Only the saved position is used, so the game opens at the game size even if the console or
+     * the sidebar changed size since the bounds were saved.
      */
     private void place() {
         Rectangle saved = config.rememberWindow() ? config.windowBounds() : null;
-        if (saved == null || !onScreen(saved)) {
-            view.setPreferredSize(gameSize());
-            pack();
+        GraphicsConfiguration screen = saved != null ? screenShowingTop(saved) : null;
+        sidebar.restore();
+        view.setPreferredSize(gameSize(screen != null ? screen : getGraphicsConfiguration()));
+        // The sidebar's and the console's preferred sizes are their restored sizes, so packing gives the game the rest
+        pack();
+        if (screen == null) {
             setLocationRelativeTo(null);
-            sidebar.restore(null);
-            keepOnScreen();
+            keepOnScreen(getGraphicsConfiguration());
             return;
         }
-        setBounds(saved);
-        int growth = config.windowPanelGrowth();
-        if (!sidebar.restore(growth) && growth > 0) {
-            // The panel that widened the saved window is gone: give its width back
-            setSize(getWidth() - growth, getHeight());
-        }
+        setLocation(saved.x, saved.y);
+        keepOnScreen(screen);
         if (config.windowMaximized()) {
             setExtendedState(MAXIMIZED_BOTH);
         }
@@ -185,33 +185,35 @@ public final class KrakenFrame extends JFrame {
         if ((getExtendedState() & MAXIMIZED_BOTH) != 0) {
             setExtendedState(NORMAL);
         }
-        view.setPreferredSize(gameSize());
+        view.setPreferredSize(gameSize(getGraphicsConfiguration()));
         // The sidebar's and the console's preferred sizes are their sizes now, so packing changes only the game's
         pack();
-        keepOnScreen();
+        keepOnScreen(getGraphicsConfiguration());
     }
 
     /**
-     * The game size from the settings, in this window's pixels.
+     * The game size from the settings, in a screen's window pixels.
      *
+     * @param screen the screen the window is on, or is about to be placed on
      * @return the size the game view should be
      */
-    private Dimension gameSize() {
+    private Dimension gameSize(GraphicsConfiguration screen) {
         Dimension size = config.gameSize();
         if (size == null) {
             size = new Dimension(765, 503);
         }
-        double scale = getGraphicsConfiguration().getDefaultTransform().getScaleX();
+        double scale = screen.getDefaultTransform().getScaleX();
         int width = Math.max(MIN_GAME_SIDE, Math.min(MAX_GAME_SIDE, size.width));
         int height = Math.max(MIN_GAME_SIDE, Math.min(MAX_GAME_SIDE, size.height));
         return new Dimension((int) Math.round(width / scale), (int) Math.round(height / scale));
     }
 
     /**
-     * Moves the window up and left as far as needed to fit on its screen, when it fits at all.
+     * Moves the window up and left as far as needed to fit on a screen, when it fits at all.
+     *
+     * @param screen the screen the window is on, or is being placed on
      */
-    private void keepOnScreen() {
-        GraphicsConfiguration screen = getGraphicsConfiguration();
+    private void keepOnScreen(GraphicsConfiguration screen) {
         Insets insets = Toolkit.getDefaultToolkit().getScreenInsets(screen);
         Rectangle area = screen.getBounds();
         int left = area.x + insets.left;
@@ -227,28 +229,29 @@ public final class KrakenFrame extends JFrame {
     }
 
     /**
-     * Whether a screen shows enough of a window's top edge to grab it by.
+     * Finds a screen that shows enough of a window's top edge to grab it by.
      *
      * @param bounds the window's bounds
-     * @return true if it does
+     * @return the first such screen, or null if none does
      */
-    private static boolean onScreen(Rectangle bounds) {
+    private static GraphicsConfiguration screenShowingTop(Rectangle bounds) {
         if (bounds.width <= 0 || bounds.height <= 0) {
-            return false;
+            return null;
         }
         Rectangle top = new Rectangle(bounds.x, bounds.y, bounds.width, VISIBLE_TOP_HEIGHT);
         for (GraphicsDevice device : GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices()) {
-            Rectangle shown = device.getDefaultConfiguration().getBounds().intersection(top);
+            GraphicsConfiguration screen = device.getDefaultConfiguration();
+            Rectangle shown = screen.getBounds().intersection(top);
             if (shown.width >= Math.min(VISIBLE_TOP_WIDTH, bounds.width) && shown.height >= VISIBLE_TOP_HEIGHT) {
-                return true;
+                return screen;
             }
         }
-        return false;
+        return null;
     }
 
     /**
-     * Saves the window's state for the next launch: whether it's maximised and, when it isn't, its bounds and how much
-     * of their width the open panel added. Nothing is saved while it's minimised or hidden.
+     * Saves the window's state for the next launch: whether it's maximised and, when it isn't, its bounds. Nothing is
+     * saved while it's minimised or hidden.
      */
     private void saveWindow() {
         int state = getExtendedState();
@@ -259,7 +262,6 @@ public final class KrakenFrame extends JFrame {
         config.windowMaximized(maximized);
         if (!maximized) {
             config.windowBounds(getBounds());
-            config.windowPanelGrowth(sidebar.getGrownBy());
         }
     }
 

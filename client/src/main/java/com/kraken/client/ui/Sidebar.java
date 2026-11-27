@@ -39,7 +39,6 @@ public final class Sidebar extends JPanel {
     /**
      * How much the window grew when the panel opened, given back when it closes.
      */
-    @Getter
     private int grownBy;
     /** Widen the window when a panel opens, instead of shrinking the game. */
     @Getter
@@ -80,27 +79,19 @@ public final class Sidebar extends JPanel {
     }
 
     /**
-     * Reopens the panel that was open when Kraken last closed, if any.
-     *
-     * @param grownBy how much of the window's width the panel added last time, when the window was given its old
-     *                bounds; null when it was sized afresh, so the panel grows it as on a click
-     * @return true if a panel was reopened
+     * Reopens the panel that was open when Kraken last closed, if any, without touching the window's size: the frame
+     * sizes the window around it afterwards. Closing it gives its width back if {@link #growWindow} is on, as if
+     * opening it had widened the window. With it off, the game gets the width back instead.
      */
-    boolean restore(Integer grownBy) {
+    void restore() {
         String title = config.sidebarPanel();
         for (Component component : tabs.getComponents()) {
             if (component instanceof JToggleButton tab && tab.getName().equals(title)) {
-                if (grownBy != null) {
-                    // The window already has the panel's width: open it in place, and give the width back on close
-                    this.grownBy = Math.max(0, grownBy);
-                    showPanel(tab);
-                } else {
-                    select(tab);
-                }
-                return true;
+                grownBy = growWindow ? GRIP_WIDTH + panelWidth : 0;
+                showPanel(tab);
+                return;
             }
         }
-        return false;
     }
 
     private void select(JToggleButton selected) {

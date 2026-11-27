@@ -209,8 +209,8 @@ Changes apply at once and are saved. **Reset** at the bottom puts every setting 
 
 | Setting | Default | What it does |
 |---|---|---|
-| Game size | 765 × 503 | The game's size in pixels. Kraken opens at this size unless it remembers where it was left, and resizes to it when you change it |
-| Remember size and position | On | Reopens where Kraken was last left, at the same size, maximised if it was |
+| Game size | 765 × 503 | The game's size in pixels. Kraken opens at this size, unless it reopens maximised, and resizes to it when you change it |
+| Remember position | On | Reopens where Kraken was last left, maximised if it was. The game still opens at the game size |
 | Lock window size | Off | Stops the window being resized by dragging its edges |
 | Grow window for panels | On | Widens the window when a panel opens instead of shrinking the game |
 | Always on top | Off | Keeps Kraken above other windows |

@@ -46,7 +46,6 @@ public final class GameView extends JPanel {
     private final Timer focusCheck = new Timer(FOCUS_CHECK_MS, e -> followGame());
     private volatile String message = "Launching Old School RuneScape…";
     private volatile HWND game;
-    private volatile Dimension fitted;
 
     GameView() {
         super(new BorderLayout());
@@ -96,13 +95,20 @@ public final class GameView extends JPanel {
         return found.get();
     }
 
+    /**
+     * Re-parents the game's window into the canvas as a borderless child and pins it there. The window is moved even
+     * if it already fits, since Windows only applies the new style on a {@code SWP_FRAMECHANGED} move, and
+     * {@link #fit} makes none while the window covers the canvas.
+     *
+     * @param hwnd the game's top-level window
+     */
     void embed(HWND hwnd) {
         int style = User32.INSTANCE.GetWindowLong(hwnd, GWL_STYLE);
         style &= ~(WS_POPUP | WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
         User32.INSTANCE.SetWindowLong(hwnd, GWL_STYLE, style | WS_CHILD);
         User32.INSTANCE.SetParent(hwnd, hostHwnd());
         game = hwnd;
-        fit();
+        fit(true);
         SwingUtilities.invokeLater(() -> {
             focusGame();
             focusCheck.start();
@@ -110,45 +116,52 @@ public final class GameView extends JPanel {
     }
 
     /**
-     * Stretches the game window over the canvas, in physical pixels. Fires "gameSize" when it changes.
+     * Pins the game window over the canvas: at its top-left corner and the size of its client area, in physical
+     * pixels. Fires "gameSize" when it moves or resizes the window.
+     *
+     * <p>The game places its own window as it starts, where it was when the game last closed. That is in screen
+     * coordinates, and a child window's position is relative to its parent, so the window can land well inside the
+     * canvas at the canvas's own size. The game can also move or resize it later, so both are checked.
      */
     void fit() {
+        fit(false);
+    }
+
+    /**
+     * Pins the game window over the canvas, if it has drifted or {@code force} says to.
+     *
+     * @param force true to move and resize the window even when it already covers the canvas
+     */
+    private void fit(boolean force) {
         HWND hwnd = game;
         if (hwnd == null) {
             return;
         }
+        HWND canvas = hostHwnd();
         RECT want = new RECT();
-        RECT have = new RECT();
-        User32.INSTANCE.GetClientRect(hostHwnd(), want);
-        User32.INSTANCE.GetWindowRect(hwnd, have);
-        fitted = new Dimension(want.right, want.bottom);
-        if (have.right - have.left != want.right || have.bottom - have.top != want.bottom) {
+        User32.INSTANCE.GetClientRect(canvas, want);
+        if (force || !covers(hwnd, canvas, want)) {
             User32.INSTANCE.SetWindowPos(hwnd, null, 0, 0, want.right, want.bottom, SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
             firePropertyChange("gameSize", null, new Dimension(want.right, want.bottom));
         }
     }
 
     /**
-     * The size {@link #fit} stretches the game window to: the canvas's client area, in physical pixels.
+     * Whether the game window covers the canvas exactly. The canvas has no border, so the corner of its window is the
+     * corner of its client area.
      *
-     * @return the size, or null before the game is embedded
+     * @param hwnd   the game window
+     * @param canvas the canvas's window
+     * @param client the canvas's client area
+     * @return true if the game window's screen rectangle starts at the canvas's corner and has its client size
      */
-    Dimension fittedSize() {
-        return fitted;
-    }
-
-    /**
-     * Makes the game window a pixel shorter, so the game handles a resize; the next {@link #fit} puts its height back,
-     * a second resize. Used when the game kept drawing at an old size ({@link GameSizeCheck}).
-     */
-    void nudge() {
-        HWND hwnd = game;
-        Dimension size = fitted;
-        if (hwnd == null || size == null || size.height < 2) {
-            return;
-        }
-        User32.INSTANCE.SetWindowPos(hwnd, null, 0, 0, size.width, size.height - 1,
-                SWP_NOZORDER | SWP_NOMOVE | SWP_NOACTIVATE);
+    private static boolean covers(HWND hwnd, HWND canvas, RECT client) {
+        RECT have = new RECT();
+        RECT corner = new RECT();
+        User32.INSTANCE.GetWindowRect(hwnd, have);
+        User32.INSTANCE.GetWindowRect(canvas, corner);
+        return have.left == corner.left && have.top == corner.top
+                && have.right - have.left == client.right && have.bottom - have.top == client.bottom;
     }
 
     /**

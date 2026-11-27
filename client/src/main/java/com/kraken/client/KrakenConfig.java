@@ -60,21 +60,21 @@ public interface KrakenConfig extends Config {
      */
     @Range(min = 240, max = 7680)
     @ConfigItem(keyName = "gameSize", name = "Game size",
-            description = "The game's size in screen pixels. Kraken opens at this size unless it remembers where it "
-                    + "was left, and resizes to it when this changes.",
+            description = "The game's size in screen pixels. Kraken opens at this size, unless it reopens maximised, "
+                    + "and resizes to it when this changes.",
             position = 1, section = window)
     default Dimension gameSize() {
         return new Dimension(765, 503);
     }
 
     /**
-     * Whether Kraken reopens where and how it was last left.
+     * Whether Kraken reopens where it was last left.
      *
-     * @return true to restore the last position, size and maximised state
+     * @return true to restore the last position and maximised state
      */
-    @ConfigItem(keyName = "rememberWindow", name = "Remember size and position",
-            description = "Reopen where Kraken was last left, at the same size, maximised if it was. When off, it "
-                    + "opens centred at the game size.",
+    @ConfigItem(keyName = "rememberWindow", name = "Remember position",
+            description = "Reopen where Kraken was last left, maximised if it was. When off, it opens centred. "
+                    + "Either way the game opens at the game size.",
             position = 2, section = window)
     default boolean rememberWindow() {
         return true;
@@ -332,27 +332,6 @@ public interface KrakenConfig extends Config {
     @ConfigItem(keyName = "windowBounds", name = "Window bounds", description = "The window's last normal bounds.",
             hidden = true)
     void windowBounds(Rectangle bounds);
-
-    /**
-     * How much of {@link #windowBounds}' width the open sidebar panel added when it opened, given back when it
-     * closes.
-     *
-     * @return the width in pixels
-     */
-    @ConfigItem(keyName = "windowPanelGrowth", name = "Window panel growth",
-            description = "How much the open panel widened the saved window.", hidden = true)
-    default int windowPanelGrowth() {
-        return 0;
-    }
-
-    /**
-     * Saves how much the open sidebar panel widened the window.
-     *
-     * @param width the width in pixels
-     */
-    @ConfigItem(keyName = "windowPanelGrowth", name = "Window panel growth",
-            description = "How much the open panel widened the saved window.", hidden = true)
-    void windowPanelGrowth(int width);
 
     /**
      * Whether the window was maximised.

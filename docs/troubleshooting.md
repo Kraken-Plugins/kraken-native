@@ -55,8 +55,9 @@ The game needs your Jagex account session to log in, which the Jagex Launcher no
 
 ### The game is drawn at the wrong size
 
-The game sometimes keeps drawing at its old size after a resize. Kraken notices and resizes it again, up to three
-times. If it's still wrong, resize the window or change **Game size** in Settings.
+The game moves and resizes its own window as it starts, and Kraken puts it back over the game area within a quarter of
+a second. If it stays wrong, resize the window or change **Game size** in Settings, and report it with the console's
+output.
 
 ## Attaching
 

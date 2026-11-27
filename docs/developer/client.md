@@ -15,7 +15,6 @@ Paths are under [`client/src/main/java/com/kraken/client/`](../../client/src/mai
 | [`KrakenModule.java`](../../client/src/main/java/com/kraken/client/KrakenModule.java), [`SessionModule.java`](../../client/src/main/java/com/kraken/client/SessionModule.java) | Guice bindings for the launch-time injector and the attached-game injector |
 | [`GameLauncher.java`](../../client/src/main/java/com/kraken/client/GameLauncher.java) | Starts `osclient.exe`, waits for its window, embeds it, keeps it fitted |
 | [`GameView.java`](../../client/src/main/java/com/kraken/client/GameView.java) | The canvas the game's window is re-parented into, and the Win32 focus handling |
-| [`GameSizeCheck.java`](../../client/src/main/java/com/kraken/client/GameSizeCheck.java) | Decides when the game needs a second resize |
 | [`ProcessAttacher.java`](../../client/src/main/java/com/kraken/client/ProcessAttacher.java) | Attaches the API on a background thread; the state and listener lists |
 | [`ExitHandler.java`](../../client/src/main/java/com/kraken/client/ExitHandler.java), [`ExitConfirmation.java`](../../client/src/main/java/com/kraken/client/ExitConfirmation.java) | Shutdown, the 15 second watchdog, the close confirmation |
 | [`FrameRates.java`](../../client/src/main/java/com/kraken/client/FrameRates.java) | Game and overlay frame rates, and the unfocused frame cap |
@@ -83,8 +82,8 @@ sequenceDiagram
 9. `GameView.embed(hwnd)` re-parents the window into the game area. Until then the canvas shows the logo and
    **Launching Old School RuneScape…**.
 10. `ProcessAttacher.start(pid)` starts the `kraken-api-attach` thread.
-11. The launcher loop runs every 250 ms while the process is alive. Each pass fits the window, reads the size the game
-    records, and nudges the window if the game is drawing at an old size.
+11. The launcher loop runs every 250 ms while the process is alive. Each pass pins the window back over the canvas if
+    the game moved or resized it.
 
 If step 6 throws, for example when the exe is missing, the launcher logs it and the game area shows **Could not launch
 the client, see the console for details**. Kraken stays open with no game and no plugins.
@@ -158,42 +157,27 @@ own frame, so the game appears inside the Kraken window and moves, clips and res
 | Add `WS_CHILD` | Marks the window as a child, so Windows positions and clips it inside the canvas |
 | `SetParent` to the `Canvas` handle of `GameView`'s host | Puts the game inside Kraken's frame. `Native.getComponentPointer` gives the canvas's `HWND` |
 
-After the change, `embed` calls `fit()` and queues the focus start on the EDT.
+After the change, `embed` moves the window over the canvas with `SWP_FRAMECHANGED` even if it already fits, since
+Windows only applies a new style on such a move, and queues the focus start on the EDT.
 
 ### Fitting the Window
 
-`GameView.fit()` reads the canvas's client rectangle (`GetClientRect`) and the game's rectangle (`GetWindowRect`). If the
-sizes differ, it calls `SetWindowPos` with `SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW` and fires the
-`gameSize` property change, which `HomePanel` shows on the Kraken page. The fit runs in two places:
+`GameView.fit()` pins the game window over the canvas: its top-left corner at the canvas's corner, and its size the
+canvas's client rectangle (`GetClientRect`). It compares the game's `GetWindowRect` with the canvas's (the canvas has
+no border, so its window corner is its client corner). If the corner or the size differs, it calls `SetWindowPos` to
+(0, 0) and the canvas size with `SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW` and fires the `gameSize` property
+change, which `HomePanel` shows on the Kraken page. The fit runs in two places:
 
 * on the EDT, from the canvas's `componentResized`;
 * on the launcher thread, every 250 ms.
 
 Neither path takes a lock. Both compute the same size from the same canvas, so an interleaving at worst repeats a resize.
 
-### The Size Check
-
-When the window is resized while the game is still starting, the game can keep drawing at the size it started at. Only
-a corner of the game then shows, until the window is resized once more. The game records the size it draws at, and
-`Client.getScreenWidth` and `getScreenHeight` read that record.
-
-[`GameSizeCheck`](../../client/src/main/java/com/kraken/client/GameSizeCheck.java) compares the record with the fitted
-size on each launcher pass:
-
-```mermaid
-flowchart TD
-    A["Launcher pass every 250 ms"] --> B["Read fitted size from GameView"]
-    B --> C["Read recorded size from the game"]
-    C --> D{"Recorded size differs from fitted for 4 passes in a row?"}
-    D -->|no| A
-    D -->|yes| E{"Fewer than 3 tries at this window size?"}
-    E -->|no| A
-    E -->|yes| F["GameView.nudge: height minus 1, then the next fit restores it"]
-    F --> A
-```
-
-A try is counted per window size. A change of the fitted size starts the count again. A recorded size that is missing or
-not positive counts as agreement, so the check does nothing until the API is attached.
+The position matters because the game places its own window as it starts. When it closes, it saves its window's
+rectangle in screen coordinates, and at the next start it creates the window there. Last time that window was Kraken's
+child, covering the canvas, so the saved size is the canvas's size. A child's position is relative to its parent, so
+after `SetParent` the screen position becomes an offset inside the canvas (for example (587, 263)), and the size
+already matches. The game also resizes its window once as it starts, which the next 250 ms pass undoes.
 
 ### Keyboard Focus
 
@@ -562,17 +546,19 @@ FlatLaf says that `JFrame.setDefaultLookAndFeelDecorated` isn't needed. `KrakenF
 
 | Item | Holds |
 |---|---|
-| `windowBounds` | The last normal (not maximised) bounds |
+| `windowBounds` | The last normal (not maximised) bounds; launch uses their position |
 | `windowMaximized` | Whether the window was maximised |
-| `windowPanelGrowth` | How much the open panel widened the window, to give it back when the panel closes |
 | `sidebarPanel` | The name of the open page |
 | `sidebarWidth` | The width of the page drawer |
 | `consoleExpanded`, `consoleHeight` | The console's state and height |
 
 The window saves its bounds one second after it stops moving or resizing, and again on close. Nothing is saved while the
-window is minimised or hidden. On launch, `place()` uses the saved bounds if the top 100 × 20 pixels of the window
-fall on a screen. Otherwise it packs the window around the game at the game size and centres it. `keepOnScreen` then
-moves the window the least it needs to sit inside its screen's usable area.
+window is minimised or hidden. On launch, `place()` reopens the sidebar page in place (`Sidebar.restore`) and packs the
+window around the game at the game size, with the console as it was left. It then moves the window to the saved
+position, and maximises it if it was, when `rememberWindow` is on and the top 100 × 20 pixels of the saved bounds fall
+on a screen. Otherwise it centres the window. The saved size isn't used, so the game opens at the game size even when
+the console or the sidebar changed size after the bounds were saved. `keepOnScreen` then moves the window the least it
+needs to sit inside its screen's usable area. The game size is scaled by the screen the window is being placed on.
 
 ### Settings That Reach the Window
 
@@ -930,7 +916,7 @@ The test directory mirrors the main packages. These are the patterns to reuse:
   failing start-up, persistence across launches, conflicts, developer mode, `@Provides`, the plugin config lookup and
   the scan itself.
 * **Pure logic on plain values.** `OverlayRendererTest` tests the frame schedule and the row bookkeeping. `FrameRatesTest`
-  tests the rate meter and the cap. `GameSizeCheckTest` tests the resize decision.
+  tests the rate meter and the cap.
 * **Fakes for the Win32 seam.** `GameSurfaceTest` replaces the memory mapping with a `RegionFactory` fake. The overlay
   compositor and drag tests run against plain `Graphics2D` images.
 * **Headless panels.** `ConfigPanelTest` builds a page from a test config and drives its controls. The dev tool view tests
