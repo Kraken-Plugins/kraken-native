@@ -10,16 +10,25 @@ import com.kraken.api.gameval.InterfaceID;
 import com.kraken.api.internal.invoke.NativeCall;
 import com.kraken.api.internal.invoke.NativeCall.Arg;
 import com.kraken.api.internal.invoke.NativeCall.Kind;
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import com.kraken.api.mapping.Mapping;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -34,6 +43,11 @@ class ActionsTest {
 
     private static final int INVENTORY = 149 << 16;
     private static final int SPELL = InterfaceID.MagicSpellbook.HIGH_ALCHEMY;
+    /**
+     * The calls of one mouse click: the six-byte packet's create, three writes, send and release, then the seven-byte
+     * packet's create, seven writes, send and release.
+     */
+    private static final int CLICK_CALLS = 16;
 
     private GameFixture game;
     private Mapping map;
@@ -88,10 +102,10 @@ class ActionsTest {
     }
 
     @Test
-    void aMouseClickBuildsWritesSendsAndReleasesThePacketInTheScratch() {
+    void aMouseClickBuildsWritesSendsAndReleasesBothPacketsInTheScratch() {
         actions.mouseClick(123, 456, true);
         List<NativeCall> calls = sent.get(0);
-        assertEquals(6, calls.size());
+        assertEquals(CLICK_CALLS, calls.size(), "six calls for the six-byte packet, ten for the seven-byte one");
         int connection = map.offset("Client.connection");
         int cipher = map.offset("Connection.outCipher");
 
@@ -118,10 +132,111 @@ class ActionsTest {
         assertEquals(fn("packetRelease"), calls.get(5).rva());
         assertEquals(List.of(Arg.scratch(8)), calls.get(5).args());
 
+        NativeCall second = calls.get(6);
+        assertEquals(fn("packetCreate"), second.rva());
+        assertEquals(List.of(Arg.scratch(0), Arg.imm(27), Arg.indirect(connection, cipher)), second.args(),
+                "(packet in the scratch, EVENT_MOUSE_CLICK_V2, connection + cipher)");
+        // 241.3: y and x little-endian with 128 on their low bytes, the delay shifted left with 128 on its low byte,
+        // then the negated button byte (the right button, 4, shifted left)
+        assertArrayEquals(new byte[]{(byte) (0xc8 + 0x80), 0x01, (byte) (123 + 0x80), 0x00, (byte) 0xff,
+                (byte) (0xfe + 0x80), (byte) -(4 << 1)}, clickV2Bytes(calls));
+        assertEquals(fn("packetSend"), calls.get(14).rva());
+        assertEquals(List.of(Arg.indirect(connection, 0), Arg.scratch(0)), calls.get(14).args());
+        assertEquals(fn("packetRelease"), calls.get(15).rva());
+        assertEquals(List.of(Arg.scratch(8)), calls.get(15).args());
+
         actions.mouseClick(1, 2, false);
-        long again = sent.get(1).get(1).args().get(1).value();
+        List<NativeCall> next = sent.get(1);
+        long again = next.get(1).args().get(1).value();
         assertEquals(0, again & 1, "left button");
         assertTrue(again >> 1 < 0x7fff, "the delay since the first click");
+        byte[] bytes = clickV2Bytes(next);
+        assertEquals((byte) -(1 << 1), bytes[6], "the left button, 1, shifted left and negated");
+        int delay = ((bytes[4] & 0xff) << 8) | ((bytes[5] - 0x80) & 0xff);
+        assertEquals(again & ~1, delay, "both packets carry the same delay");
+    }
+
+    @Test
+    void theSecondPacketFollowsTheMappingsLayout(@TempDir Path dir) throws IOException {
+        Map<String, Integer> transforms = new HashMap<>(Map.of("X_LOW", 0, "X_HIGH", 0, "Y_HIGH", 0, "Y_LOW", 1,
+                "BUTTONS", 1, "DELAY_HIGH", 0, "DELAY_LOW", 1));
+        Map<String, Integer> indexes = Map.of("X_LOW", 0, "X_HIGH", 1, "Y_HIGH", 2, "Y_LOW", 3, "BUTTONS", 4,
+                "DELAY_HIGH", 5, "DELAY_LOW", 6);
+        Actions laidOut = withClickLayout(dir, indexes, transforms);
+        assertTrue(laidOut.isMouseClickSupported());
+        assertArrayEquals(new byte[]{0x34, 0x12, 0x02, (byte) 0x81, (byte) 0x82, 0x02, 0x20},
+                laidOut.mouseClickV2Bytes(0x1234, 0x0201, false, 0x150), "243.1's order: x, y, buttons, the delay");
+
+        transforms.put("X_LOW", 3);
+        transforms.put("X_HIGH", 2);
+        assertArrayEquals(new byte[]{(byte) (0x80 - 0x34), (byte) -0x12},
+                Arrays.copyOf(withClickLayout(dir, indexes, transforms).mouseClickV2Bytes(0x1234, 0x0201, false, 0x150),
+                        2), "subtracted from 128, negated");
+    }
+
+    @Test
+    void withoutTheSecondPacketsLayoutNoClickIsSent(@TempDir Path dir) throws IOException {
+        Map<String, Integer> transforms = Map.of("X_LOW", 0, "X_HIGH", 0, "Y_HIGH", 0, "Y_LOW", 1, "BUTTONS", 1,
+                "DELAY_HIGH", 0, "DELAY_LOW", 1);
+        Map<String, Integer> twice = Map.of("X_LOW", 0, "X_HIGH", 0, "Y_HIGH", 2, "Y_LOW", 3, "BUTTONS", 4,
+                "DELAY_HIGH", 5, "DELAY_LOW", 6);
+        assertFalse(withClickLayout(dir, twice, transforms).isMouseClickSupported(), "two bytes at index 0");
+        Map<String, Integer> indexes = Map.of("X_LOW", 0, "X_HIGH", 1, "Y_HIGH", 2, "Y_LOW", 3, "BUTTONS", 4,
+                "DELAY_HIGH", 5, "DELAY_LOW", 6);
+        Map<String, Integer> unknown = new HashMap<>(transforms);
+        unknown.put("BUTTONS", 4);
+        assertFalse(withClickLayout(dir, indexes, unknown).isMouseClickSupported(), "no transform 4");
+
+        Actions without = withClickLayout(dir, Map.of(), transforms);
+        assertFalse(without.isMouseClickSupported());
+        sent.clear();
+        assertTrue(without.click(300, 200, 0, 0, MenuAction.NPC_FIRST_OPTION, 5));
+        assertEquals(1, sent.get(0).size(), "the action alone, without half a click");
+        assertEquals(fn("menuNpcOp"), sent.get(0).get(0).rva());
+    }
+
+    /**
+     * The seven bytes the second click packet's writes carry, after the first packet's six calls and the second's
+     * create.
+     *
+     * @param calls a click's calls
+     * @return the bytes, in the order they are written
+     */
+    private byte[] clickV2Bytes(List<NativeCall> calls) {
+        byte[] out = new byte[7];
+        for (int i = 0; i < out.length; i++) {
+            NativeCall write = calls.get(7 + i);
+            assertEquals(fn("packetWriteByte"), write.rva());
+            assertEquals(Arg.scratch(8), write.args().get(0), "the buffer inside the packet");
+            out[i] = (byte) write.args().get(1).value();
+        }
+        return out;
+    }
+
+    /**
+     * Actions over the seed mapping with the second click packet's layout tables replaced, sending to {@link #sent}.
+     *
+     * @param dir        where the edited mapping is written
+     * @param indexes    the {@code enums.mouseClickV2} table
+     * @param transforms the {@code enums.mouseClickV2Transform} table
+     * @return the actions
+     * @throws IOException if the mapping can't be read or written
+     */
+    private Actions withClickLayout(Path dir, Map<String, Integer> indexes, Map<String, Integer> transforms)
+            throws IOException {
+        JsonObject json;
+        try (InputStreamReader in = new InputStreamReader(Mapping.class.getClassLoader()
+                .getResourceAsStream(Mapping.RESOURCE_DIR + map.version() + ".json"), StandardCharsets.UTF_8)) {
+            json = new Gson().fromJson(in, JsonObject.class);
+        }
+        JsonObject enums = json.getAsJsonObject("enums");
+        enums.add("mouseClickV2", new Gson().toJsonTree(indexes));
+        enums.add("mouseClickV2Transform", new Gson().toJsonTree(transforms));
+        Path file = dir.resolve(map.version() + ".json");
+        Files.writeString(file, json.toString());
+        Actions other = new Client(game.memory, Mapping.load(file)).getActions();
+        other.setInvoker(sent::add);
+        return other;
     }
 
     @Test
@@ -211,8 +326,8 @@ class ActionsTest {
         assertArrayEquals(new int[]{INVENTORY, 0, 3, 1, 995, 0}, ints(sent.get(1).get(0)), "the item read from the slot");
 
         assertTrue(actions.click(10, 20, 3, INVENTORY, MenuAction.CC_OP, 2, 1511, 2));
-        assertEquals(7, sent.get(2).size());
-        assertArrayEquals(new int[]{INVENTORY, 3, 2, 2, 1511, 0}, ints(sent.get(2).get(6)));
+        assertEquals(CLICK_CALLS + 1, sent.get(2).size());
+        assertArrayEquals(new int[]{INVENTORY, 3, 2, 2, 1511, 0}, ints(sent.get(2).get(CLICK_CALLS)));
 
         assertFalse(actions.menuAction(3, INVENTORY, MenuAction.CC_OP, 2, 1511, -1), "a sub-option is 1-based");
         assertEquals(3, sent.size());
@@ -244,8 +359,8 @@ class ActionsTest {
 
         MenuEntry entry = new MenuEntry(client, "Close", "", 0, MenuAction.WIDGET_CLOSE, -1, button, null);
         assertTrue(actions.click(5, 6, entry));
-        assertEquals(7, sent.get(5).size(), "the click, then the close");
-        assertEquals(fn("menuComponentClose"), sent.get(5).get(6).rva());
+        assertEquals(CLICK_CALLS + 1, sent.get(5).size(), "the click, then the close");
+        assertEquals(fn("menuComponentClose"), sent.get(5).get(CLICK_CALLS).rva());
     }
 
     @Test
@@ -387,16 +502,17 @@ class ActionsTest {
     void aClickSendsTheMouseClickThenTheAction() {
         assertTrue(actions.click(300, 200, 0, 0, MenuAction.NPC_FIRST_OPTION, 5));
         List<NativeCall> batch = sent.get(0);
-        assertEquals(7, batch.size(), "six click calls, then the action, in one batch");
+        assertEquals(CLICK_CALLS + 1, batch.size(), "both click packets' calls, then the action, in one batch");
         assertEquals(fn("packetCreate"), batch.get(0).rva());
         assertEquals(Arg.imm(300), batch.get(2).args().get(1));
         assertEquals(Arg.imm(200), batch.get(3).args().get(1));
-        assertEquals(fn("menuNpcOp"), batch.get(6).rva());
-        assertArrayEquals(new int[]{5, 1, 0}, ints(batch.get(6)));
+        assertEquals(fn("packetCreate"), batch.get(6).rva(), "the second click packet");
+        assertEquals(fn("menuNpcOp"), batch.get(CLICK_CALLS).rva());
+        assertArrayEquals(new int[]{5, 1, 0}, ints(batch.get(CLICK_CALLS)));
 
         assertTrue(actions.click(10, 20, 4, INVENTORY, MenuAction.CC_OP, 3, 4151));
-        assertEquals(fn("menuComponentOp"), sent.get(1).get(6).rva());
-        assertArrayEquals(new int[]{INVENTORY, 4, 3, 0, 4151, 0}, ints(sent.get(1).get(6)));
+        assertEquals(fn("menuComponentOp"), sent.get(1).get(CLICK_CALLS).rva());
+        assertArrayEquals(new int[]{INVENTORY, 4, 3, 0, 4151, 0}, ints(sent.get(1).get(CLICK_CALLS)));
     }
 
     @Test

@@ -108,7 +108,8 @@ The tasks:
 | `stageApp` | Copies the client jar and its runtime classpath into `build/jpackage/input` |
 | `packageImage` | Runs `jdeps --print-module-deps` over those jars to find the JDK modules they link against, adds the ones in `extraModules`, and has `jpackage --type app-image` build the launcher and a runtime of just those modules. It prints the list |
 | `packageZip` | Zips the folder, with the files in a fixed order and without timestamps, so the same inputs give the same zip |
-| `packageInstaller` | Has `jpackage --type exe` wrap the folder in a per-user installer |
+| `installerArt` | Draws the installer's pictures from `kraken.png` into `build/jpackage/installer-art`: `banner.bmp` (493×58, across the top of each page) and `dialog.bmp` (493×312, behind the welcome and finish pages) |
+| `packageInstaller` | Has `jpackage --type exe` wrap the folder in a per-user installer, with the logo as the setup `.exe`'s icon and the `installerArt` pictures in its dialogs |
 | `packageRelease` | Collects the zip, the installer and the API jar into `build/release`, named for the release |
 
 Things to keep in mind when changing them:
@@ -122,8 +123,17 @@ Things to keep in mind when changing them:
   major and minor numbers and 65,535 for the patch.
 * **The upgrade UUID.** `upgradeUuid` tells Windows Installer that every Kraken installer is the same product, so a
   newer one replaces the installed version. Changing it makes new installers install beside the old one.
+* **The installer's pictures.** jpackage has no option for the pictures in the installer's dialogs, so by default they
+  are WiX's own, a red disc. `packageInstaller` passes `client/src/packaging/windows` as jpackage's `--resource-dir`,
+  and the `main.wxs` there replaces jpackage's: it is JDK 21's copy with two `WixVariable` lines added, which point
+  WiX at the `installerArt` pictures through the `KRAKEN_INSTALLER_ART` environment variable. jpackage reports
+  `Using custom package resource [Main WiX project file]` with `--verbose`. When the build moves to a newer JDK, copy
+  that JDK's `main.wxs` (`jimage extract --include regex:.*/resources/main.wxs --dir <dir> <jdk>/lib/modules`) and
+  add the two lines again, since jpackage fills in the template's variables itself. The pictures are drawn from
+  `kraken.png`, so they follow the logo.
 * **The icon.** `client/src/packaging/kraken.ico` holds `client/src/main/resources/kraken.png` at 16 to 256 pixels.
-  Regenerate it when the logo changes:
+  `Kraken.exe` and the setup `.exe` use it, and Add or Remove Programs shows `Kraken.exe`'s. Regenerate it when the
+  logo changes:
 
   ```bash
   python -c "from PIL import Image; Image.open('client/src/main/resources/kraken.png').convert('RGBA').save('client/src/packaging/kraken.ico', sizes=[(s, s) for s in (16, 20, 24, 32, 40, 48, 64, 128, 256)])"

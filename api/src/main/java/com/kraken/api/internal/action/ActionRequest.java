@@ -17,7 +17,7 @@ import java.util.Objects;
  * @param itemId     a component's item, or -1 to read it from the widget
  * @param subOp      a component op's sub-option, 1-based, or 0 for none
  * @param tile       the subject's world tile for a loc, ground item or walk row; null for the others
- * @param click      where to send the mouse click packet first, in canvas pixels; null for no click
+ * @param click      where to send the mouse click packets first, in canvas pixels; null for no click
  */
 public record ActionRequest(MenuAction action, int param0, int param1, int identifier, int itemId, int subOp,
                             WorldPoint tile, Point click) {

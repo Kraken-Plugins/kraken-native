@@ -170,9 +170,9 @@ public enum ActionTest {
     TOGGLE_RUN("Walk: toggle run"),
 
     /**
-     * Sends only the mouse click packet, at the click point.
+     * Sends only the mouse click packets, at the click point.
      */
-    MOUSE_CLICK("Mouse: click packet only");
+    MOUSE_CLICK("Mouse: click packets only");
 
     private final String label;
 

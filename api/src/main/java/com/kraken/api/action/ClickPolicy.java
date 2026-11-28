@@ -1,14 +1,14 @@
 package com.kraken.api.action;
 
 /**
- * Whether the interaction methods send the mouse click packet before an action, as the game does for a real click,
+ * Whether the interaction methods send the mouse click packets before an action, as the game does for a real click,
  * and where the click lands. Set with {@code client.getInteractions().setClickPolicy(...)}; the point the policies
  * fall back to is {@code setStaticClickPoint(...)}, (0, 0) unless set.
  */
 public enum ClickPolicy {
 
     /**
-     * No click packet: the row only, as {@link Actions#menuAction} sends it.
+     * No click packets: the row only, as {@link Actions#menuAction} sends it.
      */
     NONE("None"),
 

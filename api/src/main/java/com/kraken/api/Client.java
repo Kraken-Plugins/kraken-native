@@ -1285,7 +1285,7 @@ public final class Client extends GameReader {
     /**
      * Runs a menu action as a click on its entry would, through the client's native hook: the client's own row body
      * sends the op packet and starts the interaction. Same as
-     * {@code getActions().menuAction(p0, p1, action, id, itemId)}; {@link Actions#click} sends the mouse click packet
+     * {@code getActions().menuAction(p0, p1, action, id, itemId)}; {@link Actions#click} sends the mouse click packets
      * first, as a real click does. The native entry carries no option or target, so those are not used.
      *
      * @param p0     the entry's first parameter (a loc's, ground item's or walk's scene x; a component's slot)

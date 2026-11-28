@@ -38,7 +38,7 @@ flowchart LR
 | `globals` | global RVAs, relative to the module base | 15 | `Mapping.global`, `GameReader`, `NativeEventServer` |
 | `structs` | byte offsets of struct fields | 56 structs, 409 fields | the readers in `api/.../internal/reader` and `Client` |
 | `containers` | layouts of the EASTL containers and `jag::shared_ptr` | 5 groups, 18 values | `Mapping.container`, `containerOr`, `StructReader`, `ActorReader` |
-| `enums` | enum tables and single enum values, as integers | 9 groups, 103 values | `enumValue`, `enumTable`, `Client`, `MenuReader` |
+| `enums` | enum tables and single enum values, as integers | 11 groups, 118 values | `enumValue`, `enumTable`, `Client`, `MenuReader` |
 | `functions` | function RVAs | 73 | `hasFunction`, `function`, `Actions`, `Highlights`, `NativeEventServer` |
 | `events` | hook sites per native event | 33 events, 35 sites | `eventHooks`, `NativeEventServer.build` |
 
@@ -146,6 +146,7 @@ kinds of spec key write here. A whole table (`enums.events`, `enums.minimenuOp`)
 | `gameState` | `Client` (`LOGGED_IN`) |
 | `minimenuSubject`, `minimenuOp` | `MenuReader` |
 | `clientProt` | `Actions` (the packet opcodes, looked up by name) |
+| `mouseClickV2`, `mouseClickV2Transform` | `Actions` (where each source byte of the second click packet goes, and how it is transformed) |
 | `varValueType` | `ScriptReader`, `NativeProtocol` |
 | `highlightCategory` | `Highlights` |
 | `gameStateTrigger`, `profileType` | no reader yet |

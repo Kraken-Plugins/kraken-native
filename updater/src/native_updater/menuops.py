@@ -334,10 +334,9 @@ def _is_client(v, client):
     return v == Deref(Global(client), 0, 8) or v == Arg(0)
 
 
-def _mouse_click(session, npc_decode, create, send, client):
-    """(opcode, writeShort fn, create rva, cycle fn) of the mouse click packet, or None: in the network step, the
-    packet created with a constant opcode, written with three calls of one function on its buffer, and sent, whose
-    size in the packet size table is six."""
+def network_step(session, npc_decode):
+    """The per-cycle network step, the one caller of the server packet handler (itself the one caller of
+    npcInfoDecode), or None with a note."""
     model = session.model
     handlers = model.callers(npc_decode)
     if len(handlers) != 1:
@@ -347,7 +346,17 @@ def _mouse_click(session, npc_decode, create, send, client):
     if len(cycles) != 1:
         session.notes.append(f"menu ops: the server packet handler has {len(cycles)} callers")
         return None
-    cycle = cycles[0]
+    return cycles[0]
+
+
+def _mouse_click(session, npc_decode, create, send, client):
+    """(opcode, writeShort fn, create rva, cycle fn) of the mouse click packet, or None: in the network step, the
+    packet created with a constant opcode, written with three calls of one function on its buffer, and sent, whose
+    size in the packet size table is six."""
+    model = session.model
+    cycle = network_step(session, npc_decode)
+    if cycle is None:
+        return None
     sizes = _size_table(session, create)
     calls = sorted(session.prov.facts(cycle).calls, key=lambda c: c.rva)
     found = []

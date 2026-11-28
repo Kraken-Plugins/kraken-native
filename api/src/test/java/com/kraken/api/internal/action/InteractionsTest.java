@@ -44,6 +44,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class InteractionsTest {
 
     private static final int INVENTORY = 149 << 16;
+    /**
+     * The calls of one mouse click: the six-byte packet's create, three writes, send and release, then the seven-byte
+     * packet's create, seven writes, send and release.
+     */
+    private static final int CLICK_CALLS = 16;
     private static final int COINS = 995;
     private static final int LOGS = 1511;
     private static final int GOBLIN = 3029;
@@ -471,10 +476,10 @@ class InteractionsTest {
         interactions.setClickPolicy(ClickPolicy.STATIC);
         assertEquals(ActionResult.SENT, inventorySlot().useOn(client.npc(5)));
         List<NativeCall> batch = sent.get(0);
-        assertEquals(14, batch.size(), "a click, the select, a click, the targeted row");
-        assertEquals(game.map.function("menuComponentSelect"), batch.get(6).rva());
-        assertEquals(game.map.function("packetCreate"), batch.get(7).rva());
-        assertEquals(game.map.function("menuNpcTargetOp"), batch.get(13).rva());
+        assertEquals(2 * CLICK_CALLS + 2, batch.size(), "a click, the select, a click, the targeted row");
+        assertEquals(game.map.function("menuComponentSelect"), batch.get(CLICK_CALLS).rva());
+        assertEquals(game.map.function("packetCreate"), batch.get(CLICK_CALLS + 1).rva());
+        assertEquals(game.map.function("menuNpcTargetOp"), batch.get(2 * CLICK_CALLS + 1).rva());
     }
 
     @Test
@@ -488,11 +493,12 @@ class InteractionsTest {
     }
 
     private void assertClick(List<NativeCall> batch, int x, int y) {
-        assertEquals(7, batch.size(), "the click packet's six calls, then the row");
+        assertEquals(CLICK_CALLS + 1, batch.size(), "both click packets' calls, then the row");
         assertEquals(game.map.function("packetCreate"), batch.get(0).rva());
         assertEquals(x, batch.get(2).args().get(1).value());
         assertEquals(y, batch.get(3).args().get(1).value());
-        assertEquals(game.map.function("menuComponentOp"), batch.get(6).rva());
+        assertEquals(game.map.function("packetCreate"), batch.get(6).rva(), "the second click packet");
+        assertEquals(game.map.function("menuComponentOp"), batch.get(CLICK_CALLS).rva());
     }
 
     private static int[] ints(NativeCall call) {

@@ -21,6 +21,7 @@ from .playerops import player_ops
 from .visibility import renderable_hidden
 from .menuops import menu_ops, walk_destination
 from .dialogs import dialog_packets
+from .clicks import mouse_click_v2
 from .scripts import script_runner
 from .interfaces import sub_interfaces
 from .chat import chat_history
@@ -1316,7 +1317,7 @@ EXTRACTORS = {
     "component_listeners": component_listeners, "cs2_components": cs2_components, "cs2_set_text": cs2_set_text,
     "cs2_click_mask": cs2_click_mask, "cs2_world": cs2_world, "player_ops": player_ops,
     "renderable_hidden": renderable_hidden,
-    "dialog_packets": dialog_packets,
+    "dialog_packets": dialog_packets, "mouse_click_v2": mouse_click_v2,
     "script_runner": script_runner, "sub_interfaces": sub_interfaces, "chat_history": chat_history,
     "actor_hitmarks": actor_hitmarks, "varc_setters": varc_setters, "overhead_countdown": overhead_countdown,
     "actor_spot_anims": actor_spot_anims,

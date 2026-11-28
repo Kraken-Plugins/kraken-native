@@ -238,26 +238,34 @@ This calls `menuWalk` with the captures `{plane 0, x 3222, y 3218}`:
 
 It has the same shape as the NPC call, with a different function and different bytes.
 
-### The Mouse Click Packet: SCRATCH and INDIRECT
+### The Mouse Click Packets: SCRATCH and INDIRECT
 
-A real click also sends an `EVENT_MOUSE_CLICK` packet, and `Actions.click(...)` sends one before the action. The game
-has no single "send a click" function, so Actions puts the packet together from the game's own packet helpers. That
-takes **several calls in one batch** (`Actions.packetCalls`):
+A real click also sends two packets, `EVENT_MOUSE_CLICK` and then `EVENT_MOUSE_CLICK_V2`, and `Actions.click(...)`
+sends both before the action. The game has no single "send a click" function, so Actions puts each packet together
+from the game's own packet helpers. That takes **several calls in one batch** (`Actions.packetCalls`):
 
 ```
-1. packetCreate(SCRATCH+0, IMM 7, INDIRECT Client->connection + outCipher)
-      the game builds a packet object in the scratch block
-2. packetWriteShort(SCRATCH+8, IMM flags)    writes into that same packet
-3. packetWriteShort(SCRATCH+8, IMM x)
-4. packetWriteShort(SCRATCH+8, IMM y)
-5. packetSend(INDIRECT Client->connection, SCRATCH+0)
-6. packetRelease(SCRATCH+8)
-7. menuNpcOp(IMM 0, DATA {1234, 2, 0})       the attack itself
+ 1. packetCreate(SCRATCH+0, IMM 7, INDIRECT Client->connection + outCipher)
+       the game builds a packet object in the scratch block
+ 2. packetWriteShort(SCRATCH+8, IMM flags)    writes into that same packet
+ 3. packetWriteShort(SCRATCH+8, IMM x)
+ 4. packetWriteShort(SCRATCH+8, IMM y)
+ 5. packetSend(INDIRECT Client->connection, SCRATCH+0)
+ 6. packetRelease(SCRATCH+8)
+ 7. packetCreate(SCRATCH+0, IMM 27, INDIRECT Client->connection + outCipher)
+ 8. packetWriteByte(SCRATCH+8, IMM byte 0)    seven bytes in this build's order
+    ...
+14. packetWriteByte(SCRATCH+8, IMM byte 6)
+15. packetSend(INDIRECT Client->connection, SCRATCH+0)
+16. packetRelease(SCRATCH+8)
+17. menuNpcOp(IMM 0, DATA {1234, 2, 0})       the attack itself
 ```
 
-SCRATCH is a shared scratchpad: call 1 builds the packet there and calls 2 to 6 find it. INDIRECT is needed because
-the connection object's address is only known inside the game at that moment, so the DLL reads it from `Client`
-right before the call.
+SCRATCH is a shared scratchpad: call 1 builds the packet there and calls 2 to 6 find it; the first packet is released
+before call 7 builds the second in the same place. INDIRECT is needed because the connection object's address is only
+known inside the game at that moment, so the DLL reads it from `Client` right before the call. The second packet's
+byte order changes from build to build, so the mapping says where each byte goes
+([menu-actions.md](menu-actions.md#the-mouse-clicks)).
 
 ### Use an Item on an NPC
 

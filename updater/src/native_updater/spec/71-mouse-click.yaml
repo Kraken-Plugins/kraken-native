@@ -1,0 +1,28 @@
+# The second mouse click packet (docs/developer/menu-actions.md): the seven bytes the network step sends right after
+# EVENT_MOUSE_CLICK for the same click, from the input listener's second pending click (a button code and a flag with
+# the position and time). Its opcode, byte order and byte transforms change between builds, so the layout is read
+# from the stores by running the stretch that builds it with random clicks (clicks.py), and the API builds the bytes
+# from it.
+keys:
+  - key: enums.clientProt.EVENT_MOUSE_CLICK_V2
+    type: u8
+    priority: P1
+    doc: The seven-byte mouse click packet the network step creates right after EVENT_MOUSE_CLICK when its own
+      pending click is set; the client sends both for every click.
+    strategies:
+      - extractor: { name: mouse_click_v2, field: enums.clientProt.EVENT_MOUSE_CLICK_V2, cls: A }
+  - key: enums.mouseClickV2
+    type: table
+    priority: P1
+    doc: "Where each source byte goes in EVENT_MOUSE_CLICK_V2, by index in the packet: X_LOW, X_HIGH (canvas x),
+      Y_LOW, Y_HIGH (canvas y), BUTTONS ((flag & 1) | (button << 1)), DELAY_LOW, DELAY_HIGH ((milliseconds since the
+      previous click, at most 32767) << 1)."
+    strategies:
+      - extractor: { name: mouse_click_v2, field: enums.mouseClickV2, cls: A }
+  - key: enums.mouseClickV2Transform
+    type: table
+    priority: P1
+    doc: "What the client does to each source byte of EVENT_MOUSE_CLICK_V2 before storing it, by the same members:
+      0 as is, 1 plus 128, 2 negated, 3 subtracted from 128, modulo 256."
+    strategies:
+      - extractor: { name: mouse_click_v2, field: enums.mouseClickV2Transform, cls: A }

@@ -627,7 +627,8 @@
       "RESUME_P_COUNTDIALOG": 68,
       "RESUME_P_NAMEDIALOG": 33,
       "RESUME_P_STRINGDIALOG": 58,
-      "RESUME_P_OBJDIALOG": 3
+      "RESUME_P_OBJDIALOG": 3,
+      "EVENT_MOUSE_CLICK_V2": 27
     },
     "varValueType": {
       "INT": 1,
@@ -715,6 +716,24 @@
       "PVP_ARENA": 3,
       "QUEST_SPEEDRUNNING": 4,
       "SEASONAL": 5
+    },
+    "mouseClickV2": {
+      "Y_LOW": 0,
+      "Y_HIGH": 1,
+      "X_LOW": 2,
+      "X_HIGH": 3,
+      "DELAY_HIGH": 4,
+      "DELAY_LOW": 5,
+      "BUTTONS": 6
+    },
+    "mouseClickV2Transform": {
+      "Y_LOW": 1,
+      "Y_HIGH": 0,
+      "X_LOW": 1,
+      "X_HIGH": 0,
+      "DELAY_HIGH": 0,
+      "DELAY_LOW": 1,
+      "BUTTONS": 2
     },
     "highlightCategory": {
       "NPC": 0,

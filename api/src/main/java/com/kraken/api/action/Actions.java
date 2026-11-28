@@ -28,8 +28,8 @@ import java.util.logging.Logger;
  * Runs menu actions the way a click on the minimenu would, without the menu: the client's own row bodies, called on
  * the game thread by the native hook with the arguments a row would have captured, send the op packet and start the
  * client's own interaction (facing and pathing to the target, the destination marker of a walk). A mouse click can go
- * first, as the game's network step sends one for a real click: {@link #click} sends the click packet and the action
- * in one batch, in that order.
+ * first, as the game's network step sends two packets for a real click: {@link #click} sends the click packets and
+ * the action in one batch, in that order.
  *
  * <p>What is covered follows what the menu builders capture ({@link #isSupported}): an NPC's or player's op by index,
  * a loc's or ground item's op by id and world tile, Walk here by world tile ({@link #walk}), a component's op by
@@ -55,7 +55,7 @@ public final class Actions {
     private static final Logger log = Logger.getLogger("kraken.api");
 
     /**
-     * The most milliseconds the click packet reports since the last click.
+     * The most milliseconds the click packets report since the last click.
      */
     private static final int MAX_CLICK_DELAY = 0x7fff;
 
@@ -81,8 +81,32 @@ public final class Actions {
             "menuComponentButton", "menuComponentToggle", "menuComponentSet", "menuComponentClose",
             "packetCreate", "packetWriteByte", "packetWriteShort", "packetWriteInt", "packetWriteString", "packetSend",
             "packetRelease");
-    private static final List<String> OPCODES = List.of("EVENT_MOUSE_CLICK", "RESUME_P_COUNTDIALOG",
-            "RESUME_P_NAMEDIALOG", "RESUME_P_STRINGDIALOG", "RESUME_P_OBJDIALOG");
+    private static final List<String> OPCODES = List.of("EVENT_MOUSE_CLICK", "EVENT_MOUSE_CLICK_V2",
+            "RESUME_P_COUNTDIALOG", "RESUME_P_NAMEDIALOG", "RESUME_P_STRINGDIALOG", "RESUME_P_OBJDIALOG");
+
+    /**
+     * The source bytes of the second click packet, {@code EVENT_MOUSE_CLICK_V2}, as the mapping's
+     * {@code enums.mouseClickV2} (each one's index in the packet) and {@code enums.mouseClickV2Transform} (what the
+     * client does to it) name them. The packet holds each once.
+     */
+    private static final List<String> CLICK_V2_BYTES = List.of("X_LOW", "X_HIGH", "Y_LOW", "Y_HIGH", "BUTTONS",
+            "DELAY_LOW", "DELAY_HIGH");
+
+    /**
+     * The button codes and the flag the second click packet's button byte, {@code (flag & 1) | (button << 1)},
+     * carries for a click without movement: the left button is 1, the right 4, and the flag 0.
+     */
+    private static final int CLICK_V2_LEFT = 1;
+    private static final int CLICK_V2_RIGHT = 4;
+    private static final int CLICK_V2_FLAG = 0;
+
+    /**
+     * The transforms in {@code enums.mouseClickV2Transform}: the byte as is, plus 128, negated, subtracted from 128.
+     */
+    private static final int TRANSFORM_NONE = 0;
+    private static final int TRANSFORM_ADD = 1;
+    private static final int TRANSFORM_NEGATE = 2;
+    private static final int TRANSFORM_SUBTRACT = 3;
 
     private final Client client;
     private final Map<String, Long> functions = new HashMap<>();
@@ -90,6 +114,8 @@ public final class Actions {
     private final Map<MenuAction, Op> ops = new EnumMap<>(MenuAction.class);
     private final int connection;
     private final int outCipher;
+    private final int[] clickV2Index;
+    private final int[] clickV2Transform;
 
     private NativeInvoker invoker;
     private boolean sendFailed;
@@ -116,6 +142,9 @@ public final class Actions {
         }
         this.connection = mapping.has("Client.connection") ? mapping.offset("Client.connection") : -1;
         this.outCipher = mapping.has("Connection.outCipher") ? mapping.offset("Connection.outCipher") : -1;
+        int[][] layout = clickV2Layout(mapping.enumTable("mouseClickV2"), mapping.enumTable("mouseClickV2Transform"));
+        this.clickV2Index = layout == null ? null : layout[0];
+        this.clickV2Transform = layout == null ? null : layout[1];
         MenuAction[] npc = {MenuAction.NPC_FIRST_OPTION, MenuAction.NPC_SECOND_OPTION, MenuAction.NPC_THIRD_OPTION,
                 MenuAction.NPC_FOURTH_OPTION, MenuAction.NPC_FIFTH_OPTION};
         MenuAction[] loc = {MenuAction.GAME_OBJECT_FIRST_OPTION, MenuAction.GAME_OBJECT_SECOND_OPTION,
@@ -177,13 +206,16 @@ public final class Actions {
     }
 
     /**
-     * Whether this build's mapping has the packet helpers and the mouse click opcode, without which no click packet
-     * is sent (an action asked for with a click still runs).
+     * Whether this build's mapping has what both click packets need: the packet helpers, the short and byte writers,
+     * both opcodes and the second packet's byte layout. Without one of them no click packet is sent (an action asked
+     * for with a click still runs).
      *
-     * @return true if click packets can be built
+     * @return true if the click packets can be built
      */
     public boolean isMouseClickSupported() {
-        return hasPacketHelpers() && functions.containsKey("packetWriteShort") && opcodes.containsKey("EVENT_MOUSE_CLICK");
+        return hasPacketHelpers() && functions.containsKey("packetWriteShort") && functions.containsKey("packetWriteByte")
+                && opcodes.containsKey("EVENT_MOUSE_CLICK") && opcodes.containsKey("EVENT_MOUSE_CLICK_V2")
+                && clickV2Index != null;
     }
 
     /**
@@ -205,8 +237,9 @@ public final class Actions {
     }
 
     /**
-     * Sends the mouse click packet the client sends for a click: the milliseconds since the last click sent this way
-     * (at most 32767, which a first click reports), which button, and where on the canvas.
+     * Sends the two mouse click packets the client sends for a click, {@code EVENT_MOUSE_CLICK} and then
+     * {@code EVENT_MOUSE_CLICK_V2}: each with the milliseconds since the last click sent this way (at most 32767,
+     * which a first click reports), which button, and where on the canvas.
      *
      * @param canvasX     the click's x on the game canvas
      * @param canvasY     the click's y on the game canvas
@@ -241,7 +274,7 @@ public final class Actions {
     }
 
     /**
-     * Runs a menu entry's action as a click on it would, without the mouse click packet. A component entry's item is
+     * Runs a menu entry's action as a click on it would, without the mouse click packets. A component entry's item is
      * the one its widget holds; a sub-option row's entry runs its op with that sub-option.
      *
      * @param entry the entry, from {@link Client#getMenuEntries()} or a menu event
@@ -253,7 +286,7 @@ public final class Actions {
     }
 
     /**
-     * Runs a menu action as a click on its entry would, without the mouse click packet. The parameters are the entry's
+     * Runs a menu action as a click on its entry would, without the mouse click packets. The parameters are the entry's
      * ({@link MenuEntry}): for an NPC or player action the identifier is the index; for a loc or ground item action
      * the identifier is the loc or item id and the parameters are the tile's scene x and y, on the top-level world's
      * plane; for Walk here the parameters are the tile's scene x and y; for a component action the first parameter
@@ -307,7 +340,7 @@ public final class Actions {
     }
 
     /**
-     * Sends a mouse click and then runs an entry's action, as a click on the entry does: the click packet first, the
+     * Sends a mouse click and then runs an entry's action, as a click on the entry does: the click packets first, the
      * op packet right after, in one batch on the game thread.
      *
      * @param canvasX the click's x on the game canvas
@@ -549,7 +582,7 @@ public final class Actions {
     }
 
     /**
-     * Runs one row from its arguments, with the mouse click packet first when the request names a click point.
+     * Runs one row from its arguments, with the mouse click packets first when the request names a click point.
      * Internal: the interaction methods ({@code npc.interact}, {@code widget.click} and the rest) send through it.
      *
      * @param request the row, with a world tile for a loc, ground item or walk row
@@ -574,7 +607,7 @@ public final class Actions {
 
     /**
      * Selects a component's item or spell and uses it on a target in one batch, as a click on the source's Use or Cast
-     * and one on the target do: each with its mouse click packet first when its request names a click point.
+     * and one on the target do: each with its mouse click packets first when its request names a click point.
      * Internal: {@code Widget.useOn} sends through it.
      *
      * @param source the selecting row: {@link MenuAction#WIDGET_TARGET} with the source's slot, packed id and item
@@ -663,25 +696,90 @@ public final class Actions {
     }
 
     /**
-     * The calls that build and send the mouse click packet, as the network step does for a real click: create the
-     * packet in the batch's scratch, write the delay and button, x and y, send it and release its buffer. Marks the
-     * click as the last one sent.
+     * The calls that build and send both mouse click packets, as the network step does for a real click. The first,
+     * {@code EVENT_MOUSE_CLICK}, is three shorts: the delay and the right button flag, x and y. The second,
+     * {@code EVENT_MOUSE_CLICK_V2}, is seven bytes in this build's order and transforms
+     * ({@link #mouseClickV2Bytes}). Each is created in the batch's scratch, written, sent and released. Marks the click
+     * as the last one sent.
      *
      * @param canvasX     the click's x
      * @param canvasY     the click's y
      * @param rightButton true for the right button
-     * @return the calls, empty if the mapping lacks what they need
+     * @return the calls, empty if the mapping lacks what either packet needs
      */
     List<NativeCall> mouseClickCalls(int canvasX, int canvasY, boolean rightButton) {
         if (!isMouseClickSupported()) {
             return List.of();
         }
         long now = System.nanoTime();
-        long delay = lastClickNanos == 0 ? MAX_CLICK_DELAY : Math.min(MAX_CLICK_DELAY, (now - lastClickNanos) / 1_000_000);
+        int delay = (int) (lastClickNanos == 0 ? MAX_CLICK_DELAY
+                : Math.min(MAX_CLICK_DELAY, (now - lastClickNanos) / 1_000_000));
         lastClickNanos = now;
-        int flags = (int) (delay << 1) | (rightButton ? 1 : 0);
-        return packetCalls("EVENT_MOUSE_CLICK", List.of(write("packetWriteShort", flags),
-                write("packetWriteShort", canvasX & 0xffff), write("packetWriteShort", canvasY & 0xffff)));
+        int flags = (delay << 1) | (rightButton ? 1 : 0);
+        List<NativeCall> calls = new ArrayList<>(packetCalls("EVENT_MOUSE_CLICK", List.of(
+                write("packetWriteShort", flags), write("packetWriteShort", canvasX & 0xffff),
+                write("packetWriteShort", canvasY & 0xffff))));
+        List<NativeCall> bytes = new ArrayList<>();
+        for (byte b : mouseClickV2Bytes(canvasX, canvasY, rightButton, delay)) {
+            bytes.add(write("packetWriteByte", b & 0xff));
+        }
+        calls.addAll(packetCalls("EVENT_MOUSE_CLICK_V2", bytes));
+        return calls;
+    }
+
+    /**
+     * The seven bytes of the second click packet, {@code EVENT_MOUSE_CLICK_V2}: x and y as shorts, the button byte
+     * {@code (flag & 1) | (button << 1)} and the delay shifted left by one as a short, each source byte at its index
+     * in the packet and transformed as the mapping says.
+     *
+     * @param canvasX     the click's x
+     * @param canvasY     the click's y
+     * @param rightButton true for the right button
+     * @param delay       the milliseconds since the last click, at most 32767
+     * @return the packet's bytes in order
+     */
+    byte[] mouseClickV2Bytes(int canvasX, int canvasY, boolean rightButton, int delay) {
+        int buttons = (CLICK_V2_FLAG & 1) | ((rightButton ? CLICK_V2_RIGHT : CLICK_V2_LEFT) << 1);
+        int[] source = {canvasX, canvasX >> 8, canvasY, canvasY >> 8, buttons, delay << 1, (delay << 1) >> 8};
+        byte[] out = new byte[CLICK_V2_BYTES.size()];
+        for (int i = 0; i < source.length; i++) {
+            int value = source[i] & 0xff;
+            out[clickV2Index[i]] = (byte) switch (clickV2Transform[i]) {
+                case TRANSFORM_ADD -> value + 128;
+                case TRANSFORM_NEGATE -> -value;
+                case TRANSFORM_SUBTRACT -> 128 - value;
+                default -> value;
+            };
+        }
+        return out;
+    }
+
+    /**
+     * Reads the second click packet's layout: each source byte's index in the packet and its transform, in the order
+     * of {@link #CLICK_V2_BYTES}.
+     *
+     * @param indexes    {@code enums.mouseClickV2}
+     * @param transforms {@code enums.mouseClickV2Transform}
+     * @return the indexes and the transforms, or null unless every source byte has an index and a known transform
+     * and the indexes cover the packet once each
+     */
+    private static int[][] clickV2Layout(Map<String, Integer> indexes, Map<String, Integer> transforms) {
+        int size = CLICK_V2_BYTES.size();
+        int[] index = new int[size];
+        int[] transform = new int[size];
+        boolean[] used = new boolean[size];
+        for (int i = 0; i < size; i++) {
+            Integer at = indexes.get(CLICK_V2_BYTES.get(i));
+            Integer how = transforms.get(CLICK_V2_BYTES.get(i));
+            if (at == null || at < 0 || at >= size || used[at] || how == null || how < TRANSFORM_NONE
+                    || how > TRANSFORM_SUBTRACT) {
+                return null;
+            }
+            used[at] = true;
+            index[i] = at;
+            transform[i] = how;
+        }
+        return new int[][]{index, transform};
     }
 
     /**

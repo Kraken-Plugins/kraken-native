@@ -204,17 +204,42 @@ The selection is not cleared after the batch. In the client, `run` clears it (st
 So as far as the static read goes, the selection stays set after `useItemOn` or `castSpellOn`. Whether the menu keeps
 showing the "Use X ->" rows until the next click is a [live check](#known-gaps-and-live-checks).
 
-## The Mouse Click
+## The Mouse Clicks
 
-When a click is pending, the client's network step sends the mouse click packet `EVENT_MOUSE_CLICK` (opcode 7 in
-241.3). It is six bytes: three shorts, which are `(delay << 1) | right button`, the canvas x and the canvas y. The
-delay is the milliseconds since the previous click, capped at 32767.
+A real click sends two packets. The client queues two input events for one click, and each fills its own pending
+click in the input listener: the first holds the position, the right button flag and the event's time, the second the
+position, the time, a button code and a flag. In the same cycle the network step sends `EVENT_MOUSE_CLICK` (opcode 7
+in 241.3) from the first, then `EVENT_MOUSE_CLICK_V2` (opcode 27) from the second, each with the milliseconds since
+its own previous click, capped at 32767. A read-only probe of a live 243.1 client saw both sent for every click, with
+the second click's event 5 to 23 ms earlier than the first's.
 
-`Actions.mouseClick` sends the same packet through the same helpers: create, three writes, send and release.
-`Actions.click(x, y, ...)` puts the six click calls in the same batch as the action, ahead of it, so the click packet
-is written and sent before the row function runs. Two details of the Java side:
+| Packet | Bytes | Body |
+|---|---|---|
+| `EVENT_MOUSE_CLICK` | 6 | Three shorts through `packetWriteShort`: `(delay << 1) \| right button`, the canvas x, the canvas y |
+| `EVENT_MOUSE_CLICK_V2` | 7 | Stored inline: x and y as shorts, the button byte `(flag & 1) \| (button << 1)`, `delay << 1` as a short |
 
-- The delay counts only the clicks `Actions` sent. A first click reports 32767.
+The second packet's byte order and byte transforms change between builds, so the mapping carries them. Its source
+bytes are `X_LOW`, `X_HIGH`, `Y_LOW`, `Y_HIGH`, `BUTTONS`, `DELAY_LOW` and `DELAY_HIGH`; `enums.mouseClickV2` gives
+each one's index in the packet, and `enums.mouseClickV2Transform` what the client does to it: 0 as is, 1 plus 128, 2
+negated, 3 subtracted from 128, all modulo 256.
+
+| Build | Opcode | The seven bytes in order |
+|---|---|---|
+| 241.3, 241.4 | 27 | y low + 128, y high, x low + 128, x high, delay high, delay low + 128, buttons negated |
+| 242.1, 242.3 | 77 | buttons negated, delay low + 128, delay high, y low, y high, x low + 128, x high |
+| 243.1 | 17 | x low, x high, y high, y low + 128, buttons + 128, delay high, delay low + 128 |
+
+`Actions.mouseClick` sends both packets through the client's helpers: the first with create, three short writes, send
+and release; the second with create, seven byte writes (`packetWriteByte`) in the mapping's order, send and release.
+`Actions.click(x, y, ...)` puts the sixteen click calls in the same batch as the action, ahead of it, so both packets
+are written and sent before the row function runs. A mapping without the second packet's opcode or layout sends no
+click at all, which `isMouseClickSupported()` reports, rather than half of one. Details of the Java side:
+
+- Both packets carry the same delay, which counts only the clicks `Actions` sent. A first click reports 32767.
+- The second packet's button is 1 for the left button and 4 for the right, and its flag is 0, as real clicks on a
+  live 243.1 client carried them. The button looks like a mask of the buttons held. The client's movement handler
+  writes the same field, and a real left click sometimes went out with 0, probably when a movement was processed after
+  it in the same cycle. `Actions` sends no movement, so it always sends 1.
 - The canvas coordinates are masked to 16 bits without a range check.
 
 ## Packet Helpers
@@ -238,7 +263,8 @@ Each batch has its own zeroed 4096-byte scratch block. A packet lives at scratch
 writers append to, at offset 8. Each packet is released in the same batch after it is sent, so the next packet can
 reuse the scratch.
 
-A mouse click is six calls. A click with an action adds the action's calls. A count or item dialog answer is four calls
+A mouse click is sixteen calls: six for the first packet and ten for the second. A click with an action adds the
+action's calls. A count or item dialog answer is four calls
 (create, one writer, send, release), and a text answer is five (create, the size byte, the string, send, release).
 
 ## Dialog Answers
@@ -320,7 +346,7 @@ hook's connection.
 
 | Method | Calls in the batch |
 |---|---|
-| `mouseClick(x, y, right)` | The six click calls |
+| `mouseClick(x, y, right)` | The sixteen click calls |
 | `walk(WorldPoint)`, `walk(x, y, plane)` | `menuWalk` with `{level, x, z}` |
 | `menuAction(MenuEntry)` | The row function for the entry (see the next table) |
 | `menuAction(param0, param1, action, identifier[, itemId[, subOp]])` | The row function for the action |
@@ -367,7 +393,7 @@ A method returns `false` and sends nothing when any of these holds:
 - A dialog text is longer than 254 code points or has a code point above U+FFFF.
 
 `isSupported(action)` says whether the mapping has the row function for an action. `isMouseClickSupported()` and
-`isDialogSupported()` say the same for the click packet and the four dialog answers.
+`isDialogSupported()` say the same for both click packets and the four dialog answers.
 
 A `true` return means the batch was handed to the connection. It doesn't mean the game ran the calls. `NativeInvoker`
 returns once the batch is sent. A send that throws a `RuntimeException` is logged once per connection with
@@ -558,11 +584,27 @@ It works in these steps:
 table jump. `_reach` follows each case's control flow without entering another case. Each case must create one packet
 and write it with exactly the expected writer.
 
+### clicks.py
+
+The second click packet is the network step's first packet created after the six-byte click. It must have a constant
+opcode, seven bytes in the packet size table, and a gate: a 4-byte client field compared with `-1` between the first
+packet's send and its create (the pending click's x). Its bytes are stored inline, so the recipe runs the stretch from
+the gate's first read to the send through `analysis/emulate.py`, a small concrete x86 interpreter, sixteen times with
+random clicks. The run gives the pending x, y and time, the previous click's time (every other client qword), random
+bytes for every other client read (the button and the flag) and a canvas larger than any click (every read through
+another pointer). `_fit` then matches each stored byte to exactly one source byte and transform that hold in every
+run, and requires each source byte once. A last run gives a click beyond the canvas, so the clamps return canvas
+fields: the gated field must come back clamped by a canvas field before the one that clamps the next field (the width
+before the height), or the build is refused rather than mapped with x and y swapped. The emulator stops, and the
+recipe refuses the build, on anything it can't execute faithfully: an unknown instruction, a call other than the
+create, a branch out of the stretch, a condition on a flag left undefined, or a read of memory stored only in part.
+The note on `enums.mouseClickV2` names the button and flag fields.
+
 Each recipe writes a note to the analysis when it can't find something, such as `menu ops: 2 NPC row bodies look like
 the op sender` or `dialogs: op 3105 writes its packet with ...`. Those notes are in the `notes` list of
 `~/.kraken-native/cache/<sha256>/analysis.json`, along with the evidence for each key. The golden corpus
-(`updater/corpus/241.3.golden.json`) pins 59 keys in this area: the minimenu, the row functions, the packet helpers and
-the dialog opcodes.
+(`updater/corpus/241.3.golden.json`) pins 62 keys in this area: the minimenu, the row functions, the packet helpers,
+the dialog opcodes and the second click packet.
 
 To fix a recipe, read the note, then the evidence for the key, then the function it names. If a new row kind appears,
 add it to `KINDS` or `TARGET_KINDS` in `menuops.py` and to the matching `Subject` in `Actions` together, since the
@@ -586,14 +628,15 @@ The API doesn't check these, and the server sees them as they come:
 - The canvas coordinates of a click fall on the canvas.
 
 The row functions send the packets the client's own rows send, so the server gets the same packet for the same row.
-The mouse click and the dialog answers are built by the API from the client's helpers and opcodes. The API decides
+The mouse clicks and the dialog answers are built by the API from the client's helpers and opcodes. The API decides
 when they go out, not their contents beyond the arguments it passes.
 
 ## Testing
 
 - [`ActionsTest`](../../api/src/test/java/com/kraken/api/action/ActionsTest.java) uses a `GameFixture` and a fake invoker
-  that records the batches. It checks the exact calls for each kind of action: the mouse click's six calls and their
-  delay rule, NPC and player ops, loc and item ops from an entry and from parameters, walk, component ops and
+  that records the batches. It checks the exact calls for each kind of action: both click packets' sixteen calls,
+  the second packet's bytes in the seed build's layout and in others, the shared delay, no click without the layout,
+  NPC and player ops, loc and item ops from an entry and from parameters, walk, component ops and
   sub-options, the old-style buttons and close, select and targeted batches for items and spells, the pause row, the
   four dialog answers and the text limits, click then action, the refusals (unsupported actions, no connection) and
   that `Client.menuAction` passes its arguments on.
@@ -611,7 +654,9 @@ when they go out, not their contents beyond the arguments it passes.
   Tester's lookups: component op kinds, first op, menu entries by row or text, and markup removal.
 - The updater tests are [`test_menuops.py`](../../updater/tests/test_menuops.py) (row functions, helpers, writers, walk,
   component bodies, buttons, sub-option tables), [`test_dialogs.py`](../../updater/tests/test_dialogs.py) (the four
-  opcodes, the handler, a wrong writer refused) and the `MinimenuTests` class in
+  opcodes, the handler, a wrong writer refused), [`test_clicks.py`](../../updater/tests/test_clicks.py) (the 243.1
+  and 241.3 layouts, swapped registers, a gated field clamped by the height, a wrong size, an unexplained byte, a call
+  in the stretch, and the emulator's register, flag and stop rules) and the `MinimenuTests` class in
   [`test_units.py`](../../updater/tests/test_units.py), which runs `_run_layout` over a miniature of the run function.
 - The [Action Tester](../plugins.md#action-tester) is the live test bench. Its Run button sends one action from its
   settings page and logs what was sent in the console. The Menu group lists the current entries and their types, which
@@ -631,7 +676,7 @@ Live checks pending, against the 241.3 client:
 - The old-style buttons of each type, the close button with a modal open and with none, and the pause button.
 - The four dialog answers at their prompts, including a text with non-ASCII characters, since the Java side and the cs2
   case reach the same packet by different writes.
-- The mouse click packet before an action, accepted by the server.
+- Both mouse click packets before an action, accepted by the server.
 - `packetRelease` leaves no buffers behind after many clicks.
 - Calls while logged out or on the login screen. The RE notes say the send drops the packet while the connection isn't
   up. That isn't re-verified here.

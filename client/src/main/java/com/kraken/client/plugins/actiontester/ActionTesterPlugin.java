@@ -40,7 +40,7 @@ import java.util.List;
  * its {@code interact}, an inventory item used or a spell cast on a target through {@code useOn}, a spell with no
  * target through {@code click}, the run, quick-prayer and dialogue actions through their services ({@link Movement},
  * {@link Prayers}, {@link Dialogue}), and walking through {@link Movement#walk}. The services are injected, as plugins
- * inject them. Only the menu's own entries, the close button and the bare mouse click packet go through
+ * inject them. Only the menu's own entries, the close button and the bare mouse click packets go through
  * {@link Actions} directly, because the API has no method for them.
  *
  * <p>The settings page shows only the settings the chosen action uses, and their drop-downs list what the game has
@@ -455,7 +455,7 @@ public class ActionTesterPlugin extends Plugin {
 
     private boolean mouseClick(Actions actions) {
         if (!actions.isMouseClickSupported()) {
-            say("the mouse click packet isn't mapped for this build");
+            say("the mouse click packets aren't mapped for this build");
             return false;
         }
         Point at = config.clickPoint();

@@ -6,10 +6,18 @@
 //
 // The installer needs WiX Toolset 3 on PATH or in its default folder; the zip needs only the JDK.
 
+import javax.imageio.ImageIO
+import java.awt.Color
+import java.awt.RenderingHints
+import java.awt.image.BufferedImage
+
 def appName = 'Kraken'
 def appVendor = 'Kraken Plugins'
 def appDescription = 'Plugins, overlays and dev tools for the official Old School RuneScape client'
 def appIcon = layout.projectDirectory.file('src/packaging/kraken.ico')
+def appLogo = layout.projectDirectory.file('src/main/resources/kraken.png')
+// jpackage's main.wxs with the installer's pictures added; see the comment at its top
+def installerResources = layout.projectDirectory.dir('src/packaging/windows')
 // Ties every installer to one product, so a newer installer replaces the installed version. Never change it.
 def upgradeUuid = '7630a4cd-58c8-4b7f-8d6c-a80988cdcd12'
 // jdeps finds the modules the jars link against; these are the ones they only reach at run time.
@@ -21,6 +29,7 @@ def imageDir = layout.buildDirectory.dir('jpackage/image')
 def appDir = imageDir.map { it.dir(appName) }
 def zipDir = layout.buildDirectory.dir('jpackage/zip')
 def installerDir = layout.buildDirectory.dir('jpackage/installer')
+def installerArtDir = layout.buildDirectory.dir('jpackage/installer-art')
 def releaseDir = layout.buildDirectory.dir('release')
 
 // jpackage and Windows Installer take up to three numbers, so 1.2.0-beta.1 is packaged as 1.2.0
@@ -97,23 +106,115 @@ tasks.register('packageZip', Zip) {
     reproducibleFileOrder = true
 }
 
+// An image's pixels scaled to the given size in halving steps, which keeps more of a large image's detail than one
+// bilinear step does
+def resize = { BufferedImage image, int width, int height ->
+    def current = image
+    while (current.width != width || current.height != height) {
+        int stepWidth = Math.max(width, current.width.intdiv(2) as int)
+        int stepHeight = Math.max(height, current.height.intdiv(2) as int)
+        def step = new BufferedImage(stepWidth, stepHeight, BufferedImage.TYPE_INT_RGB)
+        def g = step.createGraphics()
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
+        g.drawImage(current, 0, 0, stepWidth, stepHeight, null)
+        g.dispose()
+        current = step
+    }
+    return current
+}
+
+// The logo cut down to its visible pixels, laid on a background colour and scaled to the given height. Laying it on
+// the background before scaling keeps the colour of its transparent pixels out of the edges
+def logoOn = { BufferedImage logo, Color background, int height ->
+    int left = logo.width, top = logo.height, right = -1, bottom = -1
+    int[] pixels = logo.getRGB(0, 0, logo.width, logo.height, null, 0, logo.width)
+    for (int i = 0; i < pixels.length; i++) {
+        if ((pixels[i] >>> 24) != 0) {
+            int x = i % logo.width, y = i.intdiv(logo.width) as int
+            left = Math.min(left, x)
+            right = Math.max(right, x)
+            top = Math.min(top, y)
+            bottom = Math.max(bottom, y)
+        }
+    }
+    def visible = logo.getSubimage(left, top, right - left + 1, bottom - top + 1)
+    def flat = new BufferedImage(visible.width, visible.height, BufferedImage.TYPE_INT_RGB)
+    def g = flat.createGraphics()
+    g.color = background
+    g.fillRect(0, 0, flat.width, flat.height)
+    g.drawImage(visible, 0, 0, null)
+    g.dispose()
+    return resize(flat, Math.round(flat.width * height / flat.height) as int, height)
+}
+
+// A picture with a white background and the given drawing on it, written as the 24-bit BMP WiX takes
+def writeBmp = { File file, int width, int height, Closure draw ->
+    def image = new BufferedImage(width, height, BufferedImage.TYPE_3BYTE_BGR)
+    def g = image.createGraphics()
+    g.color = Color.WHITE
+    g.fillRect(0, 0, width, height)
+    draw(g)
+    g.dispose()
+    if (!ImageIO.write(image, 'bmp', file)) {
+        throw new GradleException("No BMP writer for ${file}")
+    }
+}
+
+tasks.register('installerArt') {
+    description = 'Draws the installer\'s banner and welcome pictures from the logo, in place of WiX\'s red disc.'
+    group = 'distribution'
+    inputs.file(appLogo)
+    outputs.dir(installerArtDir)
+    doLast {
+        def logo = ImageIO.read(appLogo.asFile)
+        def dir = installerArtDir.get().asFile
+        delete(dir)
+        dir.mkdirs()
+        // Across the top of each page: the page's title and description are drawn on the left, so the logo goes on
+        // the right, where WiX puts its own
+        writeBmp(new File(dir, 'banner.bmp'), 493, 58) { g ->
+            def mark = logoOn(logo, Color.WHITE, 46)
+            g.drawImage(mark, 493 - mark.width - 10, 6, null)
+        }
+        // Behind the welcome and finish pages: the left 164 pixels are the picture, the rest the white the text sits
+        // on. The panel takes the client's sidebar colour and accent (Theme.DARKER and Theme.ACCENT)
+        writeBmp(new File(dir, 'dialog.bmp'), 493, 312) { g ->
+            def panel = new Color(0x1e1e1e)
+            g.color = panel
+            g.fillRect(0, 0, 164, 312)
+            g.color = new Color(0x76b041)
+            g.fillRect(161, 0, 3, 312)
+            def mark = logoOn(logo, panel, 120)
+            g.drawImage(mark, (161 - mark.width).intdiv(2) as int, 80, null)
+        }
+    }
+}
+
 tasks.register('packageInstaller', Exec) {
     description = 'Builds a setup .exe that installs Kraken for the current user (needs WiX Toolset 3).'
     group = 'distribution'
     dependsOn 'packageImage'
     inputs.dir(appDir)
+    inputs.dir(installerResources)
+    inputs.files(tasks.named('installerArt'))
+    inputs.file(appIcon)
     inputs.property('appVersion', appVersion)
     outputs.dir(installerDir)
     doFirst {
         delete(installerDir)
         executable jdkTool('jpackage')
+        // main.wxs in the resource dir reads the pictures from here
+        environment 'KRAKEN_INSTALLER_ART', installerArtDir.get().asFile.path
         // Installs into %LOCALAPPDATA%\Kraken unless the player picks another folder, so it needs no administrator
         args '--type', 'exe',
                 '--app-image', appDir.get().asFile.path,
+                '--resource-dir', installerResources.asFile.path,
                 '--name', appName,
                 '--app-version', appVersion.get(),
                 '--vendor', appVendor,
                 '--description', appDescription,
+                // The setup .exe's own icon. Add or Remove Programs shows Kraken.exe's
+                '--icon', appIcon.asFile.path,
                 '--about-url', 'https://kraken-plugins.com',
                 '--dest', installerDir.get().asFile.path,
                 '--win-per-user-install',

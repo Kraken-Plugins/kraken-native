@@ -280,7 +280,7 @@ public interface ActionTesterConfig extends Config {
     }
 
     /**
-     * Where the mouse click packet clicks.
+     * Where the mouse click packets click.
      *
      * @return the canvas point
      */
@@ -292,7 +292,7 @@ public interface ActionTesterConfig extends Config {
     }
 
     /**
-     * Whether the mouse click packet is a right click.
+     * Whether the mouse click packets are a right click.
      *
      * @return true for the right button
      */
